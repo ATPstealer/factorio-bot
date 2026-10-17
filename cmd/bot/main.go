@@ -41,7 +41,6 @@ const usage = `bot — бот Factorio: действует только мышь
                             mine wood 3  — срубить 3 дерева (дерева в инвентаре прибавится ~6–12)
                             mine rock 2  — разбить 2 камня (по 20+ камня с каждого)
                             mine coal 10 — 10 раз копнуть уголь = 10 угля (руда даёт 1 за раз)
-  chop                  срубить ближайшее дерево (= mine tree 1)
 
 Примеры:
   bin/bot ping
@@ -129,19 +128,16 @@ func main() {
 		check(err)
 		log.Printf("стою в (%.2f, %.2f), до цели %.2f", p.Position.X, p.Position.Y,
 			dist(p.Position, target))
-	case "mine", "chop":
-		target, n, radius := "tree", 1, 64.0
-		if args[0] == "mine" {
-			if len(args) < 2 {
-				log.Fatal("bot mine ЦЕЛЬ [N] [радиус]")
-			}
-			target = args[1]
-			if len(args) > 2 {
-				n = atoi(args[2])
-			}
-			if len(args) > 3 {
-				radius = atof(args[3])
-			}
+	case "mine":
+		if len(args) < 2 {
+			log.Fatal("bot mine ЦЕЛЬ [N] [радиус]")
+		}
+		target, n, radius := args[1], 1, 64.0
+		if len(args) > 2 {
+			n = atoi(args[2])
+		}
+		if len(args) > 3 {
+			radius = atof(args[3])
 		}
 		res, err := hands().Gather(ctx, target, n, radius)
 		log.Printf("добыто %d, в инвентаре прибавилось: %v", res.Mined, res.Items)
