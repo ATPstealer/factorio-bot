@@ -69,9 +69,10 @@ func (h *Hands) Camera(p bridge.Player) camera.Camera {
 	}
 }
 
-// Focus — курсор в центр окна клиента: без WM фокус клавиатуры следует за указателем.
+// Focus — курсор в окно клиента (Layout.Focus — не над кнопками меню): без WM фокус
+// клавиатуры следует за указателем.
 func (h *Hands) Focus() error {
-	return h.In.Move(h.Win.X+h.Win.W/2, h.Win.Y+h.Win.H/2)
+	return h.at(h.Layout.Focus)
 }
 
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
@@ -123,6 +124,9 @@ const brakeDist = 1.0
 // С моделью мира (Hands.World) — по пути A* в обход воды и препятствий, иначе по прямой.
 // По возвращении персонаж стоит.
 func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) error {
+	if err := h.guard(ctx); err != nil {
+		return err
+	}
 	if err := h.Focus(); err != nil {
 		return err
 	}
@@ -232,6 +236,15 @@ func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64, final
 		case time.Now().Before(sideUntil):
 			want = side
 		case time.Since(lastMove) > 500*time.Millisecond:
+			// не идём: возможно, открылось меню игры (ввод до мира не доходит)
+			if open, _ := h.MenuOpen(); open {
+				release()
+				if err := h.guard(ctx); err != nil {
+					return err
+				}
+				lastMove = time.Now()
+				continue
+			}
 			stucks++
 			if stucks > 10 {
 				return fmt.Errorf("%w у (%.1f, %.1f)", ErrStuck, p.Position.X, p.Position.Y)
@@ -412,12 +425,13 @@ func sleep(ctx context.Context, d time.Duration) error {
 // Esc жмём только при открытом окне: без него Esc открывает меню игры.
 // Открытое окно перехватывает ввод — перед действиями в мире его надо закрыть.
 func (h *Hands) CloseGUI(ctx context.Context) error {
+	closed := func(p bridge.Player) bool { return p.OpenedGUIType == nil || *p.OpenedGUIType == 0 }
 	for i := 0; i < 3; i++ {
 		p, err := h.B.Player()
 		if err != nil {
 			return err
 		}
-		if p.OpenedGUIType == nil || *p.OpenedGUIType == 0 {
+		if closed(p) {
 			return nil
 		}
 		if err := h.Focus(); err != nil {
@@ -426,7 +440,11 @@ func (h *Hands) CloseGUI(ctx context.Context) error {
 		if err := h.In.Tap("escape"); err != nil {
 			return err
 		}
-		if err := sleep(ctx, 150*time.Millisecond); err != nil {
+		// ждать закрытия с запасом на задержку ввода: повторный Esc по уже закрытому
+		// окну откроет меню игры
+		if _, err := h.waitFor(ctx, time.Second, closed); err == nil {
+			return nil
+		} else if !errors.Is(err, errTimeout) {
 			return err
 		}
 	}

@@ -27,9 +27,13 @@ type Layout struct {
 	SlotStep   int       // шаг ячеек
 	Cols       int       // ячеек в строке (инвентарь и крафт)
 	Quickbar   [10]point // ряд 1 быстрой панели: клавиши 1..0
-	// Меню игры (Esc без открытого окна) мод не видит — узнаём по зелёной кнопке Resume.
-	MenuProbe []point
-	MenuColor color.RGBA
+	// Меню игры (Esc без открытого окна) мод не видит — узнаём по зелёной кнопке Resume
+	// (два оттенка: обычный и под курсором).
+	MenuProbe  []point
+	MenuColors []color.RGBA
+	// Focus — куда ставить курсор перед клавишами: в окне, но не над меню/окнами
+	// (центр окна — кнопка «Save game» меню игры).
+	Focus point
 }
 
 var Layout1856 = Layout{
@@ -39,8 +43,9 @@ var Layout1856 = Layout{
 	Cols:       10,
 	Quickbar: [10]point{{745, 946}, {785, 946}, {826, 946}, {866, 946}, {906, 946},
 		{950, 946}, {990, 946}, {1030, 946}, {1070, 946}, {1110, 946}},
-	MenuProbe: []point{{880, 413}, {927, 400}},
-	MenuColor: color.RGBA{146, 232, 151, 255},
+	MenuProbe:  []point{{880, 413}, {927, 400}},
+	MenuColors: []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
+	Focus:      point{60, 300},
 }
 
 var quickbarKeys = [10]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}
@@ -89,31 +94,44 @@ func (h *Hands) MenuOpen() (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if !near(img.RGBAAt(0, 0), h.Layout.MenuColor) {
+		c, ok := img.RGBAAt(0, 0), false
+		for _, mc := range h.Layout.MenuColors {
+			ok = ok || near(c, mc)
+		}
+		if !ok {
 			return false, nil
 		}
 	}
 	return true, nil
 }
 
+// guard закрывает меню игры, если оно открыто: под ним ввод не доходит до мира.
+func (h *Hands) guard(ctx context.Context) error {
+	open, err := h.MenuOpen()
+	if err != nil || !open {
+		return err
+	}
+	h.Log("открыто меню игры — закрываю")
+	h.debugShot("menu")
+	if err := h.Focus(); err != nil {
+		return err
+	}
+	if err := h.In.Tap("escape"); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 300*time.Millisecond); err != nil {
+		return err
+	}
+	if open, _ := h.MenuOpen(); open {
+		return errors.New("act: меню игры не закрывается")
+	}
+	return nil
+}
+
 // Clean — исходное состояние перед действием: нет меню, нет окон, пустая рука.
 func (h *Hands) Clean(ctx context.Context) error {
-	if open, err := h.MenuOpen(); err != nil {
+	if err := h.guard(ctx); err != nil {
 		return err
-	} else if open {
-		h.Log("открыто меню игры — закрываю")
-		if err := h.Focus(); err != nil {
-			return err
-		}
-		if err := h.In.Tap("escape"); err != nil {
-			return err
-		}
-		if err := sleep(ctx, 200*time.Millisecond); err != nil {
-			return err
-		}
-		if open, _ := h.MenuOpen(); open {
-			return errors.New("act: меню игры не закрывается")
-		}
 	}
 	if err := h.CloseGUI(ctx); err != nil {
 		return err

@@ -20,6 +20,9 @@ const notMiningGrace = 1500 * time.Millisecond
 
 // MineUntil наводит курсор на e и держит ПКМ, пока сущность не исчезнет или done не вернёт true.
 func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
+	if err := h.guard(ctx); err != nil {
+		return err
+	}
 	if err := h.Hover(ctx, e); err != nil {
 		return err
 	}

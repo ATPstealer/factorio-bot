@@ -62,6 +62,9 @@ func (h *Hands) Place(ctx context.Context, item string, pos bridge.Pos, dir int)
 	if !ok || it.PlaceResult == "" {
 		return bridge.Entity{}, fmt.Errorf("act: %s не ставится", item)
 	}
+	if err := h.guard(ctx); err != nil {
+		return bridge.Entity{}, err
+	}
 	fp := h.footprint(it.PlaceResult, pos)
 	if err := h.standNear(ctx, fp); err != nil {
 		return bridge.Entity{}, err

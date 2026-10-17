@@ -33,6 +33,7 @@ func clean(t *testing.T, h *act.Hands) {
 // ensure — добыть, пока предмета меньше n (target — что копать: tree, stone, coal…).
 func ensure(t *testing.T, h *act.Hands, item, target string, n int) {
 	t.Helper()
+	ctx := ctxT(t, 3*time.Minute) // общий лимит: под открытым меню или без целей — не висеть
 	for i := 0; i < 30; i++ {
 		p, err := h.B.Player()
 		if err != nil {
@@ -45,7 +46,7 @@ func ensure(t *testing.T, h *act.Hands, item, target string, n int) {
 		if target == "tree" || target == "rock" {
 			k = 1
 		}
-		if _, err := h.Gather(ctxT(t, 90*time.Second), target, k, 150); err != nil {
+		if _, err := h.Gather(ctx, target, k, 150); err != nil {
 			t.Fatalf("добыть %s: %v", item, err)
 		}
 	}
@@ -272,5 +273,35 @@ func TestStage3_FurnaceScenario(t *testing.T) {
 		t.Errorf("iron-plate +%d", d)
 	}
 	t.Logf("печь в %v, забрано %v", spot, got)
+	clean(t, h)
+}
+
+// Меню игры (Esc без окна) мод не видит: бот распознаёт его по снимку и закрывает.
+// Регрессия: тесты висели под открытым меню.
+func TestStage3_MenuGuard(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 30*time.Second)
+	if err := h.Clean(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if open, err := h.MenuOpen(); err != nil || open {
+		t.Fatalf("меню открыто до теста (%v)", err)
+	}
+	if err := h.Focus(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.In.Tap("escape"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if open, err := h.MenuOpen(); err != nil || !open {
+		t.Fatalf("меню не распознано после Esc (%v)", err)
+	}
+	// действие под меню: WalkTo должен сам закрыть меню и дойти
+	p, _ := h.B.Player()
+	target := bridge.Pos{X: p.Position.X + 3, Y: p.Position.Y}
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
 	clean(t, h)
 }
