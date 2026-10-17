@@ -6,7 +6,6 @@
 package e2e
 
 import (
-	"context"
 	"factorio-bot/internal/exec"
 	"fmt"
 	"math"
@@ -20,43 +19,18 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// craftUpTo — довести количество предмета до n крафтом (ингредиенты — добычей).
-func craftUpTo(t *testing.T, h *act.Hands, item string, n int) {
-	t.Helper()
-	p, _ := h.B.Player()
-	if k := n - p.Inventory[item]; k > 0 {
-		if r := h.Protos.Recipes[item]; len(r.Ingredients) == 1 && r.Ingredients[0].Name == "stone" {
-			ensure(t, h, "stone", "stone", int(r.Ingredients[0].Amount)*k)
-		}
-		if err := h.CraftWait(ctxT(t, 3*time.Minute), item, k); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// freeArea — центр свободной (суша без объектов) площадки size×size рядом с игроком.
+// freeArea — центр свободной (суша без объектов) площадки size×size рядом с игроком, не под ним.
 func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
 	t.Helper()
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(p.Position, size, size, 60, nil)
+	c, ok := h.World.FreeSpot(p.Position, size, size, 60, &p.Position)
 	if !ok {
 		t.Skipf("нет свободной площадки %d×%d", size, size)
 	}
 	return c
-}
-
-func pickupAll(t *testing.T, h *act.Hands, es []bridge.Entity) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	start := time.Now()
-	if err := h.PickupAll(ctx, es); err != nil {
-		t.Errorf("убрать постройки: %v", err)
-	}
-	t.Logf("убрано %d за %.1f с", len(es), time.Since(start).Seconds())
 }
 
 // snailBlocks — левые верхние тайлы печей 2×2 относительно центра: комната 2×2 с игроком,
@@ -101,7 +75,7 @@ func TestStage3_SnailMaze(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 10*time.Minute)
 	blocks := snailBlocks()
-	craftUpTo(t, h, "stone-furnace", len(blocks))
+	have(t, h, "stone-furnace", len(blocks))
 
 	c := freeArea(t, h, 18) // кольцо 2 — 12×12, вокруг — запас для выхода
 	if err := h.WalkTo(ctx, c, 0.5); err != nil {
@@ -113,7 +87,6 @@ func TestStage3_SnailMaze(t *testing.T) {
 	}
 	start := time.Now()
 	placed, err := h.PlaceAll(ctx, "stone-furnace", positions, act.North)
-	defer func() { pickupAll(t, h, placed) }()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,16 +127,16 @@ func boxGap(a, b bridge.Box) float64 {
 	return math.Hypot(dx, dy)
 }
 
-// Печь как можно ближе к дереву, срубить дерево (печь цела), убрать печь.
+// Печь как можно ближе к дереву, срубить дерево — печь цела.
 func TestStage3_FurnaceHugsTree(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
-	craftUpTo(t, h, "stone-furnace", 1)
+	have(t, h, "stone-furnace", 1)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	trees, err := h.B.FindMinable("tree", 60, 40)
+	trees, err := h.B.FindMinable("tree", 300, 40)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +172,6 @@ func TestStage3_FurnaceHugsTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pickupAll(t, h, []bridge.Entity{f})
 	if best > 0.7 {
 		t.Errorf("зазор между печью и деревом %.2f — не вплотную", best)
 	}
@@ -215,16 +187,10 @@ func TestStage3_FurnaceHugsTree(t *testing.T) {
 	if st, _ := h.B.GetEntity(f.Name, f.Position); st == nil {
 		t.Fatal("рубя дерево, бот разобрал печь")
 	}
-	if err := h.Pickup(ctx, f); err != nil {
-		t.Fatal(err)
-	}
-	if st, _ := h.B.GetEntity(f.Name, f.Position); st != nil {
-		t.Error("печь не убрана")
-	}
 	clean(t, h)
 }
 
-// Бур 2×2 ровно на одной клетке руды (остальные три — пустая суша).
+// Бур 2×2 ровно на одной клетке руды (остальные три — пустая суша), повёрнут на восток; подобрать.
 func TestStage3_DrillOneOreTile(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
@@ -267,11 +233,10 @@ func TestStage3_DrillOneOreTile(t *testing.T) {
 	if math.IsInf(best, 1) {
 		t.Skip("нет места, где 2×2 задевает ровно 1 клетку руды")
 	}
-	e, err := h.Place(ctx, "burner-mining-drill", spot, act.North)
+	e, err := h.Place(ctx, "burner-mining-drill", spot, act.East)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pickupAll(t, h, []bridge.Entity{e})
 	var n int
 	lua(t, fmt.Sprintf(`s.count_entities_filtered{type="resource", area={{%f,%f},{%f,%f}}}`,
 		spot.X-0.99, spot.Y-0.99, spot.X+0.99, spot.Y+0.99), &n)
@@ -279,8 +244,15 @@ func TestStage3_DrillOneOreTile(t *testing.T) {
 		t.Errorf("под буром %d клеток руды, ждали 1", n)
 	}
 	t.Logf("бур в %v, клеток руды в зоне добычи: %d", spot, n)
+	if st, _ := h.B.GetEntity(e.Name, e.Position); st == nil || st.Direction == nil || *st.Direction != act.East {
+		t.Errorf("бур не повёрнут на восток: %+v", st)
+	}
+	// подбор своей постройки
 	if err := h.Pickup(ctx, e); err != nil {
 		t.Fatal(err)
+	}
+	if st, _ := h.B.GetEntity(e.Name, e.Position); st != nil {
+		t.Error("бур не подобран")
 	}
 	clean(t, h)
 }
@@ -310,15 +282,6 @@ func TestStage3_DropAndCollectInOrder(t *testing.T) {
 	if err := r.Run(ctx); err != nil {
 		t.Fatalf("достать предметы: %v", err)
 	}
-	defer func() { // печь для плавки, если планировщик её ставил
-		var own []bridge.Entity
-		for _, o := range r.Saved.Owned {
-			if e, _ := h.B.GetEntity(o.Name, o.Pos); e != nil {
-				own = append(own, e.Entity)
-			}
-		}
-		pickupAll(t, h, own)
-	}()
 
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)

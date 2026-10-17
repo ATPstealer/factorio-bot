@@ -35,9 +35,6 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Клиент изолирован от Steam: `HOME=run/client/home` — Steam API не инициализируется. Иначе Steam-версия читает/пишет `player-data.json` только через облако Steam (общее с основной игрой пользователя!), локальный файл не читает, и при сбое облака имя становится пустым → на сервер заходит новый игрок. Без Steam имя всегда "" — стабильно игрок №2. Игрок №1 `ATPstealer` (первые запуски) отключён, бросать.
 - `--disable-audio` + `[sound] master-muted=true` — без звука.
 - Перезапуск только клиента: `pkill -f "^<путь factorio> .*run/client/config.ini"`, затем та же команда, что в `run.sh` (с `setsid nohup`).
-- Клиент изолирован от Steam: `HOME=run/client/home` — Steam API не инициализируется. Иначе Steam-версия читает/пишет `player-data.json` только через облако Steam (общее с основной игрой пользователя!), локальный файл не читает, и при сбое облака имя становится пустым → на сервер заходит новый игрок. Без Steam имя всегда "" — стабильно игрок №2. Игрок №1 `ATPstealer` (первые запуски) отключён, бросать.
-- `--disable-audio` + `[sound] master-muted=true` — без звука.
-- Перезапуск только клиента: `pkill -f "^<путь factorio> .*run/client/config.ini"`, затем та же команда, что в `run.sh` (с `setsid nohup`).
 - Окно Xephyr называется `factorio-bot`, дисплей `:1`. Ввод бота — только в `:1`.
 
 ## Настройки
@@ -49,17 +46,20 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 - `scripts/test.sh` — go vet + юнит-тесты + **новая случайная карта** (`SEED=…` — конкретная, `KEEP_MAP=1` — текущая) + e2e всех стадий (долгие — `TestStage3_SnailMaze` — только с `E2E_SLOW=1`, по просьбе пользователя); `scripts/test.sh Stage0` — по шаблону `-run`. Гонять после каждой стадии и перед коммитом.
 - e2e: `test/e2e/`, build tag `e2e`, требуют запущенного `scripts/run.sh` (сервер + клиент в `:1`).
-- Каждая стадия — свой файл `test/e2e/stageN_test.go` с тестами `TestStageN_*`; закрывая стадию, добавлять тесты её критерия готовности.
-- Хелперы (`helpers_test.go`): `game(t)` — общее RCON, `lua(t, expr, &out)` — выражение → JSON (`s` = surface 1, `p` = игрок), `bot(t, method, args, &out)` — вызов мода, `xdo(t, ...)` — xdotool в `:1`, `readJSON`, `ini`.
+- Каждая стадия — свой файл `test/e2e/stageN_test.go` с тестами `TestStageN_*`; закрывая стадию, добавлять тест её критерия.
+- Правила (пользователь): по одному гранулярному тесту на способность, без перекрытий; тесты не убирают за собой; сначала гонять тест текущей стадии (`scripts/test.sh StageN`), зелёный — потом все; после зелёных — рефакторинг (`~/go/bin/deadcode -test [-tags e2e] ./...`, дубли, устаревшее в доках).
+- Состав e2e: Stage0 Config/Game; Stage1 Walk, Mine, OnlyCharted; Stage2 WorldMatchesGame; Stage3 Craft, PathAroundLake, FurnaceScenario (вложить/забрать), Guards (меню/карта), DrillOneOreTile (+поворот, подбор), FurnaceHugsTree, DropAndCollectInOrder, SnailMaze (E2E_SLOW); Stage4 SnapshotMatchesGame, AvailabilityMatchesForce, RocketPartPlan; Stage5 SmeltingLine; Stage6 Layout.
+- Хелперы (`helpers_test.go`): `game(t)` — общее RCON, `lua(t, expr, &out)` — выражение → JSON (`s` = surface 1, `p` = игрок), `bot(t, method, args, &out)` — вызов мода, `xdo(t, ...)` — xdotool в `:1`, `readJSON`, `ini`; `handsT`, `worldT`, `protosT`, `ctxT`, `clean`, `freeArea`; в `stage5_test.go` — `have(t, h, item, n)` (набрать предмет планировщиком: добыть, разведать, скрафтить), `stash`, `newRunner`. Тесты не пропускаются из-за «рядом нет ресурса» — бот идёт искать.
+- Для правок Go: `~/go/bin/goimports -w` (импорты), `gofmt`.
 - Запросы в тестах — только чтение; действия — только ввод.
 
 ## Мод botbridge
 
 - Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента.
 - Единая точка входа: `/sc remote.call("bot", "call", '{"method":"ping","args":{...}}')` → печатает одну строку JSON `{"ok":true,"result":...}` / `{"ok":false,"error":"..."}`.
-- Файлы: `control.lua` (точка входа, игрок, поиск, события), `util.lua` (общие функции, `visible`), `prototypes.lua` (`dump_prototypes`), `scan.lua` (`list_charted`, `scan_chunks`, `get_force`, `get_production_stats`).
+- Файлы: `control.lua` (точка входа, игрок, поиск, события), `util.lua` (общие функции, `visible`), `prototypes.lua` (`dump_prototypes`), `scan.lua` (`list_charted`, `scan_chunks`, `get_force`).
 - Поля прототипов, применимые не ко всем типам, читать через `try`/`g()` — иначе ошибка на чужом типе.
-- Методы — в таблице `methods`; только чтение: `ping`, `tick`, `get_player`, `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`.
+- Методы — в таблице `methods`; только чтение: `ping`, `get_player`, `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`.
 - Буфер событий в `storage.events` (до 1000, номер `seq`): mined_entity, built_entity, crafted_item, research_finished, entity_died, resource_depleted, gui_opened/closed, chunk_charted. `poll_events` ничего не удаляет.
 - `entity_info` отдаёт name, type, position, unit_number, selection_box.
 - Меняя мод — поднимать `version` в `info.json` (тест сверяет версию в игре с файлом).
@@ -80,7 +80,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
   - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности (по умолчанию 1); R — радиус поиска (64).
   - `-t` — общий лимит времени (по умолчанию 5m). Любой запуск действий в игре — только с лимитом (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
 - `internal/rcon` — Source RCON; ответы до 2 МБ одним пакетом проверены — пагинация не нужна.
-- `internal/bridge` — `Call(method, args, &out)` + типизированные `Ping/Tick/Player/FindNearest/EntityAt/PollEvents`. JSON передаётся в Lua длинными скобками `[=[...]=]`.
+- `internal/bridge` — `Call(method, args, &out)` + типизированные `Ping/Player/FindNearest/FindMinable/EntityAt/GetEntity/PollEvents/ListCharted/ScanChunks/Force/DumpPrototypes/Say`. JSON передаётся в Lua длинными скобками `[=[...]=]`.
   - Пустая Lua-таблица приходит из `table_to_json` как `{}`, не `[]` — массивы декодировать в `bridge.List[T]`, словари — делать в моде `nil`, если пусты.
 - `internal/input` — XTEST на чистом Go (`github.com/jezek/xgb`): `KeyDown/KeyUp/Tap(key, mods...)/Type`, `Move/ButtonDown/ButtonUp/Click/Wheel`, `FindWindow(prefix)`. После каждого события round trip + `Delay` 20 мс.
 - `internal/camera` — мир ↔ пиксели дисплея: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
@@ -95,6 +95,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - `internal/exec` — `Runner`: `Snapshot` (игрок, сила, мир, свои постройки из реестра; пропавшие — убрать и восстановить), `Step`, `Run` (поддерживаемые цели — следить), `findSpot` (группа роли — рядом; первая печь линии — у края патча руды, не на руде). Состояние `run/state.json` (цели, реестр, баны), журнал `run/bot.log`. 8 отказов подряд — остановка.
 - CLI: `bot run have ПРЕДМЕТ N | smelt РУДА N | keep`, `bot plan …`, `bot goals`.
 - Добыча бурами (решение пользователя: «много — бурами»): `plan.MiningSite` — бур `burner-mining-drill` на руде (2×2 целиком на руде), `wooden-chest` на его выходе (`vector_to_place_result` = (-0.5, -1.3) при «север»), уголь в бур. `HaveItem` ≥ `DrillThreshold` (20) руды → площадка, ждать (`wait` по сундуку, ≤90 с кусками, прерывается, если у бура нет топлива) и забирать. Топливо в буры — из сундука угольного бура. Линия плавки всегда ставит площадки на топливе и своей руде (тратит постоянно), на камне — если нужно много. Буры/сундуки для всех площадок крафтятся разом; крафт собирает базовое сырьё на всё дерево (`calc.Handcraft`). Забирать из печи/сундука — когда набралось нужное (или ≥10) или источник встал.
+- Прежде чем добывать/крафтить, бот забирает нужное из сундуков рядом вне реестра (`State.Stores`, роль `store@X,Y`: поставленные руками, обломки; `Runner.findStores` — `container` в 64 тайлах с непустым `chest`). Из своих построек — по правилам выше.
 - Попутно с рубкой деревьев бот разбивает камни в 10 тайлах (пока камня < 100) — меньше добывать отдельно.
 - `act.InsertAll` (Ctrl+ЛКМ с предметом в руке — весь вид), `Take` по сундуку забирает всё.
 - Ходьба: если пути нет — `clearWay` прорубает деревья (путь сквозь деревья с надбавкой, на диагоналях — и угловые деревья). Действия не ходят, если уже в досягаемости (`reach` ~8 для вложить/забрать, `reachMine` ~2.4 для добычи), и «не дошёл, но достаю» — не ошибка.

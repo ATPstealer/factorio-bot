@@ -36,19 +36,6 @@ func Rotate(x, y float64, d int) (float64, float64) {
 	return x, y
 }
 
-// DirOf — направление единичного шага (dx, dy) по осям.
-func DirOf(dx, dy int) int {
-	switch {
-	case dx > 0:
-		return E
-	case dx < 0:
-		return W
-	case dy > 0:
-		return S
-	}
-	return N
-}
-
 // Step — шаг на тайл в направлении d.
 func Step(t world.Tile, d int) world.Tile {
 	switch d {

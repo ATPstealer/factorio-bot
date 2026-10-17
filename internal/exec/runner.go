@@ -79,6 +79,7 @@ type Runner struct {
 
 	logf     *os.File
 	minables map[string]bool
+	stores   []plan.Owned // сундуки вне реестра из последнего снимка
 	fails    int
 	explored map[bridge.ChunkPos]bool // края карты, куда уже ходили на разведку
 }
@@ -163,7 +164,42 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 		s.Owned = append(s.Owned, &r.Saved.Owned[i])
 	}
 	r.minables = map[string]bool{}
+	if err := r.findStores(s); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// findStores — сундуки рядом вне реестра, в которых что-то лежит (игрок видит их и может
+// открыть): поставленные руками, обломки корабля.
+func (r *Runner) findStores(s *plan.State) error {
+	es, err := r.B.FindNearest(bridge.FindArgs{Type: "container", Radius: 64, Limit: 30})
+	if err != nil {
+		return err
+	}
+	mine := map[bridge.Pos]bool{}
+	for _, o := range r.Saved.Owned {
+		mine[o.Pos] = true
+	}
+	r.stores = nil
+	for _, e := range es {
+		if mine[e.Position] {
+			continue
+		}
+		st, err := r.B.GetEntity(e.Name, e.Position)
+		if err != nil {
+			return err
+		}
+		if st == nil || len(st.Inventories["chest"]) == 0 {
+			continue
+		}
+		r.stores = append(r.stores, plan.Owned{Unit: e.UnitNumber, Name: e.Name, Pos: e.Position,
+			Role: plan.StoreRole(e.Position), Inv: st.Inventories})
+	}
+	for i := range r.stores {
+		s.Stores = append(s.Stores, &r.stores[i])
+	}
+	return nil
 }
 
 // minable — можно ли добыть предмет с открытой карты (кэш на цикл).
@@ -425,21 +461,28 @@ func (r *Runner) Satisfied() (bool, error) {
 }
 
 func (r *Runner) owned(role string) (*plan.Owned, bridge.Entity, error) {
+	var o *plan.Owned
 	for i := range r.Saved.Owned {
-		o := &r.Saved.Owned[i]
-		if o.Role != role {
-			continue
+		if r.Saved.Owned[i].Role == role {
+			o = &r.Saved.Owned[i]
 		}
-		st, err := r.B.GetEntity(o.Name, o.Pos)
-		if err != nil {
-			return nil, bridge.Entity{}, err
-		}
-		if st == nil {
-			return nil, bridge.Entity{}, fmt.Errorf("exec: постройки %s нет", role)
-		}
-		return o, st.Entity, nil
 	}
-	return nil, bridge.Entity{}, fmt.Errorf("exec: роль %s не в реестре", role)
+	for i := range r.stores {
+		if r.stores[i].Role == role {
+			o = &r.stores[i]
+		}
+	}
+	if o == nil {
+		return nil, bridge.Entity{}, fmt.Errorf("exec: роль %s не в реестре", role)
+	}
+	st, err := r.B.GetEntity(o.Name, o.Pos)
+	if err != nil {
+		return nil, bridge.Entity{}, err
+	}
+	if st == nil {
+		return nil, bridge.Entity{}, fmt.Errorf("exec: постройки %s нет", role)
+	}
+	return o, st.Entity, nil
 }
 
 // exec — примитив руками.

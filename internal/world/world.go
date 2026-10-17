@@ -366,20 +366,3 @@ func (w *World) Buildable(t Tile) (ok, clear bool) {
 	}
 	return true, clear
 }
-
-// ClearablesAt — убираемые объекты (деревья, камни, обломки), задевающие тайл.
-func (w *World) ClearablesAt(t Tile) []Object {
-	var res []Object
-	for _, o := range w.ObjectsNear(t.Center(), 4) {
-		if !clearable(o) {
-			continue
-		}
-		for _, bt := range BoxTiles(w.CollisionBox(o)) {
-			if bt == t {
-				res = append(res, o)
-				break
-			}
-		}
-	}
-	return res
-}

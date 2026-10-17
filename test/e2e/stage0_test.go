@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestStage0_MapGenSettingsFile(t *testing.T) {
+func checkMapGenFile(t *testing.T) {
 	var m struct {
 		PeacefulMode      bool                                   `json:"peaceful_mode"`
 		AutoplaceControls map[string]struct{ Frequency float64 } `json:"autoplace_controls"`
@@ -30,7 +30,7 @@ func TestStage0_MapGenSettingsFile(t *testing.T) {
 	}
 }
 
-func TestStage0_ServerSettingsFile(t *testing.T) {
+func checkServerSettings(t *testing.T) {
 	var s struct {
 		AutoPause               bool `json:"auto_pause"`
 		RequireUserVerification bool `json:"require_user_verification"`
@@ -48,7 +48,7 @@ func TestStage0_ServerSettingsFile(t *testing.T) {
 	}
 }
 
-func TestStage0_ConfigIni(t *testing.T) {
+func checkConfigIni(t *testing.T) {
 	srv := ini(t, path("run", "server", "config.ini"))
 	cli := ini(t, path("run", "client", "config.ini"))
 	if srv["path.write-data"] == "" || srv["path.write-data"] == cli["path.write-data"] {
@@ -71,7 +71,7 @@ func TestStage0_ConfigIni(t *testing.T) {
 	}
 }
 
-func TestStage0_ModLinked(t *testing.T) {
+func checkModLinked(t *testing.T) {
 	want, _ := filepath.Abs(path("mod", "botbridge"))
 	for _, side := range []string{"server", "client"} {
 		link := path("run", side, "mods", "botbridge")
@@ -86,7 +86,7 @@ func TestStage0_ModLinked(t *testing.T) {
 	}
 }
 
-func TestStage0_ServerRunning(t *testing.T) {
+func checkServerRunning(t *testing.T) {
 	var t1, t2 int
 	lua(t, "game.tick", &t1)
 	time.Sleep(500 * time.Millisecond)
@@ -101,7 +101,7 @@ func TestStage0_ServerRunning(t *testing.T) {
 	}
 }
 
-func TestStage0_Mods(t *testing.T) {
+func checkMods(t *testing.T) {
 	var mods map[string]string
 	lua(t, "script.active_mods", &mods)
 	if mods["base"] != gameVersion {
@@ -117,7 +117,7 @@ func TestStage0_Mods(t *testing.T) {
 	}
 }
 
-func TestStage0_BotbridgePing(t *testing.T) {
+func checkBotbridgePing(t *testing.T) {
 	var info struct{ Version string }
 	readJSON(t, path("mod", "botbridge", "info.json"), &info)
 	var pong struct {
@@ -133,7 +133,7 @@ func TestStage0_BotbridgePing(t *testing.T) {
 	}
 }
 
-func TestStage0_Map(t *testing.T) {
+func checkMap(t *testing.T) {
 	var m struct {
 		Seed    int
 		Cliff   float64
@@ -162,7 +162,7 @@ func TestStage0_Map(t *testing.T) {
 	}
 }
 
-func TestStage0_ClientConnected(t *testing.T) {
+func checkClient(t *testing.T) {
 	var c struct {
 		Players   int
 		Character bool
@@ -209,4 +209,21 @@ func TestStage0_ClientConnected(t *testing.T) {
 	if w != c.W || h != c.H {
 		t.Errorf("окно %dx%d, а игра рендерит %dx%d", w, h, c.W, c.H)
 	}
+}
+
+// Окружение: файлы настроек и связи (без игры).
+func TestStage0_Config(t *testing.T) {
+	t.Run("map-gen", checkMapGenFile)
+	t.Run("server-settings", checkServerSettings)
+	t.Run("config.ini", checkConfigIni)
+	t.Run("mod-links", checkModLinked)
+}
+
+// Игра: сервер идёт, моды, мост отвечает, карта та, клиент бота в Xephyr.
+func TestStage0_Game(t *testing.T) {
+	t.Run("server", checkServerRunning)
+	t.Run("mods", checkMods)
+	t.Run("botbridge", checkBotbridgePing)
+	t.Run("map", checkMap)
+	t.Run("client", checkClient)
 }

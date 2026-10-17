@@ -134,6 +134,18 @@ func TestFurnacesWithStone(t *testing.T) {
 	}
 }
 
+// Камень в сундуке рядом (вне реестра): сначала забрать оттуда, добыть — только остаток.
+func TestTakeFromStoreFirst(t *testing.T) {
+	s := newState(t)
+	pos := bridge.Pos{X: 5, Y: 5}
+	s.Stores = []*Owned{{Name: Chest, Pos: pos, Role: StoreRole(pos),
+		Inv: map[string]map[string]int{"chest": {"stone": 7}}}}
+	_, steps := run(t, s, HaveItem{"stone", 10})
+	if len(steps) != 2 || steps[0].Kind != "take" || steps[1].Kind != "gather" || steps[1].N != 3 {
+		t.Errorf("шаги: %s", kinds(steps))
+	}
+}
+
 // Шестерни без пластин: печь (камень → крафт → поставить) → уголь → руда → ждать → забрать → крафт.
 func TestGearsNeedSmelting(t *testing.T) {
 	end, steps := run(t, newState(t), HaveItem{"iron-gear-wheel", 10})

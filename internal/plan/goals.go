@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"factorio-bot/internal/calc"
-	"time"
 )
 
 // Goal — проверяемое состояние; Next раскладывает его до следующего примитива.
@@ -153,9 +152,6 @@ func (g SmeltingLine) Satisfied(s *State) bool {
 	return true
 }
 
-// Ожидание выплавки: Wait-примитив с таймаутом.
-func waitFor(n int) time.Duration { return time.Duration(float64(n)*3.5+10) * time.Second }
-
 // ---------------------------------------------------------------------------------------
 // Разложение
 
@@ -193,8 +189,16 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	lack := g.N - have
 	var tried []string
 
-	// 1. забрать готовое из своих построек (из сундука бура — когда накопилось достаточно,
-	// иначе дождаться: не бегать за каждой единицей)
+	// 1. забрать готовое: из сундуков вне реестра — сразу, из своих построек (из сундука
+	// бура — когда накопилось достаточно, иначе дождаться: не бегать за каждой единицей)
+	for _, o := range s.Stores {
+		if o.Output(g.Item) > 0 {
+			p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item})
+			if !pl.banned(p.Key()) {
+				return p, nil
+			}
+		}
+	}
 	for _, o := range s.Owned {
 		out := o.Output(g.Item)
 		// забирать, когда набралось нужное (или хотя бы 10) либо больше не прибудет —

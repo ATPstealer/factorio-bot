@@ -24,10 +24,6 @@ function methods.ping()
   return { tick = game.tick, version = script.active_mods["botbridge"], game_version = script.active_mods["base"] }
 end
 
-function methods.tick()
-  return game.tick
-end
-
 -- Состояние игрока: всё, что нужно для ввода и проверки его результата.
 function methods.get_player()
   local p = bot_player()

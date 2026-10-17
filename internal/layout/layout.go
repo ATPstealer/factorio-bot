@@ -84,15 +84,6 @@ func (l *Layout) Add(pl Placement) {
 	}
 }
 
-// Place — добавить, если встаёт по правилу.
-func (l *Layout) Place(pl Placement, r Rule) bool {
-	if !l.CanPlace(pl, r) {
-		return false
-	}
-	l.Add(pl)
-	return true
-}
-
 // Count — сколько каких построек.
 func (l *Layout) Count() map[string]int {
 	m := map[string]int{}

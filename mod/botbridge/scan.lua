@@ -118,10 +118,4 @@ return function(methods)
     }
   end
 
-  -- Статистика предметов своей силы: produced/consumed за всю игру.
-  function methods.get_production_stats()
-    local p = util.bot_player()
-    local st = p.force.get_item_production_statistics(p.surface)
-    return { produced = util.nonempty(st.input_counts), consumed = util.nonempty(st.output_counts) }
-  end
 end

@@ -264,29 +264,6 @@ func (in *Input) Click(b byte) error {
 	return in.ButtonUp(b)
 }
 
-// Wheel — n щелчков колеса; n > 0 — вверх (приближение), n < 0 — вниз.
-func (in *Input) Wheel(n int) error {
-	b := WheelUp
-	if n < 0 {
-		b, n = WheelDown, -n
-	}
-	for i := 0; i < n; i++ {
-		if err := in.Click(b); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Pointer — текущая позиция курсора.
-func (in *Input) Pointer() (x, y int, err error) {
-	r, err := xproto.QueryPointer(in.conn, in.root).Reply()
-	if err != nil {
-		return 0, 0, err
-	}
-	return int(r.RootX), int(r.RootY), nil
-}
-
 // Окна ---------------------------------------------------------------------
 
 // FindWindow ищет окно верхнего уровня, чьё имя начинается с prefix (в Xephyr нет WM,

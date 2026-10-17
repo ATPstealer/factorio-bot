@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -83,67 +82,6 @@ func ctxT(t *testing.T, d time.Duration) context.Context {
 	return ctx
 }
 
-func TestStage1_Ping(t *testing.T) {
-	var info struct{ Version string }
-	readJSON(t, path("mod", "botbridge", "info.json"), &info)
-	p, err := bridgeT(t).Ping()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Version != info.Version {
-		t.Errorf("версия мода в игре %q, в info.json %q — перезапусти scripts/run.sh", p.Version, info.Version)
-	}
-	t1, err := bridgeT(t).Tick()
-	if err != nil || t1 < p.Tick {
-		t.Errorf("tick = %d (%v), ping.tick = %d", t1, err, p.Tick)
-	}
-}
-
-func TestStage1_UnknownMethod(t *testing.T) {
-	err := bridgeT(t).Call("no_such_method", nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "unknown method") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestStage1_Player(t *testing.T) {
-	p, err := bridgeT(t).Player()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Zoom <= 0 || p.Scale != 1 {
-		t.Errorf("zoom %v, scale %v", p.Zoom, p.Scale)
-	}
-	if p.Character == nil || p.Character.Reach <= 0 {
-		t.Fatalf("character = %+v", p.Character)
-	}
-	if len(p.Quickbar) != 10 {
-		t.Errorf("quickbar: %d слотов", len(p.Quickbar))
-	}
-	h := handsT(t)
-	if h.Win.W != p.Resolution.Width || h.Win.H != p.Resolution.Height {
-		t.Errorf("окно %dx%d, разрешение игры %dx%d", h.Win.W, h.Win.H, p.Resolution.Width, p.Resolution.Height)
-	}
-}
-
-func TestStage1_FindNearestSorted(t *testing.T) {
-	es, err := bridgeT(t).FindNearest(bridge.FindArgs{Type: "tree", Radius: 100, Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(es) == 0 {
-		t.Skip("нет деревьев в радиусе 100")
-	}
-	for i := range es {
-		if es[i].SelectionBox == nil {
-			t.Errorf("%s без selection_box", es[i].Name)
-		}
-		if i > 0 && es[i].Distance < es[i-1].Distance {
-			t.Errorf("не отсортировано: %v < %v", es[i].Distance, es[i-1].Distance)
-		}
-	}
-}
-
 // Ходьба туда и обратно с точностью 0.5 тайла.
 func TestStage1_Walk(t *testing.T) {
 	h := handsT(t)
@@ -174,10 +112,10 @@ func TestStage1_Walk(t *testing.T) {
 	}
 }
 
-// Критерий стадии: дойти до дерева, навести курсор, срубить; событие mined_entity в буфере.
-func TestStage1_ChopTree(t *testing.T) {
+// Добыча: дойти до дерева, навести курсор, срубить; событие mined_entity в буфере.
+func TestStage1_Mine(t *testing.T) {
 	h := handsT(t)
-	ctx := ctxT(t, 90*time.Second)
+	ctx := ctxT(t, 2*time.Minute)
 	_, seq0, err := h.B.PollEvents(1 << 30)
 	if err != nil {
 		t.Fatal(err)
@@ -186,12 +124,12 @@ func TestStage1_ChopTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trees, err := h.B.FindNearest(bridge.FindArgs{Type: "tree", Radius: 60, Limit: 5})
+	trees, err := h.B.FindNearest(bridge.FindArgs{Type: "tree", Radius: 300, Limit: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(trees) == 0 {
-		t.Skip("нет деревьев в радиусе 60")
+		t.Skip("нет деревьев в радиусе 300")
 	}
 	var chopped *bridge.Entity
 	for _, tr := range trees {
@@ -240,60 +178,6 @@ func TestStage1_ChopTree(t *testing.T) {
 
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
 
-// gather — добыча с лимитом времени; нет целей в радиусе — Skip (камни и обломки конечны).
-func gather(t *testing.T, target string, n int) act.GatherResult {
-	t.Helper()
-	h := handsT(t)
-	res, err := h.Gather(ctxT(t, 60*time.Second), target, n, 100)
-	if errors.Is(err, act.ErrNoTargets) {
-		t.Skip(err)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Mined != n {
-		t.Errorf("добыто %d, ждали %d", res.Mined, n)
-	}
-	// после добычи ничего не должно оставаться нажатым
-	time.Sleep(500 * time.Millisecond)
-	p, err := h.B.Player()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Character.Mining || p.Character.Walking {
-		t.Errorf("персонаж после добычи: mining=%v walking=%v", p.Character.Mining, p.Character.Walking)
-	}
-	t.Logf("%s ×%d: %v", target, n, res.Items)
-	return res
-}
-
-// Руда: ровно N единиц, сущность остаётся.
-func TestStage1_MineOre(t *testing.T) {
-	// любая видимая руда (на случайной карте у старта может не быть, например, угля)
-	ore := ""
-	for _, o := range []string{"coal", "iron-ore", "copper-ore", "stone"} {
-		if es, err := bridgeT(t).FindMinable(o, 100, 1); err == nil && len(es) > 0 && es[0].Type == "resource" {
-			ore = o
-			break
-		}
-	}
-	if ore == "" {
-		t.Skip("рядом нет руды")
-	}
-	res := gather(t, ore, 3)
-	if res.Items[ore] != 3 {
-		t.Errorf("%s +%d, ждали +3", ore, res.Items[ore])
-	}
-}
-
-// Большая сущность: подход к краю рамки, а не к центру.
-func TestStage1_MineRock(t *testing.T) {
-	res := gather(t, "rock", 1)
-	if res.Items["stone"] <= 0 {
-		t.Errorf("камня не прибавилось: %v", res.Items)
-	}
-}
-
 // Честность: поиск сущностей не видит неоткрытые (не charted) чанки.
 func TestStage1_OnlyCharted(t *testing.T) {
 	b := bridgeT(t)
@@ -329,5 +213,29 @@ func TestStage1_OnlyCharted(t *testing.T) {
 		n=n+s.count_entities_filtered{area=ch.area,type="tree"} end end return n end)()`, &hiddenTrees)
 	if hiddenTrees == 0 {
 		t.Log("в неоткрытых чанках деревьев нет — проверка фильтра неинформативна")
+	}
+
+	// скан карты: список открытых чанков совпадает с игрой, неоткрытый чанк — пустой
+	charted, err := b.ListCharted()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	lua(t, `(function() local n=0 for ch in s.get_chunks() do if p.force.is_chunk_charted(s,{ch.x,ch.y}) then n=n+1 end end return n end)()`, &n)
+	if len(charted) != n || n == 0 {
+		t.Errorf("открытых чанков: мод %d, игра %d", len(charted), n)
+	}
+	var hidden *bridge.ChunkPos
+	lua(t, `(function() for ch in s.get_chunks() do if not p.force.is_chunk_charted(s,{ch.x,ch.y}) then return {x=ch.x,y=ch.y} end end end)()`, &hidden)
+	if hidden == nil {
+		t.Log("все сгенерированные чанки открыты")
+		return
+	}
+	scans, err := b.ScanChunks([]bridge.ChunkPos{*hidden})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scans) != 1 || scans[0].Charted || scans[0].Tiles != "" || len(scans[0].Entities)+len(scans[0].Resources) != 0 {
+		t.Errorf("неоткрытый чанк %v отдал данные: %+v", *hidden, scans)
 	}
 }

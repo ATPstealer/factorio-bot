@@ -47,6 +47,9 @@ type State struct {
 	Inventory map[string]int
 	PlayerPos bridge.Pos
 	Owned     []*Owned
+	// Stores — сундуки рядом вне реестра (поставленные руками, обломки) с содержимым: из них
+	// только забирать — прежде чем добывать или крафтить.
+	Stores []*Owned
 
 	// FindSpot — где поставить постройку роли role (рядом с остальной группой роли, у
 	// нужного ресурса); avoid — места, где уже не получилось.
@@ -84,8 +87,16 @@ func (s *State) Role(role string) *Owned {
 			return o
 		}
 	}
+	for _, o := range s.Stores {
+		if o.Role == role {
+			return o
+		}
+	}
 	return nil
 }
+
+// StoreRole — роль сундука вне реестра (по месту).
+func StoreRole(pos bridge.Pos) string { return fmt.Sprintf("store@%.1f,%.1f", pos.X, pos.Y) }
 
 // Clone — копия для симуляции (функции общие).
 func (s *State) Clone() *State {
@@ -98,8 +109,13 @@ func (s *State) Clone() *State {
 	for k, v := range s.Found {
 		c.Found[k] = v
 	}
-	c.Owned = nil
-	for _, o := range s.Owned {
+	c.Owned, c.Stores = cloneOwned(s.Owned), cloneOwned(s.Stores)
+	return &c
+}
+
+func cloneOwned(os []*Owned) []*Owned {
+	var res []*Owned
+	for _, o := range os {
 		oo := *o
 		oo.Inv = map[string]map[string]int{}
 		for k, inv := range o.Inv {
@@ -108,9 +124,9 @@ func (s *State) Clone() *State {
 				oo.Inv[k][it] = n
 			}
 		}
-		c.Owned = append(c.Owned, &oo)
+		res = append(res, &oo)
 	}
-	return &c
+	return res
 }
 
 // Primitive — один шаг для исполнителя (руки — act.Hands).

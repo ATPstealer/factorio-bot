@@ -206,11 +206,6 @@ func (b *Bridge) Ping() (Pong, error) {
 	return p, b.Call("ping", nil, &p)
 }
 
-func (b *Bridge) Tick() (int, error) {
-	var t int
-	return t, b.Call("tick", nil, &t)
-}
-
 func (b *Bridge) Player() (Player, error) {
 	var p Player
 	return p, b.Call("get_player", nil, &p)
@@ -310,16 +305,6 @@ type Force struct {
 func (b *Bridge) Force() (Force, error) {
 	var f Force
 	return f, b.Call("get_force", nil, &f)
-}
-
-type ProductionStats struct {
-	Produced map[string]float64 `json:"produced"`
-	Consumed map[string]float64 `json:"consumed"`
-}
-
-func (b *Bridge) ProductionStats() (ProductionStats, error) {
-	var s ProductionStats
-	return s, b.Call("get_production_stats", nil, &s)
 }
 
 // DumpPrototypes — справочник kind (recipes, items, entities, technologies, fluids) в out.

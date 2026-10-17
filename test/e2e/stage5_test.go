@@ -5,7 +5,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -19,11 +18,11 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// stash — «пустой инвентарь» честно: всё переложить в сундуки рядом (вернуть — unstash).
-func stash(t *testing.T, h *act.Hands) []bridge.Entity {
+// stash — «пустой инвентарь» честно: всё переложить в сундуки рядом.
+func stash(t *testing.T, h *act.Hands) {
 	t.Helper()
 	ctx := ctxT(t, 5*time.Minute)
-	craftUpTo(t, h, "wooden-chest", 3)
+	have(t, h, "wooden-chest", 3)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
@@ -65,21 +64,6 @@ func stash(t *testing.T, h *act.Hands) []bridge.Entity {
 			t.Fatalf("сундуки полны, в инвентаре осталось %v", p.Inventory)
 		}
 	}
-	return chests
-}
-
-func unstash(t *testing.T, h *act.Hands, chests []bridge.Entity) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	for _, ch := range chests {
-		if _, err := h.Take(ctx, ch); err != nil {
-			t.Errorf("забрать из сундука: %v", err)
-		}
-	}
-	if err := h.PickupAll(ctx, chests); err != nil {
-		t.Errorf("убрать сундуки: %v", err)
-	}
 }
 
 func newRunner(t *testing.T, h *act.Hands, state string, goals []exec.GoalSpec) *exec.Runner {
@@ -92,6 +76,23 @@ func newRunner(t *testing.T, h *act.Hands, state string, goals []exec.GoalSpec) 
 		saved.Goals = goals
 	}
 	return &exec.Runner{H: h, B: h.B, Saved: saved, StatePath: state, LogPath: path("run", "bot-test.log")}
+}
+
+// have — довести число предмета в инвентаре до n планировщиком (добыть, разведать,
+// скрафтить), как это делает бот.
+func have(t *testing.T, h *act.Hands, item string, n int) {
+	t.Helper()
+	if p, _ := h.B.Player(); p.Inventory[item] >= n {
+		return
+	}
+	state := path("run", "state-have.json")
+	os.Remove(state)
+	defer os.Remove(state)
+	r := newRunner(t, h, state, []exec.GoalSpec{{Kind: "have", Item: item, N: n}})
+	defer r.Close()
+	if err := r.Run(ctxT(t, 5*time.Minute)); err != nil {
+		t.Fatalf("набрать %s ×%d: %v", item, n, err)
+	}
 }
 
 func lineOK(t *testing.T, h *act.Hands, r *exec.Runner, n int) {
@@ -131,8 +132,7 @@ func TestStage5_SmeltingLine(t *testing.T) {
 	defer os.Remove(state)
 	os.Remove(path("run", "bot-test.log"))
 
-	chests := stash(t, h)
-	defer unstash(t, h, chests)
+	stash(t, h)
 	if p, _ := h.B.Player(); len(p.Inventory) != 0 {
 		t.Fatalf("инвентарь не пуст: %v", p.Inventory)
 	}
@@ -140,26 +140,11 @@ func TestStage5_SmeltingLine(t *testing.T) {
 	goals := []exec.GoalSpec{{Kind: "smelt", Item: "iron-ore", N: 5}}
 	r := newRunner(t, h, state, goals)
 	defer r.Close()
-	var line []bridge.Entity
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		h.PickupAll(ctx, line)
-	}()
 	start := time.Now()
 	if err := r.Run(ctxT(t, 20*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("линия с нуля за %.0f с", time.Since(start).Seconds())
-	collect := func(rr *exec.Runner) {
-		line = line[:0]
-		for _, o := range rr.Saved.Owned {
-			if st, _ := h.B.GetEntity(o.Name, o.Pos); st != nil {
-				line = append(line, st.Entity)
-			}
-		}
-	}
-	collect(r)
 	time.Sleep(2 * time.Second) // печи разгорелись
 	lineOK(t, h, r, 5)
 
@@ -214,7 +199,6 @@ func TestStage5_SmeltingLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("восстановление за %.0f с", time.Since(start).Seconds())
-	collect(r2)
 	lineOK(t, h, r2, 5)
 
 	log, _ := os.ReadFile(path("run", "bot-test.log"))
