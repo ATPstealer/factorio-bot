@@ -32,6 +32,14 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - `scripts/map-gen-settings.json` — без кусак (`enemy-base` frequency 0, `peaceful_mode`), без утёсов (`cliff_settings.richness` 0).
 - `scripts/server-settings.json` — `auto_pause: false`, `require_user_verification: false`, не публичный.
 
+## Тесты (регрессия по стадиям)
+
+- `scripts/test.sh` — go vet + юнит-тесты + e2e всех стадий; `scripts/test.sh Stage0` — по шаблону `-run`. Гонять после каждой стадии и перед коммитом.
+- e2e: `test/e2e/`, build tag `e2e`, требуют запущенного `scripts/run.sh` (сервер + клиент в `:1`).
+- Каждая стадия — свой файл `test/e2e/stageN_test.go` с тестами `TestStageN_*`; закрывая стадию, добавлять тесты её критерия готовности.
+- Хелперы (`helpers_test.go`): `game(t)` — общее RCON, `lua(t, expr, &out)` — выражение → JSON (`s` = surface 1, `p` = игрок), `bot(t, method, args, &out)` — вызов мода, `xdo(t, ...)` — xdotool в `:1`, `readJSON`, `ini`.
+- Запросы в тестах — только чтение; действия — только ввод.
+
 ## Мод botbridge
 
 - Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента.
@@ -40,6 +48,8 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Проверка мода без остановки основного сервера: временный сервер с write-data в scratchpad, копией сейва, `--port 34198 --rcon-port 27016`.
 
 ## RCON
+
+- Go-клиент: `internal/rcon` (`Dial`, `Exec`), юнит-тест с фейковым сервером.
 
 - `127.0.0.1:27015`, пароль `botpass` (или `$RCON_PASSWORD`).
 - Протокол Source RCON: auth (type 3) → ответ type 2; команда (type 2) → ответ type 0.
