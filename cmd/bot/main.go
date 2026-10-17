@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image/png"
 	"log"
 	"math"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"syscall"
 	"time"
@@ -17,6 +19,8 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/input"
+	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/world"
 )
 
 const usage = `bot — бот Factorio: действует только мышью/клавиатурой в окне клиента, смотрит через мод по RCON.
@@ -33,6 +37,12 @@ const usage = `bot — бот Factorio: действует только мышь
   player                состояние игрока (позиция, зум, инвентарь, курсор, выделение) в JSON
   events [AFTER]        события из буфера мода (добыча, постройка, крафт...) с номером > AFTER
   walk X Y              дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла
+  map [-r R] [-s S] [-o FILE]
+                        нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
+                        S пикселей на тайл (3), файл FILE (map.png); руды, вода, деревья, камни, обломки
+  patches [R]           месторождения на открытой карте в радиусе R (по умолчанию все): ресурс, запас, расстояние
+  protos [-refresh]     справочник игры (рецепты, предметы, сущности, техи); кэш data/prototypes-<версия>.json
+  force                 исследования: изучено, текущее, прогресс, доступные рецепты
   mine ЦЕЛЬ [N] [R]     добыть руками N раз в радиусе R тайлов (по умолчанию N=1, R=64)
                           ЦЕЛЬ — группа:  tree, rock, wreck (обломки корабля), ore, fish, any
                                  предмет:  coal, stone, wood, iron-ore, copper-ore ...
@@ -44,6 +54,8 @@ const usage = `bot — бот Factorio: действует только мышь
 
 Примеры:
   bin/bot ping
+  bin/bot map -r 200 -o start.png
+  bin/bot patches 300
   bin/bot walk 10 40
   bin/bot mine coal 10
   bin/bot mine wreck 3
@@ -142,6 +154,57 @@ func main() {
 		res, err := hands().Gather(ctx, target, n, radius)
 		log.Printf("добыто %d, в инвентаре прибавилось: %v", res.Mined, res.Items)
 		check(err)
+	case "map":
+		fs := flag.NewFlagSet("map", flag.ExitOnError)
+		r := fs.Int("r", 150, "радиус, тайлов")
+		sc := fs.Int("s", 3, "пикселей на тайл")
+		out := fs.String("o", "map.png", "файл")
+		fs.Parse(args[1:])
+		w := loadWorld(b)
+		p, err := b.Player()
+		check(err)
+		img := w.Render(world.RenderOptions{Center: world.TileOf(p.Position), Radius: *r, Scale: *sc, Player: &p.Position, Labels: true})
+		f, err := os.Create(*out)
+		check(err)
+		check(png.Encode(f, img))
+		check(f.Close())
+		log.Printf("%s: %dx%d px, открытых чанков %d, месторождений %d", *out, img.Bounds().Dx(), img.Bounds().Dy(), len(w.Chunks), len(w.Patches()))
+	case "patches":
+		radius := math.Inf(1)
+		if len(args) > 1 {
+			radius = atof(args[1])
+		}
+		w := loadWorld(b)
+		p, err := b.Player()
+		check(err)
+		ps := w.Patches()
+		sort.Slice(ps, func(i, j int) bool { return ps[i].Distance(p.Position) < ps[j].Distance(p.Position) })
+		fmt.Printf("%-12s %10s %6s %8s  %s\n", "ресурс", "запас", "тайлов", "до него", "центр")
+		for _, pt := range ps {
+			d := pt.Distance(p.Position)
+			if d > radius {
+				continue
+			}
+			fmt.Printf("%-12s %10d %6d %8.0f  (%.0f, %.0f)\n", pt.Name, pt.Amount, len(pt.Tiles), d, pt.Center.X, pt.Center.Y)
+		}
+	case "protos":
+		fs := flag.NewFlagSet("protos", flag.ExitOnError)
+		refresh := fs.Bool("refresh", false, "перечитать из игры")
+		fs.Parse(args[1:])
+		pong, err := b.Ping()
+		check(err)
+		path := knowledge.CachePath(dataDir, pong.GameVersion)
+		if *refresh {
+			os.Remove(path)
+		}
+		pr, err := knowledge.LoadOrFetch(b, dataDir)
+		check(err)
+		fmt.Printf("%s: рецептов %d, предметов %d, сущностей %d, технологий %d, жидкостей %d\n",
+			path, len(pr.Recipes), len(pr.Items), len(pr.Entities), len(pr.Technologies), len(pr.Fluids))
+	case "force":
+		f, err := b.Force()
+		check(err)
+		printJSON(f)
 	default:
 		fmt.Fprintf(os.Stderr, "неизвестная команда %q\n\n", args[0])
 		flag.Usage()
@@ -153,6 +216,19 @@ func main() {
 }
 
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
+
+const dataDir = "data"
+
+// loadWorld — справочник (из кэша) и полное сканирование открытой карты.
+func loadWorld(b *bridge.Bridge) *world.World {
+	pr, err := knowledge.LoadOrFetch(b, dataDir)
+	check(err)
+	w := world.New(pr)
+	n, err := w.Sync(b, true)
+	check(err)
+	log.Printf("просканировано чанков: %d", n)
+	return w
+}
 
 // atExit — что сделать перед выходом; log.Fatal пропускает defer, поэтому check вызывает их сам.
 var atExit []func()

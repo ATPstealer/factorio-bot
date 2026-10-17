@@ -7,29 +7,11 @@ local MAX_EVENTS = 1000
 
 local methods = {}
 
-local function pos(p)
-  return { x = p.x, y = p.y }
-end
+local util = require("util")
+local pos, bot_player, entity_info, visible = util.pos, util.bot_player, util.entity_info, util.visible
 
-local function bot_player()
-  local p = game.connected_players[1]
-  if not p then error("нет подключённого игрока") end
-  return p
-end
-
-local function entity_info(e)
-  if not (e and e.valid) then return nil end
-  local sb = e.selection_box
-  return {
-    name = e.name, type = e.type, position = pos(e.position), unit_number = e.unit_number,
-    selection_box = { left_top = pos(sb.left_top), right_bottom = pos(sb.right_bottom) },
-  }
-end
-
--- Честность: бот знает только то, что видит игрок — открытые (charted) чанки его силы.
-local function visible(p, position)
-  return p.force.is_chunk_charted(p.surface, { math.floor(position.x / 32), math.floor(position.y / 32) })
-end
+require("prototypes")(methods)
+require("scan")(methods)
 
 -- В 2.0 get_quick_bar_slot возвращает прототип или пару {name, quality} — берём имя.
 local function slot_name(v)
@@ -39,7 +21,7 @@ local function slot_name(v)
 end
 
 function methods.ping()
-  return { tick = game.tick, version = script.active_mods["botbridge"] }
+  return { tick = game.tick, version = script.active_mods["botbridge"], game_version = script.active_mods["base"] }
 end
 
 function methods.tick()
@@ -251,6 +233,12 @@ script.on_event(d.on_gui_opened, function(e)
 end)
 script.on_event(d.on_gui_closed, function(e)
   push { type = "gui_closed", gui_type = e.gui_type, entity = entity_info(e.entity) }
+end)
+script.on_event(d.on_chunk_charted, function(e)
+  local p = game.connected_players[1]
+  if p and e.force == p.force and e.surface_index == p.surface.index then
+    push { type = "chunk_charted", chunk = { x = e.position.x, y = e.position.y } }
+  end
 end)
 
 -- Точка входа ------------------------------------------------------------

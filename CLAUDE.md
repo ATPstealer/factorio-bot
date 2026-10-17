@@ -46,8 +46,10 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 - Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента.
 - Единая точка входа: `/sc remote.call("bot", "call", '{"method":"ping","args":{...}}')` → печатает одну строку JSON `{"ok":true,"result":...}` / `{"ok":false,"error":"..."}`.
-- Методы — в таблице `methods` в `control.lua`; только чтение: `ping`, `tick`, `get_player`, `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`.
-- Буфер событий в `storage.events` (до 1000, номер `seq`): mined_entity, built_entity, crafted_item, research_finished, entity_died, resource_depleted, gui_opened/closed. `poll_events` ничего не удаляет.
+- Файлы: `control.lua` (точка входа, игрок, поиск, события), `util.lua` (общие функции, `visible`), `prototypes.lua` (`dump_prototypes`), `scan.lua` (`list_charted`, `scan_chunks`, `get_force`, `get_production_stats`).
+- Поля прототипов, применимые не ко всем типам, читать через `try`/`g()` — иначе ошибка на чужом типе.
+- Методы — в таблице `methods`; только чтение: `ping`, `tick`, `get_player`, `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`.
+- Буфер событий в `storage.events` (до 1000, номер `seq`): mined_entity, built_entity, crafted_item, research_finished, entity_died, resource_depleted, gui_opened/closed, chunk_charted. `poll_events` ничего не удаляет.
 - `entity_info` отдаёт name, type, position, unit_number, selection_box.
 - Меняя мод — поднимать `version` в `info.json` (тест сверяет версию в игре с файлом).
 - Проверка мода без остановки основного сервера: временный сервер с write-data в scratchpad, копией сейва, `--port 34198 --rcon-port 27016`.
@@ -63,7 +65,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 ## Код бота (Go)
 
-- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R]`.
+- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | map [-r R -s S -o FILE] | patches [R] | protos [-refresh] | force`. Полная справка — `bin/bot` без аргументов; новые команды добавлять в `usage` в `cmd/bot/main.go`.
   - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности (по умолчанию 1); R — радиус поиска (64).
   - `-t` — общий лимит времени (по умолчанию 5m). Любой запуск действий в игре — только с лимитом (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
 - `internal/rcon` — Source RCON; ответы до 2 МБ одним пакетом проверены — пагинация не нужна.
@@ -71,6 +73,8 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
   - Пустая Lua-таблица приходит из `table_to_json` как `{}`, не `[]` — массивы декодировать в `bridge.List[T]`, словари — делать в моде `nil`, если пусты.
 - `internal/input` — XTEST на чистом Go (`github.com/jezek/xgb`): `KeyDown/KeyUp/Tap(key, mods...)/Type`, `Move/ButtonDown/ButtonUp/Click/Wheel`, `FindWindow(prefix)`. После каждого события round trip + `Delay` 20 мс.
 - `internal/camera` — мир ↔ пиксели дисплея: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
+- `internal/knowledge` — справочник `Prototypes` (рецепты, предметы, сущности, технологии, жидкости), `LoadOrFetch(b, "data")` — кэш `data/prototypes-<версия>.json` (data/ в .gitignore), `RecipesFor(item)`, `TechFor(recipe)`.
+- `internal/world` — модель открытой карты: `Sync(b, full)` (новые чанки + чанки из событий; остатки руды меняются без событий → `full`), `TileAt/ResourceAt/Blocked/Walkable`, `Patches()` (руда — 8-связность, нефть — радиус 12), `Render(opts)` → PNG.
 - `internal/act` — `Hands`: `WalkTo(ctx, pos, stop)`, `WalkNear(ctx, entity, stop)`, `Hover`, `Mine(ctx, entity, timeout)`, `MineUntil(ctx, entity, done)`, `Gather(ctx, target, count, radius)`.
 
 ## Ввод — что выяснено

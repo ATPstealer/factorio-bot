@@ -1,0 +1,201 @@
+// Package world — модель карты в памяти бота: только открытые (charted) чанки, как их видит игрок.
+package world
+
+import (
+	"math"
+
+	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/knowledge"
+)
+
+const ChunkSize = 32
+
+// Tile — тайл мира (целые координаты левого верхнего угла).
+type Tile struct{ X, Y int }
+
+func TileOf(p bridge.Pos) Tile { return Tile{int(math.Floor(p.X)), int(math.Floor(p.Y))} }
+
+func (t Tile) Center() bridge.Pos { return bridge.Pos{X: float64(t.X) + 0.5, Y: float64(t.Y) + 0.5} }
+
+func ChunkOf(t Tile) bridge.ChunkPos {
+	return bridge.ChunkPos{X: floorDiv(t.X, ChunkSize), Y: floorDiv(t.Y, ChunkSize)}
+}
+
+func floorDiv(a, b int) int {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
+}
+
+// Классы тайлов (как в моде): '.' суша, 'w' вода, 's' мелководье, 'x' край карты, '?' не открыто.
+const (
+	Land    = '.'
+	Water   = 'w'
+	Shallow = 's'
+	OutMap  = 'x'
+	Unknown = '?'
+)
+
+type Resource struct {
+	Name   string
+	Amount int
+}
+
+// Object — не-ресурсная сущность: дерево, камень, обломок, постройка.
+type Object struct {
+	Name      string
+	Type      string
+	Pos       bridge.Pos
+	Direction int // 2.0: 0 север, 4 восток, 8 юг, 12 запад
+	Unit      int
+	Own       bool
+	Status    string
+}
+
+type Chunk struct {
+	Pos       bridge.ChunkPos
+	Tiles     string // 1024 символа по строкам
+	Resources map[Tile]Resource
+	Objects   []Object
+
+	blocked map[Tile]bool // лениво: тайлы под коллизиями объектов
+}
+
+type World struct {
+	Protos   *knowledge.Prototypes // nil — коллизии объектов считаются 1×1
+	Chunks   map[bridge.ChunkPos]*Chunk
+	EventSeq int // последнее учтённое событие мода
+}
+
+func New(protos *knowledge.Prototypes) *World {
+	return &World{Protos: protos, Chunks: map[bridge.ChunkPos]*Chunk{}}
+}
+
+// Apply кладёт результаты сканирования; неоткрытые чанки удаляет.
+func (w *World) Apply(scans []bridge.ChunkScan) {
+	for _, s := range scans {
+		cp := bridge.ChunkPos{X: s.X, Y: s.Y}
+		if !s.Charted || len(s.Tiles) != ChunkSize*ChunkSize {
+			delete(w.Chunks, cp)
+			continue
+		}
+		c := &Chunk{Pos: cp, Tiles: s.Tiles, Resources: make(map[Tile]Resource, len(s.Resources))}
+		for _, r := range s.Resources {
+			c.Resources[TileOf(bridge.Pos{X: r.X, Y: r.Y})] = Resource{Name: r.Name, Amount: r.Amount}
+		}
+		for _, e := range s.Entities {
+			o := Object{Name: e.Name, Type: e.Type, Pos: bridge.Pos{X: e.X, Y: e.Y}, Unit: e.Unit, Own: e.Own, Status: e.Status}
+			if e.Direction != nil {
+				o.Direction = *e.Direction
+			}
+			c.Objects = append(c.Objects, o)
+		}
+		w.Chunks[cp] = c
+	}
+}
+
+func (w *World) chunk(t Tile) *Chunk { return w.Chunks[ChunkOf(t)] }
+
+// TileAt — класс тайла или Unknown для неоткрытого.
+func (w *World) TileAt(t Tile) byte {
+	c := w.chunk(t)
+	if c == nil {
+		return Unknown
+	}
+	x, y := t.X-c.Pos.X*ChunkSize, t.Y-c.Pos.Y*ChunkSize
+	return c.Tiles[y*ChunkSize+x]
+}
+
+func (w *World) ResourceAt(t Tile) (Resource, bool) {
+	c := w.chunk(t)
+	if c == nil {
+		return Resource{}, false
+	}
+	r, ok := c.Resources[t]
+	return r, ok
+}
+
+// Objects — все объекты открытой карты.
+func (w *World) Objects() []Object {
+	var res []Object
+	for _, c := range w.Chunks {
+		res = append(res, c.Objects...)
+	}
+	return res
+}
+
+// CollisionBox — рамка коллизии объекта в мировых координатах (с поворотом на 90°).
+func (w *World) CollisionBox(o Object) bridge.Box {
+	b := bridge.Box{LeftTop: bridge.Pos{X: -0.4, Y: -0.4}, RightBottom: bridge.Pos{X: 0.4, Y: 0.4}}
+	if w.Protos != nil {
+		if e, ok := w.Protos.Entities[o.Name]; ok {
+			b = e.CollisionBox
+		}
+	}
+	if o.Direction == 4 || o.Direction == 12 { // восток/запад: рамка повёрнута
+		b = bridge.Box{
+			LeftTop:     bridge.Pos{X: -b.RightBottom.Y, Y: b.LeftTop.X},
+			RightBottom: bridge.Pos{X: -b.LeftTop.Y, Y: b.RightBottom.X},
+		}
+	}
+	return bridge.Box{
+		LeftTop:     bridge.Pos{X: o.Pos.X + b.LeftTop.X, Y: o.Pos.Y + b.LeftTop.Y},
+		RightBottom: bridge.Pos{X: o.Pos.X + b.RightBottom.X, Y: o.Pos.Y + b.RightBottom.Y},
+	}
+}
+
+// BoxTiles — тайлы, которые рамка задевает изнутри (касание края не считается).
+func BoxTiles(b bridge.Box) []Tile {
+	const eps = 1e-6
+	var res []Tile
+	for y := int(math.Floor(b.LeftTop.Y + eps)); float64(y) < b.RightBottom.Y-eps; y++ {
+		for x := int(math.Floor(b.LeftTop.X + eps)); float64(x) < b.RightBottom.X-eps; x++ {
+			res = append(res, Tile{x, y})
+		}
+	}
+	return res
+}
+
+// noCollision — типы, сквозь которые персонаж проходит.
+var noCollision = map[string]bool{"fish": true, "resource": true, "corpse": true, "item-entity": true}
+
+func (w *World) blockedSet(c *Chunk) map[Tile]bool {
+	if c.blocked != nil {
+		return c.blocked
+	}
+	c.blocked = map[Tile]bool{}
+	for _, o := range c.Objects {
+		if noCollision[o.Type] {
+			continue
+		}
+		for _, t := range BoxTiles(w.CollisionBox(o)) {
+			c.blocked[t] = true
+		}
+	}
+	return c.blocked
+}
+
+// Blocked — занят ли тайл объектом (без учёта воды). Объект у края чанка может
+// перекрывать тайлы соседнего — проверяем и соседей.
+func (w *World) Blocked(t Tile) bool {
+	cp := ChunkOf(t)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if c := w.Chunks[bridge.ChunkPos{X: cp.X + dx, Y: cp.Y + dy}]; c != nil && w.blockedSet(c)[t] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Walkable — можно ли пройти по тайлу: открыт, суша или мелководье, без объектов.
+func (w *World) Walkable(t Tile) bool {
+	switch w.TileAt(t) {
+	case Land, Shallow:
+		return !w.Blocked(t)
+	}
+	return false
+}

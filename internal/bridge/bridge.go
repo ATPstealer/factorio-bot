@@ -156,22 +156,24 @@ type Player struct {
 }
 
 type Event struct {
-	Seq     int     `json:"seq"`
-	Tick    int     `json:"tick"`
-	Type    string  `json:"type"`
-	Entity  *Entity `json:"entity,omitempty"`
-	Item    string  `json:"item,omitempty"`
-	Count   int     `json:"count,omitempty"`
-	Recipe  string  `json:"recipe,omitempty"`
-	Tech    string  `json:"tech,omitempty"`
-	GUIType int     `json:"gui_type,omitempty"`
+	Seq     int       `json:"seq"`
+	Tick    int       `json:"tick"`
+	Type    string    `json:"type"`
+	Entity  *Entity   `json:"entity,omitempty"`
+	Item    string    `json:"item,omitempty"`
+	Count   int       `json:"count,omitempty"`
+	Recipe  string    `json:"recipe,omitempty"`
+	Tech    string    `json:"tech,omitempty"`
+	GUIType int       `json:"gui_type,omitempty"`
+	Chunk   *ChunkPos `json:"chunk,omitempty"`
 }
 
 // Методы ------------------------------------------------------------------
 
 type Pong struct {
-	Tick    int    `json:"tick"`
-	Version string `json:"version"`
+	Tick        int    `json:"tick"`
+	Version     string `json:"version"`      // мод botbridge
+	GameVersion string `json:"game_version"` // base
 }
 
 func (b *Bridge) Ping() (Pong, error) {
@@ -223,4 +225,78 @@ func (b *Bridge) PollEvents(after int) (events []Event, seq int, err error) {
 	}
 	err = b.Call("poll_events", map[string]any{"after": after}, &r)
 	return r.Events, r.Seq, err
+}
+
+// Сенсоры карты (стадия 2) ---------------------------------------------------
+
+type ChunkPos struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+type ScanResource struct {
+	Name   string  `json:"n"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Amount int     `json:"a"`
+}
+
+type ScanEntity struct {
+	Name      string  `json:"n"`
+	Type      string  `json:"t"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Direction *int    `json:"d,omitempty"`
+	Unit      int     `json:"u,omitempty"`
+	Own       bool    `json:"own,omitempty"`
+	Status    string  `json:"st,omitempty"`
+}
+
+// ChunkScan — содержимое открытого чанка. Tiles — 1024 символа по строкам:
+// '.' суша, 'w' вода, 's' мелководье (проходимо), 'x' край карты.
+type ChunkScan struct {
+	X         int                `json:"x"`
+	Y         int                `json:"y"`
+	Charted   bool               `json:"charted"`
+	Tiles     string             `json:"tiles"`
+	Resources List[ScanResource] `json:"resources"`
+	Entities  List[ScanEntity]   `json:"entities"`
+}
+
+func (b *Bridge) ListCharted() ([]ChunkPos, error) {
+	var cs List[ChunkPos]
+	return cs, b.Call("list_charted", nil, &cs)
+}
+
+func (b *Bridge) ScanChunks(chunks []ChunkPos) ([]ChunkScan, error) {
+	var res List[ChunkScan]
+	return res, b.Call("scan_chunks", map[string]any{"chunks": chunks}, &res)
+}
+
+type Force struct {
+	Researched List[string] `json:"researched"`
+	Current    string       `json:"current"`
+	Progress   float64      `json:"progress"`
+	Queue      List[string] `json:"queue"`
+	Recipes    List[string] `json:"recipes"`
+}
+
+func (b *Bridge) Force() (Force, error) {
+	var f Force
+	return f, b.Call("get_force", nil, &f)
+}
+
+type ProductionStats struct {
+	Produced map[string]float64 `json:"produced"`
+	Consumed map[string]float64 `json:"consumed"`
+}
+
+func (b *Bridge) ProductionStats() (ProductionStats, error) {
+	var s ProductionStats
+	return s, b.Call("get_production_stats", nil, &s)
+}
+
+// DumpPrototypes — справочник kind (recipes, items, entities, technologies, fluids) в out.
+func (b *Bridge) DumpPrototypes(kind string, out any) error {
+	return b.Call("dump_prototypes", map[string]any{"kind": kind}, out)
 }
