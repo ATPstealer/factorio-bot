@@ -5,15 +5,20 @@ set -euo pipefail
 F=/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 R=$ROOT/run
-SEED=${SEED:-12345}
 SAVE=$R/server/saves/bot.zip
 DISPLAY_NUM=${DISPLAY_NUM:-:1}
 RES=${RES:-1920x1080}
 
 
+# новая карта: SEED не задан — случайный; сид пишется в run/map.json, состояние бота
+# (run/state.json — реестр построек и цели) относится к карте и сбрасывается
 if [[ ! -f $SAVE || ${NEW_MAP:-0} == 1 ]]; then
+  SEED=${SEED:-$(( (RANDOM << 15 | RANDOM) % 4000000000 ))}
   "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \
     --create "$SAVE" --map-gen-settings "$ROOT/scripts/map-gen-settings.json" --map-gen-seed "$SEED"
+  printf '{"seed": %s, "created": "%s"}\n' "$SEED" "$(date -Is)" > "$R/map.json"
+  rm -f "$R/state.json"
+  echo "новая карта: сид $SEED"
 fi
 
 "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \

@@ -27,6 +27,7 @@ var (
 	ColorWreck   = color.RGBA{200, 200, 200, 255}
 	ColorOwn     = color.RGBA{255, 255, 255, 255}
 	ColorOther   = color.RGBA{150, 120, 90, 255}
+	ColorCliff   = color.RGBA{110, 80, 50, 255}
 	ColorPlayer  = color.RGBA{255, 32, 32, 255}
 	ColorLabel   = color.RGBA{255, 255, 200, 255}
 
@@ -144,6 +145,8 @@ func objectColor(o Object) (color.RGBA, bool) {
 		return ColorOwn, true
 	case o.Type == "tree":
 		return ColorTree, true
+	case o.Type == "cliff":
+		return ColorCliff, true
 	case strings.HasPrefix(o.Name, "crash-site-"):
 		return ColorWreck, true
 	case o.Type == "simple-entity":

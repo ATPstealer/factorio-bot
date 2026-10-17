@@ -106,6 +106,8 @@ type Entity struct {
 	ModuleSlots            int          `json:"module_slots,omitempty"`
 	PumpingSpeed           float64      `json:"pumping_speed,omitempty"`
 	FixedRecipe            string       `json:"fixed_recipe,omitempty"`
+	// куда бур/инсертер выдаёт результат (смещение от центра при направлении «север»)
+	VectorToPlaceResult []float64 `json:"vector_to_place_result,omitempty"`
 }
 
 // Trigger — технология 2.0, открываемая действием (скрафтить/добыть/построить), а не наукой.

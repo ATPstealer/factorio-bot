@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"factorio-bot/internal/exec"
 	"fmt"
 	"math"
 	"os"
@@ -291,22 +292,33 @@ func TestStage3_DropAndCollectInOrder(t *testing.T) {
 	ctx := ctxT(t, 8*time.Minute)
 	items := []string{"stone", "coal", "wood", "iron-ore", "iron-plate", "stone-furnace",
 		"burner-mining-drill", "wooden-chest", "iron-gear-wheel", "copper-ore"}
-	ensure(t, h, "stone", "stone", 1)
-	ensure(t, h, "coal", "coal", 1)
-	ensure(t, h, "wood", "tree", 1)
-	ensure(t, h, "iron-ore", "iron-ore", 1)
-	ensure(t, h, "copper-ore", "copper-ore", 1)
-	craftUpTo(t, h, "stone-furnace", 1)
-	craftUpTo(t, h, "wooden-chest", 1)
-	if p, _ := h.B.Player(); p.Inventory["iron-gear-wheel"] == 0 {
-		if p.Inventory["iron-plate"] < 3 {
-			t.Skipf("нужно 3 железные пластины, есть %d", p.Inventory["iron-plate"])
+	// всё нужное достаёт планировщик: добудет, скрафтит, переплавит, при нужде разведает
+	var goals []exec.GoalSpec
+	for _, it := range items {
+		goals = append(goals, exec.GoalSpec{Kind: "have", Item: it, N: 1})
+	}
+	st := path("run", "state-drop.json")
+	os.Remove(st)
+	defer os.Remove(st)
+	saved, err := exec.Load(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Goals = goals
+	r := &exec.Runner{H: h, B: h.B, Saved: saved, StatePath: st, LogPath: path("run", "bot-test.log")}
+	defer r.Close()
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("достать предметы: %v", err)
+	}
+	defer func() { // печь для плавки, если планировщик её ставил
+		var own []bridge.Entity
+		for _, o := range r.Saved.Owned {
+			if e, _ := h.B.GetEntity(o.Name, o.Pos); e != nil {
+				own = append(own, e.Entity)
+			}
 		}
-		craftUpTo(t, h, "iron-gear-wheel", 1)
-	}
-	if p, _ := h.B.Player(); p.Inventory["burner-mining-drill"] == 0 || p.Inventory["iron-plate"] == 0 {
-		t.Skip("нет бура или пластин")
-	}
+		pickupAll(t, h, own)
+	}()
 
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)

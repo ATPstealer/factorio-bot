@@ -80,6 +80,7 @@ type Runner struct {
 	logf     *os.File
 	minables map[string]bool
 	fails    int
+	explored map[bridge.ChunkPos]bool // края карты, куда уже ходили на разведку
 }
 
 func (r *Runner) Save() error {
@@ -209,6 +210,23 @@ func (r *Runner) findSpot(s *plan.State, entity, role string, avoid []bridge.Pos
 	}
 	noOre := func(t world.Tile) bool { _, ore := w.ResourceAt(t); return !ore && !bad(t) }
 
+	// площадка добычи: бур — на руде, сундук — на его выходе
+	if strings.HasPrefix(role, "mine-") {
+		if strings.HasSuffix(role, "-out") {
+			drill := s.Role(strings.TrimSuffix(role, "-out"))
+			if drill == nil {
+				return bridge.Pos{}, false
+			}
+			out := r.dropTile(drill.Name, drill.Pos)
+			if w.TileAt(out) != world.Land || w.Blocked(out) || bad(out) {
+				return bridge.Pos{}, false
+			}
+			return out.Center(), true
+		}
+		ore := strings.TrimPrefix(group(role), "mine-")
+		return r.drillSpot(s, entity, ore, bad)
+	}
+
 	var anchor bridge.Pos
 	var sibling *plan.Owned
 	for _, o := range s.Owned {
@@ -219,8 +237,13 @@ func (r *Runner) findSpot(s *plan.State, entity, role string, avoid []bridge.Pos
 	switch {
 	case sibling != nil:
 		anchor = bridge.Pos{X: sibling.Pos.X + float64(tw), Y: sibling.Pos.Y}
-	case strings.HasPrefix(role, "smelt-"):
+	case strings.HasPrefix(role, "smelt-") || role == "smelter":
+		// линия — у своей руды; печь для плавки пластин — у железа (пластины в основном
+		// железные): руда и печь рядом, меньше ходить
 		ore := strings.TrimPrefix(group(role), "smelt-")
+		if role == "smelter" {
+			ore = "iron-ore"
+		}
 		best := math.Inf(1)
 		for _, pt := range w.Patches() {
 			if pt.Name != ore || len(pt.Tiles) < 20 {
@@ -233,12 +256,68 @@ func (r *Runner) findSpot(s *plan.State, entity, role string, avoid []bridge.Pos
 			}
 		}
 		if math.IsInf(best, 1) {
-			return bridge.Pos{}, false
+			if role != "smelter" {
+				return bridge.Pos{}, false
+			}
+			anchor = s.PlayerPos // железа не видно — печь для плавки рядом с игроком
 		}
 	default:
 		anchor = s.PlayerPos
 	}
 	return w.FreeSpotWhere(anchor, tw, th, 15, &s.PlayerPos, noOre)
+}
+
+// dropTile — тайл, куда бур (направление «север») выдаёт добытое.
+func (r *Runner) dropTile(entity string, pos bridge.Pos) world.Tile {
+	v := r.H.Protos.Entities[entity].VectorToPlaceResult
+	if len(v) < 2 {
+		v = []float64{0, -1.3}
+	}
+	return world.TileOf(bridge.Pos{X: pos.X + v[0], Y: pos.Y + v[1]})
+}
+
+// drillSpot — центр бура tw×th, все тайлы которого на руде ore, свободны, и тайл выхода
+// перед ним тоже свободен (туда сундук); ближайший к игроку.
+func (r *Runner) drillSpot(s *plan.State, entity, ore string, bad func(world.Tile) bool) (bridge.Pos, bool) {
+	w := r.H.World
+	e := r.H.Protos.Entities[entity]
+	tw, th := max(e.TileWidth, 1), max(e.TileHeight, 1)
+	var tiles []world.Tile
+	for _, pt := range w.Patches() {
+		if pt.Name == ore {
+			tiles = append(tiles, pt.Tiles...)
+		}
+	}
+	sort.Slice(tiles, func(i, j int) bool {
+		a, b := tiles[i].Center(), tiles[j].Center()
+		return math.Hypot(a.X-s.PlayerPos.X, a.Y-s.PlayerPos.Y) < math.Hypot(b.X-s.PlayerPos.X, b.Y-s.PlayerPos.Y)
+	})
+	pt := world.TileOf(s.PlayerPos)
+	free := func(t world.Tile) bool {
+		return w.TileAt(t) == world.Land && !w.Blocked(t) && !bad(t) && !(math.Abs(float64(t.X-pt.X)) <= 1 && math.Abs(float64(t.Y-pt.Y)) <= 1)
+	}
+	for i, t := range tiles {
+		if i > 3000 {
+			break
+		}
+		lt := world.Tile{X: t.X, Y: t.Y}
+		ok := true
+		for y := 0; y < th && ok; y++ {
+			for x := 0; x < tw && ok; x++ {
+				ft := world.Tile{X: lt.X + x, Y: lt.Y + y}
+				res, isOre := w.ResourceAt(ft)
+				ok = isOre && res.Name == ore && free(ft)
+			}
+		}
+		if !ok {
+			continue
+		}
+		c := bridge.Pos{X: float64(lt.X) + float64(tw)/2, Y: float64(lt.Y) + float64(th)/2}
+		if out := r.dropTile(entity, c); free(out) {
+			return c, true
+		}
+	}
+	return bridge.Pos{}, false
 }
 
 // Step — один шаг: первая невыполненная цель → её следующий примитив → исполнить.
@@ -391,12 +470,20 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 		}
 		_, err = h.Take(ctx, e)
 		return err
+	case "explore":
+		return r.explore(ctx, p.Item)
 	case "wait":
 		o, _, err := r.owned(p.Role)
 		if err != nil {
 			return err
 		}
-		deadline := time.Now().Add(time.Duration(float64(p.N)*3.5+15) * time.Second)
+		// печь: ~3.2 с на штуку; бур: 0.25/с — ждём кусками не дольше 90 с, дальше
+		// планировщик заберёт накопленное и решит снова
+		wait := time.Duration(float64(p.N)*3.5+15) * time.Second
+		if o.Name == plan.Chest {
+			wait = min(time.Duration(float64(p.N)*4.5+10)*time.Second, 90*time.Second)
+		}
+		deadline := time.Now().Add(wait)
 		for time.Now().Before(deadline) {
 			st, err := r.B.GetEntity(o.Name, o.Pos)
 			if err != nil {
@@ -405,7 +492,19 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 			if st == nil {
 				return fmt.Errorf("exec: %s пропала", p.Role)
 			}
-			if st.Inventories["crafter_output"][p.Item] >= p.N || len(st.Inventories["crafter_input"]) == 0 {
+			if st.Name == plan.Chest {
+				// сундук бура: накопилось — готово; бур без топлива — планировщик дозаправит
+				if st.Inventories["chest"][p.Item] >= p.N {
+					return nil
+				}
+				if d := strings.TrimSuffix(p.Role, "-out"); d != p.Role {
+					if do, _, err := r.owned(d); err == nil {
+						if ds, _ := r.B.GetEntity(do.Name, do.Pos); ds == nil || (len(ds.Inventories["fuel"]) == 0 && ds.Burning == "") {
+							return nil
+						}
+					}
+				}
+			} else if st.Inventories["crafter_output"][p.Item] >= p.N || len(st.Inventories["crafter_input"]) == 0 {
 				return nil
 			}
 			select {
@@ -417,6 +516,47 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 		return nil // по таймауту — планировщик посмотрит, что получилось
 	}
 	return fmt.Errorf("exec: неизвестный шаг %s", p.Kind)
+}
+
+// explore — шаг разведки: дойти до ближайшего края открытой зоны, где ещё не были;
+// персонаж открывает карту вокруг себя. Удача — открылись новые чанки (или нашёлся item).
+func (r *Runner) explore(ctx context.Context, item string) error {
+	if r.explored == nil {
+		r.explored = map[bridge.ChunkPos]bool{}
+	}
+	w := r.H.World
+	if _, err := w.Sync(r.B, false); err != nil {
+		return err
+	}
+	before := len(w.Chunks)
+	p, err := r.B.Player()
+	if err != nil {
+		return err
+	}
+	for _, cp := range w.Frontier(p.Position) {
+		if r.explored[cp] {
+			continue
+		}
+		r.explored[cp] = true
+		c := bridge.Pos{X: float64(cp.X*world.ChunkSize + world.ChunkSize/2), Y: float64(cp.Y*world.ChunkSize + world.ChunkSize/2)}
+		target, ok := w.FreeSpot(c, 1, 1, 12, nil)
+		if !ok {
+			continue
+		}
+		r.H.Say("разведка: ищу %s, иду к краю открытой карты (%.0f, %.0f)", item, target.X, target.Y)
+		if err := r.H.WalkTo(ctx, target, 3); err != nil && !errors.Is(err, act.ErrNotReached) {
+			return err
+		}
+		time.Sleep(time.Second) // карта вокруг открывается не мгновенно
+		if _, err := w.Sync(r.B, false); err != nil {
+			return err
+		}
+		if len(w.Chunks) > before {
+			r.journal("  разведка: открыто чанков %d → %d", before, len(w.Chunks))
+			return nil
+		}
+	}
+	return fmt.Errorf("exec: разведка не открыла ничего нового (ищу %s)", item)
 }
 
 // gather — добыть, пока предмета не прибавится n: руду — единицами за раз, деревья и
@@ -450,8 +590,27 @@ func (r *Runner) gather(ctx context.Context, item string, n int) error {
 		if _, err := r.H.Gather(ctx, item, k, 300); err != nil {
 			return err
 		}
+		if item == "wood" {
+			r.rocksNearby(ctx)
+		}
 	}
 	return fmt.Errorf("exec: %s не набралось за 60 заходов", item)
+}
+
+// rocksNearby — попутно, пока рубим деревья: разбить камни рядом (20+ камня с каждого,
+// с огромного — ещё и уголь), чтобы потом меньше добывать камень отдельно.
+func (r *Runner) rocksNearby(ctx context.Context) {
+	p, err := r.B.Player()
+	if err != nil || p.Inventory["stone"] >= 100 {
+		return
+	}
+	if rocks, err := r.B.FindMinable("rock", 10, 1); err != nil || len(rocks) == 0 {
+		return
+	}
+	r.H.Say("попутно разбиваю камень рядом")
+	if _, err := r.H.Gather(ctx, "rock", 1, 10); err != nil && ctx.Err() == nil {
+		r.journal("  попутный камень не удался: %v", err)
+	}
 }
 
 // GoalsString — цели для вывода.

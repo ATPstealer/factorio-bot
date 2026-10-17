@@ -2,6 +2,10 @@ package plan
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+
+	"factorio-bot/internal/calc"
 	"time"
 )
 
@@ -35,6 +39,72 @@ type Supplied struct {
 type SmeltingLine struct {
 	Ore, Fuel string
 	N         int
+}
+
+// MiningSite — N буров на ресурсе Ore: у каждого сундук на выходе (туда бур складывает
+// добытое) и топливо. Роли: mine-<ore>-i (бур) и mine-<ore>-i-out (сундук).
+type MiningSite struct {
+	Ore string
+	N   int
+}
+
+const (
+	Drill = "burner-mining-drill"
+	Chest = "wooden-chest"
+	// DrillThreshold — с какого количества руду добываем бурами, а не руками.
+	DrillThreshold = 20
+	drillFuel      = 5
+)
+
+func SiteRole(ore string, i int) string { return fmt.Sprintf("mine-%s-%d", ore, i) }
+func OutRole(ore string, i int) string  { return SiteRole(ore, i) + "-out" }
+
+func (g MiningSite) Key() string { return fmt.Sprintf("site:%s:%d", g.Ore, g.N) }
+func (g MiningSite) String() string {
+	return fmt.Sprintf("добыча бурами: %s ×%d", g.Ore, g.N)
+}
+
+func fueled(o *Owned) bool {
+	if o == nil {
+		return false
+	}
+	n := 0
+	for _, v := range o.Inv["fuel"] {
+		n += v
+	}
+	return n > 0
+}
+
+func (g MiningSite) Satisfied(s *State) bool {
+	for i := 1; i <= g.N; i++ {
+		if !fueled(s.Role(SiteRole(g.Ore, i))) || s.Role(OutRole(g.Ore, i)) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (g MiningSite) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	for i := 1; i <= g.N; i++ {
+		drill, out := SiteRole(g.Ore, i), OutRole(g.Ore, i)
+		if s.Role(drill) == nil {
+			return sub(pl, s, c, Placed{Drill, drill})
+		}
+		if s.Role(out) == nil {
+			return sub(pl, s, c, Placed{Chest, out})
+		}
+		if !fueled(s.Role(drill)) {
+			// в т.ч. бур на угле: персонаж берёт уголь из его же сундука и подкидывает
+			return sub(pl, s, c, Supplied{drill, "coal", drillFuel})
+		}
+	}
+	return nil, nil
+}
+
+// isOre — предмет добывается из ресурса на карте без жидкости (руда, уголь, камень).
+func (s *State) isOre(item string) bool {
+	res, ok := s.Protos.Resource(item)
+	return ok && s.Protos.Entities[res].Mineable.RequiredFluid == ""
 }
 
 // Порции пополнения линии.
@@ -123,9 +193,14 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	lack := g.N - have
 	var tried []string
 
-	// 1. забрать готовое из своих построек
+	// 1. забрать готовое из своих построек (из сундука бура — когда накопилось достаточно,
+	// иначе дождаться: не бегать за каждой единицей)
 	for _, o := range s.Owned {
-		if o.Output(g.Item) > 0 {
+		out := o.Output(g.Item)
+		// забирать, когда набралось нужное (или хотя бы 10) либо больше не прибудет —
+		// не бегать к печи/сундуку за каждой штукой, пока они ещё работают
+		busy := len(o.Inv["crafter_input"]) > 0 || strings.HasSuffix(o.Role, "-out")
+		if out > 0 && (!busy || out >= lack || out >= 10) {
 			p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item})
 			if !pl.banned(p.Key()) {
 				return p, nil
@@ -136,10 +211,23 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if r, ok := s.craftRecipe(g.Item); ok {
 		rec := s.Protos.Recipes[r]
 		crafts := ceilDiv(lack, productAmount(rec, g.Item))
+		direct := true
 		for _, in := range rec.Ingredients {
-			need := int(float64(crafts)*in.Mean() + 0.999)
-			if s.Inventory[in.Name] < need {
-				return sub(pl, s, c, HaveItem{in.Name, need})
+			direct = direct && s.Inventory[in.Name] >= int(float64(crafts)*in.Mean()+0.999)
+		}
+		if !direct {
+			// базовое сырьё на всё дерево крафта разом (бур = 9 пластин + 5 камня), а не по
+			// ингредиенту: промежуточные (шестерни) игра скрафтит сама
+			h := calc.Handcraft(s.Protos, s.Av, g.Item, float64(crafts)*productAmount(rec, g.Item))
+			names := make([]string, 0, len(h.Base))
+			for it := range h.Base {
+				names = append(names, it)
+			}
+			sort.Strings(names)
+			for _, it := range names {
+				if need := int(h.Base[it] + 0.999); s.Inventory[it] < need {
+					return sub(pl, s, c, HaveItem{it, need})
+				}
 			}
 		}
 		p := c.prim(Primitive{Kind: "craft", Recipe: r, Item: g.Item, N: crafts})
@@ -167,13 +255,28 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		return c.prim(Primitive{Kind: "take", Role: role, Item: g.Item}), nil
 	}
-	// 4. добыть с карты
-	if s.Minable != nil && s.Minable(g.Item) {
+	// 4. много руды — бурами: площадка (бур + сундук + топливо), затем ждать и забирать
+	visible := (s.Minable != nil && s.Minable(g.Item)) || s.Found[g.Item]
+	if lack >= DrillThreshold && s.isOre(g.Item) && visible && !pl.banned("drill:"+g.Item) {
+		site := MiningSite{g.Item, 1}
+		if !site.Satisfied(s) {
+			return sub(pl, s, c, site)
+		}
+		return c.prim(Primitive{Kind: "wait", Role: OutRole(g.Item, 1), Item: g.Item, N: lack}), nil
+	}
+	// 5. добыть с карты руками; на открытой карте нет — разведать
+	if visible {
 		p := c.prim(Primitive{Kind: "gather", Item: g.Item, N: lack})
 		if !pl.banned(p.Key()) {
 			return p, nil
 		}
 		tried = append(tried, "добыча забанена")
+	} else if s.Explorable(g.Item) {
+		p := c.prim(Primitive{Kind: "explore", Item: g.Item})
+		if !pl.banned(p.Key()) {
+			return p, nil
+		}
+		tried = append(tried, "разведка ничего не дала")
 	}
 	return nil, fmt.Errorf("plan: не получить %s ×%d: нет способа %v", g.Item, lack, tried)
 }
@@ -231,6 +334,45 @@ func (g SmeltingLine) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		if !g.furnaceOK(o) {
 			ore += lineOre - o.In("crafter_input", g.Ore)
 		}
+	}
+	// много руды — сначала поставить буры под всё нужное сразу: копают параллельно,
+	// пока бот занят остальным
+	stone := 0
+	if k := missing - s.Inventory[Furnace]; k > 0 {
+		stone = k * int(s.Protos.Recipes[Furnace].Ingredients[0].Amount)
+	}
+	// топливо и руду линия тратит постоянно — под них площадки всегда (бур на угле,
+	// бур на руде); камень — только если его нужно много
+	var sites []MiningSite
+	for _, need := range []HaveItem{{"stone", stone}, {g.Fuel, fuel}, {g.Ore, ore}} {
+		lack := need.N - s.Inventory[need.Item]
+		if need.Item == g.Fuel || need.Item == g.Ore {
+			lack = DrillThreshold
+		}
+		visible := (s.Minable != nil && s.Minable(need.Item)) || s.Found[need.Item]
+		if lack >= DrillThreshold && s.isOre(need.Item) && visible && !pl.banned("drill:"+need.Item) {
+			if site := (MiningSite{need.Item, 1}); !site.Satisfied(s) {
+				sites = append(sites, site)
+			}
+		}
+	}
+	if len(sites) > 0 {
+		// буры и сундуки на все площадки — одним крафтом
+		drills, chests := 0, 0
+		for _, st := range sites {
+			if s.Role(SiteRole(st.Ore, 1)) == nil {
+				drills++
+			}
+			if s.Role(OutRole(st.Ore, 1)) == nil {
+				chests++
+			}
+		}
+		for _, need := range []HaveItem{{Drill, drills}, {Chest, chests}} {
+			if need.N > 0 && s.Inventory[need.Item] < need.N {
+				return sub(pl, s, c, need)
+			}
+		}
+		return sub(pl, s, c, sites[0])
 	}
 	for _, need := range []HaveItem{{Furnace, missing}, {g.Fuel, fuel}, {g.Ore, ore}} {
 		if need.N > 0 && s.Inventory[need.Item] < need.N {

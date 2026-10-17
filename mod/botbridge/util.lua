@@ -56,6 +56,16 @@ function util.render_name(m)
   return render_names[m]
 end
 
+local controller_names
+-- controller_name — "character" (обычная игра), "cutscene" (заставка — пропускается Tab), …
+function util.controller_name(t)
+  if not controller_names then
+    controller_names = {}
+    for k, v in pairs(defines.controllers) do controller_names[v] = k end
+  end
+  return controller_names[t]
+end
+
 local gui_names
 -- gui_name — имя defines.gui_type ("controller" — инвентарь персонажа, "entity" — окно сущности).
 function util.gui_name(t)

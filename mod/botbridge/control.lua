@@ -40,6 +40,7 @@ function methods.get_player()
     resolution = { width = p.display_resolution.width, height = p.display_resolution.height },
     scale = p.display_scale,
     controller = p.controller_type,
+    controller_name = util.controller_name(p.controller_type),
     selected = entity_info(p.selected),
     opened_gui_type = p.opened_gui_type,
     opened_gui = util.gui_name(p.opened_gui_type),
@@ -49,7 +50,7 @@ function methods.get_player()
     inventory = {},
     quickbar = {},
     crafting_queue = {},
-    crafting_queue_size = p.crafting_queue_size,
+    crafting_queue_size = c and p.crafting_queue_size or 0,
   }
   if p.cursor_stack and p.cursor_stack.valid_for_read then
     r.cursor = { name = p.cursor_stack.name, count = p.cursor_stack.count }
@@ -75,7 +76,8 @@ function methods.get_player()
     local ok, v = pcall(p.get_quick_bar_slot, i)
     r.quickbar[i] = ok and slot_name(v) or ""
   end
-  for _, q in pairs(p.crafting_queue or {}) do
+  -- без персонажа (заставка в начале новой карты) очереди крафта нет — обращение к ней ошибка
+  for _, q in pairs(c and p.crafting_queue or {}) do
     r.crafting_queue[#r.crafting_queue + 1] = { recipe = q.recipe, count = q.count, prerequisite = q.prerequisite }
   end
   if c then

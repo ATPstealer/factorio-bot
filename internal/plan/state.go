@@ -53,6 +53,29 @@ type State struct {
 	FindSpot func(s *State, entity, role string, avoid []bridge.Pos) (bridge.Pos, bool)
 	// Minable — можно ли добыть предмет с открытой карты (руда, дерево, камень).
 	Minable func(item string) bool
+	// Found — найдено разведкой (в симуляции: после шага explore предмет считается видимым).
+	Found map[string]bool
+}
+
+// Explorable — предмет вообще добывается с карты (ресурс, дерево, камень) — его есть
+// смысл искать разведкой, если на открытой карте его нет.
+func (s *State) Explorable(item string) bool {
+	for _, e := range s.Protos.Entities {
+		switch e.Type {
+		case "resource", "tree", "simple-entity":
+		default:
+			continue
+		}
+		if e.Mineable == nil || e.Mineable.RequiredFluid != "" {
+			continue
+		}
+		for _, p := range e.Mineable.Products {
+			if p.Name == item {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *State) Role(role string) *Owned {
@@ -70,6 +93,10 @@ func (s *State) Clone() *State {
 	c.Inventory = map[string]int{}
 	for k, v := range s.Inventory {
 		c.Inventory[k] = v
+	}
+	c.Found = map[string]bool{}
+	for k, v := range s.Found {
+		c.Found[k] = v
 	}
 	c.Owned = nil
 	for _, o := range s.Owned {
@@ -125,6 +152,8 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("забрать из %s", p.Role)
 	case "wait":
 		s = fmt.Sprintf("ждать %s ×%d в %s", p.Item, p.N, p.Role)
+	case "explore":
+		s = fmt.Sprintf("разведать карту: искать %s", p.Item)
 	default:
 		s = p.Kind
 	}

@@ -165,6 +165,7 @@ type Player struct {
 	} `json:"resolution"`
 	Scale             float64        `json:"scale"`
 	Controller        int            `json:"controller"`
+	ControllerName    string         `json:"controller_name"` // "character"; "cutscene" — заставка (Tab пропускает)
 	Selected          *Entity        `json:"selected"`
 	OpenedGUIType     *int           `json:"opened_gui_type"`
 	OpenedGUI         string         `json:"opened_gui"`
@@ -274,6 +275,7 @@ type ScanEntity struct {
 	Unit      int     `json:"u,omitempty"`
 	Own       bool    `json:"own,omitempty"`
 	Status    string  `json:"st,omitempty"`
+	Box       *Box    `json:"bb,omitempty"` // настоящая рамка коллизии (утёсы: зависит от ориентации)
 }
 
 // ChunkScan — содержимое открытого чанка. Tiles — 1024 символа по строкам:

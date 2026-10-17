@@ -22,8 +22,8 @@ func TestStage0_MapGenSettingsFile(t *testing.T) {
 	if f := m.AutoplaceControls["enemy-base"].Frequency; f != 0 {
 		t.Errorf("enemy-base frequency = %v, нужно 0", f)
 	}
-	if m.CliffSettings.Richness != 0 {
-		t.Errorf("cliff richness = %v, нужно 0", m.CliffSettings.Richness)
+	if m.CliffSettings.Richness <= 0 {
+		t.Errorf("cliff richness = %v: утёсы должны быть, как в обычной игре", m.CliffSettings.Richness)
 	}
 	if !m.PeacefulMode {
 		t.Error("peaceful_mode выключен")
@@ -142,13 +142,21 @@ func TestStage0_Map(t *testing.T) {
 	}
 	lua(t, `{seed=s.map_gen_settings.seed, cliff=s.map_gen_settings.cliff_settings.richness,
 		enemy=s.map_gen_settings.autoplace_controls["enemy-base"].frequency,
-		enemies=s.count_entities_filtered{force="enemy"}}`, &m)
-	if m.Seed != seed {
-		t.Errorf("seed = %d, нужно %d", m.Seed, seed)
+		enemies=s.count_entities_filtered{force="enemy", type={"unit","unit-spawner","turret"}}}`, &m)
+	// карта — та, что создал scripts/run.sh (сид в run/map.json), с настройками из файла
+	var mj struct{ Seed int }
+	readJSON(t, path("run", "map.json"), &mj)
+	if m.Seed != mj.Seed {
+		t.Errorf("seed = %d, в run/map.json %d", m.Seed, mj.Seed)
 	}
-	if m.Cliff != 0 || m.Enemy != 0 {
-		t.Errorf("карта сгенерирована с утёсами/кусаками: cliff=%v enemy=%v", m.Cliff, m.Enemy)
+	var file struct {
+		CliffSettings struct{ Richness float64 } `json:"cliff_settings"`
 	}
+	readJSON(t, path("scripts", "map-gen-settings.json"), &file)
+	if m.Cliff != file.CliffSettings.Richness || m.Enemy != 0 {
+		t.Errorf("настройки карты: cliff=%v (в файле %v), enemy=%v", m.Cliff, file.CliffSettings.Richness, m.Enemy)
+	}
+	t.Logf("карта: сид %d", m.Seed)
 	if m.Enemies != 0 {
 		t.Errorf("на карте %d вражеских сущностей", m.Enemies)
 	}

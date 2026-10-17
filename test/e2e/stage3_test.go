@@ -6,7 +6,9 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"math"
+	"sort"
 	"testing"
 	"time"
 
@@ -48,6 +50,9 @@ func ensure(t *testing.T, h *act.Hands, item, target string, n int) {
 			k = 1
 		}
 		if _, err := h.Gather(ctx, target, k, 150); err != nil {
+			if errors.Is(err, act.ErrNoTargets) {
+				t.Skipf("на открытой карте нет %s: %v", target, err)
+			}
 			t.Fatalf("добыть %s: %v", item, err)
 		}
 	}
@@ -142,7 +147,7 @@ func TestStage3_PlaceRotatePickup(t *testing.T) {
 	// в 2.0 бур ставится только на ресурсы: площадка 2×2 целиком на руде, ближайшая к игроку
 	var spot bridge.Pos
 	found := false
-	for _, pt := range h.World.Patches() {
+	for _, pt := range nearPatches(h, p0.Position) {
 		if pt.Name == "crude-oil" || len(pt.Tiles) < 20 {
 			continue
 		}
@@ -321,7 +326,7 @@ func TestStage3_MineOreNextToBuilding(t *testing.T) {
 	// площадка 2×2 на железной руде
 	var spot bridge.Pos
 	found := false
-	for _, pt := range h.World.Patches() {
+	for _, pt := range nearPatches(h, p0.Position) {
 		if pt.Name != "iron-ore" || len(pt.Tiles) < 50 {
 			continue
 		}
@@ -400,4 +405,12 @@ func walkTarget(t *testing.T, h *act.Hands) bridge.Pos {
 	}
 	t.Skip("рядом нет достижимой точки")
 	return bridge.Pos{}
+}
+
+// nearPatches — месторождения открытой карты, ближние к from — первыми (на случайной карте
+// самое большое может быть в сотнях тайлов).
+func nearPatches(h *act.Hands, from bridge.Pos) []world.Patch {
+	ps := h.World.Patches()
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].Distance(from) < ps[j].Distance(from) })
+	return ps
 }

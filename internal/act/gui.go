@@ -109,6 +109,28 @@ func (h *Hands) MenuOpen() (bool, error) {
 // ввод не доходит до мира (WASD двигает карту, буквы уходят в поиск). Esc жмём по одному,
 // с проверкой после каждого: лишний Esc в обычном виде откроет меню.
 func (h *Hands) guard(ctx context.Context) error {
+	// заставка (крушение в начале новой карты): персонажа ещё нет — Tab её пропускает
+	for i := 0; i < 5; i++ {
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		if p.ControllerName != "cutscene" {
+			break
+		}
+		if i == 0 {
+			h.Say("заставка — пропускаю (Tab)")
+		}
+		if err := h.Focus(); err != nil {
+			return err
+		}
+		if err := h.In.Tap("tab"); err != nil {
+			return err
+		}
+		if err := sleep(ctx, time.Second); err != nil {
+			return err
+		}
+	}
 	for i := 0; i < 4; i++ {
 		p, err := h.B.Player()
 		if err != nil {

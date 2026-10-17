@@ -3,6 +3,7 @@ package world
 
 import (
 	"math"
+	"sort"
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
@@ -52,6 +53,7 @@ type Object struct {
 	Unit      int
 	Own       bool
 	Status    string
+	Box       *bridge.Box // рамка из игры (утёсы); nil — из справочника
 }
 
 type Chunk struct {
@@ -87,7 +89,7 @@ func (w *World) Apply(scans []bridge.ChunkScan) {
 			c.Resources[TileOf(bridge.Pos{X: r.X, Y: r.Y})] = Resource{Name: r.Name, Amount: r.Amount}
 		}
 		for _, e := range s.Entities {
-			o := Object{Name: e.Name, Type: e.Type, Pos: bridge.Pos{X: e.X, Y: e.Y}, Unit: e.Unit, Own: e.Own, Status: e.Status}
+			o := Object{Name: e.Name, Type: e.Type, Pos: bridge.Pos{X: e.X, Y: e.Y}, Unit: e.Unit, Own: e.Own, Status: e.Status, Box: e.Box}
 			if e.Direction != nil {
 				o.Direction = *e.Direction
 			}
@@ -129,6 +131,9 @@ func (w *World) Objects() []Object {
 
 // CollisionBox — рамка коллизии объекта в мировых координатах (с поворотом на 90°).
 func (w *World) CollisionBox(o Object) bridge.Box {
+	if o.Box != nil {
+		return *o.Box
+	}
 	b := bridge.Box{LeftTop: bridge.Pos{X: -0.4, Y: -0.4}, RightBottom: bridge.Pos{X: 0.4, Y: 0.4}}
 	if w.Protos != nil {
 		if e, ok := w.Protos.Entities[o.Name]; ok {
@@ -301,4 +306,30 @@ func (w *World) FreeSpotWhere(near bridge.Pos, width, height, radius int, avoid 
 		}
 	}
 	return best, !math.IsInf(bestD, 1)
+}
+
+// Frontier — открытые чанки на краю открытой зоны (хоть один сосед по стороне не открыт),
+// ближние к from — первыми.
+func (w *World) Frontier(from bridge.Pos) []bridge.ChunkPos {
+	var res []bridge.ChunkPos
+	for cp := range w.Chunks {
+		for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			if w.Chunks[bridge.ChunkPos{X: cp.X + d[0], Y: cp.Y + d[1]}] == nil {
+				res = append(res, cp)
+				break
+			}
+		}
+	}
+	center := func(c bridge.ChunkPos) bridge.Pos {
+		return bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)}
+	}
+	sort.Slice(res, func(i, j int) bool {
+		a, b := center(res[i]), center(res[j])
+		da, db := math.Hypot(a.X-from.X, a.Y-from.Y), math.Hypot(b.X-from.X, b.Y-from.Y)
+		if da != db {
+			return da < db
+		}
+		return res[i].X*100000+res[i].Y < res[j].X*100000+res[j].Y
+	})
+	return res
 }

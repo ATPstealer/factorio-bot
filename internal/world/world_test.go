@@ -153,3 +153,18 @@ func rgba(c interface{ RGBA() (r, g, b, a uint32) }) [4]uint8 {
 	r, g, b, a := c.RGBA()
 	return [4]uint8{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
 }
+
+// Утёс: рамка из игры (зависит от ориентации) важнее рамки справочника.
+func TestCliffBox(t *testing.T) {
+	w := New(nil)
+	box := &bridge.Box{LeftTop: bridge.Pos{X: 4, Y: 10}, RightBottom: bridge.Pos{X: 8, Y: 11.5}}
+	w.Apply([]bridge.ChunkScan{chunk00(nil, []bridge.ScanEntity{{Name: "cliff", Type: "cliff", X: 6, Y: 10.75, Box: box}})})
+	for x := 4; x < 8; x++ {
+		if !w.Blocked(Tile{x, 10}) || !w.Blocked(Tile{x, 11}) {
+			t.Errorf("тайл (%d, 10..11) под утёсом свободен", x)
+		}
+	}
+	if w.Blocked(Tile{8, 10}) || w.Blocked(Tile{3, 10}) || w.TreeOnly(Tile{5, 10}) {
+		t.Error("рамка утёса шире, чем в игре, или утёс считается деревом")
+	}
+}

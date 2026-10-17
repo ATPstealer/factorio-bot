@@ -6,6 +6,6 @@
   "autoplace_controls": {
     "enemy-base": {"frequency": 0, "size": 0}
   },
-  "cliff_settings": {"name": "cliff", "cliff_elevation_0": 10, "cliff_elevation_interval": 40, "richness": 0},
+  "cliff_settings": {"name": "cliff", "cliff_elevation_0": 10, "cliff_elevation_interval": 40, "richness": 1},
   "starting_points": [{"x": 0, "y": 0}]
 }

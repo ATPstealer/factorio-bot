@@ -10,20 +10,7 @@ func Apply(s *State, p *Primitive) error {
 	case "gather":
 		inv[p.Item] += p.N
 	case "craft":
-		rec, ok := s.Protos.Recipes[p.Recipe]
-		if !ok {
-			return fmt.Errorf("sim: нет рецепта %s", p.Recipe)
-		}
-		for _, in := range rec.Ingredients {
-			need := int(float64(p.N)*in.Mean() + 0.999)
-			if inv[in.Name] < need {
-				return fmt.Errorf("sim: крафт %s: не хватает %s (%d < %d)", p.Recipe, in.Name, inv[in.Name], need)
-			}
-			inv[in.Name] -= need
-		}
-		for _, pr := range rec.Products {
-			inv[pr.Name] += int(float64(p.N) * pr.Mean())
-		}
+		return simCraft(s, p.Recipe, p.N, 0)
 	case "place":
 		if inv[p.Item] < 1 {
 			return fmt.Errorf("sim: нет %s", p.Item)
@@ -59,11 +46,19 @@ func Apply(s *State, p *Primitive) error {
 			delete(o.Inv, slot)
 		}
 	case "wait":
-		// переплавить всё, что лежит во входе печи
 		o := s.Role(p.Role)
 		if o == nil {
 			return fmt.Errorf("sim: нет %s", p.Role)
 		}
+		if o.Name == Chest {
+			// сундук бура: накопилось сколько ждали
+			if o.Inv["chest"] == nil {
+				o.Inv["chest"] = map[string]int{}
+			}
+			o.Inv["chest"][p.Item] += p.N
+			return nil
+		}
+		// печь: переплавить всё, что лежит во входе
 		for ore, n := range o.Inv["crafter_input"] {
 			for _, r := range s.Protos.RecipesFor(p.Item) {
 				rec := s.Protos.Recipes[r]
@@ -76,6 +71,11 @@ func Apply(s *State, p *Primitive) error {
 				}
 			}
 		}
+	case "explore":
+		if s.Found == nil {
+			s.Found = map[string]bool{}
+		}
+		s.Found[p.Item] = true
 	default:
 		return fmt.Errorf("sim: неизвестный шаг %s", p.Kind)
 	}
@@ -107,4 +107,31 @@ func Simulate(pl *Planner, s *State, goals []Goal, maxSteps int) ([]*Primitive, 
 		steps = append(steps, prim)
 	}
 	return steps, fmt.Errorf("plan: больше %d шагов — похоже на зацикливание", maxSteps)
+}
+
+// simCraft — крафт с промежуточными: недостающие ингредиенты крафтятся из того, что есть
+// (как в игре), базовое сырьё должно быть в инвентаре.
+func simCraft(s *State, recipe string, n int, depth int) error {
+	rec, ok := s.Protos.Recipes[recipe]
+	if !ok || depth > 10 {
+		return fmt.Errorf("sim: нет рецепта %s", recipe)
+	}
+	inv := s.Inventory
+	for _, in := range rec.Ingredients {
+		need := int(float64(n)*in.Mean() + 0.999)
+		if lack := need - inv[in.Name]; lack > 0 {
+			r, ok := s.craftRecipe(in.Name)
+			if !ok {
+				return fmt.Errorf("sim: крафт %s: не хватает %s (%d < %d)", recipe, in.Name, inv[in.Name], need)
+			}
+			if err := simCraft(s, r, ceilDiv(lack, productAmount(s.Protos.Recipes[r], in.Name)), depth+1); err != nil {
+				return err
+			}
+		}
+		inv[in.Name] -= need
+	}
+	for _, pr := range rec.Products {
+		inv[pr.Name] += int(float64(n) * pr.Mean())
+	}
+	return nil
 }

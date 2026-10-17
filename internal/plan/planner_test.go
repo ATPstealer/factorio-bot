@@ -77,14 +77,50 @@ func run(t *testing.T, s *State, goals ...Goal) (*State, []*Primitive) {
 	return end, steps
 }
 
-// 5 каменных печей с пустого инвентаря: добыть камень 25 → крафт ×5.
+// 3 каменные печи с пустого инвентаря: 15 камня — руками (мало для бура) → крафт ×3.
 func TestFurnacesFromScratch(t *testing.T) {
-	_, steps := run(t, newState(t), HaveItem{"stone-furnace", 5})
-	if len(steps) != 2 || steps[0].Kind != "gather" || steps[0].N != 25 || steps[1].Kind != "craft" || steps[1].N != 5 {
+	_, steps := run(t, newState(t), HaveItem{"stone-furnace", 3})
+	if len(steps) != 2 || steps[0].Kind != "gather" || steps[0].N != 15 || steps[1].Kind != "craft" || steps[1].N != 3 {
 		t.Errorf("шаги: %s", kinds(steps))
 	}
-	if r := steps[0].Reason(); !strings.Contains(r, "иметь stone ×25") || !strings.Contains(r, "иметь stone-furnace ×5") {
+	if r := steps[0].Reason(); !strings.Contains(r, "иметь stone ×15") || !strings.Contains(r, "иметь stone-furnace ×3") {
 		t.Errorf("почему: %s", r)
+	}
+}
+
+// Много угля — бурами: площадка (бур + сундук + уголь в бур), ждать, забрать.
+// Руками — только мелочь (для бура: пластины, уголь на розжиг).
+func TestManyCoalUsesDrill(t *testing.T) {
+	end, steps := run(t, newState(t), HaveItem{"coal", 60})
+	got := kinds(steps)
+	for _, want := range []string{"поставить burner-mining-drill", "как mine-coal-1", "поставить wooden-chest", "mine-coal-1-out", "положить coal ×5 в mine-coal-1", "ждать coal", "забрать из mine-coal-1-out"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("нет «%s»: %s", want, got)
+		}
+	}
+	for _, p := range steps {
+		if p.Kind == "gather" && p.N >= DrillThreshold {
+			t.Errorf("руками много: %s", p)
+		}
+	}
+	if end.Inventory["coal"] < 60 {
+		t.Errorf("угля %d", end.Inventory["coal"])
+	}
+}
+
+// Бур на угле подкидывает топливо из своего же сундука (уголь в инвентаре кончился).
+func TestCoalDrillRefuelsFromOwnChest(t *testing.T) {
+	s := newState(t)
+	s.Owned = []*Owned{
+		{Name: Drill, Role: SiteRole("coal", 1), Pos: bridge.Pos{X: 50}, Inv: map[string]map[string]int{}},
+		{Name: Chest, Role: OutRole("coal", 1), Pos: bridge.Pos{X: 52}, Inv: map[string]map[string]int{"chest": {"coal": 30}}},
+	}
+	p, err := NewPlanner().Next(s, MiningSite{"coal", 1})
+	if err != nil || p == nil {
+		t.Fatalf("%v %v", p, err)
+	}
+	if p.Kind != "take" || p.Role != OutRole("coal", 1) {
+		t.Errorf("первый шаг %s, ждали «забрать из сундука бура»", p)
 	}
 }
 
@@ -129,9 +165,21 @@ func TestSmeltingLineFromScratch(t *testing.T) {
 			t.Errorf("печь %d: %+v", i, o)
 		}
 	}
-	// всё собирается за один заход: камень, крафт, уголь, руда — затем 5 × (поставить, уголь, руда)
-	if len(steps) != 4+5*3 {
-		t.Errorf("%d шагов, ждали 19: %s", len(steps), kinds(steps))
+	// камень, уголь и руда (по 25+) — бурами; руками — ничего крупного
+	got := kinds(steps)
+	// и с камнем в инвентаре: топливо и руда — всё равно бурами (линия тратит их постоянно)
+	for _, site := range []string{"mine-stone-1", "mine-coal-1", "mine-iron-ore-1"} {
+		if !strings.Contains(got, "как "+site) {
+			t.Errorf("нет площадки %s: %s", site, got)
+		}
+	}
+	for _, p := range steps {
+		if p.Kind == "gather" && p.N >= DrillThreshold {
+			t.Errorf("руками много: %s", p)
+		}
+	}
+	if len(steps) > 70 {
+		t.Errorf("%d шагов — много: %s", len(steps), got)
 	}
 	seen := map[bridge.Pos]bool{}
 	for _, o := range end.Owned {
@@ -238,5 +286,35 @@ func TestUnreachable(t *testing.T) {
 	_, err := NewPlanner().Next(newState(t), HaveItem{"uranium-ore", 1})
 	if err == nil || !strings.Contains(err.Error(), "uranium-ore") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// Ресурса нет на открытой карте — сначала разведка, потом добыча.
+func TestExploreWhenNotVisible(t *testing.T) {
+	s := newState(t)
+	s.Minable = func(item string) bool { return item != "copper-ore" }
+	end, steps := run(t, s, HaveItem{"copper-ore", 10})
+	if len(steps) != 2 || steps[0].Kind != "explore" || steps[1].Kind != "gather" {
+		t.Errorf("шаги: %s", kinds(steps))
+	}
+	if end.Inventory["copper-ore"] != 10 {
+		t.Errorf("медь %d", end.Inventory["copper-ore"])
+	}
+}
+
+// Камень и уголь уже есть (попутно с камней) — бур на угле и руде всё равно ставится.
+func TestLineAlwaysDrillsFuelAndOre(t *testing.T) {
+	s := newState(t)
+	s.Inventory["stone"] = 100
+	s.Inventory["coal"] = 100
+	_, steps := run(t, s, SmeltingLine{Ore: "iron-ore", Fuel: "coal", N: 5})
+	got := kinds(steps)
+	for _, site := range []string{"как mine-coal-1", "как mine-iron-ore-1"} {
+		if !strings.Contains(got, site) {
+			t.Errorf("нет %s: %s", site, got)
+		}
+	}
+	if strings.Contains(got, "как mine-stone-1") {
+		t.Errorf("камня хватает, а бур на камень ставится: %s", got)
 	}
 }

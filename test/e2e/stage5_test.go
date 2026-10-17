@@ -6,6 +6,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -128,6 +129,7 @@ func TestStage5_SmeltingLine(t *testing.T) {
 	state := path("run", "state-test.json")
 	os.Remove(state)
 	defer os.Remove(state)
+	os.Remove(path("run", "bot-test.log"))
 
 	chests := stash(t, h)
 	defer unstash(t, h, chests)
@@ -161,6 +163,32 @@ func TestStage5_SmeltingLine(t *testing.T) {
 	time.Sleep(2 * time.Second) // печи разгорелись
 	lineOK(t, h, r, 5)
 
+	// много угля и руды — бурами: на угле бур с сундуком, уголь из сундука идёт и в печи,
+	// и обратно в бур; руками — только мелочь
+	coalDrill, coalChest := false, false
+	for _, o := range r.Saved.Owned {
+		coalDrill = coalDrill || o.Role == plan.SiteRole("coal", 1)
+		coalChest = coalChest || o.Role == plan.OutRole("coal", 1)
+	}
+	if !coalDrill || !coalChest {
+		t.Errorf("нет бура с сундуком на угле: %+v", r.Saved.Owned)
+	}
+	journal, _ := os.ReadFile(path("run", "bot-test.log"))
+	for _, want := range []string{"шаг: забрать из " + plan.OutRole("coal", 1), "шаг: положить coal ×5 в " + plan.SiteRole("coal", 1)} {
+		if !strings.Contains(string(journal), want) {
+			t.Errorf("в журнале нет «%s»", want)
+		}
+	}
+	for _, line := range strings.Split(string(journal), "\n") {
+		var item string
+		var n int
+		if i := strings.Index(line, "шаг: добыть "); i >= 0 {
+			if _, err := fmt.Sscanf(line[i+len("шаг: добыть "):], "%s ×%d", &item, &n); err == nil && n >= plan.DrillThreshold {
+				t.Errorf("руками много: %s", line[i:])
+			}
+		}
+	}
+
 	// «игрок» убирает печь №3; бот перезапускается и продолжает по сохранённому состоянию
 	var third plan.Owned
 	for _, o := range r.Saved.Owned {
@@ -190,6 +218,7 @@ func TestStage5_SmeltingLine(t *testing.T) {
 	lineOK(t, h, r2, 5)
 
 	log, _ := os.ReadFile(path("run", "bot-test.log"))
+	os.Remove(path("run", "bot-test.log"))
 	for _, want := range []string{"почему:", "исчезла", "линия плавки"} {
 		if !strings.Contains(string(log), want) {
 			t.Errorf("в журнале нет %q", want)

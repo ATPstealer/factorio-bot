@@ -64,6 +64,8 @@ local function scan_chunk(p, cx, cy)
           u = e.unit_number,
           own = own or nil,
           st = own and status_name(e.status) or nil,
+          -- рамка зависит от ориентации (утёсы) — отдаём настоящую
+          bb = e.type == "cliff" and util.box(e.bounding_box) or nil,
         }
       end
     end

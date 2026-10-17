@@ -23,7 +23,6 @@ import (
 
 const (
 	rconAddr    = "127.0.0.1:27015"
-	seed        = 12345
 	gameVersion = "2.0.77"
 )
 

@@ -269,9 +269,20 @@ func gather(t *testing.T, target string, n int) act.GatherResult {
 
 // Руда: ровно N единиц, сущность остаётся.
 func TestStage1_MineOre(t *testing.T) {
-	res := gather(t, "coal", 3)
-	if res.Items["coal"] != 3 {
-		t.Errorf("coal +%d, ждали +3", res.Items["coal"])
+	// любая видимая руда (на случайной карте у старта может не быть, например, угля)
+	ore := ""
+	for _, o := range []string{"coal", "iron-ore", "copper-ore", "stone"} {
+		if es, err := bridgeT(t).FindMinable(o, 100, 1); err == nil && len(es) > 0 && es[0].Type == "resource" {
+			ore = o
+			break
+		}
+	}
+	if ore == "" {
+		t.Skip("рядом нет руды")
+	}
+	res := gather(t, ore, 3)
+	if res.Items[ore] != 3 {
+		t.Errorf("%s +%d, ждали +3", ore, res.Items[ore])
 	}
 }
 
