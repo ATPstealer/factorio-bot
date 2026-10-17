@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -256,5 +257,43 @@ func TestStage1_MineRock(t *testing.T) {
 	res := gather(t, "rock", 1)
 	if res.Items["stone"] <= 0 {
 		t.Errorf("камня не прибавилось: %v", res.Items)
+	}
+}
+
+// Честность: поиск сущностей не видит неоткрытые (не charted) чанки.
+func TestStage1_OnlyCharted(t *testing.T) {
+	b := bridgeT(t)
+	for _, find := range []func() ([]bridge.Entity, error){
+		func() ([]bridge.Entity, error) {
+			return b.FindNearest(bridge.FindArgs{Type: "tree", Radius: 2000, Limit: 100000})
+		},
+		func() ([]bridge.Entity, error) { return b.FindMinable("any", 2000, 100000) },
+	} {
+		es, err := find()
+		if err != nil {
+			t.Fatal(err)
+		}
+		hidden := 0
+		// результаты отсортированы по расстоянию — проверяем 300 самых дальних, они у края открытой зоны
+		far := es[max(0, len(es)-300):]
+		for _, e := range far {
+			var charted bool
+			lua(t, fmt.Sprintf("p.force.is_chunk_charted(s, {%d, %d})",
+				int(math.Floor(e.Position.X/32)), int(math.Floor(e.Position.Y/32))), &charted)
+			if !charted {
+				hidden++
+			}
+		}
+		if hidden > 0 {
+			t.Errorf("найдено %d сущностей в неоткрытых чанках", hidden)
+		}
+		t.Logf("найдено %d, в неоткрытых чанках: %d", len(es), hidden)
+	}
+	// контроль: в сгенерированных, но не открытых чанках деревья есть — значит фильтр реально отсекает
+	var hiddenTrees int
+	lua(t, `(function() local n=0 for ch in s.get_chunks() do if not p.force.is_chunk_charted(s,{ch.x,ch.y}) then
+		n=n+s.count_entities_filtered{area=ch.area,type="tree"} end end return n end)()`, &hiddenTrees)
+	if hiddenTrees == 0 {
+		t.Log("в неоткрытых чанках деревьев нет — проверка фильтра неинформативна")
 	}
 }

@@ -26,6 +26,11 @@ local function entity_info(e)
   }
 end
 
+-- Честность: бот знает только то, что видит игрок — открытые (charted) чанки его силы.
+local function visible(p, position)
+  return p.force.is_chunk_charted(p.surface, { math.floor(position.x / 32), math.floor(position.y / 32) })
+end
+
 -- В 2.0 get_quick_bar_slot возвращает прототип или пару {name, quality} — берём имя.
 local function slot_name(v)
   if v == nil then return nil end
@@ -100,8 +105,10 @@ function methods.find_nearest(a)
   }
   local items = {}
   for _, e in pairs(list) do
-    local dx, dy = e.position.x - center.x, e.position.y - center.y
-    items[#items + 1] = { e = e, d = dx * dx + dy * dy }
+    if visible(p, e.position) then
+      local dx, dy = e.position.x - center.x, e.position.y - center.y
+      items[#items + 1] = { e = e, d = dx * dx + dy * dy }
+    end
   end
   table.sort(items, function(x, y) return x.d < y.d end)
   local res = {}
@@ -164,7 +171,7 @@ function methods.find_minable(a)
   local match = target_filter(a.target or "any")
   local items = {}
   for _, e in pairs(p.surface.find_entities_filtered { type = NATURAL_TYPES, position = center, radius = a.radius or 64 }) do
-    if hand_minable(e) and match(e) then
+    if hand_minable(e) and match(e) and visible(p, e.position) then
       local dx, dy = e.position.x - center.x, e.position.y - center.y
       items[#items + 1] = { e = e, d = dx * dx + dy * dy }
     end
@@ -185,7 +192,9 @@ end
 
 -- Есть ли сущность с таким именем ровно в этой точке.
 function methods.entity_at(a)
-  local e = game.surfaces[1].find_entities_filtered { name = a.name, position = a.position, radius = 0.01 }[1]
+  local p = bot_player()
+  if not visible(p, a.position) then return nil end
+  local e = p.surface.find_entities_filtered { name = a.name, position = a.position, radius = 0.01 }[1]
   return entity_info(e)
 end
 
