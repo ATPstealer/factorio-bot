@@ -21,21 +21,33 @@ const notMiningGrace = 1500 * time.Millisecond
 
 // MineUntil наводит курсор на e и держит ПКМ, пока сущность не исчезнет или done не вернёт true.
 func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
-	if err := h.guard(ctx); err != nil {
-		return err
+	held := false
+	defer func() {
+		if held {
+			h.In.ButtonUp(input.Right)
+		}
+	}()
+	return h.mineHeld(ctx, e, done, &held)
+}
+
+// mineHeld — MineUntil, который не отпускает ПКМ в конце: *held — нажата ли ПКМ сейчас.
+// Подряд идущие цели добываются без отпускания кнопки — курсор просто переводится на
+// следующую (как протягивание мышью), без лишнего нажатия на каждую.
+func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool, held *bool) error {
+	if !*held {
+		if err := h.guard(ctx); err != nil {
+			return err
+		}
 	}
 	if err := h.Hover(ctx, e); err != nil {
 		return err
 	}
-	if err := h.In.ButtonDown(input.Right); err != nil {
-		return err
-	}
-	pressed := true
-	defer func() {
-		if pressed {
-			h.In.ButtonUp(input.Right)
+	if !*held {
+		if err := h.In.ButtonDown(input.Right); err != nil {
+			return err
 		}
-	}()
+		*held = true
+	}
 	var idleSince time.Time
 	repressed := false
 	for {
@@ -50,7 +62,7 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 		// (у построек время добычи ~0.2 с)
 		if p.Selected != nil && !same(p.Selected, e) {
 			h.In.ButtonUp(input.Right)
-			pressed = false
+			*held = false
 			got, err := h.B.EntityAt(e.Name, e.Position)
 			if err != nil {
 				return err
@@ -65,7 +77,7 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 			if err := h.In.ButtonDown(input.Right); err != nil {
 				return err
 			}
-			pressed = true
+			*held = true
 			idleSince = time.Time{}
 			continue
 		}
@@ -110,14 +122,14 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 		}
 		// выделения нет (курсор съехал) — отпустить ПКМ и навести заново
 		h.In.ButtonUp(input.Right)
-		pressed = false
+		*held = false
 		if err := h.Hover(ctx, e); err != nil {
 			return err
 		}
 		if err := h.In.ButtonDown(input.Right); err != nil {
 			return err
 		}
-		pressed = true
+		*held = true
 		idleSince = time.Time{}
 	}
 }

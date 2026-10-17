@@ -1,0 +1,368 @@
+//go:build e2e
+
+// Стадия 3 — сложные сценарии на точность ввода и поиск пути (по заданию пользователя):
+// улитка из печей вокруг себя и выход из неё; печь вплотную к дереву; бур ровно на одной
+// клетке руды; 10 предметов на земле и сбор в заданном порядке.
+package e2e
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"os"
+	"sort"
+	"testing"
+	"time"
+
+	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/world"
+)
+
+// craftUpTo — довести количество предмета до n крафтом (ингредиенты — добычей).
+func craftUpTo(t *testing.T, h *act.Hands, item string, n int) {
+	t.Helper()
+	p, _ := h.B.Player()
+	if k := n - p.Inventory[item]; k > 0 {
+		if r := h.Protos.Recipes[item]; len(r.Ingredients) == 1 && r.Ingredients[0].Name == "stone" {
+			ensure(t, h, "stone", "stone", int(r.Ingredients[0].Amount)*k)
+		}
+		if err := h.CraftWait(ctxT(t, 3*time.Minute), item, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// freeArea — центр свободной (суша без объектов) площадки size×size рядом с игроком.
+func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
+	t.Helper()
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	c, ok := h.World.FreeSpot(p.Position, size, size, 60, nil)
+	if !ok {
+		t.Skipf("нет свободной площадки %d×%d", size, size)
+	}
+	return c
+}
+
+func pickupAll(t *testing.T, h *act.Hands, es []bridge.Entity) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	start := time.Now()
+	if err := h.PickupAll(ctx, es); err != nil {
+		t.Errorf("убрать постройки: %v", err)
+	}
+	t.Logf("убрано %d за %.1f с", len(es), time.Since(start).Seconds())
+}
+
+// snailBlocks — левые верхние тайлы печей 2×2 относительно центра: комната 2×2 с игроком,
+// кольцо 1 (проём на севере), коридор в 1 тайл, кольцо 2 (проём на юге).
+func snailBlocks() []world.Tile {
+	var res []world.Tile
+	for _, y := range []int{-3, -1, 1} {
+		for _, x := range []int{-3, -1, 1} {
+			if (x == -1 && y == -1) || (x == -1 && y == -3) { // комната и проём кольца 1
+				continue
+			}
+			res = append(res, world.Tile{X: x, Y: y})
+		}
+	}
+	for _, x := range []int{-6, -4, -2, 0, 2, 4} {
+		res = append(res, world.Tile{X: x, Y: -6})
+		if x != 0 { // проём кольца 2
+			res = append(res, world.Tile{X: x, Y: 4})
+		}
+	}
+	for _, y := range []int{-4, -2, 0, 2} {
+		res = append(res, world.Tile{X: -6, Y: y}, world.Tile{X: 4, Y: y})
+	}
+	return res
+}
+
+func pathLen(from bridge.Pos, pts []bridge.Pos) float64 {
+	l := 0.0
+	for _, p := range pts {
+		l += math.Hypot(p.X-from.X, p.Y-from.Y)
+		from = p
+	}
+	return l
+}
+
+// Улитка из печей вокруг себя, затем выход из лабиринта.
+// Долгий (~1 мин): в обычной регрессии пропускается, запуск — E2E_SLOW=1 scripts/test.sh.
+func TestStage3_SnailMaze(t *testing.T) {
+	if os.Getenv("E2E_SLOW") == "" {
+		t.Skip("долгий тест: E2E_SLOW=1")
+	}
+	h := handsT(t)
+	ctx := ctxT(t, 10*time.Minute)
+	blocks := snailBlocks()
+	craftUpTo(t, h, "stone-furnace", len(blocks))
+
+	c := freeArea(t, h, 18) // кольцо 2 — 12×12, вокруг — запас для выхода
+	if err := h.WalkTo(ctx, c, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	var positions []bridge.Pos
+	for _, b := range blocks {
+		positions = append(positions, bridge.Pos{X: c.X + float64(b.X) + 1, Y: c.Y + float64(b.Y) + 1})
+	}
+	start := time.Now()
+	placed, err := h.PlaceAll(ctx, "stone-furnace", positions, act.North)
+	defer func() { pickupAll(t, h, placed) }()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("поставлено %d за %.1f с", len(placed), time.Since(start).Seconds())
+	p, _ := h.B.Player()
+	if math.Abs(p.Position.X-c.X) > 1 || math.Abs(p.Position.Y-c.Y) > 1 {
+		t.Fatalf("строя улитку, персонаж вышел из комнаты: %v, центр %v", p.Position, c)
+	}
+
+	// выход: точка к северу снаружи; прямо — 8 тайлов, по лабиринту — через оба проёма
+	out := bridge.Pos{X: c.X + 0.5, Y: c.Y - 8.5}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	pts, err := h.World.Path(p.Position, out, 0.5, 0)
+	if err != nil {
+		t.Fatalf("пути из улитки нет: %v", err)
+	}
+	l := pathLen(p.Position, pts)
+	t.Logf("путь из улитки: %d точек поворота, %.0f тайлов (напрямую %.0f)", len(pts), l, math.Hypot(out.X-p.Position.X, out.Y-p.Position.Y))
+	if l < 25 {
+		t.Errorf("путь %.0f тайлов — слишком короткий для улитки (проходит сквозь стены?)", l)
+	}
+	if err := h.WalkTo(ctx, out, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = h.B.Player()
+	if math.Abs(p.Position.X-c.X) < 6.5 && math.Abs(p.Position.Y-c.Y) < 6.5 {
+		t.Errorf("персонаж всё ещё внутри улитки: %v", p.Position)
+	}
+	clean(t, h)
+}
+
+// boxGap — расстояние между прямоугольниками (0 — касаются или пересекаются).
+func boxGap(a, b bridge.Box) float64 {
+	dx := math.Max(0, math.Max(a.LeftTop.X-b.RightBottom.X, b.LeftTop.X-a.RightBottom.X))
+	dy := math.Max(0, math.Max(a.LeftTop.Y-b.RightBottom.Y, b.LeftTop.Y-a.RightBottom.Y))
+	return math.Hypot(dx, dy)
+}
+
+// Печь как можно ближе к дереву, срубить дерево (печь цела), убрать печь.
+func TestStage3_FurnaceHugsTree(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	craftUpTo(t, h, "stone-furnace", 1)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	trees, err := h.B.FindMinable("tree", 60, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb := h.Protos.Entities["stone-furnace"].CollisionBox
+	var tree bridge.Entity
+	var spot bridge.Pos
+	best := math.Inf(1)
+	for _, tr := range trees {
+		tb := h.World.CollisionBox(world.Object{Name: tr.Name, Pos: tr.Position})
+		for dy := -3; dy <= 3; dy++ {
+			for dx := -3; dx <= 3; dx++ {
+				c := bridge.Pos{X: math.Round(tr.Position.X) + float64(dx), Y: math.Round(tr.Position.Y) + float64(dy)}
+				s, ok := h.World.FreeSpot(c, 2, 2, 0, &p0.Position)
+				if !ok {
+					continue
+				}
+				box := bridge.Box{LeftTop: bridge.Pos{X: s.X + fb.LeftTop.X, Y: s.Y + fb.LeftTop.Y},
+					RightBottom: bridge.Pos{X: s.X + fb.RightBottom.X, Y: s.Y + fb.RightBottom.Y}}
+				if g := boxGap(box, tb); g < best {
+					best, tree, spot = g, tr, s
+				}
+			}
+		}
+		if best < 0.35 {
+			break
+		}
+	}
+	if math.IsInf(best, 1) {
+		t.Skip("нет места рядом с деревьями")
+	}
+	t.Logf("дерево %s %v, печь в %v, зазор %.2f тайла", tree.Name, tree.Position, spot, best)
+	f, err := h.Place(ctx, "stone-furnace", spot, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pickupAll(t, h, []bridge.Entity{f})
+	if best > 0.7 {
+		t.Errorf("зазор между печью и деревом %.2f — не вплотную", best)
+	}
+	if err := h.WalkToMine(ctx, tree); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Mine(ctx, tree, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := h.B.EntityAt(tree.Name, tree.Position); e != nil {
+		t.Error("дерево на месте")
+	}
+	if st, _ := h.B.GetEntity(f.Name, f.Position); st == nil {
+		t.Fatal("рубя дерево, бот разобрал печь")
+	}
+	if err := h.Pickup(ctx, f); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := h.B.GetEntity(f.Name, f.Position); st != nil {
+		t.Error("печь не убрана")
+	}
+	clean(t, h)
+}
+
+// Бур 2×2 ровно на одной клетке руды (остальные три — пустая суша).
+func TestStage3_DrillOneOreTile(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	p0, _ := h.B.Player()
+	if p0.Inventory["burner-mining-drill"] == 0 {
+		t.Skip("нет burner-mining-drill")
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	w := h.World
+	isOre := func(tl world.Tile) bool { _, ok := w.ResourceAt(tl); return ok }
+	free := func(tl world.Tile) bool { return w.TileAt(tl) == world.Land && !w.Blocked(tl) }
+	var spot bridge.Pos
+	best := math.Inf(1)
+	for _, pt := range w.Patches() {
+		if pt.Name == "crude-oil" {
+			continue
+		}
+		for _, ore := range pt.Tiles {
+			for _, o := range [][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
+				lt := world.Tile{X: ore.X - o[0], Y: ore.Y - o[1]}
+				n, ok := 0, true
+				for y := 0; y < 2 && ok; y++ {
+					for x := 0; x < 2 && ok; x++ {
+						tl := world.Tile{X: lt.X + x, Y: lt.Y + y}
+						ok = free(tl)
+						if isOre(tl) {
+							n++
+						}
+					}
+				}
+				c := bridge.Pos{X: float64(lt.X) + 1, Y: float64(lt.Y) + 1}
+				if d := math.Hypot(c.X-p0.Position.X, c.Y-p0.Position.Y); ok && n == 1 && d < best && d > 2 {
+					best, spot = d, c
+				}
+			}
+		}
+	}
+	if math.IsInf(best, 1) {
+		t.Skip("нет места, где 2×2 задевает ровно 1 клетку руды")
+	}
+	e, err := h.Place(ctx, "burner-mining-drill", spot, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pickupAll(t, h, []bridge.Entity{e})
+	var n int
+	lua(t, fmt.Sprintf(`s.count_entities_filtered{type="resource", area={{%f,%f},{%f,%f}}}`,
+		spot.X-0.99, spot.Y-0.99, spot.X+0.99, spot.Y+0.99), &n)
+	if n != 1 {
+		t.Errorf("под буром %d клеток руды, ждали 1", n)
+	}
+	t.Logf("бур в %v, клеток руды в зоне добычи: %d", spot, n)
+	if err := h.Pickup(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	clean(t, h)
+}
+
+// 10 разных предметов на земле вокруг себя, затем сбор в заданном порядке
+// (обратном алфавитному): каждый раз поднимается ровно нужный, остальные лежат.
+func TestStage3_DropAndCollectInOrder(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 8*time.Minute)
+	items := []string{"stone", "coal", "wood", "iron-ore", "iron-plate", "stone-furnace",
+		"burner-mining-drill", "wooden-chest", "iron-gear-wheel", "copper-ore"}
+	ensure(t, h, "stone", "stone", 1)
+	ensure(t, h, "coal", "coal", 1)
+	ensure(t, h, "wood", "tree", 1)
+	ensure(t, h, "iron-ore", "iron-ore", 1)
+	ensure(t, h, "copper-ore", "copper-ore", 1)
+	craftUpTo(t, h, "stone-furnace", 1)
+	craftUpTo(t, h, "wooden-chest", 1)
+	if p, _ := h.B.Player(); p.Inventory["iron-gear-wheel"] == 0 {
+		if p.Inventory["iron-plate"] < 3 {
+			t.Skipf("нужно 3 железные пластины, есть %d", p.Inventory["iron-plate"])
+		}
+		craftUpTo(t, h, "iron-gear-wheel", 1)
+	}
+	if p, _ := h.B.Player(); p.Inventory["burner-mining-drill"] == 0 || p.Inventory["iron-plate"] == 0 {
+		t.Skip("нет бура или пластин")
+	}
+
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	pl, _ := h.B.Player()
+	noOre := func(tl world.Tile) bool { _, ok := h.World.ResourceAt(tl); return !ok }
+	c, ok := h.World.FreeSpotWhere(pl.Position, 9, 9, 60, nil, noOre)
+	if !ok {
+		t.Skip("нет свободной площадки 9×9 без руды")
+	}
+	c = bridge.Pos{X: c.X + 0.5, Y: c.Y + 0.5}
+	if err := h.WalkTo(ctx, c, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	dropped := map[string]bridge.Entity{}
+	for i, it := range items {
+		a := 2 * math.Pi * float64(i) / float64(len(items))
+		pos := world.TileOf(bridge.Pos{X: c.X + 3.2*math.Cos(a), Y: c.Y + 3.2*math.Sin(a)}).Center()
+		e, err := h.Drop(ctx, it, pos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dropped[it] = e
+	}
+	onGround := func() map[string]int {
+		es, err := h.B.FindNearest(bridge.FindArgs{Type: "item-entity", Position: &c, Radius: 6, Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]int{}
+		for _, e := range es {
+			m[e.Item]++
+		}
+		return m
+	}
+	if g := onGround(); len(g) < len(items) {
+		t.Fatalf("на земле %v, ждали %d разных", g, len(items))
+	}
+
+	order := append([]string(nil), items...)
+	sort.Sort(sort.Reverse(sort.StringSlice(order)))
+	for i, it := range order {
+		p0, _ := h.B.Player()
+		if err := h.PickupItem(ctx, dropped[it]); err != nil {
+			t.Fatalf("%d-й (%s): %v", i+1, it, err)
+		}
+		p1, _ := h.B.Player()
+		if p1.Inventory[it] != p0.Inventory[it]+1 {
+			t.Errorf("%d-й (%s): в инвентаре %d → %d", i+1, it, p0.Inventory[it], p1.Inventory[it])
+		}
+		g := onGround()
+		for _, rest := range order[i+1:] {
+			if g[rest] == 0 {
+				t.Errorf("подняв %s, задели %s — он пропал с земли раньше очереди", it, rest)
+			}
+		}
+	}
+	clean(t, h)
+}

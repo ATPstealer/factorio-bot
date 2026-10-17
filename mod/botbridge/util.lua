@@ -21,6 +21,8 @@ function util.entity_info(e)
     name = e.name, type = e.type, position = util.pos(e.position), unit_number = e.unit_number,
     selection_box = util.box(e.selection_box),
     direction = e.supports_direction and e.direction or nil,
+    -- предмет на земле: что лежит
+    item = e.type == "item-entity" and e.stack.valid_for_read and e.stack.name or nil,
   }
 end
 

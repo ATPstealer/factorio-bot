@@ -114,6 +114,7 @@ type Entity struct {
 	UnitNumber   int     `json:"unit_number,omitempty"`
 	SelectionBox *Box    `json:"selection_box,omitempty"`
 	Direction    *int    `json:"direction,omitempty"` // 2.0: 0 север, 4 восток, 8 юг, 12 запад
+	Item         string  `json:"item,omitempty"`      // у предмета на земле (item-entity) — что лежит
 	Distance     float64 `json:"distance,omitempty"`
 
 	// только у find_minable
