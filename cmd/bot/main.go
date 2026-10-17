@@ -36,7 +36,7 @@ const usage = `bot — бот Factorio: действует только мышь
   ping                  проверить связь: тик игры и версия мода botbridge
   player                состояние игрока (позиция, зум, инвентарь, курсор, выделение) в JSON
   events [AFTER]        события из буфера мода (добыча, постройка, крафт...) с номером > AFTER
-  path X Y              показать путь A* от игрока до (X, Y): точки поворота (отладка, без движения)
+  path [-trees] X Y     показать путь A* (-trees — сквозь деревья: T — рубить) от игрока до (X, Y): точки поворота (отладка, без движения)
   walk X Y              дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла
   craft РЕЦЕПТ [N]      скрафтить N раз (по умолчанию 1) и дождаться: E → поиск → клик по ячейке рецепта
   place ПРЕДМЕТ X Y [DIR]
@@ -44,6 +44,12 @@ const usage = `bot — бот Factorio: действует только мышь
   insert ПРЕДМЕТ N X Y  положить N предметов в постройку в точке (X, Y) (клавиша Z по одному)
   take X Y              забрать результат из постройки в точке (X, Y) (Ctrl+ЛКМ)
   pickup X Y            подобрать свою постройку в точке (X, Y)
+  run ЦЕЛЬ… | keep      выполнять цели (планировщик сам добывает, крафтит, плавит, ставит):
+                          have ПРЕДМЕТ N — иметь в инвентаре; smelt РУДА N — линия из N печей на руде
+                          с углём (поддерживается: бот следит и чинит, выход — Ctrl+C или -t);
+                          keep — продолжить сохранённые цели (run/state.json); журнал — run/bot.log
+  plan ЦЕЛЬ…            показать план (шаги и почему) без исполнения
+  goals                 сохранённые цели, свои постройки, баны
   map [-r R] [-s S] [-o FILE]
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
                         S пикселей на тайл (3), файл FILE (map.png); руды, вода, деревья, камни, обломки
@@ -79,6 +85,8 @@ const usage = `bot — бот Factorio: действует только мышь
   bin/bot calc -all rocket-part 1/min
   bin/bot calc automation-science-pack 30 logistic-science-pack 30
   bin/bot tech rocket-silo
+  bin/bot plan smelt iron-ore 5
+  bin/bot -t 20m run smelt iron-ore 5
 
 Флаги:
 `
@@ -169,10 +177,30 @@ func main() {
 		if len(args) < 3 {
 			log.Fatal("bot path X Y")
 		}
+		trees := args[1] == "-trees"
+		if trees {
+			args = args[1:]
+		}
 		w := loadWorld(b)
 		p, err := b.Player()
 		check(err)
 		target := bridge.Pos{X: atof(args[1]), Y: atof(args[2])}
+		if trees {
+			tiles, err := w.PathThroughTrees(p.Position, target, 0.5, 0, 6)
+			fmt.Printf("сквозь деревья (%v), тайлов %d:", err, len(tiles))
+			for _, t := range tiles {
+				mark := ""
+				if !w.Walkable(t) {
+					mark = "!"
+					if w.TreeOnly(t) {
+						mark = "T"
+					}
+				}
+				fmt.Printf(" %d,%d%s", t.X, t.Y, mark)
+			}
+			fmt.Println()
+			return
+		}
 		pts, err := w.Path(p.Position, target, 0.5, 0)
 		check(err)
 		fmt.Printf("от (%.2f, %.2f):\n", p.Position.X, p.Position.Y)
@@ -309,6 +337,12 @@ func main() {
 			check(h.Pickup(ctx, *target))
 			log.Printf("подобрано %s", target.Name)
 		}
+	case "run":
+		runRun(ctx, hands(), args[1:])
+	case "plan":
+		runPlan(hands(), args[1:])
+	case "goals":
+		runGoals()
 	case "shot":
 		fs := flag.NewFlagSet("shot", flag.ExitOnError)
 		out := fs.String("o", "shot.png", "файл")

@@ -148,8 +148,21 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		return err
 	}
 	if h.World != nil {
+		clears := 0
 		for replan := 0; ; replan++ {
 			err := h.followPath(ctx, target, stop)
+			if errors.Is(err, world.ErrNoPath) && clears < 4 {
+				// прохода нет (персонаж в «кармане» из деревьев или цель за лесом) —
+				// прорубить дорогу, как сделал бы игрок
+				n, cerr := h.clearWay(ctx, target, stop)
+				if cerr != nil {
+					return cerr
+				}
+				if n > 0 {
+					clears++
+					continue
+				}
+			}
 			if errors.Is(err, world.ErrNoPath) {
 				// цель за препятствиями: дошли до ближайшей достижимой точки — дальше
 				// по прямой нельзя (упрёмся), сообщаем честно
@@ -170,6 +183,86 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		return err
 	}
 	return h.approach(ctx, target, stop)
+}
+
+// clearWay рубит деревья на пути к target (путь сквозь деревья с надбавкой за каждое):
+// подходит к первому дереву на пути и рубит те, до которых дотягивается (до 6).
+func (h *Hands) clearWay(ctx context.Context, target bridge.Pos, stop float64) (int, error) {
+	p, err := h.B.Player()
+	if err != nil {
+		return 0, err
+	}
+	tiles, err := h.World.PathThroughTrees(p.Position, target, stop, 0, 6)
+	if len(tiles) == 0 {
+		return 0, nil
+	}
+	// что рубить: тайлы пути с деревьями и, на диагональных шагах, угловые тайлы с
+	// деревьями (между ними персонаж не протиснется — углы срезать нельзя)
+	tree := func(t world.Tile) bool { return !h.World.Walkable(t) && h.World.TreeOnly(t) }
+	var toCut []world.Tile
+	first := -1
+	for i := 1; i < len(tiles); i++ {
+		a, b := tiles[i-1], tiles[i]
+		cand := []world.Tile{b}
+		if a.X != b.X && a.Y != b.Y {
+			cand = append(cand, world.Tile{X: b.X, Y: a.Y}, world.Tile{X: a.X, Y: b.Y})
+		}
+		for _, c := range cand {
+			if tree(c) && !containsTile(toCut, c) {
+				if first < 0 {
+					first = i
+				}
+				toCut = append(toCut, c)
+			}
+		}
+	}
+	if first < 0 {
+		return 0, nil
+	}
+	h.Say("прохода нет — прорубаю путь к (%.0f, %.0f)", target.X, target.Y)
+	if first > 1 {
+		if err := h.WalkTo(ctx, tiles[first-1].Center(), 0.5); err != nil && !errors.Is(err, ErrNotReached) {
+			return 0, err
+		}
+	}
+	cut := 0
+	for _, t := range toCut {
+		if cut >= 6 || !h.World.TreeOnly(t) {
+			continue
+		}
+		for _, o := range h.World.ObjectsNear(t.Center(), 1.5) {
+			if o.Type != "tree" || !containsTile(world.BoxTiles(h.World.CollisionBox(o)), t) {
+				continue
+			}
+			p, err := h.B.Player()
+			if err != nil {
+				return cut, err
+			}
+			box := h.World.CollisionBox(o)
+			if dist(p.Position, closestOnBox(p.Position, box)) > mineReachGame {
+				return cut, nil // дальше — после следующего шага
+			}
+			sb := h.World.SelectionBox(o)
+			e := bridge.Entity{Name: o.Name, Type: o.Type, Position: o.Pos, SelectionBox: &sb}
+			if err := h.Mine(ctx, e, 10*time.Second); err != nil && !errors.Is(err, ErrHover) {
+				return cut, err
+			}
+			cut++
+		}
+		if _, err := h.World.Sync(h.B, false); err != nil {
+			return cut, err
+		}
+	}
+	return cut, nil
+}
+
+func containsTile(ts []world.Tile, t world.Tile) bool {
+	for _, x := range ts {
+		if x == t {
+			return true
+		}
+	}
+	return false
 }
 
 // followPath проходит путь A* до последней точки поворота без остановок. Держится линии

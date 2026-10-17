@@ -36,12 +36,29 @@ func tdist(a Tile, b bridge.Pos) float64 { c := a.Center(); return math.Hypot(c.
 // (персонаж не срезает углы). Тайл старта считается проходимым (персонаж может стоять
 // у края рамки). Возвращает точки поворота (центры тайлов), последняя — у цели.
 func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.Pos, error) {
+	tiles, err := w.search(from, to, near, maxNodes, 0)
+	if len(tiles) == 0 {
+		return nil, err
+	}
+	return w.waypoints(tiles), err
+}
+
+// PathThroughTrees — путь, в котором тайлы, занятые только деревьями, проходимы с
+// надбавкой treeCost (деревья по дороге придётся срубить). Тайлы пути — подряд.
+func (w *World) PathThroughTrees(from, to bridge.Pos, near float64, maxNodes int, treeCost float64) ([]Tile, error) {
+	return w.search(from, to, near, maxNodes, treeCost)
+}
+
+// search — A* по тайлам; treeCost > 0 — деревья проходимы с этой надбавкой.
+func (w *World) search(from, to bridge.Pos, near float64, maxNodes int, treeCost float64) ([]Tile, error) {
 	if maxNodes <= 0 {
 		maxNodes = 200_000
 	}
 	start := TileOf(from)
 	near = math.Max(near, 0.75) // точка на углу тайлов — до центров соседних 0.71
-	walk := func(t Tile) bool { return t == start || w.Walkable(t) }
+	walk := func(t Tile) bool {
+		return t == start || w.Walkable(t) || (treeCost > 0 && w.TreeOnly(t))
+	}
 
 	open := &openList{}
 	nodes := map[Tile]*node{}
@@ -64,7 +81,7 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 		closed[cur.t] = true
 		d := tdist(cur.t, to)
 		if d <= near {
-			return w.waypoints(start, cur.t, came), nil
+			return chain(start, cur.t, came), nil
 		}
 		if d < bestD {
 			best, bestD = cur.t, d
@@ -88,6 +105,9 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 					}
 					cost = math.Sqrt2
 				}
+				if treeCost > 0 && n != start && !w.Walkable(n) {
+					cost += treeCost
+				}
 				// при равной длине — меньше поворотов (каждый поворот — смена клавиш, торможение)
 				if prev, ok := came[cur.t]; ok && (Tile{cur.t.X - prev.X, cur.t.Y - prev.Y}) != (Tile{dx, dy}) {
 					cost += 0.01
@@ -106,13 +126,11 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 	if best == start {
 		return nil, ErrNoPath
 	}
-	return w.waypoints(start, best, came), ErrNoPath
+	return chain(start, best, came), ErrNoPath
 }
 
-// waypoints — восстановление пути и сжатие: остаются точки, где меняется направление шага.
-// Отрезки под произвольным углом не годятся: персонаж ходит клавишами только в 8
-// направлениях и, срезая угол, цепляет препятствия (густой лес).
-func (w *World) waypoints(start, goal Tile, came map[Tile]Tile) []bridge.Pos {
+// chain — тайлы пути от start до goal.
+func chain(start, goal Tile, came map[Tile]Tile) []Tile {
 	var tiles []Tile
 	for t := goal; ; t = came[t] {
 		tiles = append(tiles, t)
@@ -123,6 +141,13 @@ func (w *World) waypoints(start, goal Tile, came map[Tile]Tile) []bridge.Pos {
 	for i, j := 0, len(tiles)-1; i < j; i, j = i+1, j-1 {
 		tiles[i], tiles[j] = tiles[j], tiles[i]
 	}
+	return tiles
+}
+
+// waypoints — восстановление пути и сжатие: остаются точки, где меняется направление шага.
+// Отрезки под произвольным углом не годятся: персонаж ходит клавишами только в 8
+// направлениях и, срезая угол, цепляет препятствия (густой лес).
+func (w *World) waypoints(tiles []Tile) []bridge.Pos {
 	var res []bridge.Pos
 	for i := 1; i < len(tiles)-1; i++ {
 		d1 := Tile{tiles[i].X - tiles[i-1].X, tiles[i].Y - tiles[i-1].Y}

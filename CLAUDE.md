@@ -87,6 +87,11 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - `internal/knowledge`: `NewAvailability(researched, all)`, `Usable`, `Resource`, `BestCrafter/BestDrill/BestBelt`, `TechPath`, `Cost`, `TechsFor`. Снимок справочника для юнит-тестов — `internal/knowledge/testdata/prototypes.json` (в git; e2e `TestStage4_SnapshotMatchesGame` сверяет с игрой — при смене версии/полей обновить: `bin/bot protos -refresh` и пересохранить).
 - CLI `calc/tech/raw` работают без игры по последнему `data/prototypes-*.json`.
 - После правки Go-структур справочника — пересобрать `bin/bot` ДО `protos -refresh`, иначе старый бинарник выкинет новые поля при сохранении кэша.
+- `internal/plan` — реактивный HTN: цели (`HaveItem`, `Placed`, `Supplied`, `SmeltingLine`), `Planner.Next(state, goal)` → один следующий `Primitive` (gather/craft/place/insert/take/wait) с цепочкой «почему»; отказы → `Failed` (место постройки — бан сразу, прочее — после 3 подряд, на 5 мин). `Simulate`/`Apply` — симулятор для `bot plan` и юнит-тестов. Линия собирает ресурсы на все печи сразу, потом ставит/заправляет.
+- `internal/exec` — `Runner`: `Snapshot` (игрок, сила, мир, свои постройки из реестра; пропавшие — убрать и восстановить), `Step`, `Run` (поддерживаемые цели — следить), `findSpot` (группа роли — рядом; первая печь линии — у края патча руды, не на руде). Состояние `run/state.json` (цели, реестр, баны), журнал `run/bot.log`. 8 отказов подряд — остановка.
+- CLI: `bot run have ПРЕДМЕТ N | smelt РУДА N | keep`, `bot plan …`, `bot goals`.
+- `act.InsertAll` (Ctrl+ЛКМ с предметом в руке — весь вид), `Take` по сундуку забирает всё.
+- Ходьба: если пути нет — `clearWay` прорубает деревья (путь сквозь деревья с надбавкой, на диагоналях — и угловые деревья). Действия не ходят, если уже в досягаемости (`reach` ~8 для вложить/забрать, `reachMine` ~2.4 для добычи), и «не дошёл, но достаю» — не ошибка.
 - `internal/world` также: `Path(from, to, near, max)` (A*), `FreeSpot/FreeSpotWhere` (место под постройку).
 
 ## Ввод — что выяснено

@@ -227,7 +227,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 		return fmt.Errorf("act: %s есть %d, нужно %d", item, held(p0, item), n)
 	}
 	h.Say("кладу %s ×%d в %s", item, n, e.Name)
-	if err := h.WalkNear(ctx, e, 2); err != nil {
+	if err := h.reach(ctx, e, buildReach); err != nil {
 		return err
 	}
 	if err := h.Pick(ctx, item); err != nil {
@@ -247,6 +247,20 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 		}
 	}
 	_, werr := h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
+	// нажатие могло потеряться — доложить недостающее (один заход)
+	if p, err := h.B.Player(); err == nil && werr != nil {
+		if lack := n - (held(p0, item) - held(p, item)); lack > 0 && held(p, item) > 0 {
+			for i := 0; i < lack; i++ {
+				if err := h.In.Tap("z"); err != nil {
+					return err
+				}
+				if err := sleep(ctx, zInterval); err != nil {
+					return err
+				}
+			}
+			_, werr = h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
+		}
+	}
 	p1, err := h.B.Player()
 	if err != nil {
 		return err
@@ -264,7 +278,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 // рукой. Возвращает, что прибавилось у игрока.
 func (h *Hands) Take(ctx context.Context, e bridge.Entity) (map[string]int, error) {
 	h.Say("забираю из %s", e.Name)
-	if err := h.WalkNear(ctx, e, 2); err != nil {
+	if err := h.reach(ctx, e, buildReach); err != nil {
 		return nil, err
 	}
 	if err := h.Clean(ctx); err != nil {
@@ -365,7 +379,7 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 		if bestD > mineReachGame {
 			release()
 			if err := h.WalkTo(ctx, h.bestStand(e, left, reach), 0.5); err != nil {
-				if err := h.WalkToMine(ctx, e); err != nil {
+				if err := h.reachMine(ctx, e); err != nil {
 					return err
 				}
 			}
@@ -484,11 +498,101 @@ func (h *Hands) Drop(ctx context.Context, item string, pos bridge.Pos) (bridge.E
 // PickupItem поднимает предмет с земли (item-entity): подойти, навести, удержать ПКМ.
 func (h *Hands) PickupItem(ctx context.Context, e bridge.Entity) error {
 	h.Say("поднимаю с земли %s", e.Item)
-	if err := h.WalkToMine(ctx, e); err != nil {
+	if err := h.reachMine(ctx, e); err != nil {
 		return err
 	}
 	if err := h.Clean(ctx); err != nil {
 		return err
 	}
 	return h.Mine(ctx, e, 5*time.Second)
+}
+
+// InsertAll кладёт в постройку весь предмет этого вида из инвентаря: предмет в руку →
+// навести → Ctrl+ЛКМ. Возвращает, сколько ушло (сундук может переполниться).
+func (h *Hands) InsertAll(ctx context.Context, e bridge.Entity, item string) (int, error) {
+	h.Say("кладу весь %s в %s", item, e.Name)
+	p0, err := h.B.Player()
+	if err != nil {
+		return 0, err
+	}
+	if held(p0, item) == 0 {
+		return 0, nil
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return 0, err
+	}
+	if err := h.Pick(ctx, item); err != nil {
+		return 0, err
+	}
+	if err := h.Hover(ctx, e); err != nil {
+		h.ClearCursor(ctx)
+		return 0, err
+	}
+	if err := h.In.KeyDown("ctrl"); err != nil {
+		return 0, err
+	}
+	err = h.In.Click(input.Left)
+	h.In.KeyUp("ctrl")
+	if err != nil {
+		return 0, err
+	}
+	h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p, item) < held(p0, item) })
+	if err := sleep(ctx, inputLatency); err != nil {
+		return 0, err
+	}
+	if err := h.ClearCursor(ctx); err != nil {
+		return 0, err
+	}
+	p1, err := h.B.Player()
+	if err != nil {
+		return 0, err
+	}
+	return held(p0, item) - held(p1, item), nil
+}
+
+// reach — подойти к сущности на расстояние действия r (до рамки выделения). Уже в
+// досягаемости — не идём; не дошли, но уже достаём — тоже не ошибка.
+func (h *Hands) reach(ctx context.Context, e bridge.Entity, r float64) error {
+	within := func() (bool, error) {
+		p, err := h.B.Player()
+		if err != nil {
+			return false, err
+		}
+		b := e.SelectionBox
+		if b == nil {
+			return dist(p.Position, e.Position) <= r, nil
+		}
+		return dist(p.Position, closestOnBox(p.Position, *b)) <= r, nil
+	}
+	if ok, err := within(); err != nil || ok {
+		return err
+	}
+	err := h.WalkNear(ctx, e, math.Min(2, r-0.5))
+	if errors.Is(err, ErrNotReached) {
+		if ok, _ := within(); ok {
+			return nil
+		}
+	}
+	return err
+}
+
+// reachMine — подойти на расстояние добычи руками (до рамки коллизии).
+func (h *Hands) reachMine(ctx context.Context, e bridge.Entity) error {
+	within := func() (bool, error) {
+		p, err := h.B.Player()
+		if err != nil {
+			return false, err
+		}
+		return dist(p.Position, closestOnBox(p.Position, *h.collisionBox(e))) <= mineReachGame, nil
+	}
+	if ok, err := within(); err != nil || ok {
+		return err
+	}
+	err := h.WalkToMine(ctx, e)
+	if errors.Is(err, ErrNotReached) {
+		if ok, _ := within(); ok {
+			return nil
+		}
+	}
+	return err
 }

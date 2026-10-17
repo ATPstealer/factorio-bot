@@ -194,7 +194,7 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 			return res, fmt.Errorf("%w: %q в радиусе %.0f", ErrNoTargets, target, radius)
 		}
 		h.Say("добываю %s (%.0f, %.0f), %.0f тайлов — %d из %d", e.Name, e.Position.X, e.Position.Y, e.Distance, res.Mined+1, count)
-		if err := h.WalkToMine(ctx, *e); err != nil {
+		if err := h.reachMine(ctx, *e); err != nil {
 			// цель за препятствием — пока (до поиска пути) берём следующую
 			if (errors.Is(err, ErrStuck) || errors.Is(err, ErrNotReached)) && unreachable < maxUnreachable {
 				unreachable++

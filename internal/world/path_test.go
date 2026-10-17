@@ -188,3 +188,32 @@ func TestFreeSpot(t *testing.T) {
 		t.Errorf("1×1 в свободной точке: %v %v", q, ok)
 	}
 }
+
+// Персонаж в «кармане» из деревьев: обычного пути нет, сквозь деревья — есть, и он
+// проходит по тайлам с деревьями (их надо срубить), а не по воде.
+func TestPathThroughTrees(t *testing.T) {
+	w := grid(t,
+		"..........",
+		"...###....",
+		"...#.#....",
+		"...###....",
+		"..........",
+	)
+	from := bridge.Pos{X: 4.5, Y: 2.5}
+	if _, err := w.Path(from, bridge.Pos{X: 8.5, Y: 2.5}, 0.5, 0); err != ErrNoPath {
+		t.Fatalf("из кармана есть обычный путь? %v", err)
+	}
+	tiles, err := w.PathThroughTrees(from, bridge.Pos{X: 8.5, Y: 2.5}, 0.5, 0, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trees := 0
+	for _, tl := range tiles {
+		if w.TreeOnly(tl) {
+			trees++
+		}
+	}
+	if trees != 1 {
+		t.Errorf("путь рубит %d деревьев, ждали 1: %v", trees, tiles)
+	}
+}

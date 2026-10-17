@@ -61,6 +61,7 @@ type Chunk struct {
 	Objects   []Object
 
 	blocked map[Tile]bool // лениво: тайлы под коллизиями объектов
+	hard    map[Tile]bool // из них — занятые не деревьями (деревья можно срубить)
 }
 
 type World struct {
@@ -201,16 +202,44 @@ func (w *World) blockedSet(c *Chunk) map[Tile]bool {
 	if c.blocked != nil {
 		return c.blocked
 	}
-	c.blocked = map[Tile]bool{}
+	c.blocked, c.hard = map[Tile]bool{}, map[Tile]bool{}
 	for _, o := range c.Objects {
 		if noCollision[o.Type] {
 			continue
 		}
 		for _, t := range BoxTiles(w.CollisionBox(o)) {
 			c.blocked[t] = true
+			if o.Type != "tree" {
+				c.hard[t] = true
+			}
 		}
 	}
 	return c.blocked
+}
+
+// TreeOnly — тайл суши занят только деревьями: путь можно прорубить.
+func (w *World) TreeOnly(t Tile) bool {
+	switch w.TileAt(t) {
+	case Land, Shallow:
+	default:
+		return false
+	}
+	cp := ChunkOf(t)
+	tree := false
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			c := w.Chunks[bridge.ChunkPos{X: cp.X + dx, Y: cp.Y + dy}]
+			if c == nil {
+				continue
+			}
+			w.blockedSet(c)
+			if c.hard[t] {
+				return false
+			}
+			tree = tree || c.blocked[t]
+		}
+	}
+	return tree
 }
 
 // Blocked — занят ли тайл объектом (без учёта воды). Объект у края чанка может
