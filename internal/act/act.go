@@ -34,6 +34,17 @@ type Hands struct {
 	Log    func(format string, args ...any)
 	// DebugDir — куда сохранять снимок экрана при сбое действия ("" — не сохранять).
 	DebugDir string
+	// Console — дублировать Say в консоль игры (видно в окне клиента).
+	Console bool
+}
+
+// Say — что бот собирается сделать: в лог и (Console) в консоль игры с префиксом [bot].
+func (h *Hands) Say(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	h.Log("%s", msg)
+	if h.Console {
+		h.B.Say("[bot] " + msg)
+	}
 }
 
 // debugShot сохраняет снимок окна клиента при сбое: имя файла — время и что сломалось.
@@ -127,6 +138,9 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	if err := h.guard(ctx); err != nil {
 		return err
 	}
+	if p, err := h.B.Player(); err == nil && dist(p.Position, target) > 8 {
+		h.Say("иду к (%.0f, %.0f), %.0f тайлов", target.X, target.Y, dist(p.Position, target))
+	}
 	if err := h.Focus(); err != nil {
 		return err
 	}
@@ -139,7 +153,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 				}
 				break // путь пройден или его нет — дальше по прямой
 			}
-			h.Log("%v — перестраиваю путь", err)
+			h.Say("застрял — перестраиваю путь")
 		}
 	}
 	if err := h.run(ctx, target, stop+brakeDist, true); err != nil {
@@ -192,6 +206,42 @@ func (h *Hands) WalkNear(ctx context.Context, e bridge.Entity, stop float64) err
 		return err
 	}
 	return h.WalkTo(ctx, closestOnBox(p.Position, *e.SelectionBox), stop)
+}
+
+// mineReach — досягаемость добычи руками (character resource_reach ≈ 2.7) — для любых
+// сущностей, не только руды; считается до рамки коллизии, а не выделения (у деревьев
+// рамка выделения высокая — от неё не дотянуться). Подходим с запасом.
+const mineReach = 1.5
+
+// collisionBox — рамка коллизии сущности из справочника (нет справочника — рамка выделения).
+func (h *Hands) collisionBox(e bridge.Entity) *bridge.Box {
+	if h.Protos != nil {
+		if pe, ok := h.Protos.Entities[e.Name]; ok {
+			b := h.footprint(e.Name, e.Position)
+			if e.Direction != nil && (*e.Direction == East || *e.Direction == West) && pe.TileWidth != pe.TileHeight {
+				c := e.Position
+				b = bridge.Box{
+					LeftTop:     bridge.Pos{X: c.X - (b.RightBottom.Y - c.Y), Y: c.Y + (b.LeftTop.X - c.X)},
+					RightBottom: bridge.Pos{X: c.X + (c.Y - b.LeftTop.Y), Y: c.Y + (b.RightBottom.X - c.X)},
+				}
+			}
+			return &b
+		}
+	}
+	return e.SelectionBox
+}
+
+// WalkToMine подходит к сущности на расстояние добычи руками.
+func (h *Hands) WalkToMine(ctx context.Context, e bridge.Entity) error {
+	b := h.collisionBox(e)
+	if b == nil {
+		return h.WalkTo(ctx, e.Position, mineReach)
+	}
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	return h.WalkTo(ctx, closestOnBox(p.Position, *b), mineReach)
 }
 
 // run — бег с удержанием клавиш до расстояния until; обход при застревании.
@@ -316,6 +366,9 @@ func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) e
 	p, err := h.B.Player()
 	if err != nil {
 		return err
+	}
+	if dist(p.Position, target) <= stop { // последнее нажатие довело
+		return nil
 	}
 	return fmt.Errorf("%w до (%.1f, %.1f): стою в (%.2f, %.2f)", ErrNotReached, target.X, target.Y, p.Position.X, p.Position.Y)
 }

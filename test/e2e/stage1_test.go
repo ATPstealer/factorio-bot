@@ -55,6 +55,7 @@ func handsT(t *testing.T) *act.Hands {
 			return
 		}
 		hands.DebugDir = path("run", "debug")
+		hands.Console = true
 		pong, err := b.Ping()
 		if err != nil {
 			handsErr = err

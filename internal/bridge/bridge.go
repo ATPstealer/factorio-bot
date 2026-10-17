@@ -68,6 +68,17 @@ func command(req string) string {
 	return `/sc remote.call("bot","call",[` + eq + `[` + req + `]` + eq + `])`
 }
 
+// Say пишет строку в консоль (чат) игры от имени <server>: обычный текст по RCON игра
+// показывает как сообщение. Только отображение — на игру не влияет, мод и Lua не нужны.
+func (b *Bridge) Say(text string) error {
+	text = strings.Join(strings.Fields(text), " ") // одна строка
+	if strings.HasPrefix(text, "/") {
+		text = " " + text // иначе это была бы команда
+	}
+	_, err := b.rc.Exec(text)
+	return err
+}
+
 // Типы ответов ------------------------------------------------------------
 
 // List — массив из Lua: пустая таблица приходит из helpers.table_to_json как {}, а не [].

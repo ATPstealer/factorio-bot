@@ -115,6 +115,8 @@ func main() {
 			log.Fatal(err)
 		}
 		h.Log = log.Printf
+		h.Console = true
+		h.DebugDir = "run/debug"
 		h.World = loadWorld(b)
 		h.Protos = h.World.Protos
 		check(h.Clean(context.Background()))

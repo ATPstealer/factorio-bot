@@ -111,7 +111,7 @@ func (h *Hands) guard(ctx context.Context) error {
 	if err != nil || !open {
 		return err
 	}
-	h.Log("открыто меню игры — закрываю")
+	h.Say("открыто меню игры — закрываю")
 	h.debugShot("menu")
 	if err := h.Focus(); err != nil {
 		return err
@@ -291,6 +291,7 @@ func (h *Hands) pickFromInventory(ctx context.Context, item string) error {
 		if q != "" {
 			continue
 		}
+		h.Say("привязываю %s к клавише %s", item, quickbarKeys[i])
 		if err := h.at(L.Quickbar[i]); err != nil {
 			return err
 		}
@@ -397,6 +398,7 @@ func (h *Hands) Craft(ctx context.Context, recipe string, n int) error {
 	if err := h.ClearCursor(ctx); err != nil {
 		return err
 	}
+	h.Say("крафчу %s ×%d", recipe, n)
 	_, seq0, err := h.B.PollEvents(1 << 30)
 	if err != nil {
 		return err

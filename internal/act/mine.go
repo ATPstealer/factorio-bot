@@ -115,16 +115,6 @@ type GatherResult struct {
 	Items map[string]int
 }
 
-// mineStop — на каком расстоянии от края рамки останавливаться: руду персонаж добывает
-// только вблизи (resource_reach ≈ 2.7), остальное — с reach 10, но подходим ближе,
-// чтобы цель была на экране.
-func mineStop(e bridge.Entity) float64 {
-	if e.Type == "resource" {
-		return 1.0
-	}
-	return 1.5
-}
-
 // Gather добывает count раз цель target (см. bridge.FindMinable): для руды — count единиц,
 // для остального — count сущностей. Подходит к ближайшей цели, недоступные курсору пропускает.
 func (h *Hands) Gather(ctx context.Context, target string, count int, radius float64) (GatherResult, error) {
@@ -161,12 +151,12 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 		if e == nil {
 			return res, fmt.Errorf("%w: %q в радиусе %.0f", ErrNoTargets, target, radius)
 		}
-		h.Log("цель %s (%.1f, %.1f), %.1f тайлов", e.Name, e.Position.X, e.Position.Y, e.Distance)
-		if err := h.WalkNear(ctx, *e, mineStop(*e)); err != nil {
+		h.Say("добываю %s (%.0f, %.0f), %.0f тайлов — %d из %d", e.Name, e.Position.X, e.Position.Y, e.Distance, res.Mined+1, count)
+		if err := h.WalkToMine(ctx, *e); err != nil {
 			// цель за препятствием — пока (до поиска пути) берём следующую
 			if (errors.Is(err, ErrStuck) || errors.Is(err, ErrNotReached)) && unreachable < maxUnreachable {
 				unreachable++
-				h.Log("%v — пропускаю", err)
+				h.Say("не подойти к %s — беру другую цель", e.Name)
 				skip[e.Position] = true
 				continue
 			}
@@ -200,7 +190,7 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 			res.Mined += got
 		}
 		if errors.Is(err, ErrHover) {
-			h.Log("%v — пропускаю", err)
+			h.Say("%s закрыт другими объектами — беру другую цель", e.Name)
 			skip[e.Position] = true
 			continue
 		}

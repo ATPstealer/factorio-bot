@@ -65,6 +65,7 @@ func (h *Hands) Place(ctx context.Context, item string, pos bridge.Pos, dir int)
 	if err := h.guard(ctx); err != nil {
 		return bridge.Entity{}, err
 	}
+	h.Say("ставлю %s в (%.1f, %.1f)%s", it.PlaceResult, pos.X, pos.Y, dirName(dir))
 	fp := h.footprint(it.PlaceResult, pos)
 	if err := h.standNear(ctx, fp); err != nil {
 		return bridge.Entity{}, err
@@ -126,8 +127,23 @@ func (h *Hands) Place(ctx context.Context, item string, pos bridge.Pos, dir int)
 	return *built, nil
 }
 
+func dirName(d int) string {
+	switch d {
+	case North:
+		return ""
+	case East:
+		return " на восток"
+	case South:
+		return " на юг"
+	case West:
+		return " на запад"
+	}
+	return fmt.Sprintf(" направление %d", d)
+}
+
 // Rotate поворачивает свою постройку клавишей R (по часовой, шаг 4) до направления dir.
 func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
+	h.Say("поворачиваю %s%s", e.Name, dirName(dir))
 	if err := h.Hover(ctx, e); err != nil {
 		return err
 	}
@@ -173,6 +189,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if held(p0, item) < n {
 		return fmt.Errorf("act: %s есть %d, нужно %d", item, held(p0, item), n)
 	}
+	h.Say("кладу %s ×%d в %s", item, n, e.Name)
 	if err := h.WalkNear(ctx, e, 2); err != nil {
 		return err
 	}
@@ -209,6 +226,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 // Take забирает из сущности то, что она выдаёт (у печи — результат): Ctrl+ЛКМ с пустой
 // рукой. Возвращает, что прибавилось у игрока.
 func (h *Hands) Take(ctx context.Context, e bridge.Entity) (map[string]int, error) {
+	h.Say("забираю из %s", e.Name)
 	if err := h.WalkNear(ctx, e, 2); err != nil {
 		return nil, err
 	}
@@ -255,7 +273,8 @@ func (h *Hands) Take(ctx context.Context, e bridge.Entity) (map[string]int, erro
 
 // Pickup подбирает свою постройку обратно в инвентарь (удержание ПКМ).
 func (h *Hands) Pickup(ctx context.Context, e bridge.Entity) error {
-	if err := h.WalkNear(ctx, e, 2); err != nil {
+	h.Say("подбираю %s", e.Name)
+	if err := h.WalkToMine(ctx, e); err != nil {
 		return err
 	}
 	if err := h.Clean(ctx); err != nil {
