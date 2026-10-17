@@ -103,6 +103,16 @@ type Entity struct {
 	UnitNumber   int     `json:"unit_number,omitempty"`
 	SelectionBox *Box    `json:"selection_box,omitempty"`
 	Distance     float64 `json:"distance,omitempty"`
+
+	// только у find_minable
+	Products   List[Product] `json:"products,omitempty"`
+	MiningTime float64       `json:"mining_time,omitempty"`
+	Amount     int           `json:"amount,omitempty"` // остаток руды у resource
+}
+
+type Product struct {
+	Name   string  `json:"name"`
+	Amount float64 `json:"amount"`
 }
 
 type Stack struct {
@@ -190,6 +200,13 @@ type FindArgs struct {
 func (b *Bridge) FindNearest(a FindArgs) ([]Entity, error) {
 	var es List[Entity]
 	return es, b.Call("find_nearest", a, &es)
+}
+
+// FindMinable — ближайшие добываемые руками сущности. target: группа
+// (tree, rock, wreck, ore, fish, any), имя сущности или имя получаемого предмета.
+func (b *Bridge) FindMinable(target string, radius float64, limit int) ([]Entity, error) {
+	var es List[Entity]
+	return es, b.Call("find_minable", map[string]any{"target": target, "radius": radius, "limit": limit}, &es)
 }
 
 // EntityAt — сущность name ровно в точке pos или nil.

@@ -59,3 +59,18 @@ func TestHoverPoints(t *testing.T) {
 		}
 	}
 }
+
+func TestClosestOnBox(t *testing.T) {
+	b := bridge.Box{LeftTop: bridge.Pos{X: -2, Y: -1}, RightBottom: bridge.Pos{X: 2, Y: 1}}
+	cases := map[bridge.Pos]bridge.Pos{
+		{X: 10, Y: 0}:  {X: 2, Y: 0},   // справа — на правую грань
+		{X: -5, Y: -5}: {X: -2, Y: -1}, // по диагонали — в угол
+		{X: 0, Y: 3}:   {X: 0, Y: 1},   // снизу
+		{X: 1, Y: 0}:   {X: 1, Y: 0},   // внутри — сама точка
+	}
+	for p, want := range cases {
+		if got := closestOnBox(p, b); got != want {
+			t.Errorf("closestOnBox(%v) = %v, ждали %v", p, got, want)
+		}
+	}
+}

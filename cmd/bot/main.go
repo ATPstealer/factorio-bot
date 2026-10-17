@@ -4,13 +4,14 @@
 //	bot player               — состояние игрока (JSON)
 //	bot events [after]       — события из буфера мода
 //	bot walk X Y             — дойти до точки клавишами
-//	bot chop [радиус]        — найти ближайшее дерево, дойти и срубить
+//	bot mine ЦЕЛЬ [N] [R]    — добыть руками N раз (руда — N единиц) в радиусе R (64)
+//	                           ЦЕЛЬ: tree|rock|wreck|ore|fish|any, имя сущности или предмета (coal, stone, wood)
+//	bot chop                 — то же, что mine tree 1
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -29,6 +31,7 @@ func main() {
 	addr := flag.String("rcon", "127.0.0.1:27015", "адрес RCON")
 	pass := flag.String("password", envOr("RCON_PASSWORD", "botpass"), "пароль RCON")
 	display := flag.String("display", envOr("BOT_DISPLAY", ":1"), "X-дисплей клиента")
+	limit := flag.Duration("t", 5*time.Minute, "общий лимит времени команды")
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
@@ -38,8 +41,10 @@ func main() {
 	}
 	defer rc.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, *limit)
+	defer cancel()
 
 	args := flag.Args()
 	if len(args) == 0 {
@@ -51,6 +56,8 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		check(in.Reset())
+		atExit = append(atExit, in.Close) // отпустить клавиши/кнопки при любом выходе
 		h, err := act.New(b, in)
 		if err != nil {
 			log.Fatal(err)
@@ -88,58 +95,41 @@ func main() {
 		check(err)
 		log.Printf("стою в (%.2f, %.2f), до цели %.2f", p.Position.X, p.Position.Y,
 			dist(p.Position, target))
-	case "chop":
-		radius := 50.0
-		if len(args) > 1 {
-			radius = atof(args[1])
+	case "mine", "chop":
+		target, n, radius := "tree", 1, 64.0
+		if args[0] == "mine" {
+			if len(args) < 2 {
+				log.Fatal("bot mine ЦЕЛЬ [N] [радиус]")
+			}
+			target = args[1]
+			if len(args) > 2 {
+				n = atoi(args[2])
+			}
+			if len(args) > 3 {
+				radius = atof(args[3])
+			}
 		}
-		check(chop(ctx, hands(), radius))
+		res, err := hands().Gather(ctx, target, n, radius)
+		log.Printf("добыто %d, в инвентаре прибавилось: %v", res.Mined, res.Items)
+		check(err)
 	default:
 		log.Fatalf("неизвестная команда %q", args[0])
 	}
-}
-
-// chop рубит ближайшее дерево, на которое удаётся навести курсор.
-func chop(ctx context.Context, h *act.Hands, radius float64) error {
-	trees, err := h.B.FindNearest(bridge.FindArgs{Type: "tree", Radius: radius, Limit: 5})
-	if err != nil {
-		return err
+	for _, f := range atExit {
+		f()
 	}
-	if len(trees) == 0 {
-		return fmt.Errorf("деревьев в радиусе %.0f нет", radius)
-	}
-	before, err := h.B.Player()
-	if err != nil {
-		return err
-	}
-	for _, t := range trees {
-		log.Printf("дерево %s (%.1f, %.1f), %.1f тайлов; wood: %d", t.Name, t.Position.X, t.Position.Y, t.Distance, before.Inventory["wood"])
-		if err := h.WalkTo(ctx, t.Position, 2.5); err != nil {
-			return err
-		}
-		err := h.Mine(ctx, t, 10*time.Second)
-		if errors.Is(err, act.ErrHover) {
-			log.Print(err, " — беру следующее")
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		time.Sleep(200 * time.Millisecond)
-		after, err := h.B.Player()
-		if err != nil {
-			return err
-		}
-		log.Printf("срублено; wood: %d → %d", before.Inventory["wood"], after.Inventory["wood"])
-		return nil
-	}
-	return errors.New("ни на одно из ближайших деревьев не навести курсор")
 }
 
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
 
+// atExit — что сделать перед выходом; log.Fatal пропускает defer, поэтому check вызывает их сам.
+var atExit []func()
+
 func check(err error) {
 	if err != nil {
+		for _, f := range atExit {
+			f()
+		}
 		log.Fatal(err)
 	}
 }

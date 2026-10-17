@@ -45,7 +45,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 - Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента.
 - Единая точка входа: `/sc remote.call("bot", "call", '{"method":"ping","args":{...}}')` → печатает одну строку JSON `{"ok":true,"result":...}` / `{"ok":false,"error":"..."}`.
-- Методы — в таблице `methods` в `control.lua`; только чтение: `ping`, `tick`, `get_player`, `find_nearest{type,name,radius,limit,position}`, `entity_at{name,position}`, `poll_events{after}`.
+- Методы — в таблице `methods` в `control.lua`; только чтение: `ping`, `tick`, `get_player`, `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`.
 - Буфер событий в `storage.events` (до 1000, номер `seq`): mined_entity, built_entity, crafted_item, research_finished, entity_died, resource_depleted, gui_opened/closed. `poll_events` ничего не удаляет.
 - `entity_info` отдаёт name, type, position, unit_number, selection_box.
 - Меняя мод — поднимать `version` в `info.json` (тест сверяет версию в игре с файлом).
@@ -62,13 +62,15 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 ## Код бота (Go)
 
-- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Отладочные команды: `bin/bot ping | player | events [after] | walk X Y | chop [радиус]`.
+- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | chop`.
+  - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности (по умолчанию 1); R — радиус поиска (64).
+  - `-t` — общий лимит времени (по умолчанию 5m). Любой запуск действий в игре — только с лимитом (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
 - `internal/rcon` — Source RCON; ответы до 2 МБ одним пакетом проверены — пагинация не нужна.
 - `internal/bridge` — `Call(method, args, &out)` + типизированные `Ping/Tick/Player/FindNearest/EntityAt/PollEvents`. JSON передаётся в Lua длинными скобками `[=[...]=]`.
   - Пустая Lua-таблица приходит из `table_to_json` как `{}`, не `[]` — массивы декодировать в `bridge.List[T]`, словари — делать в моде `nil`, если пусты.
 - `internal/input` — XTEST на чистом Go (`github.com/jezek/xgb`): `KeyDown/KeyUp/Tap(key, mods...)/Type`, `Move/ButtonDown/ButtonUp/Click/Wheel`, `FindWindow(prefix)`. После каждого события round trip + `Delay` 20 мс.
 - `internal/camera` — мир ↔ пиксели дисплея: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
-- `internal/act` — `Hands`: `WalkTo(ctx, pos, stop)`, `Hover(ctx, entity)`, `Mine(ctx, entity, timeout)`.
+- `internal/act` — `Hands`: `WalkTo(ctx, pos, stop)`, `WalkNear(ctx, entity, stop)`, `Hover`, `Mine(ctx, entity, timeout)`, `MineUntil(ctx, entity, done)`, `Gather(ctx, target, count, radius)`.
 
 ## Ввод — что выяснено
 
@@ -78,8 +80,16 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Ходьба ~8.9 тайл/с, инерция после отпускания 0.6–1.2 тайла. `WalkTo`: бег до `stop+1`, затем доводка нажатиями с адаптивной длительностью (короткое нажатие игра может не заметить). Точность ≤0.5 тайла.
 - Наведение: точки внутри `selection_box` от центра, подтверждение — `player.selected`. Сущность может быть целиком перекрыта рамкой соседа (dead-grey-trunk под tree-08) → `act.ErrHover`, брать другую цель.
 - Hover только когда персонаж стоит (камера едет за игроком).
+- К сущностям подходить `WalkNear` — к ближайшей точке `selection_box`, а не к `position`: у больших (обломки, камни) центр внутри коллизии, персонаж упрётся в край.
+- Зажатый ввод переживает процесс: если бота убить во время добычи, X-сервер держит ПКМ — персонаж копает дальше. Поэтому: `Input.Close/ReleaseAll` на выходе (SIGINT/SIGTERM, `check`), `Input.Reset()` при старте. Вручную: `DISPLAY=:1 xdotool mouseup 3 keyup w keyup a keyup s keyup d`.
+- Руда: ПКМ добывает единицу за единицей, сущность остаётся — стоп по приросту продукта в инвентаре. Персонаж не копает >1.5 с при зажатой ПКМ → `ErrNotMining` (инвентарь полон / далеко).
+- Добываемое руками (`find_minable`): minable, без `required_fluid` (уран нельзя), `last_user == nil` (не свои постройки). Обломки корабля — `container`/`simple-entity-with-owner` с префиксом `crash-site-`; `huge-rock` даёт stone+coal.
 - Игрок — `game.connected_players[1]`, имя из Steam (`ATPstealer`).
 - `xdotool` установлен — для ручной отладки (`DISPLAY=:1 xdotool ...`).
+
+## Shell
+
+- `pkill -f`/`pgrep -f` с шаблоном из командной строки матчат собственный bash-процесс инструмента и убивают его (exit 144). Бота убивать `pkill -x bot`; игру — `scripts/stop.sh` (шаблон с `^`).
 
 ## Окружение
 

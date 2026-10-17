@@ -113,6 +113,76 @@ function methods.find_nearest(a)
   return res
 end
 
+-- Добыча руками ------------------------------------------------------------
+
+-- Типы сущностей, которые встречаются на карте и добываются руками.
+local NATURAL_TYPES = { "tree", "simple-entity", "simple-entity-with-owner", "resource", "fish", "container" }
+
+local GROUPS = {
+  tree = function(e) return e.type == "tree" end,
+  rock = function(e) return e.type == "simple-entity" and e.name:find("rock", 1, true) ~= nil end,
+  wreck = function(e) return e.name:find("crash-site-", 1, true) == 1 end,
+  ore = function(e) return e.type == "resource" end,
+  fish = function(e) return e.type == "fish" end,
+  any = function() return true end,
+}
+
+local function products(e)
+  local res = {}
+  for _, pr in pairs(e.prototype.mineable_properties.products or {}) do
+    res[#res + 1] = { name = pr.name, amount = pr.amount or pr.amount_max or 0 }
+  end
+  return res
+end
+
+-- Добывается ли руками: minable, не нужна жидкость (уран), не построено игроком, не персонаж.
+local function hand_minable(e)
+  local m = e.prototype.mineable_properties
+  return m and m.minable and not m.required_fluid and e.type ~= "character" and e.last_user == nil
+end
+
+-- Предикат цели: группа, имя сущности или имя получаемого предмета.
+local function target_filter(target)
+  if GROUPS[target] then return GROUPS[target] end
+  if prototypes.entity[target] then return function(e) return e.name == target end end
+  if prototypes.item[target] then
+    return function(e)
+      for _, pr in pairs(products(e)) do
+        if pr.name == target then return true end
+      end
+      return false
+    end
+  end
+  error("неизвестная цель: " .. tostring(target) .. " (группа " ..
+    "tree/rock/wreck/ore/fish/any, имя сущности или предмета)")
+end
+
+-- Ближайшие добываемые руками сущности: args {target, radius=64, limit=10, position?=игрок}.
+function methods.find_minable(a)
+  local p = bot_player()
+  local center = a.position or p.position
+  local match = target_filter(a.target or "any")
+  local items = {}
+  for _, e in pairs(p.surface.find_entities_filtered { type = NATURAL_TYPES, position = center, radius = a.radius or 64 }) do
+    if hand_minable(e) and match(e) then
+      local dx, dy = e.position.x - center.x, e.position.y - center.y
+      items[#items + 1] = { e = e, d = dx * dx + dy * dy }
+    end
+  end
+  table.sort(items, function(x, y) return x.d < y.d end)
+  local res = {}
+  for i = 1, math.min(a.limit or 10, #items) do
+    local e = items[i].e
+    local info = entity_info(e)
+    info.distance = math.sqrt(items[i].d)
+    info.products = products(e)
+    info.mining_time = e.prototype.mineable_properties.mining_time
+    if e.type == "resource" then info.amount = e.amount end
+    res[i] = info
+  end
+  return res
+end
+
 -- Есть ли сущность с таким именем ровно в этой точке.
 function methods.entity_at(a)
   local e = game.surfaces[1].find_entities_filtered { name = a.name, position = a.position, radius = 0.01 }[1]

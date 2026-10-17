@@ -100,6 +100,28 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	return h.approach(ctx, target, stop)
 }
 
+// closestOnBox — ближайшая к p точка прямоугольника b (сама p, если она внутри).
+func closestOnBox(p bridge.Pos, b bridge.Box) bridge.Pos {
+	return bridge.Pos{
+		X: math.Max(b.LeftTop.X, math.Min(p.X, b.RightBottom.X)),
+		Y: math.Max(b.LeftTop.Y, math.Min(p.Y, b.RightBottom.Y)),
+	}
+}
+
+// WalkNear подходит к сущности на stop тайлов от края её рамки. Идти к position нельзя:
+// у больших сущностей (обломки корабля, камни) центр внутри коллизии, персонаж упрётся в край.
+// Путь к ближайшей точке выпуклой рамки саму рамку не пересекает.
+func (h *Hands) WalkNear(ctx context.Context, e bridge.Entity, stop float64) error {
+	if e.SelectionBox == nil {
+		return h.WalkTo(ctx, e.Position, stop)
+	}
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	return h.WalkTo(ctx, closestOnBox(p.Position, *e.SelectionBox), stop)
+}
+
 // run — бег с удержанием клавиш до расстояния until; обход при застревании.
 func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64) error {
 	held := map[string]bool{}
@@ -287,31 +309,6 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 		}
 	}
 	return fmt.Errorf("%w: %s (%.1f, %.1f)", ErrHover, e.Name, e.Position.X, e.Position.Y)
-}
-
-// Mine наводит курсор и держит ПКМ, пока сущность не исчезнет.
-func (h *Hands) Mine(ctx context.Context, e bridge.Entity, timeout time.Duration) error {
-	if err := h.Hover(ctx, e); err != nil {
-		return err
-	}
-	if err := h.In.ButtonDown(input.Right); err != nil {
-		return err
-	}
-	defer h.In.ButtonUp(input.Right)
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err := sleep(ctx, 100*time.Millisecond); err != nil {
-			return err
-		}
-		got, err := h.B.EntityAt(e.Name, e.Position)
-		if err != nil {
-			return err
-		}
-		if got == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("act: не добыл %s за %v", e.Name, timeout)
 }
 
 func sleep(ctx context.Context, d time.Duration) error {

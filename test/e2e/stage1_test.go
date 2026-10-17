@@ -215,3 +215,46 @@ func TestStage1_ChopTree(t *testing.T) {
 }
 
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
+
+// gather — добыча с лимитом времени; нет целей в радиусе — Skip (камни и обломки конечны).
+func gather(t *testing.T, target string, n int) act.GatherResult {
+	t.Helper()
+	h := handsT(t)
+	res, err := h.Gather(ctxT(t, 60*time.Second), target, n, 100)
+	if errors.Is(err, act.ErrNoTargets) {
+		t.Skip(err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Mined != n {
+		t.Errorf("добыто %d, ждали %d", res.Mined, n)
+	}
+	// после добычи ничего не должно оставаться нажатым
+	time.Sleep(500 * time.Millisecond)
+	p, err := h.B.Player()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Character.Mining || p.Character.Walking {
+		t.Errorf("персонаж после добычи: mining=%v walking=%v", p.Character.Mining, p.Character.Walking)
+	}
+	t.Logf("%s ×%d: %v", target, n, res.Items)
+	return res
+}
+
+// Руда: ровно N единиц, сущность остаётся.
+func TestStage1_MineOre(t *testing.T) {
+	res := gather(t, "coal", 3)
+	if res.Items["coal"] != 3 {
+		t.Errorf("coal +%d, ждали +3", res.Items["coal"])
+	}
+}
+
+// Большая сущность: подход к краю рамки, а не к центру.
+func TestStage1_MineRock(t *testing.T) {
+	res := gather(t, "rock", 1)
+	if res.Items["stone"] <= 0 {
+		t.Errorf("камня не прибавилось: %v", res.Items)
+	}
+}

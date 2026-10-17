@@ -40,6 +40,9 @@ type Input struct {
 	conn   *xgb.Conn
 	root   xproto.Window
 	keymap map[xproto.Keysym]keyLoc
+	// нажатые сейчас клавиши (keycode) и кнопки — для ReleaseAll
+	keys    map[byte]bool
+	buttons map[byte]bool
 	// Пауза после каждого события: игра читает ввод раз в тик (~16 мс).
 	Delay time.Duration
 }
@@ -61,7 +64,8 @@ func Open(display string) (*Input, error) {
 		return nil, fmt.Errorf("input: XTEST: %w", err)
 	}
 	setup := xproto.Setup(c)
-	in := &Input{conn: c, root: setup.DefaultScreen(c).Root, keymap: map[xproto.Keysym]keyLoc{}, Delay: 20 * time.Millisecond}
+	in := &Input{conn: c, root: setup.DefaultScreen(c).Root, keymap: map[xproto.Keysym]keyLoc{},
+		keys: map[byte]bool{}, buttons: map[byte]bool{}, Delay: 20 * time.Millisecond}
 	n := int(setup.MaxKeycode) - int(setup.MinKeycode) + 1
 	km, err := xproto.GetKeyboardMapping(c, setup.MinKeycode, byte(n)).Reply()
 	if err != nil {
@@ -83,12 +87,57 @@ func Open(display string) (*Input, error) {
 	return in, nil
 }
 
-func (in *Input) Close() { in.conn.Close() }
+// Close отпускает всё нажатое и закрывает соединение.
+func (in *Input) Close() {
+	in.ReleaseAll()
+	in.conn.Close()
+}
+
+// ReleaseAll отпускает все клавиши и кнопки, нажатые через этот Input.
+func (in *Input) ReleaseAll() {
+	in.mu.Lock()
+	keys, buttons := in.keys, in.buttons
+	in.keys, in.buttons = map[byte]bool{}, map[byte]bool{}
+	in.mu.Unlock()
+	for k := range keys {
+		in.fake(keyRelease, k, 0, 0)
+	}
+	for b := range buttons {
+		in.fake(buttonRelease, b, 0, 0)
+	}
+}
+
+// Reset отпускает кнопки мыши и клавиши, которые бот держит дольше одного события
+// (WASD, модификаторы). Нужен при старте: если прошлый процесс убили, X-сервер
+// продолжает считать их нажатыми, и персонаж сам идёт или копает.
+func (in *Input) Reset() error {
+	for _, b := range []byte{Left, Middle, Right} {
+		if err := in.fake(buttonRelease, b, 0, 0); err != nil {
+			return err
+		}
+	}
+	for _, k := range []string{"w", "a", "s", "d", "shift", "ctrl", "alt"} {
+		if err := in.KeyUp(k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (in *Input) fake(typ, detail byte, x, y int) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	xtest.FakeInput(in.conn, typ, detail, 0, in.root, int16(x), int16(y), 0)
+	switch typ {
+	case keyPress:
+		in.keys[detail] = true
+	case keyRelease:
+		delete(in.keys, detail)
+	case buttonPress:
+		in.buttons[detail] = true
+	case buttonRelease:
+		delete(in.buttons, detail)
+	}
 	// round trip: дождаться, пока сервер обработает событие
 	if _, err := xproto.GetInputFocus(in.conn).Reply(); err != nil {
 		return fmt.Errorf("input: %w", err)
