@@ -58,6 +58,7 @@ func TestStage0_ConfigIni(t *testing.T) {
 		"interface.ui-scale-mode":   "manual",
 		"interface.custom-ui-scale": "1",
 		"graphics.full-screen":      "false",
+		"sound.master-muted":        "true",
 	}
 	for k, v := range want {
 		if cli[k] != v {
