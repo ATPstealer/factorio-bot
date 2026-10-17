@@ -56,4 +56,4 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 ## Окружение
 
 - Сессия X11 (XFCE), основной экран 5120x1440.
-- Go не установлен; ставить `sudo apt install golang-go` (1.26).
+- Go 1.26 (apt `golang-go`), модуль `factorio-bot`.
