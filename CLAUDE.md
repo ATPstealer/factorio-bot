@@ -71,7 +71,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 ## Код бота (Go)
 
-- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | map [-r R -s S -o FILE] | patches [R] | protos [-refresh] | force`. Полная справка — `bin/bot` без аргументов; новые команды добавлять в `usage` в `cmd/bot/main.go`.
+- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | craft Р [N] | place П X Y [n|e|s|w] | insert П N X Y | take X Y | pickup X Y | map ... | patches [R] | protos [-refresh] | force | shot [-o F]`. Полная справка — `bin/bot` без аргументов; новые команды добавлять в `usage` в `cmd/bot/main.go`.
   - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности (по умолчанию 1); R — радиус поиска (64).
   - `-t` — общий лимит времени (по умолчанию 5m). Любой запуск действий в игре — только с лимитом (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
 - `internal/rcon` — Source RCON; ответы до 2 МБ одним пакетом проверены — пагинация не нужна.
@@ -81,15 +81,23 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - `internal/camera` — мир ↔ пиксели дисплея: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
 - `internal/knowledge` — справочник `Prototypes` (рецепты, предметы, сущности, технологии, жидкости), `LoadOrFetch(b, "data")` — кэш `data/prototypes-<версия>.json` (data/ в .gitignore), `RecipesFor(item)`, `TechFor(recipe)`.
 - `internal/world` — модель открытой карты: `Sync(b, full)` (новые чанки + чанки из событий; остатки руды меняются без событий → `full`), `TileAt/ResourceAt/Blocked/Walkable`, `Patches()` (руда — 8-связность, нефть — радиус 12), `Render(opts)` → PNG.
-- `internal/act` — `Hands`: `WalkTo(ctx, pos, stop)`, `WalkNear(ctx, entity, stop)`, `Hover`, `Mine(ctx, entity, timeout)`, `MineUntil(ctx, entity, done)`, `Gather(ctx, target, count, radius)`.
+- `internal/act` — `Hands` (B, In, Win, Layout, Protos, World, DebugDir): `WalkTo/WalkNear` (A* при `World != nil`), `Hover`, `Mine/MineUntil/Gather`, `Clean` (меню/окна/рука), `CloseGUI`, `OpenInventory`, `Pick` (быстрая панель), `ClearCursor`, `Craft/CraftWait`, `Place`, `Rotate`, `Insert`, `Take`, `Pickup`, `MenuOpen`. Раскладка интерфейса — `Layout1856` в `gui.go` (окно 1856x1016, UI scale 1; при другом размере — перекалибровать по `bin/bot shot`).
+- `internal/world` также: `Path(from, to, near, max)` (A*), `FreeSpot/FreeSpotWhere` (место под постройку).
 
 ## Ввод — что выяснено
 
 - В Xephyr нет WM: фокус клавиатуры следует за указателем — `Hands.Focus()` перед клавишами.
 - Окно клиента 1856x1016 со смещением +32+32 (пользователя устраивает). UI scale зафиксирован в `run/client/config.ini`, звук выключен там же (`[sound] master-muted=true`).
-- Зум 1.5 пользователя устраивает; в конфиге не хранится — бот читает `zoom` и не меняет его.
+- Зум в конфиге не хранится — бот читает `zoom` из игры и не меняет его.
 - Ходьба ~8.9 тайл/с, инерция после отпускания 0.6–1.2 тайла. `WalkTo`: бег до `stop+1`, затем доводка нажатиями с адаптивной длительностью (короткое нажатие игра может не заметить). Точность ≤0.5 тайла.
 - Наведение: точки внутри `selection_box` от центра, подтверждение — `player.selected`. Сущность может быть целиком перекрыта рамкой соседа (dead-grey-trunk под tree-08) → `act.ErrHover`, брать другую цель.
+- Интерфейс: где можно — хоткеи (пользователь просил); клики только в точки `Layout`, каждый шаг подтверждается модом (`opened_gui`, `cursor`, `quickbar`, очередь крафта, события).
+- `Tap` держит клавишу 50 мс (`Input.Hold`): нажатие короче ~30 мс игра теряет (Z, E).
+- `Z` с предметом в руке над сущностью — ровно 1 предмет; удержание — автоповтор (кладёт всё).
+- `Q` с пустой рукой — пипетка; `Esc` без окна — меню игры (мод не видит; `MenuOpen` по пикселю кнопки Resume (146,232,151) в (880,413)).
+- В 2.0 буры ставятся только на ресурсы (`can only be built on resources`).
+- Зум после перезапуска клиента может быть другим (был 1.5, стал 1.0) — всегда брать `zoom` из игры.
+- При сбое действия снимок экрана — в `Hands.DebugDir` (тесты: `run/debug/`).
 - Открытое окно (инвентарь и т.п.) перехватывает ввод — ходьба/добыча не работают. `Hands.CloseGUI` (Esc только при `opened_gui_type != 0`, иначе Esc откроет меню) — при старте бота и в тестах. После экспериментов с GUI — закрывать.
 - Hover только когда персонаж стоит (камера едет за игроком).
 - К сущностям подходить `WalkNear` — к ближайшей точке `selection_box`, а не к `position`: у больших (обломки, камни) центр внутри коллизии, персонаж упрётся в край.

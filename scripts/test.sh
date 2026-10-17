@@ -6,4 +6,4 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 go vet ./... && go vet -tags e2e ./test/e2e/
 go test ./...
-go test -tags e2e -count=1 ${1:+-run "$1"} -v ./test/e2e/ | grep -E '^(=== RUN|--- |    |PASS|FAIL|ok)' | grep -v '^=== RUN'
+go test -tags e2e -count=1 -timeout 30m ${1:+-run "$1"} -v ./test/e2e/ | grep -E '^(=== RUN|--- |    |PASS|FAIL|ok)' | grep -v '^=== RUN'

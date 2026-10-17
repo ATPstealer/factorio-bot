@@ -37,6 +37,12 @@ const usage = `bot — бот Factorio: действует только мышь
   player                состояние игрока (позиция, зум, инвентарь, курсор, выделение) в JSON
   events [AFTER]        события из буфера мода (добыча, постройка, крафт...) с номером > AFTER
   walk X Y              дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла
+  craft РЕЦЕПТ [N]      скрафтить N раз (по умолчанию 1) и дождаться: E → поиск → клик по ячейке рецепта
+  place ПРЕДМЕТ X Y [DIR]
+                        поставить постройку центром в (X, Y); DIR: n|e|s|w (n)
+  insert ПРЕДМЕТ N X Y  положить N предметов в постройку в точке (X, Y) (клавиша Z по одному)
+  take X Y              забрать результат из постройки в точке (X, Y) (Ctrl+ЛКМ)
+  pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
                         S пикселей на тайл (3), файл FILE (map.png); руды, вода, деревья, камни, обломки
@@ -109,7 +115,9 @@ func main() {
 			log.Fatal(err)
 		}
 		h.Log = log.Printf
-		check(h.CloseGUI(context.Background()))
+		h.World = loadWorld(b)
+		h.Protos = h.World.Protos
+		check(h.Clean(context.Background()))
 		return h
 	}
 
@@ -195,7 +203,7 @@ func main() {
 		fs.Parse(args[1:])
 		pong, err := b.Ping()
 		check(err)
-		path := knowledge.CachePath(dataDir, pong.GameVersion)
+		path := knowledge.CachePath(dataDir, knowledge.CacheKey(pong))
 		if *refresh {
 			os.Remove(path)
 		}
@@ -203,6 +211,64 @@ func main() {
 		check(err)
 		fmt.Printf("%s: рецептов %d, предметов %d, сущностей %d, технологий %d, жидкостей %d\n",
 			path, len(pr.Recipes), len(pr.Items), len(pr.Entities), len(pr.Technologies), len(pr.Fluids))
+	case "craft":
+		if len(args) < 2 {
+			log.Fatal("bot craft РЕЦЕПТ [N]")
+		}
+		n := 1
+		if len(args) > 2 {
+			n = atoi(args[2])
+		}
+		check(hands().CraftWait(ctx, args[1], n))
+		log.Printf("скрафчено %s ×%d", args[1], n)
+	case "place":
+		if len(args) < 4 {
+			log.Fatal("bot place ПРЕДМЕТ X Y [n|e|s|w]")
+		}
+		dir := act.North
+		if len(args) > 4 {
+			dir = map[string]int{"n": act.North, "e": act.East, "s": act.South, "w": act.West}[args[4]]
+		}
+		e, err := hands().Place(ctx, args[1], bridge.Pos{X: atof(args[2]), Y: atof(args[3])}, dir)
+		check(err)
+		log.Printf("поставлено %s в (%.1f, %.1f)", e.Name, e.Position.X, e.Position.Y)
+	case "insert", "take", "pickup":
+		var pos bridge.Pos
+		var item string
+		n := 0
+		switch {
+		case args[0] == "insert" && len(args) >= 5:
+			item, n, pos = args[1], atoi(args[2]), bridge.Pos{X: atof(args[3]), Y: atof(args[4])}
+		case args[0] != "insert" && len(args) >= 3:
+			pos = bridge.Pos{X: atof(args[1]), Y: atof(args[2])}
+		default:
+			log.Fatalf("bot %s: см. bin/bot", args[0])
+		}
+		h := hands()
+		es, err := b.FindNearest(bridge.FindArgs{Position: &pos, Radius: 1.5, Limit: 5})
+		check(err)
+		var target *bridge.Entity
+		for i := range es {
+			if es[i].Type != "character" && es[i].Type != "resource" {
+				target = &es[i]
+				break
+			}
+		}
+		if target == nil {
+			log.Fatalf("в (%.1f, %.1f) нет постройки", pos.X, pos.Y)
+		}
+		switch args[0] {
+		case "insert":
+			check(h.Insert(ctx, *target, item, n))
+			log.Printf("в %s положено %s ×%d", target.Name, item, n)
+		case "take":
+			got, err := h.Take(ctx, *target)
+			check(err)
+			log.Printf("из %s забрано: %v", target.Name, got)
+		case "pickup":
+			check(h.Pickup(ctx, *target))
+			log.Printf("подобрано %s", target.Name)
+		}
 	case "shot":
 		fs := flag.NewFlagSet("shot", flag.ExitOnError)
 		out := fs.String("o", "shot.png", "файл")

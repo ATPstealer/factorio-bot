@@ -20,7 +20,39 @@ function util.entity_info(e)
   return {
     name = e.name, type = e.type, position = util.pos(e.position), unit_number = e.unit_number,
     selection_box = util.box(e.selection_box),
+    direction = e.supports_direction and e.direction or nil,
   }
+end
+
+-- contents — {имя = количество} инвентаря или nil, если пуст.
+function util.contents(inv)
+  if not inv then return nil end
+  local res = {}
+  for _, it in pairs(inv.get_contents()) do
+    res[it.name] = (res[it.name] or 0) + it.count
+  end
+  return util.nonempty(res)
+end
+
+local status_names
+function util.status_name(s)
+  if s == nil then return nil end
+  if not status_names then
+    status_names = {}
+    for k, v in pairs(defines.entity_status) do status_names[v] = k end
+  end
+  return status_names[s]
+end
+
+local gui_names
+-- gui_name — имя defines.gui_type ("controller" — инвентарь персонажа, "entity" — окно сущности).
+function util.gui_name(t)
+  if t == nil then return nil end
+  if not gui_names then
+    gui_names = {}
+    for k, v in pairs(defines.gui_type) do gui_names[v] = k end
+  end
+  return gui_names[t]
 end
 
 -- Честность: бот знает только то, что видит игрок — открытые (charted) чанки его силы.

@@ -22,15 +22,7 @@ local function classes()
   return tile_classes
 end
 
-local status_names
-local function status_name(s)
-  if s == nil then return nil end
-  if not status_names then
-    status_names = {}
-    for k, v in pairs(defines.entity_status) do status_names[v] = k end
-  end
-  return status_names[s]
-end
+local status_name = util.status_name
 
 -- tiles: строка 32×32 по строкам (y, затем x), символ на тайл.
 local function scan_tiles(surface, area)

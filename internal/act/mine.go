@@ -33,6 +33,7 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 		}
 	}()
 	var idleSince time.Time
+	repressed := false
 	for {
 		if err := sleep(ctx, 100*time.Millisecond); err != nil {
 			return err
@@ -63,6 +64,21 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 			continue
 		}
 		if same(p.Selected, e) {
+			// нажатие ПКМ могло потеряться — один раз отпустить и нажать заново
+			if !repressed {
+				repressed = true
+				h.Log("не копает — повторно нажимаю ПКМ")
+				h.In.ButtonUp(input.Right)
+				if err := sleep(ctx, inputLatency); err != nil {
+					return err
+				}
+				if err := h.In.ButtonDown(input.Right); err != nil {
+					return err
+				}
+				idleSince = time.Time{}
+				continue
+			}
+			h.debugShot("not-mining-" + e.Name)
 			return fmt.Errorf("%w: %s (%.1f, %.1f)", ErrNotMining, e.Name, e.Position.X, e.Position.Y)
 		}
 		// курсор съехал с цели — отпустить ПКМ (иначе добудем то, что под курсором) и навести заново

@@ -43,6 +43,12 @@ type Recipe struct {
 	MainProduct string       `json:"main_product,omitempty"`
 	Enabled     bool         `json:"enabled"` // доступен с начала игры
 	Hidden      bool         `json:"hidden"`
+	// порядок в окне крафта
+	Group         string `json:"group"`
+	GroupOrder    string `json:"group_order"`
+	Subgroup      string `json:"subgroup"`
+	SubgroupOrder string `json:"subgroup_order"`
+	Order         string `json:"order"`
 }
 
 type Item struct {
@@ -175,13 +181,16 @@ func (p *Prototypes) Save(path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// LoadOrFetch — кэш dir/prototypes-<версия игры>.json или, если его нет, дамп из игры с сохранением.
+// CacheKey — версия игры и мода: поля дампа меняются вместе с модом.
+func CacheKey(pong bridge.Pong) string { return pong.GameVersion + "-botbridge" + pong.Version }
+
+// LoadOrFetch — кэш dir/prototypes-<игра>-botbridge<мод>.json или, если его нет, дамп из игры с сохранением.
 func LoadOrFetch(b *bridge.Bridge, dir string) (*Prototypes, error) {
 	pong, err := b.Ping()
 	if err != nil {
 		return nil, err
 	}
-	path := CachePath(dir, pong.GameVersion)
+	path := CachePath(dir, CacheKey(pong))
 	if p, err := Load(path); err == nil {
 		return p, nil
 	}

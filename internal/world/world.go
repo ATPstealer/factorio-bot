@@ -199,3 +199,41 @@ func (w *World) Walkable(t Tile) bool {
 	}
 	return false
 }
+
+// FreeSpot — ближайшая к near позиция центра постройки w×h тайлов, все тайлы которой
+// открыты и проходимы (суша, без объектов) и не задевают avoid (например, игрока).
+// Центр: для чётного размера — на углу тайлов, для нечётного — в центре тайла.
+func (w *World) FreeSpot(near bridge.Pos, width, height, radius int, avoid *bridge.Pos) (bridge.Pos, bool) {
+	return w.FreeSpotWhere(near, width, height, radius, avoid, nil)
+}
+
+// FreeSpotWhere — FreeSpot с дополнительным условием на каждый тайл площадки
+// (например, «на руде» для бура: в 2.0 буры ставятся только на ресурсы).
+func (w *World) FreeSpotWhere(near bridge.Pos, width, height, radius int, avoid *bridge.Pos, tileOK func(Tile) bool) (bridge.Pos, bool) {
+	c := TileOf(near)
+	best, bestD := bridge.Pos{}, math.Inf(1)
+	for dy := -radius; dy <= radius; dy++ {
+		for dx := -radius; dx <= radius; dx++ {
+			lt := Tile{c.X + dx, c.Y + dy} // левый верхний тайл площадки
+			ok := true
+			for y := 0; y < height && ok; y++ {
+				for x := 0; x < width && ok; x++ {
+					t := Tile{lt.X + x, lt.Y + y}
+					ok = w.TileAt(t) == Land && !w.Blocked(t) && (tileOK == nil || tileOK(t))
+					if ok && avoid != nil {
+						a := TileOf(*avoid)
+						ok = math.Abs(float64(t.X-a.X)) > 1 || math.Abs(float64(t.Y-a.Y)) > 1
+					}
+				}
+			}
+			if !ok {
+				continue
+			}
+			pos := bridge.Pos{X: float64(lt.X) + float64(width)/2, Y: float64(lt.Y) + float64(height)/2}
+			if d := math.Hypot(pos.X-near.X, pos.Y-near.Y); d < bestD {
+				best, bestD = pos, d
+			}
+		}
+	}
+	return best, !math.IsInf(bestD, 1)
+}

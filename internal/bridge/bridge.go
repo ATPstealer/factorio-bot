@@ -102,6 +102,7 @@ type Entity struct {
 	Position     Pos     `json:"position"`
 	UnitNumber   int     `json:"unit_number,omitempty"`
 	SelectionBox *Box    `json:"selection_box,omitempty"`
+	Direction    *int    `json:"direction,omitempty"` // 2.0: 0 север, 4 восток, 8 юг, 12 запад
 	Distance     float64 `json:"distance,omitempty"`
 
 	// только у find_minable
@@ -120,9 +121,17 @@ type Stack struct {
 	Count int    `json:"count"`
 }
 
+// Slot — непустая ячейка основного инвентаря (номер с 1).
+type Slot struct {
+	Slot  int    `json:"slot"`
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
 type Craft struct {
-	Recipe string `json:"recipe"`
-	Count  int    `json:"count"`
+	Recipe       string `json:"recipe"`
+	Count        int    `json:"count"`
+	Prerequisite bool   `json:"prerequisite"` // промежуточный крафт, поставленный игрой автоматически
 }
 
 type Character struct {
@@ -146,10 +155,12 @@ type Player struct {
 	Controller        int            `json:"controller"`
 	Selected          *Entity        `json:"selected"`
 	OpenedGUIType     *int           `json:"opened_gui_type"`
+	OpenedGUI         string         `json:"opened_gui"` // "controller" — инвентарь, "entity" — окно сущности
 	Opened            *Entity        `json:"opened"`
 	Cursor            *Stack         `json:"cursor"`
 	Inventory         map[string]int `json:"inventory"`
 	Quickbar          List[string]   `json:"quickbar"`
+	InventorySlots    List[Slot]     `json:"inventory_slots"`
 	CraftingQueue     List[Craft]    `json:"crafting_queue"`
 	CraftingQueueSize int            `json:"crafting_queue_size"`
 	Character         *Character     `json:"character"`
@@ -299,4 +310,31 @@ func (b *Bridge) ProductionStats() (ProductionStats, error) {
 // DumpPrototypes — справочник kind (recipes, items, entities, technologies, fluids) в out.
 func (b *Bridge) DumpPrototypes(kind string, out any) error {
 	return b.Call("dump_prototypes", map[string]any{"kind": kind}, out)
+}
+
+// EntityState — состояние сущности: инвентари по имени (fuel, furnace_source, furnace_result, chest…).
+type EntityState struct {
+	Entity
+	Status           string                    `json:"status"`
+	Own              bool                      `json:"own"`
+	Inventories      map[string]map[string]int `json:"inventories"`
+	Recipe           string                    `json:"recipe"`
+	CraftingProgress float64                   `json:"crafting_progress"`
+	Burning          string                    `json:"burning"`
+	RemainingFuel    float64                   `json:"remaining_fuel"`
+}
+
+// Count — сколько предмета во всех инвентарях сущности.
+func (s *EntityState) Count(item string) int {
+	n := 0
+	for _, inv := range s.Inventories {
+		n += inv[item]
+	}
+	return n
+}
+
+// GetEntity — состояние сущности name в точке pos или nil.
+func (b *Bridge) GetEntity(name string, pos Pos) (*EntityState, error) {
+	var e *EntityState
+	return e, b.Call("get_entity", map[string]any{"name": name, "position": pos}, &e)
 }

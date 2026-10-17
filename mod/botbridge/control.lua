@@ -42,6 +42,7 @@ function methods.get_player()
     controller = p.controller_type,
     selected = entity_info(p.selected),
     opened_gui_type = p.opened_gui_type,
+    opened_gui = util.gui_name(p.opened_gui_type),
     opened = p.opened and p.opened.object_name == "LuaEntity" and entity_info(p.opened) or nil,
     cursor = nil,
     inventory = {},
@@ -59,12 +60,22 @@ function methods.get_player()
     end
   end
   if next(r.inventory) == nil then r.inventory = nil end -- пустая таблица ушла бы в JSON как []
+  -- ячейки инвентаря (1-based): по ним бот считает, куда кликнуть в окне инвентаря
+  r.inventory_slots = {}
+  if inv then
+    for i = 1, #inv do
+      local st = inv[i]
+      if st.valid_for_read then
+        r.inventory_slots[#r.inventory_slots + 1] = { slot = i, name = st.name, count = st.count }
+      end
+    end
+  end
   for i = 1, 10 do
     local ok, v = pcall(p.get_quick_bar_slot, i)
     r.quickbar[i] = ok and slot_name(v) or ""
   end
   for _, q in pairs(p.crafting_queue or {}) do
-    r.crafting_queue[#r.crafting_queue + 1] = { recipe = q.recipe, count = q.count }
+    r.crafting_queue[#r.crafting_queue + 1] = { recipe = q.recipe, count = q.count, prerequisite = q.prerequisite }
   end
   if c then
     r.character = {
@@ -170,6 +181,38 @@ function methods.find_minable(a)
     res[i] = info
   end
   return res
+end
+
+-- Состояние сущности в точке: инвентари, топливо, рецепт, статус. args {name, position}.
+function methods.get_entity(a)
+  local p = bot_player()
+  if not visible(p, a.position) then return nil end
+  local e = p.surface.find_entities_filtered { name = a.name, position = a.position, radius = 0.01 }[1]
+  if not e then return nil end
+  local r = entity_info(e)
+  r.status = e.status and util.status_name(e.status) or nil
+  r.own = e.force == p.force or nil
+  r.inventories = {}
+  for i = 1, e.get_max_inventory_index() do
+    local inv = e.get_inventory(i)
+    if inv then
+      local c = util.contents(inv)
+      if c then r.inventories[inv.name or tostring(i)] = c end
+    end
+  end
+  r.inventories = util.nonempty(r.inventories)
+  if e.type == "assembling-machine" or e.type == "furnace" then
+    local rec = e.get_recipe()
+    r.recipe = rec and rec.name or nil
+    r.crafting_progress = e.crafting_progress
+  end
+  if e.burner then
+    local cb = e.burner.currently_burning
+    -- 2.0: {name = прототип предмета, quality}
+    r.burning = cb and (type(cb.name) == "string" and cb.name or cb.name.name) or nil
+    r.remaining_fuel = e.burner.remaining_burning_fuel
+  end
+  return r
 end
 
 -- Есть ли сущность с таким именем ровно в этой точке.

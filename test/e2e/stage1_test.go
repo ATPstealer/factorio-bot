@@ -18,6 +18,8 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/input"
+	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/world"
 )
 
 var (
@@ -49,9 +51,23 @@ func handsT(t *testing.T) *act.Hands {
 			return
 		}
 		hands, handsErr = act.New(b, in)
-		if handsErr == nil {
-			handsErr = hands.CloseGUI(context.Background())
+		if handsErr != nil {
+			return
 		}
+		hands.DebugDir = path("run", "debug")
+		pong, err := b.Ping()
+		if err != nil {
+			handsErr = err
+			return
+		}
+		if hands.Protos, handsErr = knowledge.Fetch(b, pong.GameVersion); handsErr != nil {
+			return
+		}
+		hands.World = world.New(hands.Protos)
+		if _, handsErr = hands.World.Sync(b, true); handsErr != nil {
+			return
+		}
+		handsErr = hands.Clean(context.Background())
 	})
 	if handsErr != nil {
 		t.Fatalf("ввод: %v", handsErr)

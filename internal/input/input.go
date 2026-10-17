@@ -45,6 +45,9 @@ type Input struct {
 	buttons map[byte]bool
 	// Пауза после каждого события: игра читает ввод раз в тик (~16 мс).
 	Delay time.Duration
+	// Сколько держать клавишу в Tap: нажатие короче ~30 мс игра может не заметить
+	// (проверено на Z и E), длинное — включает автоповтор.
+	Hold time.Duration
 }
 
 type keyLoc struct {
@@ -65,7 +68,7 @@ func Open(display string) (*Input, error) {
 	}
 	setup := xproto.Setup(c)
 	in := &Input{conn: c, root: setup.DefaultScreen(c).Root, keymap: map[xproto.Keysym]keyLoc{},
-		keys: map[byte]bool{}, buttons: map[byte]bool{}, Delay: 20 * time.Millisecond}
+		keys: map[byte]bool{}, buttons: map[byte]bool{}, Delay: 20 * time.Millisecond, Hold: 50 * time.Millisecond}
 	n := int(setup.MaxKeycode) - int(setup.MinKeycode) + 1
 	km, err := xproto.GetKeyboardMapping(c, setup.MinKeycode, byte(n)).Reply()
 	if err != nil {
@@ -212,6 +215,7 @@ func (in *Input) Tap(name string, mods ...string) error {
 	}
 	err := in.KeyDown(name)
 	if err == nil {
+		time.Sleep(in.Hold)
 		err = in.KeyUp(name)
 	}
 	for i := len(mods) - 1; i >= 0; i-- {

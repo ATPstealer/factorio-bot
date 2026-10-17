@@ -5,13 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/png"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/camera"
 	"factorio-bot/internal/input"
+	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/world"
 )
 
 // WindowName — префикс заголовка окна клиента.
@@ -20,10 +25,33 @@ const WindowName = "Factorio"
 const pollEvery = 50 * time.Millisecond
 
 type Hands struct {
-	B   *bridge.Bridge
-	In  *input.Input
-	Win input.Rect
-	Log func(format string, args ...any)
+	B      *bridge.Bridge
+	In     *input.Input
+	Win    input.Rect
+	Layout Layout
+	Protos *knowledge.Prototypes // справочник: нужен крафту и постройке
+	World  *world.World          // модель карты: нужна поиску пути (nil — ходьба по прямой)
+	Log    func(format string, args ...any)
+	// DebugDir — куда сохранять снимок экрана при сбое действия ("" — не сохранять).
+	DebugDir string
+}
+
+// debugShot сохраняет снимок окна клиента при сбое: имя файла — время и что сломалось.
+func (h *Hands) debugShot(what string) {
+	if h.DebugDir == "" {
+		return
+	}
+	img, err := h.In.Screenshot(h.Win)
+	if err != nil {
+		return
+	}
+	os.MkdirAll(h.DebugDir, 0o755)
+	path := filepath.Join(h.DebugDir, time.Now().Format("150405.000")+"-"+what+".png")
+	if f, err := os.Create(path); err == nil {
+		png.Encode(f, img)
+		f.Close()
+		h.Log("снимок сбоя: %s", path)
+	}
 }
 
 func New(b *bridge.Bridge, in *input.Input) (*Hands, error) {
@@ -31,7 +59,7 @@ func New(b *bridge.Bridge, in *input.Input) (*Hands, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Hands{B: b, In: in, Win: win, Log: func(string, ...any) {}}, nil
+	return &Hands{B: b, In: in, Win: win, Layout: Layout1856, Log: func(string, ...any) {}}, nil
 }
 
 func (h *Hands) Camera(p bridge.Player) camera.Camera {
@@ -92,15 +120,52 @@ var ErrNotReached = errors.New("act: не дошёл")
 const brakeDist = 1.0
 
 // WalkTo идёт к target клавишами WASD до расстояния stop (не меньше ~0.45 из-за deadZone).
+// С моделью мира (Hands.World) — по пути A* в обход воды и препятствий, иначе по прямой.
 // По возвращении персонаж стоит.
 func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) error {
 	if err := h.Focus(); err != nil {
 		return err
 	}
-	if err := h.run(ctx, target, stop+brakeDist); err != nil {
+	if h.World != nil {
+		for replan := 0; ; replan++ {
+			err := h.followPath(ctx, target, stop)
+			if err == nil || !errors.Is(err, ErrStuck) || replan >= 2 {
+				if err != nil && !errors.Is(err, world.ErrNoPath) {
+					return err
+				}
+				break // путь пройден или его нет — дальше по прямой
+			}
+			h.Log("%v — перестраиваю путь", err)
+		}
+	}
+	if err := h.run(ctx, target, stop+brakeDist, true); err != nil {
 		return err
 	}
 	return h.approach(ctx, target, stop)
+}
+
+// followPath проходит путь A* до последней точки поворота (без остановок на поворотах).
+func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64) error {
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	if dist(p.Position, target) <= stop+brakeDist {
+		return nil
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
+	pts, err := h.World.Path(p.Position, target, stop, 0)
+	if err != nil {
+		return err
+	}
+	for _, wp := range pts[:len(pts)-1] {
+		if err := h.run(ctx, wp, 0.7, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // closestOnBox — ближайшая к p точка прямоугольника b (сама p, если она внутри).
@@ -126,7 +191,8 @@ func (h *Hands) WalkNear(ctx context.Context, e bridge.Entity, stop float64) err
 }
 
 // run — бег с удержанием клавиш до расстояния until; обход при застревании.
-func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64) error {
+// final — остановиться (дождаться, пока персонаж встанет); иначе сразу к следующей точке.
+func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64, final bool) error {
 	held := map[string]bool{}
 	release := func() {
 		for k := range held {
@@ -153,6 +219,9 @@ func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64) error
 		}
 		if dist(p.Position, target) <= until {
 			release()
+			if !final {
+				return nil
+			}
 			return h.waitStill(ctx)
 		}
 		if dist(p.Position, last) > 0.05 {
