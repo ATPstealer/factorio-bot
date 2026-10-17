@@ -130,6 +130,8 @@ function dump.entities()
         pumping_speed = call("get_pumping_speed"),
         fixed_recipe = g("fixed_recipe"),
         vector_to_place_result = g("vector_to_place_result"),
+        inserter_pickup_position = g("inserter_pickup_position"),
+        inserter_drop_position = g("inserter_drop_position"),
       }
     end
   end

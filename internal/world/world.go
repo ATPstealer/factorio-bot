@@ -4,6 +4,7 @@ package world
 import (
 	"math"
 	"sort"
+	"strings"
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
@@ -64,6 +65,12 @@ type Chunk struct {
 
 	blocked map[Tile]bool // лениво: тайлы под коллизиями объектов
 	hard    map[Tile]bool // из них — занятые не деревьями (деревья можно срубить)
+	solid   map[Tile]bool // занятые тем, что руками не убрать (утёсы, постройки)
+}
+
+// clearable — объект можно убрать руками перед стройкой: дерево, камень, обломок корабля.
+func clearable(o Object) bool {
+	return !o.Own && (o.Type == "tree" || o.Type == "simple-entity" || strings.HasPrefix(o.Name, "crash-site-"))
 }
 
 type World struct {
@@ -207,7 +214,7 @@ func (w *World) blockedSet(c *Chunk) map[Tile]bool {
 	if c.blocked != nil {
 		return c.blocked
 	}
-	c.blocked, c.hard = map[Tile]bool{}, map[Tile]bool{}
+	c.blocked, c.hard, c.solid = map[Tile]bool{}, map[Tile]bool{}, map[Tile]bool{}
 	for _, o := range c.Objects {
 		if noCollision[o.Type] {
 			continue
@@ -216,6 +223,9 @@ func (w *World) blockedSet(c *Chunk) map[Tile]bool {
 			c.blocked[t] = true
 			if o.Type != "tree" {
 				c.hard[t] = true
+			}
+			if !clearable(o) {
+				c.solid[t] = true
 			}
 		}
 	}
@@ -331,5 +341,45 @@ func (w *World) Frontier(from bridge.Pos) []bridge.ChunkPos {
 		}
 		return res[i].X*100000+res[i].Y < res[j].X*100000+res[j].Y
 	})
+	return res
+}
+
+// Buildable — можно ли строить на тайле: открытая суша, без неубираемых объектов.
+// clear — на тайле есть деревья/камни/обломки, их надо убрать перед стройкой.
+func (w *World) Buildable(t Tile) (ok, clear bool) {
+	if w.TileAt(t) != Land {
+		return false, false
+	}
+	cp := ChunkOf(t)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			c := w.Chunks[bridge.ChunkPos{X: cp.X + dx, Y: cp.Y + dy}]
+			if c == nil {
+				continue
+			}
+			w.blockedSet(c)
+			if c.solid[t] {
+				return false, false
+			}
+			clear = clear || c.blocked[t]
+		}
+	}
+	return true, clear
+}
+
+// ClearablesAt — убираемые объекты (деревья, камни, обломки), задевающие тайл.
+func (w *World) ClearablesAt(t Tile) []Object {
+	var res []Object
+	for _, o := range w.ObjectsNear(t.Center(), 4) {
+		if !clearable(o) {
+			continue
+		}
+		for _, bt := range BoxTiles(w.CollisionBox(o)) {
+			if bt == t {
+				res = append(res, o)
+				break
+			}
+		}
+	}
 	return res
 }

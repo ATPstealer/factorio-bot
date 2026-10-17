@@ -108,6 +108,9 @@ type Entity struct {
 	FixedRecipe            string       `json:"fixed_recipe,omitempty"`
 	// куда бур/инсертер выдаёт результат (смещение от центра при направлении «север»)
 	VectorToPlaceResult []float64 `json:"vector_to_place_result,omitempty"`
+	// инсертер при «север»: откуда берёт и куда кладёт (смещения от центра)
+	InserterPickup []float64 `json:"inserter_pickup_position,omitempty"`
+	InserterDrop   []float64 `json:"inserter_drop_position,omitempty"`
 }
 
 // Trigger — технология 2.0, открываемая действием (скрафтить/добыть/построить), а не наукой.

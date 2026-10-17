@@ -581,7 +581,22 @@ func same(a *bridge.Entity, b bridge.Entity) bool {
 var ErrHover = errors.New("act: не удалось навести курсор")
 
 // Hover наводит курсор на сущность; подтверждение — player.selected. Персонаж должен стоять.
+// Не вышло — вторая попытка с паузой (камера могла ещё доезжать, выделение — запаздывать).
 func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
+	err := h.hoverOnce(ctx, e)
+	if !errors.Is(err, ErrHover) {
+		return err
+	}
+	if err := sleep(ctx, 300*time.Millisecond); err != nil {
+		return err
+	}
+	if err = h.hoverOnce(ctx, e); errors.Is(err, ErrHover) {
+		h.debugShot("hover-" + e.Name)
+	}
+	return err
+}
+
+func (h *Hands) hoverOnce(ctx context.Context, e bridge.Entity) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err

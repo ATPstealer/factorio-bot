@@ -50,6 +50,9 @@ const usage = `bot — бот Factorio: действует только мышь
                           keep — продолжить сохранённые цели (run/state.json); журнал — run/bot.log
   plan ЦЕЛЬ…            показать план (шаги и почему) без исполнения
   goals                 сохранённые цели, свои постройки, баны
+  layout [-o F] [-pairs N] [demo | mine РУДА [N]]
+                        раскладка «на бумаге» по открытой карте + PNG: demo — шахты железа, меди и
+                        угля, плавильни, блок красной науки, паровая станция, столбы, всё на лентах
   map [-r R] [-s S] [-o FILE]
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
                         S пикселей на тайл (3), файл FILE (map.png); руды, вода, деревья, камни, обломки
@@ -343,6 +346,8 @@ func main() {
 		runPlan(hands(), args[1:])
 	case "goals":
 		runGoals()
+	case "layout":
+		runLayout(b, args[1:])
 	case "shot":
 		fs := flag.NewFlagSet("shot", flag.ExitOnError)
 		out := fs.String("o", "shot.png", "файл")
