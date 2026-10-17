@@ -1,0 +1,8 @@
+# данные Factorio (сейвы, логи, кэш) — в git только наши конфиги
+/run/**
+!/run/*/
+!/run/*/config.ini
+!/run/client/steam_appid.txt
+
+__pycache__/
+.idea/

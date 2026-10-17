@@ -1,0 +1,14 @@
+{
+  "name": "factorio-bot",
+  "description": "bot test server",
+  "visibility": {"public": false, "lan": false},
+  "require_user_verification": false,
+  "max_players": 0,
+  "allow_commands": "admins-only",
+  "autosave_interval": 10,
+  "autosave_slots": 5,
+  "afk_autokick_interval": 0,
+  "auto_pause": false,
+  "only_admins_can_pause_the_game": true,
+  "autosave_only_on_server": true
+}
