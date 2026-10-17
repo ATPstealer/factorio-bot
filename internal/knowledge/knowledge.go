@@ -66,6 +66,7 @@ type Mineable struct {
 	MiningTime    float64      `json:"mining_time"`
 	Products      List[Amount] `json:"products"`
 	RequiredFluid string       `json:"required_fluid,omitempty"`
+	FluidAmount   float64      `json:"fluid_amount,omitempty"` // жидкости на 10 операций добычи
 }
 
 type Burner struct {
@@ -95,6 +96,7 @@ type Entity struct {
 	MaxEnergyProduction    float64      `json:"max_energy_production,omitempty"`
 	Burner                 *Burner      `json:"burner,omitempty"`
 	Electric               bool         `json:"electric,omitempty"`
+	Drain                  float64      `json:"drain,omitempty"` // Дж/тик в простое (электро)
 	SupplyAreaDistance     float64      `json:"supply_area_distance,omitempty"`
 	MaxWireDistance        float64      `json:"max_wire_distance,omitempty"`
 	BeltSpeed              float64      `json:"belt_speed,omitempty"`

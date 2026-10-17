@@ -390,10 +390,12 @@ func walkTarget(t *testing.T, h *act.Hands) bridge.Pos {
 		t.Fatal(err)
 	}
 	p, _ := h.B.Player()
-	for _, d := range []bridge.Pos{{X: 4}, {X: -4}, {Y: 4}, {Y: -4}, {X: 3, Y: 3}, {X: -3, Y: -3}} {
-		c := world.TileOf(bridge.Pos{X: p.Position.X + d.X, Y: p.Position.Y + d.Y})
-		if pts, err := h.World.Path(p.Position, c.Center(), 0.5, 2000); err == nil && len(pts) > 0 {
-			return c.Center()
+	for r := 3; r <= 8; r++ {
+		for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {-1, -1}, {1, -1}, {-1, 1}} {
+			c := world.TileOf(bridge.Pos{X: p.Position.X + float64(d[0]*r), Y: p.Position.Y + float64(d[1]*r)})
+			if pts, err := h.World.Path(p.Position, c.Center(), 0.5, 20000); err == nil && len(pts) > 0 {
+				return c.Center()
+			}
 		}
 	}
 	t.Skip("рядом нет достижимой точки")

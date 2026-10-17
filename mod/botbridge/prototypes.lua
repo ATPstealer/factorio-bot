@@ -101,6 +101,7 @@ function dump.entities()
           mining_time = m.mining_time,
           products = amounts(m.products),
           required_fluid = m.required_fluid,
+          fluid_amount = m.fluid_amount, -- жидкости на 10 операций добычи
         } or nil,
         crafting_speed = call("get_crafting_speed"),
         crafting_categories = util.nonempty(names(g("crafting_categories"))),
@@ -118,6 +119,7 @@ function dump.entities()
           fuel_inventory_size = burner.fuel_inventory_size,
         } or nil,
         electric = g("electric_energy_source_prototype") ~= nil or nil,
+        drain = try(function() return e.electric_energy_source_prototype.drain end), -- Дж/тик в простое
         supply_area_distance = call("get_supply_area_distance"),
         max_wire_distance = call("get_max_wire_distance"),
         belt_speed = g("belt_speed"),

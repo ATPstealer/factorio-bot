@@ -60,6 +60,14 @@ const usage = `bot — бот Factorio: действует только мышь
                             mine rock 2  — разбить 2 камня (по 20+ камня с каждого)
                             mine coal 10 — 10 раз копнуть уголь = 10 угля (руда даёт 1 за раз)
 
+Расчёты (работают и без игры — по кэшу data/, изученного тогда нет):
+  calc [-all] [-json] [-machine кат=машина,…] ПРЕДМЕТ СКОРОСТЬ [ПРЕДМЕТ СКОРОСТЬ …]
+                        дерево производства, машины, сырьё, буры, электричество, ленты, нужные
+                        исследования; СКОРОСТЬ: 60/min | 1/s | 2/h (без единицы — в минуту);
+                        -all — считать всё изученным
+  tech ЦЕЛЬ             путь исследований до технологии / рецепта / предмета: порядок, цена, действия
+  raw ПРЕДМЕТ [N]       ручной крафт: что нужно иметь и сколько секунд
+
 Примеры:
   bin/bot ping
   bin/bot map -r 200 -o start.png
@@ -68,6 +76,9 @@ const usage = `bot — бот Factorio: действует только мышь
   bin/bot mine coal 10
   bin/bot mine wreck 3
   bin/bot -t 60s mine stone 20
+  bin/bot calc -all rocket-part 1/min
+  bin/bot calc automation-science-pack 30 logistic-science-pack 30
+  bin/bot tech rocket-silo
 
 Флаги:
 `
@@ -92,6 +103,18 @@ func main() {
 	if len(args) == 0 {
 		flag.Usage()
 		os.Exit(2)
+	}
+	// расчётные команды работают и без игры
+	switch args[0] {
+	case "calc":
+		runCalc(args[1:], *addr, *pass)
+		return
+	case "tech":
+		runTech(args[1:], *addr, *pass)
+		return
+	case "raw":
+		runRaw(args[1:], *addr, *pass)
+		return
 	}
 	b, rc, err := bridge.Dial(*addr, *pass)
 	if err != nil {

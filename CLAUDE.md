@@ -72,7 +72,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 ## Код бота (Go)
 
-- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | craft Р [N] | place П X Y [n|e|s|w] | insert П N X Y | take X Y | pickup X Y | map ... | patches [R] | protos [-refresh] | force | shot [-o F]`. Полная справка — `bin/bot` без аргументов; новые команды добавлять в `usage` в `cmd/bot/main.go`.
+- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | craft Р [N] | place П X Y [n|e|s|w] | insert П N X Y | take X Y | pickup X Y | map ... | patches [R] | protos [-refresh] | force | shot [-o F] | calc ... | tech ЦЕЛЬ | raw П [N] | path X Y`. Полная справка — `bin/bot` без аргументов; новые команды добавлять в `usage` в `cmd/bot/main.go`.
   - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности (по умолчанию 1); R — радиус поиска (64).
   - `-t` — общий лимит времени (по умолчанию 5m). Любой запуск действий в игре — только с лимитом (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
 - `internal/rcon` — Source RCON; ответы до 2 МБ одним пакетом проверены — пагинация не нужна.
@@ -83,6 +83,10 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - `internal/knowledge` — справочник `Prototypes` (рецепты, предметы, сущности, технологии, жидкости), `LoadOrFetch(b, "data")` — кэш `data/prototypes-<версия>.json` (data/ в .gitignore), `RecipesFor(item)`, `TechFor(recipe)`.
 - `internal/world` — модель открытой карты: `Sync(b, full)` (новые чанки + чанки из событий; остатки руды меняются без событий → `full`), `TileAt/ResourceAt/Blocked/Walkable`, `Patches()` (руда — 8-связность, нефть — радиус 12), `Render(opts)` → PNG.
 - `internal/act` — `Hands` (B, In, Win, Layout, Protos, World, DebugDir): `WalkTo/WalkNear` (A* при `World != nil`), `Hover`, `Mine/MineUntil/Gather`, `Clean` (меню/окна/рука), `CloseGUI`, `OpenInventory`, `Pick` (быстрая панель), `ClearCursor`, `Craft/CraftWait`, `Place`, `Rotate`, `Insert`, `Take`, `Pickup`, `MenuOpen`. Раскладка интерфейса — `Layout1856` в `gui.go` (окно 1856x1016, UI scale 1; при другом размере — перекалибровать по `bin/bot shot`).
+- `internal/calc` — калькулятор: `Solve(p, targets/с, Options{Researched, All, Machines})` → `Plan` (узлы-рецепты с машинами, сырьё, буры, МВт, пар, уголь, ленты, излишки, нужные техи по порядку + цена). Внутри — симплекс `Minimize` (min c·x, A·x ≥ b), веса сырья `rawCost` выбирают рецепт при альтернативах (нефть). `Handcraft` — ручной крафт.
+- `internal/knowledge`: `NewAvailability(researched, all)`, `Usable`, `Resource`, `BestCrafter/BestDrill/BestBelt`, `TechPath`, `Cost`, `TechsFor`. Снимок справочника для юнит-тестов — `internal/knowledge/testdata/prototypes.json` (в git; e2e `TestStage4_SnapshotMatchesGame` сверяет с игрой — при смене версии/полей обновить: `bin/bot protos -refresh` и пересохранить).
+- CLI `calc/tech/raw` работают без игры по последнему `data/prototypes-*.json`.
+- После правки Go-структур справочника — пересобрать `bin/bot` ДО `protos -refresh`, иначе старый бинарник выкинет новые поля при сохранении кэша.
 - `internal/world` также: `Path(from, to, near, max)` (A*), `FreeSpot/FreeSpotWhere` (место под постройку).
 
 ## Ввод — что выяснено
