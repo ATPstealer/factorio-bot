@@ -5,6 +5,7 @@
 package e2e
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -22,8 +23,8 @@ func clean(t *testing.T, h *act.Hands) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.OpenedGUI != "none" || p.Cursor != nil || p.Character.Walking || p.Character.Mining {
-		t.Errorf("после действия: окно %q, рука %+v, walking=%v, mining=%v", p.OpenedGUI, p.Cursor, p.Character.Walking, p.Character.Mining)
+	if p.OpenedGUI != "none" || p.RenderMode != "game" || p.Cursor != nil || p.Character.Walking || p.Character.Mining {
+		t.Errorf("после действия: окно %q, вид %q, рука %+v, walking=%v, mining=%v", p.OpenedGUI, p.RenderMode, p.Cursor, p.Character.Walking, p.Character.Mining)
 	}
 	if open, err := h.MenuOpen(); err != nil || open {
 		t.Errorf("открыто меню игры (%v)", err)
@@ -298,10 +299,103 @@ func TestStage3_MenuGuard(t *testing.T) {
 		t.Fatalf("меню не распознано после Esc (%v)", err)
 	}
 	// действие под меню: WalkTo должен сам закрыть меню и дойти
-	p, _ := h.B.Player()
-	target := bridge.Pos{X: p.Position.X + 3, Y: p.Position.Y}
+	target := walkTarget(t, h)
 	if err := h.WalkTo(ctx, target, 0.5); err != nil {
 		t.Fatal(err)
 	}
 	clean(t, h)
+}
+
+// Регрессия: копая руду рядом со своей печью, бот не должен её разобрать
+// (ПКМ над постройкой добывает постройку).
+func TestStage3_MineOreNextToBuilding(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	p0, _ := h.B.Player()
+	if p0.Inventory["stone-furnace"] == 0 {
+		ensure(t, h, "stone", "stone", 5)
+		if err := h.CraftWait(ctx, "stone-furnace", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// площадка 2×2 на железной руде
+	var spot bridge.Pos
+	found := false
+	for _, pt := range h.World.Patches() {
+		if pt.Name != "iron-ore" || len(pt.Tiles) < 50 {
+			continue
+		}
+		onOre := func(tl world.Tile) bool { _, ok := h.World.ResourceAt(tl); return ok }
+		if s, ok := h.World.FreeSpotWhere(pt.Center, 2, 2, 25, &p0.Position, onOre); ok {
+			spot, found = s, true
+			break
+		}
+	}
+	if !found {
+		t.Skip("нет площадки на железной руде")
+	}
+	f, err := h.Place(ctx, "stone-furnace", spot, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Pickup(context.Background(), f)
+	// встать вплотную к печи и копать ближайшую руду — она вокруг печи
+	if err := h.WalkTo(ctx, bridge.Pos{X: spot.X, Y: spot.Y + 2}, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Gather(ctx, "iron-ore", 6, 10); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := h.B.GetEntity(f.Name, f.Position); err != nil || st == nil {
+		t.Fatalf("печь рядом с рудой разобрана (%v)", err)
+	}
+	clean(t, h)
+}
+
+// Регрессия: бот оказался на карте (Ctrl+F без окна открывает поиск по карте) и не вышел.
+// Карту мод видит (render_mode) — guard закрывает её перед действием.
+func TestStage3_MapGuard(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 30*time.Second)
+	if err := h.Clean(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Focus(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.In.Tap("tab"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.B.Player(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if p, _ := h.B.Player(); p.RenderMode == "game" {
+		t.Fatalf("Tab не открыл карту: %q", p.RenderMode)
+	}
+	target := walkTarget(t, h)
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := h.B.Player(); p.RenderMode != "game" {
+		t.Errorf("карта не закрыта: %q", p.RenderMode)
+	}
+	clean(t, h)
+}
+
+// walkTarget — проходимая точка в нескольких тайлах от игрока (центр свободного тайла).
+func walkTarget(t *testing.T, h *act.Hands) bridge.Pos {
+	t.Helper()
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	for _, d := range []bridge.Pos{{X: 4}, {X: -4}, {Y: 4}, {Y: -4}, {X: 3, Y: 3}, {X: -3, Y: -3}} {
+		c := world.TileOf(bridge.Pos{X: p.Position.X + d.X, Y: p.Position.Y + d.Y})
+		if pts, err := h.World.Path(p.Position, c.Center(), 0.5, 2000); err == nil && len(pts) > 0 {
+			return c.Center()
+		}
+	}
+	t.Skip("рядом нет достижимой точки")
+	return bridge.Pos{}
 }

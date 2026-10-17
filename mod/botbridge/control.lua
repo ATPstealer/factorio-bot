@@ -43,6 +43,7 @@ function methods.get_player()
     selected = entity_info(p.selected),
     opened_gui_type = p.opened_gui_type,
     opened_gui = util.gui_name(p.opened_gui_type),
+    render_mode = util.render_name(p.render_mode),
     opened = p.opened and p.opened.object_name == "LuaEntity" and entity_info(p.opened) or nil,
     cursor = nil,
     inventory = {},

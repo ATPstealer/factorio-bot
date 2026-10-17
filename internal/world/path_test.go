@@ -42,6 +42,32 @@ func walkable(t *testing.T, w *World, pts []bridge.Pos, from bridge.Pos) {
 	}
 }
 
+// каждый отрезок пути — одно из 8 направлений (персонаж ходит клавишами)
+func eightDir(t *testing.T, pts []bridge.Pos, from bridge.Pos) {
+	t.Helper()
+	prev := TileOf(from).Center()
+	for _, p := range pts {
+		dx, dy := math.Abs(p.X-prev.X), math.Abs(p.Y-prev.Y)
+		if dx > 1e-9 && dy > 1e-9 && math.Abs(dx-dy) > 1e-9 {
+			t.Errorf("отрезок %v → %v не по 8 направлениям", prev, p)
+		}
+		prev = p
+	}
+}
+
+func TestPathEightDirections(t *testing.T) {
+	w := grid(t)
+	from := bridge.Pos{X: 1.5, Y: 1.5}
+	pts, err := w.Path(from, bridge.Pos{X: 20.5, Y: 7.5}, 0.5, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eightDir(t, pts, from)
+	if len(pts) > 3 {
+		t.Errorf("лишние повороты: %v", pts)
+	}
+}
+
 func TestPathStraight(t *testing.T) {
 	w := grid(t)
 	from, to := bridge.Pos{X: 2.5, Y: 2.5}, bridge.Pos{X: 20.5, Y: 2.5}
@@ -81,6 +107,7 @@ func TestPathAroundWall(t *testing.T) {
 		t.Errorf("путь не обходит стену снизу: %v", pts)
 	}
 	walkable(t, w, pts, from)
+	eightDir(t, pts, from)
 	if last := pts[len(pts)-1]; math.Hypot(last.X-to.X, last.Y-to.Y) > 0.5 {
 		t.Errorf("конец пути %v, цель %v", last, to)
 	}
@@ -121,8 +148,16 @@ func TestPathNone(t *testing.T) {
 	// цель в озере, окружённом водой
 	rows := []string{"wwwww", "w...w", "wwwww"}
 	w := grid(t, rows...)
-	if _, err := w.Path(bridge.Pos{X: 10.5, Y: 10.5}, bridge.Pos{X: 2.5, Y: 1.5}, 0.5, 5000); err != ErrNoPath {
+	pts, err := w.Path(bridge.Pos{X: 10.5, Y: 10.5}, bridge.Pos{X: 2.5, Y: 1.5}, 0.5, 5000)
+	if err != ErrNoPath {
 		t.Errorf("err = %v, ждали ErrNoPath", err)
+	}
+	// путь к ближайшей достижимой точке: снаружи у стенки озера
+	if len(pts) == 0 {
+		t.Fatal("нет пути к ближайшей точке")
+	}
+	if last := pts[len(pts)-1]; math.Hypot(last.X-2.5, last.Y-1.5) > 2.5 {
+		t.Errorf("ближайшая точка %v далеко от цели", last)
 	}
 	// и неоткрытое не проходимо
 	if _, err := w.Path(bridge.Pos{X: 10.5, Y: 10.5}, bridge.Pos{X: 50.5, Y: 10.5}, 0.5, 5000); err != ErrNoPath {

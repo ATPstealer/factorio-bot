@@ -44,6 +44,16 @@ function util.status_name(s)
   return status_names[s]
 end
 
+local render_names
+-- render_name — "game" (обычный вид), "chart" / "chart_zoomed_in" (карта / удалённый вид).
+function util.render_name(m)
+  if not render_names then
+    render_names = {}
+    for k, v in pairs(defines.render_mode) do render_names[v] = k end
+  end
+  return render_names[m]
+end
+
 local gui_names
 -- gui_name — имя defines.gui_type ("controller" — инвентарь персонажа, "entity" — окно сущности).
 function util.gui_name(t)

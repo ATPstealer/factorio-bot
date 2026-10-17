@@ -8,7 +8,8 @@ import (
 	"factorio-bot/internal/bridge"
 )
 
-// ErrNoPath — до цели по открытой проходимой карте не дойти.
+// ErrNoPath — до цели по открытой проходимой карте не дойти. Path тогда возвращает путь
+// к ближайшему к цели достижимому тайлу (если он не стартовый).
 var ErrNoPath = errors.New("world: пути нет")
 
 type node struct {
@@ -39,7 +40,7 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 		maxNodes = 200_000
 	}
 	start := TileOf(from)
-	near = math.Max(near, 0.5)
+	near = math.Max(near, 0.75) // точка на углу тайлов — до центров соседних 0.71
 	walk := func(t Tile) bool { return t == start || w.Walkable(t) }
 
 	open := &openList{}
@@ -53,6 +54,7 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 	s := &node{t: start, f: h(start)}
 	nodes[start] = s
 	heap.Push(open, s)
+	best, bestD := start, tdist(start, to)
 
 	for open.Len() > 0 {
 		cur := heap.Pop(open).(*node)
@@ -60,8 +62,12 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 			continue
 		}
 		closed[cur.t] = true
-		if tdist(cur.t, to) <= near {
+		d := tdist(cur.t, to)
+		if d <= near {
 			return w.waypoints(start, cur.t, came), nil
+		}
+		if d < bestD {
+			best, bestD = cur.t, d
 		}
 		if len(closed) > maxNodes {
 			break
@@ -82,6 +88,10 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 					}
 					cost = math.Sqrt2
 				}
+				// при равной длине — меньше поворотов (каждый поворот — смена клавиш, торможение)
+				if prev, ok := came[cur.t]; ok && (Tile{cur.t.X - prev.X, cur.t.Y - prev.Y}) != (Tile{dx, dy}) {
+					cost += 0.01
+				}
 				g := cur.g + cost
 				if old, ok := nodes[n]; ok && old.g <= g {
 					continue
@@ -93,11 +103,15 @@ func (w *World) Path(from, to bridge.Pos, near float64, maxNodes int) ([]bridge.
 			}
 		}
 	}
-	return nil, ErrNoPath
+	if best == start {
+		return nil, ErrNoPath
+	}
+	return w.waypoints(start, best, came), ErrNoPath
 }
 
-// waypoints — восстановление пути и сжатие: из цепочки тайлов остаются точки, между
-// которыми видимость по проходимым тайлам (персонаж идёт по прямой).
+// waypoints — восстановление пути и сжатие: остаются точки, где меняется направление шага.
+// Отрезки под произвольным углом не годятся: персонаж ходит клавишами только в 8
+// направлениях и, срезая угол, цепляет препятствия (густой лес).
 func (w *World) waypoints(start, goal Tile, came map[Tile]Tile) []bridge.Pos {
 	var tiles []Tile
 	for t := goal; ; t = came[t] {
@@ -110,11 +124,11 @@ func (w *World) waypoints(start, goal Tile, came map[Tile]Tile) []bridge.Pos {
 		tiles[i], tiles[j] = tiles[j], tiles[i]
 	}
 	var res []bridge.Pos
-	anchor := 0
-	for i := 2; i < len(tiles); i++ {
-		if !w.clearLine(tiles[anchor], tiles[i], start) {
-			res = append(res, tiles[i-1].Center())
-			anchor = i - 1
+	for i := 1; i < len(tiles)-1; i++ {
+		d1 := Tile{tiles[i].X - tiles[i-1].X, tiles[i].Y - tiles[i-1].Y}
+		d2 := Tile{tiles[i+1].X - tiles[i].X, tiles[i+1].Y - tiles[i].Y}
+		if d1 != d2 {
+			res = append(res, tiles[i].Center())
 		}
 	}
 	res = append(res, tiles[len(tiles)-1].Center())

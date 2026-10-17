@@ -8,6 +8,7 @@ import (
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/input"
+	"factorio-bot/internal/world"
 )
 
 // ErrNotMining — ПКМ зажата, а персонаж не добывает: инвентарь полон или цель вне досягаемости.
@@ -38,8 +39,35 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 	var idleSince time.Time
 	repressed := false
 	for {
-		if err := sleep(ctx, 100*time.Millisecond); err != nil {
+		if err := sleep(ctx, pollEvery); err != nil {
 			return err
+		}
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		// под курсором уже не цель — немедленно отпустить ПКМ: иначе добудем чужое
+		// (у построек время добычи ~0.2 с)
+		if p.Selected != nil && !same(p.Selected, e) {
+			h.In.ButtonUp(input.Right)
+			pressed = false
+			got, err := h.B.EntityAt(e.Name, e.Position)
+			if err != nil {
+				return err
+			}
+			if got == nil {
+				return nil // цель добыта, выделение перешло на соседа
+			}
+			h.Say("под курсором %s вместо %s — отпускаю и навожу заново", p.Selected.Name, e.Name)
+			if err := h.Hover(ctx, e); err != nil {
+				return err
+			}
+			if err := h.In.ButtonDown(input.Right); err != nil {
+				return err
+			}
+			pressed = true
+			idleSince = time.Time{}
+			continue
 		}
 		got, err := h.B.EntityAt(e.Name, e.Position)
 		if err != nil {
@@ -47,10 +75,6 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 		}
 		if got == nil {
 			return nil
-		}
-		p, err := h.B.Player()
-		if err != nil {
-			return err
 		}
 		if done != nil && done(p) {
 			return nil
@@ -84,7 +108,7 @@ func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge
 			h.debugShot("not-mining-" + e.Name)
 			return fmt.Errorf("%w: %s (%.1f, %.1f)", ErrNotMining, e.Name, e.Position.X, e.Position.Y)
 		}
-		// курсор съехал с цели — отпустить ПКМ (иначе добудем то, что под курсором) и навести заново
+		// выделения нет (курсор съехал) — отпустить ПКМ и навести заново
 		h.In.ButtonUp(input.Right)
 		pressed = false
 		if err := h.Hover(ctx, e); err != nil {
@@ -143,10 +167,16 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 		}
 		var e *bridge.Entity
 		for i := range cands {
-			if !skip[cands[i].Position] {
-				e = &cands[i]
-				break
+			c := &cands[i]
+			if skip[c.Position] {
+				continue
 			}
+			// руда под постройкой или объектом: курсор выделит их, а не руду
+			if c.Type == "resource" && h.World != nil && h.World.Blocked(world.TileOf(c.Position)) {
+				continue
+			}
+			e = c
+			break
 		}
 		if e == nil {
 			return res, fmt.Errorf("%w: %q в радиусе %.0f", ErrNoTargets, target, radius)

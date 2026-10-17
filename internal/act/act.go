@@ -93,19 +93,22 @@ func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
 const deadZone = 0.3 // по оси ближе — клавишу не держим
 
 // walkKeys — какие клавиши держать, чтобы идти из from в to.
-func walkKeys(from, to bridge.Pos) map[string]bool {
+func walkKeys(from, to bridge.Pos) map[string]bool { return walkKeysDZ(from, to, deadZone) }
+
+// walkKeysDZ — то же с мёртвой зоной dz по каждой оси.
+func walkKeysDZ(from, to bridge.Pos, dz float64) map[string]bool {
 	k := map[string]bool{}
 	dx, dy := to.X-from.X, to.Y-from.Y
-	if dx > deadZone {
+	if dx > dz {
 		k["d"] = true
 	}
-	if dx < -deadZone {
+	if dx < -dz {
 		k["a"] = true
 	}
-	if dy > deadZone {
+	if dy > dz {
 		k["s"] = true
 	}
-	if dy < -deadZone {
+	if dy < -dz {
 		k["w"] = true
 	}
 	return k
@@ -147,11 +150,18 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	if h.World != nil {
 		for replan := 0; ; replan++ {
 			err := h.followPath(ctx, target, stop)
+			if errors.Is(err, world.ErrNoPath) {
+				// цель за препятствиями: дошли до ближайшей достижимой точки — дальше
+				// по прямой нельзя (упрёмся), сообщаем честно
+				h.waitStill(ctx)
+				p, _ := h.B.Player()
+				return fmt.Errorf("%w до (%.1f, %.1f): пути нет, стою в (%.2f, %.2f)", ErrNotReached, target.X, target.Y, p.Position.X, p.Position.Y)
+			}
 			if err == nil || !errors.Is(err, ErrStuck) || replan >= 2 {
-				if err != nil && !errors.Is(err, world.ErrNoPath) {
+				if err != nil {
 					return err
 				}
-				break // путь пройден или его нет — дальше по прямой
+				break
 			}
 			h.Say("застрял — перестраиваю путь")
 		}
@@ -162,7 +172,10 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	return h.approach(ctx, target, stop)
 }
 
-// followPath проходит путь A* до последней точки поворота (без остановок на поворотах).
+// followPath проходит путь A* до последней точки поворота без остановок. Держится линии
+// пути (pure pursuit): цель — точка на отрезке на lookahead впереди проекции персонажа;
+// клавиши с малой мёртвой зоной сразу поправляют боковое отклонение — в лесу коридор
+// между стволами бывает ~1 тайл, а персонаж шириной 0.4.
 func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64) error {
 	p, err := h.B.Player()
 	if err != nil {
@@ -174,16 +187,39 @@ func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return err
 	}
-	pts, err := h.World.Path(p.Position, target, stop, 0)
+	pts, perr := h.World.Path(p.Position, target, stop, 0)
+	if perr != nil && !(errors.Is(perr, world.ErrNoPath) && len(pts) > 0) {
+		return perr
+	}
+	// отрезки от центра стартового тайла через точки поворота; последняя точка пути —
+	// для финального run (или, если пути нет, конец пути — ближайшая достижимая точка)
+	route := append([]bridge.Pos{world.TileOf(p.Position).Center()}, pts...)
+	if perr == nil {
+		route = route[:len(route)-1]
+	}
+	if len(route) < 2 {
+		return perr
+	}
+	seg := 0
+	const lookahead, dz = 0.6, 0.12
+	err = h.drive(ctx, 3, func(pos bridge.Pos) (map[string]bool, bool) {
+		for seg < len(route)-1 {
+			a, b := route[seg], route[seg+1]
+			l := dist(a, b)
+			along := ((pos.X-a.X)*(b.X-a.X) + (pos.Y-a.Y)*(b.Y-a.Y)) / l
+			if along < l-0.15 {
+				t := math.Min(along+lookahead, l)
+				q := bridge.Pos{X: a.X + (b.X-a.X)*t/l, Y: a.Y + (b.Y-a.Y)*t/l}
+				return walkKeysDZ(pos, q, dz), false
+			}
+			seg++
+		}
+		return nil, true
+	})
 	if err != nil {
 		return err
 	}
-	for _, wp := range pts[:len(pts)-1] {
-		if err := h.run(ctx, wp, 0.7, false); err != nil {
-			return err
-		}
-	}
-	return nil
+	return perr
 }
 
 // closestOnBox — ближайшая к p точка прямоугольника b (сама p, если она внутри).
@@ -245,8 +281,21 @@ func (h *Hands) WalkToMine(ctx context.Context, e bridge.Entity) error {
 }
 
 // run — бег с удержанием клавиш до расстояния until; обход при застревании.
-// final — остановиться (дождаться, пока персонаж встанет); иначе сразу к следующей точке.
+// final — остановиться (дождаться, пока персонаж встанет); иначе сразу дальше.
 func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64, final bool) error {
+	err := h.drive(ctx, 10, func(pos bridge.Pos) (map[string]bool, bool) {
+		return walkKeys(pos, target), dist(pos, target) <= until
+	})
+	if err != nil || !final {
+		return err
+	}
+	return h.waitStill(ctx)
+}
+
+// drive держит клавиши, которые возвращает steer, пока он не скажет done. Не идём —
+// проверка карты/меню, затем обход в сторону; больше maxStucks застреваний — ErrStuck.
+// Клавиши отпускаются при выходе.
+func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos) (map[string]bool, bool)) error {
 	held := map[string]bool{}
 	release := func() {
 		for k := range held {
@@ -271,23 +320,21 @@ func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64, final
 		if err != nil {
 			return err
 		}
-		if dist(p.Position, target) <= until {
+		want, done := steer(p.Position)
+		if done {
 			release()
-			if !final {
-				return nil
-			}
-			return h.waitStill(ctx)
+			return nil
 		}
 		if dist(p.Position, last) > 0.05 {
 			last, lastMove = p.Position, time.Now()
 		}
-		want := walkKeys(p.Position, target)
 		switch {
 		case time.Now().Before(sideUntil):
 			want = side
 		case time.Since(lastMove) > 500*time.Millisecond:
-			// не идём: возможно, открылось меню игры (ввод до мира не доходит)
-			if open, _ := h.MenuOpen(); open {
+			// не идём: возможно, открыта карта или меню (ввод до мира не доходит)
+			open, _ := h.MenuOpen()
+			if open || (p.RenderMode != "" && p.RenderMode != "game") {
 				release()
 				if err := h.guard(ctx); err != nil {
 					return err
@@ -296,7 +343,10 @@ func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64, final
 				continue
 			}
 			stucks++
-			if stucks > 10 {
+			if stucks == 1 {
+				h.debugShot(fmt.Sprintf("stuck-%.0f_%.0f", p.Position.X, p.Position.Y))
+			}
+			if stucks > maxStucks {
 				return fmt.Errorf("%w у (%.1f, %.1f)", ErrStuck, p.Position.X, p.Position.Y)
 			}
 			side = sidestep(want, stucks%2 == 0)
@@ -444,8 +494,26 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 		return err
 	}
 	cam := h.Camera(p)
+	// соседние объекты: курсор не ставим в их рамки выделения — иначе ПКМ добудет их
+	// (например, свою печь рядом с рудой)
+	var others []bridge.Box
+	if h.World != nil {
+		for _, o := range h.World.ObjectsNear(e.Position, 6) {
+			if o.Name == e.Name && dist(o.Pos, e.Position) < 0.01 {
+				continue
+			}
+			others = append(others, h.World.SelectionBox(o))
+		}
+	}
 	for _, pt := range hoverPoints(e) {
 		if !cam.Visible(pt.X, pt.Y, 20) {
+			continue
+		}
+		covered := false
+		for _, b := range others {
+			covered = covered || inBox(pt, b, 0.15)
+		}
+		if covered {
 			continue
 		}
 		if err := h.In.Move(cam.ToScreen(pt.X, pt.Y)); err != nil {

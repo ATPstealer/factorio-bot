@@ -166,7 +166,8 @@ type Player struct {
 	Controller        int            `json:"controller"`
 	Selected          *Entity        `json:"selected"`
 	OpenedGUIType     *int           `json:"opened_gui_type"`
-	OpenedGUI         string         `json:"opened_gui"` // "controller" — инвентарь, "entity" — окно сущности
+	OpenedGUI         string         `json:"opened_gui"`
+	RenderMode        string         `json:"render_mode"` // "game"; "chart"/"chart_zoomed_in" — открыта карта // "controller" — инвентарь, "entity" — окно сущности
 	Opened            *Entity        `json:"opened"`
 	Cursor            *Stack         `json:"cursor"`
 	Inventory         map[string]int `json:"inventory"`

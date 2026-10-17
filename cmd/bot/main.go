@@ -36,6 +36,7 @@ const usage = `bot — бот Factorio: действует только мышь
   ping                  проверить связь: тик игры и версия мода botbridge
   player                состояние игрока (позиция, зум, инвентарь, курсор, выделение) в JSON
   events [AFTER]        события из буфера мода (добыча, постройка, крафт...) с номером > AFTER
+  path X Y              показать путь A* от игрока до (X, Y): точки поворота (отладка, без движения)
   walk X Y              дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла
   craft РЕЦЕПТ [N]      скрафтить N раз (по умолчанию 1) и дождаться: E → поиск → клик по ячейке рецепта
   place ПРЕДМЕТ X Y [DIR]
@@ -141,6 +142,20 @@ func main() {
 		check(err)
 		printJSON(evs)
 		fmt.Println("seq", seq)
+	case "path":
+		if len(args) < 3 {
+			log.Fatal("bot path X Y")
+		}
+		w := loadWorld(b)
+		p, err := b.Player()
+		check(err)
+		target := bridge.Pos{X: atof(args[1]), Y: atof(args[2])}
+		pts, err := w.Path(p.Position, target, 0.5, 0)
+		check(err)
+		fmt.Printf("от (%.2f, %.2f):\n", p.Position.X, p.Position.Y)
+		for _, pt := range pts {
+			fmt.Printf("  (%.1f, %.1f)\n", pt.X, pt.Y)
+		}
 	case "walk":
 		if len(args) < 3 {
 			log.Fatal("bot walk X Y")

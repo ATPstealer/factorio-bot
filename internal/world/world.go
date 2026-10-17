@@ -134,6 +134,42 @@ func (w *World) CollisionBox(o Object) bridge.Box {
 			b = e.CollisionBox
 		}
 	}
+	return place(b, o)
+}
+
+// SelectionBox — рамка выделения объекта (куда наведение курсора выделяет его).
+func (w *World) SelectionBox(o Object) bridge.Box {
+	b := bridge.Box{LeftTop: bridge.Pos{X: -0.5, Y: -0.5}, RightBottom: bridge.Pos{X: 0.5, Y: 0.5}}
+	if w.Protos != nil {
+		if e, ok := w.Protos.Entities[o.Name]; ok {
+			b = e.SelectionBox
+		}
+	}
+	return place(b, o)
+}
+
+// ObjectsNear — объекты, чьи позиции ближе r к p.
+func (w *World) ObjectsNear(p bridge.Pos, r float64) []Object {
+	var res []Object
+	c := ChunkOf(TileOf(p))
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			ch := w.Chunks[bridge.ChunkPos{X: c.X + dx, Y: c.Y + dy}]
+			if ch == nil {
+				continue
+			}
+			for _, o := range ch.Objects {
+				if math.Hypot(o.Pos.X-p.X, o.Pos.Y-p.Y) <= r {
+					res = append(res, o)
+				}
+			}
+		}
+	}
+	return res
+}
+
+// place — рамка прототипа b, повёрнутая по направлению объекта и сдвинутая в его позицию.
+func place(b bridge.Box, o Object) bridge.Box {
 	if o.Direction == 4 || o.Direction == 12 { // восток/запад: рамка повёрнута
 		b = bridge.Box{
 			LeftTop:     bridge.Pos{X: -b.RightBottom.Y, Y: b.LeftTop.X},

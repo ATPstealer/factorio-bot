@@ -105,8 +105,35 @@ func (h *Hands) MenuOpen() (bool, error) {
 	return true, nil
 }
 
-// guard закрывает меню игры, если оно открыто: под ним ввод не доходит до мира.
+// guard возвращает обычный вид: закрывает карту (удалённый вид) и меню игры — под ними
+// ввод не доходит до мира (WASD двигает карту, буквы уходят в поиск). Esc жмём по одному,
+// с проверкой после каждого: лишний Esc в обычном виде откроет меню.
 func (h *Hands) guard(ctx context.Context) error {
+	for i := 0; i < 4; i++ {
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		if p.RenderMode == "" || p.RenderMode == "game" {
+			break
+		}
+		if i == 0 {
+			h.Say("открыта карта — закрываю")
+			h.debugShot("map")
+		}
+		if err := h.Focus(); err != nil {
+			return err
+		}
+		if err := h.In.Tap("escape"); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 400*time.Millisecond); err != nil {
+			return err
+		}
+		if i == 3 {
+			return errors.New("act: карта не закрывается")
+		}
+	}
 	open, err := h.MenuOpen()
 	if err != nil || !open {
 		return err
@@ -153,30 +180,50 @@ func (h *Hands) OpenInventory(ctx context.Context) error {
 	if err := h.CloseGUI(ctx); err != nil {
 		return err
 	}
-	// E иногда теряется (сразу после закрытия окна) — до 3 попыток; перед повтором
-	// проверяем, не открылось ли с опозданием: E переключает окно
-	for try := 0; try < 3; try++ {
-		if err := h.Focus(); err != nil {
-			return err
-		}
-		if err := h.In.Tap("e"); err != nil {
-			return err
-		}
-		_, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return p.OpenedGUI == "controller" })
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, errTimeout) {
-			return err
-		}
-		h.Log("инвентарь не открылся, повторяю E")
+	// одно нажатие E (повтор опасен: если окно откроется с опозданием, второй E его закроет)
+	if err := h.Focus(); err != nil {
+		return err
 	}
-	return errors.New("act: инвентарь не открывается")
+	if err := h.In.Tap("e"); err != nil {
+		return err
+	}
+	if _, err := h.waitFor(ctx, 2500*time.Millisecond, func(p bridge.Player) bool { return p.OpenedGUI == "controller" }); err != nil {
+		h.debugShot("inventory")
+		return fmt.Errorf("act: инвентарь не открылся: %w", err)
+	}
+	return nil
 }
 
-// search — Ctrl+F в открытом окне и текст поиска (старый заменяется).
+// ErrFocus — окно, в которое бот собирался печатать, не открыто: текст ушёл бы в игру
+// (буквы — хоткеи, Ctrl+F без окна открывает поиск по карте).
+var ErrFocus = errors.New("act: нет окна для ввода текста")
+
+// inInventory — открыт инвентарь в обычном виде (не карта).
+func (h *Hands) inInventory() error {
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	if p.OpenedGUI != "controller" || (p.RenderMode != "" && p.RenderMode != "game") {
+		h.debugShot("focus")
+		return fmt.Errorf("%w: окно %q, вид %q", ErrFocus, p.OpenedGUI, p.RenderMode)
+	}
+	return nil
+}
+
+// search — Ctrl+F в открытом инвентаре и текст поиска (старый заменяется). Перед каждым
+// шагом проверяем, что инвентарь всё ещё открыт: иначе ни одной буквы не печатаем.
 func (h *Hands) search(ctx context.Context, text string) error {
+	if err := h.inInventory(); err != nil {
+		return err
+	}
 	if err := h.In.Tap("f", "ctrl"); err != nil {
+		return err
+	}
+	if err := sleep(ctx, inputLatency); err != nil {
+		return err
+	}
+	if err := h.inInventory(); err != nil {
 		return err
 	}
 	if err := h.In.Tap("a", "ctrl"); err != nil {
@@ -185,7 +232,10 @@ func (h *Hands) search(ctx context.Context, text string) error {
 	if err := h.In.Type(text); err != nil {
 		return err
 	}
-	return sleep(ctx, 250*time.Millisecond)
+	if err := sleep(ctx, 250*time.Millisecond); err != nil {
+		return err
+	}
+	return h.inInventory()
 }
 
 // SearchText — что набирать в поиске: английское название ≈ имя без дефисов.
@@ -241,18 +291,27 @@ func (h *Hands) Pick(ctx context.Context, item string) error {
 		return err
 	}
 	for i, q := range p.Quickbar {
-		if q == item {
+		if q != item {
+			continue
+		}
+		// второе нажатие — только если рука всё ещё пуста: с предметом в руке клавиша
+		// панели вернула бы его обратно
+		for try := 0; try < 2; try++ {
 			if err := h.Focus(); err != nil {
 				return err
 			}
 			if err := h.In.Tap(quickbarKeys[i]); err != nil {
 				return err
 			}
-			if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return cursorName(p) == item }); err != nil {
-				return fmt.Errorf("act: клавиша %s не дала %s в руку: %w", quickbarKeys[i], item, err)
+			p, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return cursorName(p) == item })
+			if err == nil {
+				return nil
 			}
-			return nil
+			if !errors.Is(err, errTimeout) || p.Cursor != nil {
+				return fmt.Errorf("act: клавиша %s не дала %s в руку (в руке %+v): %w", quickbarKeys[i], item, p.Cursor, err)
+			}
 		}
+		return fmt.Errorf("act: клавиша %s не дала %s в руку", quickbarKeys[i], item)
 	}
 	return h.pickFromInventory(ctx, item)
 }
