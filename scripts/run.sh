@@ -10,7 +10,6 @@ SAVE=$R/server/saves/bot.zip
 DISPLAY_NUM=${DISPLAY_NUM:-:1}
 RES=${RES:-1920x1080}
 
-trap 'kill $(jobs -p) 2>/dev/null' EXIT
 
 if [[ ! -f $SAVE || ${NEW_MAP:-0} == 1 ]]; then
   "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \
@@ -20,6 +19,9 @@ fi
 "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \
   --start-server "$SAVE" --server-settings "$ROOT/scripts/server-settings.json" \
   --rcon-port 27015 --rcon-password "${RCON_PASSWORD:-botpass}" > "$R/server.log" 2>&1 &
+SERVER=$!
+# SIGINT — сервер сохраняет карту в $SAVE перед выходом
+trap 'kill $(jobs -p | grep -vx "$SERVER") 2>/dev/null; kill -INT $SERVER 2>/dev/null; wait $SERVER' EXIT
 
 until grep -q "to(InGame)" "$R/server.log" 2>/dev/null; do sleep 0.5; done
 

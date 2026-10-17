@@ -22,7 +22,7 @@ NEW_MAP=1 SEED=12345 scripts/run.sh # пересоздать карту
 RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 ```
 
-- Сервер грузит `run/server/saves/bot.zip`, при штатной остановке сохраняет в него же. Автосейвы — `_autosave1..5.zip` раз в 10 мин.
+- Сервер грузит `run/server/saves/bot.zip`, по SIGINT сохраняет в него же (проверено; `run.sh` при выходе шлёт серверу SIGINT). Автосейвы — `_autosave1..5.zip` раз в 10 мин.
 - Готовность сервера — строка `to(InGame)` в `run/server.log` (не `Hosting game at` — RCON тогда ещё отвечает пусто).
 - Клиент запускается из `run/client` с `steam_appid.txt` и `SteamAppId=427520`, иначе Steam перезапускает игру на основном дисплее `:0`.
 - Окно Xephyr называется `factorio-bot`, дисплей `:1`. Ввод бота — только в `:1`.
@@ -31,6 +31,13 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 
 - `scripts/map-gen-settings.json` — без кусак (`enemy-base` frequency 0, `peaceful_mode`), без утёсов (`cliff_settings.richness` 0).
 - `scripts/server-settings.json` — `auto_pause: false`, `require_user_verification: false`, не публичный.
+
+## Мод botbridge
+
+- Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента.
+- Единая точка входа: `/sc remote.call("bot", "call", '{"method":"ping","args":{...}}')` → печатает одну строку JSON `{"ok":true,"result":...}` / `{"ok":false,"error":"..."}`.
+- Методы — в таблице `methods` в `control.lua`; только чтение.
+- Проверка мода без остановки основного сервера: временный сервер с write-data в scratchpad, копией сейва, `--port 34198 --rcon-port 27016`.
 
 ## RCON
 
@@ -45,7 +52,8 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - `scripts/walk.py [клавиша[:сек] ...]` — держит клавиши в `:1` (или `$BOT_DISPLAY`), печатает `x y walking` по RCON. Пример: `scripts/walk.py d s:0.5 a w`.
 - `walk.py` — ввод через ctypes (`libX11.so.6` + `libXtst.so.6`); `chop_tree.py` — через xdotool.
 - В Xephyr нет WM: фокус следует за указателем — перед вводом курсор двигать в окно клиента.
-- Окно клиента в Xephyr: 1856x1016 со смещением +32+32.
+- Окно клиента в Xephyr: 1856x1016 со смещением +32+32 (пользователя устраивает). UI scale зафиксирован в `run/client/config.ini` (manual, 1).
+- Зум 1.5 пользователя устраивает; не сохраняется в конфиге — бот читает `p.zoom` и не меняет его.
 - Скорость ходьбы ~8.9 тайл/с; после отпускания клавиши инерция 0.6–1.2 тайла — точное позиционирование только с коррекцией по координатам.
 - `scripts/chop_tree.py [радиус=50]` — ближайшее дерево → дойти WASD (стоп в 2.5 тайла, обход при застревании) → навести курсор → удерживать ПКМ, пока дерево не исчезнет. Печатает дерево в инвентаре до/после.
 - Камера: центр окна = позиция игрока; пикселей на тайл = 32 × `p.zoom` (сейчас zoom 1.5 → 48 px). `p.zoom`, `p.display_resolution`, `p.display_scale` читаются по RCON.
