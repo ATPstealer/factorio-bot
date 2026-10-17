@@ -45,7 +45,13 @@ func handsT(t *testing.T) *act.Hands {
 			handsErr = err
 			return
 		}
+		if handsErr = in.Reset(); handsErr != nil {
+			return
+		}
 		hands, handsErr = act.New(b, in)
+		if handsErr == nil {
+			handsErr = hands.CloseGUI(context.Background())
+		}
 	})
 	if handsErr != nil {
 		t.Fatalf("ввод: %v", handsErr)

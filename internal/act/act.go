@@ -84,6 +84,9 @@ func sidestep(want map[string]bool, flip bool) map[string]bool {
 
 var ErrStuck = errors.New("act: застрял")
 
+// ErrNotReached — доводка не довела до точки (обычно мешает препятствие у цели).
+var ErrNotReached = errors.New("act: не дошёл")
+
 // brakeDist — за сколько тайлов до цели отпускать клавиши: по инерции персонаж
 // проходит ещё ~0.6–1.2 тайла (задержка RCON-опроса и ввода).
 const brakeDist = 1.0
@@ -232,18 +235,34 @@ func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) e
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("act: не дошёл до (%.1f, %.1f): стою в (%.2f, %.2f)", target.X, target.Y, p.Position.X, p.Position.Y)
+	return fmt.Errorf("%w до (%.1f, %.1f): стою в (%.2f, %.2f)", ErrNotReached, target.X, target.Y, p.Position.X, p.Position.Y)
 }
 
+// inputLatency — через сколько ввод клиента доходит до сервера (1–3 тика) с запасом.
+const inputLatency = 100 * time.Millisecond
+
 // waitStill ждёт остановки персонажа (после отпускания клавиш он проходит ещё ~1 тайл).
+// Сначала выжидает задержку ввода — иначе «стоит» читается до того, как нажатие дошло
+// до сервера. Стоит — когда два чтения подряд: не идёт и та же позиция.
 func (h *Hands) waitStill(ctx context.Context) error {
-	for i := 0; i < 40; i++ {
+	if err := sleep(ctx, inputLatency); err != nil {
+		return err
+	}
+	var last *bridge.Pos
+	for i := 0; i < 60; i++ {
 		p, err := h.B.Player()
 		if err != nil {
 			return err
 		}
-		if p.Character == nil || !p.Character.Walking {
+		still := p.Character == nil || !p.Character.Walking
+		if still && last != nil && dist(*last, p.Position) < 1e-6 {
 			return nil
+		}
+		if still {
+			pos := p.Position
+			last = &pos
+		} else {
+			last = nil
 		}
 		if err := sleep(ctx, pollEvery); err != nil {
 			return err
@@ -318,4 +337,29 @@ func sleep(ctx context.Context, d time.Duration) error {
 	case <-time.After(d):
 		return nil
 	}
+}
+
+// CloseGUI закрывает открытое окно (инвентарь, окно сущности) клавишей Esc.
+// Esc жмём только при открытом окне: без него Esc открывает меню игры.
+// Открытое окно перехватывает ввод — перед действиями в мире его надо закрыть.
+func (h *Hands) CloseGUI(ctx context.Context) error {
+	for i := 0; i < 3; i++ {
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		if p.OpenedGUIType == nil || *p.OpenedGUIType == 0 {
+			return nil
+		}
+		if err := h.Focus(); err != nil {
+			return err
+		}
+		if err := h.In.Tap("escape"); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 150*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return errors.New("act: окно не закрывается")
 }

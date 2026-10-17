@@ -28,8 +28,12 @@ until grep -q "to(InGame)" "$R/server.log" 2>/dev/null; do sleep 0.5; done
 Xephyr "$DISPLAY_NUM" -screen "$RES" -glamor -title "factorio-bot" -ac > "$R/xephyr.log" 2>&1 &
 sleep 1
 
-# steam_appid.txt + SteamAppId: иначе Steam перезапускает игру у себя на основном дисплее
-(cd "$R/client" && DISPLAY=$DISPLAY_NUM SteamAppId=427520 SteamGameId=427520 exec "$F" --config "$R/client/config.ini" --mod-directory "$R/client/mods" \
-  --mp-connect 127.0.0.1:34197 > "$R/client.log" 2>&1) &
+# steam_appid.txt + SteamAppId: иначе Steam перезапускает игру у себя на основном дисплее.
+# HOME=run/client/home: Steam API не находит клиент Steam и не инициализируется — клиент бота
+# не трогает облако Steam (player-data.json пользователя) и всегда заходит одним игроком (имя "").
+# --disable-audio: без звука.
+mkdir -p "$R/client/home"
+(cd "$R/client" && HOME="$R/client/home" DISPLAY=$DISPLAY_NUM SteamAppId=427520 SteamGameId=427520 exec "$F" --config "$R/client/config.ini" --mod-directory "$R/client/mods" \
+  --disable-audio --mp-connect 127.0.0.1:34197 > "$R/client.log" 2>&1) &
 
 wait

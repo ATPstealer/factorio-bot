@@ -125,6 +125,8 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 	}()
 
 	skip := map[bridge.Pos]bool{}
+	const maxUnreachable = 5
+	unreachable := 0
 	for res.Mined < count {
 		cands, err := h.B.FindMinable(target, radius, 20)
 		if err != nil {
@@ -142,6 +144,13 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 		}
 		h.Log("цель %s (%.1f, %.1f), %.1f тайлов", e.Name, e.Position.X, e.Position.Y, e.Distance)
 		if err := h.WalkNear(ctx, *e, mineStop(*e)); err != nil {
+			// цель за препятствием — пока (до поиска пути) берём следующую
+			if (errors.Is(err, ErrStuck) || errors.Is(err, ErrNotReached)) && unreachable < maxUnreachable {
+				unreachable++
+				h.Log("%v — пропускаю", err)
+				skip[e.Position] = true
+				continue
+			}
 			return res, err
 		}
 

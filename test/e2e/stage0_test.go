@@ -169,6 +169,14 @@ func TestStage0_ClientConnected(t *testing.T) {
 	if !c.Character {
 		t.Error("у игрока нет персонажа")
 	}
+	// клиент бота изолирован от Steam: не трогает облако пользователя и заходит одним и тем же игроком
+	if log, err := os.ReadFile(path("run", "client.log")); err != nil || !strings.Contains(string(log), "Steam API could not be initialized") {
+		t.Error("клиент запущен со Steam API (нужен HOME=run/client/home, см. scripts/run.sh)")
+	}
+	// клиент бота изолирован от Steam: не трогает облако пользователя и заходит одним и тем же игроком
+	if log, err := os.ReadFile(path("run", "client.log")); err != nil || !strings.Contains(string(log), "Steam API could not be initialized") {
+		t.Error("клиент запущен со Steam API (нужен HOME=run/client/home, см. scripts/run.sh)")
+	}
 	if c.Scale != 1 {
 		t.Errorf("display_scale = %v, нужно 1", c.Scale)
 	}

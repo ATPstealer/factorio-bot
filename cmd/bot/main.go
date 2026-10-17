@@ -43,6 +43,7 @@ const usage = `bot — бот Factorio: действует только мышь
   patches [R]           месторождения на открытой карте в радиусе R (по умолчанию все): ресурс, запас, расстояние
   protos [-refresh]     справочник игры (рецепты, предметы, сущности, техи); кэш data/prototypes-<версия>.json
   force                 исследования: изучено, текущее, прогресс, доступные рецепты
+  shot [-o FILE]        снимок окна клиента в PNG (shot.png) — для отладки и калибровки интерфейса
   mine ЦЕЛЬ [N] [R]     добыть руками N раз в радиусе R тайлов (по умолчанию N=1, R=64)
                           ЦЕЛЬ — группа:  tree, rock, wreck (обломки корабля), ore, fish, any
                                  предмет:  coal, stone, wood, iron-ore, copper-ore ...
@@ -108,6 +109,7 @@ func main() {
 			log.Fatal(err)
 		}
 		h.Log = log.Printf
+		check(h.CloseGUI(context.Background()))
 		return h
 	}
 
@@ -201,6 +203,18 @@ func main() {
 		check(err)
 		fmt.Printf("%s: рецептов %d, предметов %d, сущностей %d, технологий %d, жидкостей %d\n",
 			path, len(pr.Recipes), len(pr.Items), len(pr.Entities), len(pr.Technologies), len(pr.Fluids))
+	case "shot":
+		fs := flag.NewFlagSet("shot", flag.ExitOnError)
+		out := fs.String("o", "shot.png", "файл")
+		fs.Parse(args[1:])
+		h := hands()
+		img, err := h.In.Screenshot(h.Win)
+		check(err)
+		f, err := os.Create(*out)
+		check(err)
+		check(png.Encode(f, img))
+		check(f.Close())
+		log.Printf("%s: %dx%d", *out, img.Bounds().Dx(), img.Bounds().Dy())
 	case "force":
 		f, err := b.Force()
 		check(err)
