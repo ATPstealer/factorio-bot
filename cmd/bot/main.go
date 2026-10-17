@@ -1,12 +1,4 @@
-// bot — внешний бот Factorio. Пока: отладочные команды стадии 1.
-//
-//	bot ping                 — проверка моста
-//	bot player               — состояние игрока (JSON)
-//	bot events [after]       — события из буфера мода
-//	bot walk X Y             — дойти до точки клавишами
-//	bot mine ЦЕЛЬ [N] [R]    — добыть руками N раз (руда — N единиц) в радиусе R (64)
-//	                           ЦЕЛЬ: tree|rock|wreck|ore|fish|any, имя сущности или предмета (coal, stone, wood)
-//	bot chop                 — то же, что mine tree 1
+// bot — внешний бот Factorio. Справка по командам — usage ниже (bin/bot без аргументов).
 package main
 
 import (
@@ -27,7 +19,46 @@ import (
 	"factorio-bot/internal/input"
 )
 
+const usage = `bot — бот Factorio: действует только мышью/клавиатурой в окне клиента, смотрит через мод по RCON.
+
+Перед запуском (в отдельном терминале):
+  scripts/run.sh                 сервер + Xephyr + клиент; ждать, пока клиент зайдёт в игру
+  go build -o bin/bot ./cmd/bot  собрать бота (после изменений кода)
+
+Использование:
+  bin/bot [флаги] КОМАНДА [аргументы]
+
+Команды:
+  ping                  проверить связь: тик игры и версия мода botbridge
+  player                состояние игрока (позиция, зум, инвентарь, курсор, выделение) в JSON
+  events [AFTER]        события из буфера мода (добыча, постройка, крафт...) с номером > AFTER
+  walk X Y              дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла
+  mine ЦЕЛЬ [N] [R]     добыть руками N раз в радиусе R тайлов (по умолчанию N=1, R=64)
+                          ЦЕЛЬ — группа:  tree, rock, wreck (обломки корабля), ore, fish, any
+                                 предмет:  coal, stone, wood, iron-ore, copper-ore ...
+                                 сущность: huge-rock, crash-site-spaceship-wreck-big-1 ...
+                          N — для руды единицы предмета, для остального количество сущностей
+  chop                  срубить ближайшее дерево (= mine tree 1)
+
+Примеры:
+  bin/bot ping
+  bin/bot walk 10 40
+  bin/bot mine coal 10
+  bin/bot mine wreck 3
+  bin/bot -t 60s mine stone 20
+
+Флаги:
+`
+
 func main() {
+	flag.Usage = func() {
+		fmt.Fprint(flag.CommandLine.Output(), usage)
+		flag.PrintDefaults()
+		fmt.Fprint(flag.CommandLine.Output(), `
+Если персонаж сам продолжает идти или копать (бота убили на середине):
+  DISPLAY=:1 xdotool mouseup 3 keyup w keyup a keyup s keyup d
+`)
+	}
 	addr := flag.String("rcon", "127.0.0.1:27015", "адрес RCON")
 	pass := flag.String("password", envOr("RCON_PASSWORD", "botpass"), "пароль RCON")
 	display := flag.String("display", envOr("BOT_DISPLAY", ":1"), "X-дисплей клиента")
@@ -35,9 +66,14 @@ func main() {
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
 
+	args := flag.Args()
+	if len(args) == 0 {
+		flag.Usage()
+		os.Exit(2)
+	}
 	b, rc, err := bridge.Dial(*addr, *pass)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("RCON %s: %v (игра запущена? scripts/run.sh)", *addr, err)
 	}
 	defer rc.Close()
 
@@ -46,11 +82,6 @@ func main() {
 	ctx, cancel := context.WithTimeout(ctx, *limit)
 	defer cancel()
 
-	args := flag.Args()
-	if len(args) == 0 {
-		flag.Usage()
-		os.Exit(2)
-	}
 	hands := func() *act.Hands {
 		in, err := input.Open(*display)
 		if err != nil {
@@ -113,7 +144,9 @@ func main() {
 		log.Printf("добыто %d, в инвентаре прибавилось: %v", res.Mined, res.Items)
 		check(err)
 	default:
-		log.Fatalf("неизвестная команда %q", args[0])
+		fmt.Fprintf(os.Stderr, "неизвестная команда %q\n\n", args[0])
+		flag.Usage()
+		os.Exit(2)
 	}
 	for _, f := range atExit {
 		f()
