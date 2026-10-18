@@ -9,9 +9,14 @@ import (
 
 // Researched — технология изучена. Trigger-технологии 2.0 открываются действием
 // (скрафтить N предметов, поставить, добыть); обычные — наукой в лабораториях (7.3).
-type Researched struct{ Tech string }
+type Researched struct {
+	Tech string
+	// Site — раскладка с лабораториями (State.Design): "research" (по умолчанию) — науку
+	// подкладывает бот; "science" — фабрика, наука идёт в лаборатории сама
+	Site string
+}
 
-func (g Researched) Key() string    { return "research:" + g.Tech }
+func (g Researched) Key() string    { return "research:" + g.Tech + ":" + g.Site }
 func (g Researched) String() string { return "изучить " + g.Tech }
 func (g Researched) Satisfied(s *State) bool {
 	return s.Av.All || s.Av.Researched[g.Tech]
@@ -29,7 +34,7 @@ func (g Researched) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	sort.Strings(pre)
 	for _, p := range pre {
 		if !s.Av.Researched[p] {
-			return sub(pl, s, c, Researched{p})
+			return sub(pl, s, c, Researched{Tech: p, Site: g.Site})
 		}
 	}
 	tr := t.Trigger
@@ -57,7 +62,11 @@ func (g Researched) byScience(pl *Planner, s *State, c *ctx, t knowledge.Technol
 	if s.Design == nil {
 		return nil, fmt.Errorf("plan: %s: негде исследовать", g.Tech)
 	}
-	site, ok := s.Design(s, "research")
+	kind := g.Site
+	if kind == "" {
+		kind = "research"
+	}
+	site, ok := s.Design(s, kind)
 	if !ok {
 		return nil, fmt.Errorf("plan: %s: нет места под лаборатории", g.Tech)
 	}
@@ -73,8 +82,12 @@ func (g Researched) byScience(pl *Planner, s *State, c *ctx, t knowledge.Technol
 	if len(labs) == 0 {
 		return nil, fmt.Errorf("plan: в %s нет лабораторий", site.Tag)
 	}
+	auto := kind == "science" // наука в лаборатории идёт с ленты
 	// наука — в пустые лаборатории (на всех разом)
 	for _, ing := range t.UnitIngredients {
+		if auto {
+			break
+		}
 		var empty []string
 		for _, r := range labs {
 			if s.Role(r).Count(ing.Name) == 0 {
@@ -92,6 +105,9 @@ func (g Researched) byScience(pl *Planner, s *State, c *ctx, t knowledge.Technol
 	if !s.Researching[g.Tech] {
 		return c.prim(Primitive{Kind: "research", Item: g.Tech}), nil
 	}
+	if auto {
+		return c.prim(Primitive{Kind: "await", Item: g.Tech}), nil // ждать, сколько идёт
+	}
 	return c.prim(Primitive{Kind: "await", Item: g.Tech, Role: labs[0]}), nil
 }
 
@@ -107,4 +123,57 @@ func (s *State) lockedBy(item string) string {
 		}
 	}
 	return ""
+}
+
+// RedScience — автоматическая красная наука (7.5): фабрика ("science") построена и
+// изучено всё, что требует только красной науки.
+type RedScience struct{}
+
+func (g RedScience) Key() string    { return "red-science" }
+func (g RedScience) String() string { return "автоматическая красная наука" }
+
+// redTechs — технологии только на красной науке (не trigger, не скрытые).
+func redTechs(s *State) []string {
+	var res []string
+	for name, t := range s.Protos.Technologies {
+		if t.Trigger != nil || t.Hidden || len(t.UnitIngredients) != 1 || t.UnitIngredients[0].Name != "automation-science-pack" {
+			continue
+		}
+		res = append(res, name)
+	}
+	sort.Strings(res)
+	return res
+}
+
+func (g RedScience) Satisfied(s *State) bool {
+	for _, t := range redTechs(s) {
+		if !s.Av.Researched[t] {
+			return false
+		}
+	}
+	return true
+}
+
+func (g RedScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	if p, err := refuelRound(pl, s, c); p != nil || err != nil {
+		return p, err
+	}
+	// фабрике нужны сборщики и электробуры (решение пользователя: с электричеством —
+	// только электробуры) — их изучить наукой руками первыми
+	for _, t := range []string{"automation", "electric-mining-drill"} {
+		if !s.Av.Researched[t] {
+			return sub(pl, s, c, Researched{Tech: t})
+		}
+	}
+	order, err := s.Protos.TechPath(redTechs(s), s.Av.Researched)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range order {
+		if s.Av.Researched[t] {
+			continue
+		}
+		return sub(pl, s, c, Researched{Tech: t, Site: "science"})
+	}
+	return nil, nil
 }

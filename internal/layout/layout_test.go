@@ -251,6 +251,17 @@ func TestSteamPower(t *testing.T) {
 		if joined != 3 {
 			t.Errorf("стыков %d из 3: %v", joined, l.List)
 		}
+		// подача угля: сундук → инсертер → бойлер
+		fed := false
+		for _, p := range l.List {
+			if p.Name == "inserter" {
+				pick, drop := InserterEnds(pt(t), p)
+				fed = l.At(pick) != nil && l.At(pick).Name == "wooden-chest" && l.At(drop) != nil && l.At(drop).Name == "boiler"
+			}
+		}
+		if !fed {
+			t.Errorf("нет подачи угля в бойлер из сундука: %v", l.List)
+		}
 		l.Poles("small-electric-pole", "power")
 		noErrors(t, l)
 	}
@@ -308,4 +319,69 @@ func TestOutposts(t *testing.T) {
 			t.Errorf("%s выдаёт в пустоту", p)
 		}
 	}
+}
+
+// Фабрика красной науки: ряды плавки на рудах, блок науки, лаборатории, ленты; столбы
+// дотягиваются до уже стоящей сети (Anchors); без ошибок.
+func TestScienceFactory(t *testing.T) {
+	w := synth(t, 4, 4, func(x, y int) byte {
+		switch {
+		case x >= 10 && x < 26 && y >= 10 && y < 24:
+			return 'i'
+		case x >= 70 && x < 84 && y >= 12 && y < 24:
+			return 'c'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	l.Anchors = []Placement{{Name: "small-electric-pole", Pos: bridge.Pos{X: 50.5, Y: 60.5}}}
+	if err := l.ScienceFactory(bridge.Pos{X: 45, Y: 30}, 1, 2, 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	noErrors(t, l)
+	c := l.Count()
+	for name, n := range map[string]int{"electric-mining-drill": 3, "stone-furnace": 3, "assembling-machine-1": 2, "lab": 2, "burner-inserter": 0, "burner-mining-drill": 0} {
+		if c[name] != n {
+			t.Errorf("%s: %d, ждали %d", name, c[name], n)
+		}
+	}
+	// медь — сбоку с севера на ленту науки (левая полоса; правая — железо)
+	var sciIn *Placement
+	for i, p := range l.List {
+		if p.Tag == "science" && p.Name == "transport-belt" && (sciIn == nil || p.Pos.X < sciIn.Pos.X || p.Pos.X == sciIn.Pos.X && p.Pos.Y < sciIn.Pos.Y) {
+			sciIn = &l.List[i]
+		}
+	}
+	side := l.At(world.Tile{X: world.TileOf(sciIn.Pos).X + 1, Y: world.TileOf(sciIn.Pos).Y - 1})
+	if side == nil || side.Tag != "belt-copper" || side.Dir != S {
+		t.Errorf("медь не подаётся сверху на ленту науки: %+v", side)
+	}
+	// тупики лент (вход науки, лаборатории) — за ними пусто: иначе чужая лента подхватит
+	for _, tag := range []string{"science", "labs"} {
+		var end *Placement
+		for i, p := range l.List {
+			if p.Tag == tag && p.Name == "transport-belt" && p.Dir == E && (end == nil || p.Pos.X > end.Pos.X || p.Pos.X == end.Pos.X && p.Pos.Y < end.Pos.Y) {
+				end = &l.List[i]
+			}
+		}
+		if tag == "science" { // верхняя (вход) — с меньшим Y среди самых правых
+			for i, p := range l.List {
+				if p.Tag == tag && p.Name == "transport-belt" && p.Pos.X == end.Pos.X && p.Pos.Y < end.Pos.Y {
+					end = &l.List[i]
+				}
+			}
+		}
+		if next := l.At(Step(world.TileOf(end.Pos), E)); next != nil {
+			t.Errorf("за тупиком ленты %s стоит %s", tag, next)
+		}
+	}
+	// железо — на правую (южную) полосу: инсертеры ряда кладут на ленту с севера
+	for _, p := range l.List {
+		if p.Tag == "sci-iron" && p.Name == "inserter" {
+			if _, drop := InserterEnds(pt(t), p); l.At(drop) == nil || l.At(drop).Name != "transport-belt" || drop.Y <= world.TileOf(p.Pos).Y {
+				t.Errorf("инсертер ряда кладёт не на ленту под собой: %v", p)
+			}
+		}
+	}
+	t.Logf("%s", l.Summary())
 }

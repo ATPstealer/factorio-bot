@@ -416,10 +416,21 @@ func (w *World) Tight(p bridge.Pos) bool {
 	return false
 }
 
-// Standable — персонаж может стоять в точке (ячейка свободна).
+// Standable — персонаж может стоять в точке: ячейка свободна и не на ленте (унесёт).
 func (w *World) Standable(p bridge.Pos) bool {
 	free, _, _, _ := w.cellState(CellOf(p))
-	return free
+	return free && !w.OnBelt(p)
+}
+
+// OnBelt — точка на ленте (персонажа на ней несёт).
+func (w *World) OnBelt(p bridge.Pos) bool {
+	t := TileOf(p)
+	for _, o := range w.ObjectsNear(p, 1.5) {
+		if (o.Type == "transport-belt" || o.Type == "underground-belt" || o.Type == "splitter") && TileOf(o.Pos) == t {
+			return true
+		}
+	}
+	return false
 }
 
 // clearSegment — персонаж пройдёт по отрезку a→b: ни одна точка не в рамке объекта

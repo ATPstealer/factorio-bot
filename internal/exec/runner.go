@@ -23,7 +23,7 @@ import (
 
 // GoalSpec — цель в сохраняемом виде.
 type GoalSpec struct {
-	Kind     string `json:"kind"` // have | smelt | build | research | start
+	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience
 	Item     string `json:"item,omitempty"`
 	N        int    `json:"n"`
 	Fuel     string `json:"fuel,omitempty"`
@@ -48,6 +48,8 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		return plan.Researched{Tech: g.Item}, nil
 	case "start":
 		return plan.Start{}, nil
+	case "redscience":
+		return plan.RedScience{}, nil
 	}
 	return nil, fmt.Errorf("exec: неизвестная цель %q", g.Kind)
 }
@@ -91,7 +93,9 @@ type Runner struct {
 	Idle      time.Duration // пауза, когда поддерживаемые цели выполнены
 	MaxFails  int           // отказов подряд — остановка
 
-	logf     *os.File
+	logf *os.File
+	// Until — проверяется между шагами: true — Run завершается (тесты, отладка)
+	Until    func() bool
 	minables map[string]bool
 	stores   []plan.Owned // сундуки вне реестра из последнего снимка
 	fails    int
@@ -174,7 +178,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 			r.H.Say("%s (%s) исчезла — восстановлю", o.Name, o.Role)
 			continue
 		}
-		o.Inv, o.Status, o.Dir = st.Inventories, st.Status, st.Direction
+		o.Inv, o.Status, o.Dir, o.Recipe = st.Inventories, st.Status, st.Direction, st.Recipe
 		if o.Inv == nil {
 			o.Inv = map[string]map[string]int{}
 		}
@@ -452,6 +456,9 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if r.Until != nil && r.Until() {
+			return nil
+		}
 		done, err := r.Step(ctx)
 		if err != nil {
 			return err
@@ -541,12 +548,32 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 		return r.build(ctx, p)
 	case "research":
 		return h.StartResearch(ctx, p.Item)
-	case "rotate":
+	case "collect", "refuel":
+		return r.round(ctx, p)
+	case "recipe":
 		_, e, err := r.owned(p.Role)
 		if err != nil {
 			return err
 		}
-		return h.Rotate(ctx, e, p.Dir)
+		return h.SetRecipe(ctx, e, p.Recipe)
+	case "rotate":
+		o, e, err := r.owned(p.Role)
+		if err != nil {
+			return err
+		}
+		if pe := h.Protos.Entities[e.Name]; pe.TileWidth == pe.TileHeight {
+			return h.Rotate(ctx, e, p.Dir)
+		}
+		// прямоугольная: поворот на месте сдвинет центр — поднять и поставить заново
+		if err := h.Pickup(ctx, e); err != nil {
+			return err
+		}
+		ne, err := h.Place(ctx, p.Item, p.Pos, p.Dir)
+		if err != nil {
+			return err
+		}
+		o.Unit, o.Pos = ne.UnitNumber, ne.Position
+		return nil
 	case "await":
 		return r.await(ctx, p.Item, p.Role)
 	case "insert":
@@ -740,6 +767,34 @@ func GoalsString(gs []GoalSpec) string {
 func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 	h := r.H
 	entity := h.Protos.Items[p.Item].PlaceResult
+	// уже стоит своя такая же (поставил прерванный запуск) — взять в реестр, не ставить
+	var spots []bridge.Pos
+	var roles []string
+	for i, pos := range p.Spots {
+		if e, err := r.B.EntityAt(entity, pos); err == nil && e != nil {
+			if st, _ := r.B.GetEntity(e.Name, e.Position); st != nil && st.Own {
+				r.Saved.Owned = append(r.Saved.Owned, plan.Owned{Unit: e.UnitNumber, Name: e.Name, Pos: e.Position, Role: p.Roles[i]})
+				r.journal("  %s в (%.1f, %.1f) уже стоит — беру как %s", entity, pos.X, pos.Y, p.Roles[i])
+				continue
+			}
+		}
+		// своя такая же стоит со сдвигом (повёрнута не так) — поднять, иначе не встанет
+		if near, err := r.B.FindNearest(bridge.FindArgs{Name: entity, Radius: 2, Position: &pos, Limit: 3}); err == nil {
+			for _, e := range near {
+				if st, _ := r.B.GetEntity(e.Name, e.Position); st != nil && st.Own && !r.isOwned(e.Position) {
+					h.Say("%s стоит криво на месте стройки — поднимаю", e.Name)
+					if err := h.Pickup(ctx, e); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		spots, roles = append(spots, pos), append(roles, p.Roles[i])
+	}
+	if len(spots) == 0 {
+		return nil
+	}
+	p = &plan.Primitive{Kind: p.Kind, Item: p.Item, Dir: p.Dir, Spots: spots, Roles: roles, Area: p.Area}
 	var tiles []world.Tile
 	for _, pos := range p.Spots {
 		tiles = append(tiles, layout.Tiles(h.Protos, layout.Placement{Name: entity, Pos: pos, Dir: p.Dir})...)
@@ -771,7 +826,9 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 	}
 	es, err := h.PlaceAll(ctx, p.Item, p.Spots, p.Dir)
 	for i, e := range es {
-		r.Saved.Owned = append(r.Saved.Owned, plan.Owned{Unit: e.UnitNumber, Name: e.Name, Pos: e.Position, Role: p.Roles[i]})
+		if e.Name != "" {
+			r.Saved.Owned = append(r.Saved.Owned, plan.Owned{Unit: e.UnitNumber, Name: e.Name, Pos: e.Position, Role: p.Roles[i]})
+		}
 	}
 	return err
 }
@@ -796,6 +853,18 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 			break
 		}
 		l, err = ResearchSite(r.H.Protos, r.H.World, world.TileOf(s.PlayerPos), 2)
+	case "science":
+		l = layout.New(r.H.Protos, r.H.World)
+		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
+		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 200, Limit: 50})
+		anchor := s.PlayerPos
+		for i, e := range poles {
+			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+			if i == 0 {
+				anchor = e.Position
+			}
+		}
+		err = l.ScienceFactory(anchor, 1, 2, 1, 2)
 	default:
 		ore, ok := plan.ModuleOre(kind)
 		if !ok {
@@ -865,9 +934,12 @@ func ResearchSite(p *knowledge.Prototypes, w *world.World, near world.Tile, labs
 // await — ждать исследования tech, пока в лаборатории lab есть наука (до 90 с; дальше
 // планировщик решит снова).
 func (r *Runner) await(ctx context.Context, tech, lab string) error {
-	o, _, err := r.owned(lab)
-	if err != nil {
-		return err
+	var o *plan.Owned
+	if lab != "" {
+		var err error
+		if o, _, err = r.owned(lab); err != nil {
+			return err
+		}
 	}
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
@@ -877,6 +949,14 @@ func (r *Runner) await(ctx context.Context, tech, lab string) error {
 		}
 		if f.Current != tech {
 			return nil
+		}
+		if o == nil { // наука идёт с ленты — просто ждать
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+			continue
 		}
 		st, err := r.B.GetEntity(o.Name, o.Pos)
 		if err != nil {
@@ -1072,4 +1152,71 @@ func (r *Runner) waitOutpost(ctx context.Context, o *plan.Owned, ore, item strin
 		}
 	}
 	return nil
+}
+
+// round — обход построек p.Roles ближайшим соседом: collect — забрать (Ctrl+клик),
+// refuel — положить p.Ns[i] предмета. Недоступную пропустить, остальные — дальше.
+func (r *Runner) round(ctx context.Context, p *plan.Primitive) error {
+	h := r.H
+	type stop struct {
+		e bridge.Entity
+		n int
+	}
+	var left []stop
+	for i, role := range p.Roles {
+		_, e, err := r.owned(role)
+		if err != nil {
+			continue
+		}
+		n := 0
+		if i < len(p.Ns) {
+			n = p.Ns[i]
+		}
+		left = append(left, stop{e, n})
+	}
+	done := 0
+	var last error
+	for len(left) > 0 {
+		pl, err := r.B.Player()
+		if err != nil {
+			return err
+		}
+		bi := 0
+		for i := range left {
+			if dist(pl.Position, left[i].e.Position) < dist(pl.Position, left[bi].e.Position) {
+				bi = i
+			}
+		}
+		st := left[bi]
+		left = append(left[:bi], left[bi+1:]...)
+		if p.Kind == "collect" {
+			_, err = h.Take(ctx, st.e)
+		} else {
+			err = h.Insert(ctx, st.e, p.Item, st.n)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			last = err
+			continue
+		}
+		done++
+	}
+	if done == 0 && last != nil {
+		return last
+	}
+	return nil
+}
+
+func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
+
+// isOwned — постройка в этой точке есть в реестре.
+func (r *Runner) isOwned(pos bridge.Pos) bool {
+	for _, o := range r.Saved.Owned {
+		if o.Pos == pos {
+			return true
+		}
+	}
+	return false
 }

@@ -325,6 +325,7 @@ type EntityState struct {
 	Burning          string                    `json:"burning"`
 	RemainingFuel    float64                   `json:"remaining_fuel"`
 	Network          int                       `json:"network,omitempty"` // электросеть (0 — нет)
+	Belt             map[string]int            `json:"belt,omitempty"`    // что лежит на ленте
 }
 
 // Count — сколько предмета во всех инвентарях сущности.

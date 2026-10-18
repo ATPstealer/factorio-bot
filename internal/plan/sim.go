@@ -71,7 +71,8 @@ func apply(s *State, p *Primitive) error {
 		inv[p.Item] -= len(p.Spots)
 		name := s.Protos.Items[p.Item].PlaceResult
 		for i, pos := range p.Spots {
-			s.Owned = append(s.Owned, &Owned{Name: name, Pos: pos, Role: p.Roles[i], Inv: map[string]map[string]int{}})
+			d := p.Dir
+			s.Owned = append(s.Owned, &Owned{Name: name, Pos: pos, Role: p.Roles[i], Dir: &d, Inv: map[string]map[string]int{}})
 		}
 	case "insert":
 		o := s.Role(p.Role)
@@ -152,6 +153,34 @@ func apply(s *State, p *Primitive) error {
 					delete(o.Inv["crafter_input"], ore)
 				}
 			}
+		}
+	case "collect":
+		for _, r := range p.Roles {
+			if o := s.Role(r); o != nil {
+				inv[p.Item] += o.In("fuel", p.Item)
+				delete(o.Inv["fuel"], p.Item)
+				o.Status = "working" // горящий уголь догорает — пара работает
+			}
+		}
+	case "refuel":
+		for i, r := range p.Roles {
+			o := s.Role(r)
+			if o == nil || inv[p.Item] < p.Ns[i] {
+				return fmt.Errorf("sim: разнести %s в %s", p.Item, r)
+			}
+			inv[p.Item] -= p.Ns[i]
+			slot := "fuel"
+			if o.Name == Chest {
+				slot = "chest"
+			}
+			if o.Inv[slot] == nil {
+				o.Inv[slot] = map[string]int{}
+			}
+			o.Inv[slot][p.Item] += p.Ns[i]
+		}
+	case "recipe":
+		if o := s.Role(p.Role); o != nil {
+			o.Recipe = p.Recipe
 		}
 	case "rotate":
 		if o := s.Role(p.Role); o != nil {

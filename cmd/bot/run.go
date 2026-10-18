@@ -20,9 +20,14 @@ const statePath, botLog = "run/state.json", "run/bot.log"
 func parseGoals(args []string) []exec.GoalSpec {
 	var gs []exec.GoalSpec
 	for i := 0; i < len(args); {
-		if args[i] == "start" {
-			gs = append(gs, exec.GoalSpec{Kind: "start", Maintain: true})
+		if args[i] == "start" || args[i] == "redscience" {
+			gs = append(gs, exec.GoalSpec{Kind: args[i], Maintain: args[i] == "start"})
 			i++
+			continue
+		}
+		if args[i] == "research" && i+1 < len(args) {
+			gs = append(gs, exec.GoalSpec{Kind: "research", Item: args[i+1]})
+			i += 2
 			continue
 		}
 		if i+2 >= len(args) {
@@ -35,7 +40,7 @@ func parseGoals(args []string) []exec.GoalSpec {
 			gs = append(gs, exec.GoalSpec{Kind: args[i], Item: args[i+1], N: n, Maintain: args[i] == "smelt"})
 			i += 3
 		default:
-			log.Fatalf("неизвестная цель %q: start | have ПРЕДМЕТ N | smelt РУДА N | keep", args[i])
+			log.Fatalf("неизвестная цель %q: start | redscience | research ТЕХ | have ПРЕДМЕТ N | smelt РУДА N | keep", args[i])
 		}
 	}
 	return gs

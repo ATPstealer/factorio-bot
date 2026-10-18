@@ -126,6 +126,7 @@ func lineOK(t *testing.T, h *act.Hands, r *exec.Runner, n int) {
 // Критерий стадии: с пустого инвентаря — 5 каменных печей на железе с углём; убрали печь —
 // бот (новый процесс, из сохранённого состояния) замечает и восстанавливает.
 func TestStage5_SmeltingLine(t *testing.T) {
+	scenario(t)
 	h := handsT(t)
 	state := path("run", "state-test.json")
 	os.Remove(state)

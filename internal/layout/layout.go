@@ -20,6 +20,29 @@ type Layout struct {
 	ends     map[world.Tile]bool
 	// Usable — доступна ли постройка (изучено); nil — всё. Без подземок лента только поверху.
 	Usable func(entity string) bool
+	// Anchors — уже стоящие в игре свои столбы: узлы сети, к которым тянуть столбы
+	// раскладки (не строятся)
+	Anchors []Placement
+}
+
+// poleList — столбы раскладки и уже стоящие (Anchors).
+func (l *Layout) poleList() []Placement {
+	poles := append([]Placement(nil), l.Anchors...)
+	for _, p := range l.List {
+		if isPole(p.Name) {
+			poles = append(poles, p)
+		}
+	}
+	return poles
+}
+
+func (l *Layout) anchorAt(t world.Tile) bool {
+	for _, a := range l.Anchors {
+		if world.TileOf(a.Pos) == t {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *Layout) usable(entity string) bool { return l.Usable == nil || l.Usable(entity) }

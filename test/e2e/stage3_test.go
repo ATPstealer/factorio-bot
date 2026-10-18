@@ -94,6 +94,7 @@ func TestStage3_PathAroundLake(t *testing.T) {
 
 // Критерий стадии: добыть камень → скрафтить печь → поставить → уголь и руда → забрать пластины.
 func TestStage3_FurnaceScenario(t *testing.T) {
+	scenario(t)
 	h := handsT(t)
 	have(t, h, "stone", 5)
 	have(t, h, "coal", 3)

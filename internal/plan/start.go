@@ -14,11 +14,13 @@ const (
 	StartStone = 200
 )
 
-// StartModules — порядок точек: тег = руда-номер (раскладку даёт State.Design).
+// StartModules — порядок точек: тег = руда-номер (раскладку даёт State.Design). Сначала
+// 2 угольные пары, железо, медь (пример пользователя), дальше железо чаще: из пластин
+// строятся следующие буры (9 на бур), медь на старте почти не нужна.
 var StartModules = []string{
-	"coal-1", "coal-2", "iron-ore-1", "copper-ore-1", "stone-1",
-	"coal-3", "iron-ore-2", "copper-ore-2", "coal-4", "iron-ore-3", "copper-ore-3",
-	"coal-5", "iron-ore-4", "copper-ore-4", "iron-ore-5", "copper-ore-5",
+	"coal-1", "coal-2", "iron-ore-1", "copper-ore-1", "iron-ore-2", "iron-ore-3", "stone-1",
+	"coal-3", "iron-ore-4", "copper-ore-2", "coal-4", "iron-ore-5", "copper-ore-3",
+	"coal-5", "copper-ore-4", "copper-ore-5",
 }
 
 // ModuleOre — руда точки по тегу ("iron-ore-2" → "iron-ore").
@@ -89,6 +91,9 @@ func (g Start) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if s.Design == nil {
 		return nil, fmt.Errorf("plan: старт: негде проектировать точки")
 	}
+	if p, err := refuelRound(pl, s, c); p != nil || err != nil {
+		return p, err
+	}
 	for _, tag := range StartModules {
 		site, ok := s.Design(s, tag)
 		if !ok {
@@ -145,4 +150,96 @@ func (g HaveItem) fromOutposts(pl *Planner, s *State, c *ctx, lack int) (*Primit
 		return nil, nil
 	}
 	return c.prim(Primitive{Kind: "wait", Role: best.Role, Item: g.Item, N: min(lack, 20)}), nil
+}
+
+// refuelRound — дозаправить свои burner-постройки (кроме угольных пар — они сами) одним
+// обходом: набрать уголь на всех разом и разнести маршрутом.
+func refuelRound(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	// обход — когда у кого-то меньше четверти минимума; доливаем всем, у кого меньше трёх
+	// четвертей; угля в инвентаре много — сверх минимума поровну, до полного слота
+	p := c.prim(Primitive{Kind: "refuel", Item: "coal"})
+	var caps []int
+	need, low := 0, false
+	feed := feeders(s)
+	fedBy := map[string]bool{}
+	for burner, chest := range feed {
+		if ch := s.Role(chest); ch != nil {
+			have := ch.In("chest", "coal")
+			if b := s.Role(burner); have > 0 || b == nil || len(b.Inv["fuel"]) > 0 || b.Status == "working" {
+				fedBy[burner] = true // пустую пару «сундук + бойлер» — заправить бойлер напрямую
+			}
+			low = low || have < chestFeedTarget/4
+			if have < chestFeedTarget*3/4 {
+				p.Roles = append(p.Roles, chest)
+				p.Ns = append(p.Ns, chestFeedTarget-have)
+				caps = append(caps, chestFeedTarget*2-have)
+				need += chestFeedTarget - have
+			}
+		}
+	}
+	for _, o := range s.Owned {
+		if fedBy[o.Role] {
+			continue
+		}
+		if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" || s.Protos.Entities[o.Name].Burner == nil {
+			continue
+		}
+		// ручная плавильня и площадки/линии старых целей — у них своя заправка
+		if o.Role == "smelter" || strings.HasPrefix(o.Role, "mine-") || strings.HasPrefix(o.Role, "smelt-") {
+			continue
+		}
+		full := fuelFor(s, o.Name)
+		have := o.In("fuel", "coal")
+		low = low || have < full/4
+		if have < full*3/4 {
+			p.Roles = append(p.Roles, o.Role)
+			p.Ns = append(p.Ns, full-have)
+			caps = append(caps, fuelCap(s, o.Name)-have)
+			need += full - have
+		}
+	}
+	if !low || pl.banned(p.Key()) {
+		return nil, nil
+	}
+	if s.Inventory["coal"] < need {
+		return sub(pl, s, c, HaveItem{"coal", need})
+	}
+	spreadExtra(p.Ns, caps, s.Inventory["coal"]-need)
+	return p, nil
+}
+
+// fuelCap — сколько угля влезает в топливо постройки (слоты × стопка).
+func fuelCap(s *State, entity string) int {
+	b := s.Protos.Entities[entity].Burner
+	stack := s.Protos.Items["coal"].StackSize
+	if b == nil || stack == 0 {
+		return fuelFor(s, entity)
+	}
+	return max(1, b.FuelInventorySize) * stack
+}
+
+// spreadExtra — лишний уголь (extra) поровну сверх ns, не больше caps (запас — меньше
+// подходить).
+func spreadExtra(ns, caps []int, extra int) {
+	for extra > 0 {
+		open := 0
+		for i := range ns {
+			if ns[i] < caps[i] {
+				open++
+			}
+		}
+		if open == 0 {
+			return
+		}
+		share := max(1, extra/open)
+		for i := range ns {
+			if extra == 0 {
+				return
+			}
+			if add := min(share, caps[i]-ns[i], extra); add > 0 {
+				ns[i] += add
+				extra -= add
+			}
+		}
+	}
 }

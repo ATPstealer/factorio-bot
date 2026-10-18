@@ -384,7 +384,7 @@ func TestResearchByScience(t *testing.T) {
 	l := layout.New(s.Protos, nil)
 	l.Add(layout.Placement{Name: "lab", Pos: bridge.Pos{X: 50.5, Y: 50.5}})
 	s.Design = func(s *State, kind string) (Built, bool) { return Built{Tag: kind, List: l.List}, true }
-	end, steps := run(t, s, Researched{"automation"})
+	end, steps := run(t, s, Researched{Tech: "automation"})
 	k := kinds(steps)
 	for _, want := range []string{"скрафтить lab", "построить lab", "положить automation-science-pack ×10 в research-1", "запустить исследование automation", "ждать исследования automation"} {
 		if !strings.Contains(k, want) {
@@ -484,4 +484,22 @@ func TestStart(t *testing.T) {
 		}
 	}
 	t.Logf("шагов %d, построек точек %d, руками %d", len(steps), built, hand)
+}
+
+// Заправка с запасом: угля в инвентаре много — сверх минимума поровну, до полного слота.
+func TestRefuelWithSurplus(t *testing.T) {
+	for _, tc := range []struct{ inv, want int }{{20, 10}, {30, 15}, {200, 50}} {
+		s := newState(t)
+		s.Inventory["coal"] = tc.inv
+		for i := 1; i <= 2; i++ {
+			s.Owned = append(s.Owned, &Owned{Name: Drill, Role: fmt.Sprintf("iron-ore-%d-1", i), Inv: map[string]map[string]int{}})
+		}
+		p, err := refuelRound(NewPlanner(), s, &ctx{stack: map[string]bool{}})
+		if err != nil || p == nil || p.Kind != "refuel" {
+			t.Fatalf("уголь %d: %v %v", tc.inv, p, err)
+		}
+		if p.Ns[0] != tc.want || p.Ns[1] != tc.want {
+			t.Errorf("уголь %d: кладём %v, ждали по %d", tc.inv, p.Ns, tc.want)
+		}
+	}
 }

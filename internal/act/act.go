@@ -151,6 +151,19 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	if err := h.guard(ctx); err != nil {
 		return err
 	}
+	// конечная точка на ленте — нельзя (унесёт): ближайшая, где можно стоять
+	if h.World != nil && h.World.OnBelt(target) {
+		best := math.Inf(1)
+		t0 := target
+		for dy := -2.0; dy <= 2; dy += 0.5 {
+			for dx := -2.0; dx <= 2; dx += 0.5 {
+				q := bridge.Pos{X: t0.X + dx, Y: t0.Y + dy}
+				if d := dist(t0, q); d < best && h.World.Standable(q) {
+					best, target = d, q
+				}
+			}
+		}
+	}
 	if p, err := h.B.Player(); err == nil && dist(p.Position, target) > 8 {
 		h.Say("иду к (%.0f, %.0f), %.0f тайлов", target.X, target.Y, dist(p.Position, target))
 	}
@@ -509,6 +522,14 @@ func (h *Hands) waitStill(ctx context.Context) error {
 		if still && last != nil && dist(*last, p.Position) < 1e-6 {
 			return nil
 		}
+		// клавиши отпущены, а персонажа несёт — стоит на ленте: сойти
+		if still && last != nil && i > 10 && h.World != nil && h.World.OnBelt(p.Position) {
+			if err := h.stepOffBelt(ctx, p.Position); err != nil {
+				return err
+			}
+			last = nil
+			continue
+		}
 		if still {
 			pos := p.Position
 			last = &pos
@@ -714,4 +735,24 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// stepOffBelt — сойти с ленты на ближайшую точку, где можно стоять.
+func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
+	best, spot := math.Inf(1), bridge.Pos{}
+	for dy := -2.0; dy <= 2; dy += 0.5 {
+		for dx := -2.0; dx <= 2; dx += 0.5 {
+			q := bridge.Pos{X: from.X + dx, Y: from.Y + dy}
+			if h.World.Standable(q) && dist(from, q) < best {
+				best, spot = dist(from, q), q
+			}
+		}
+	}
+	if math.IsInf(best, 1) {
+		return errors.New("act: персонажа несёт лента, сойти некуда")
+	}
+	h.Log("на ленте — схожу в (%.1f, %.1f)", spot.X, spot.Y)
+	return h.drive(ctx, 3, func(pos bridge.Pos) (map[string]bool, bool) {
+		return walkKeys(pos, spot), !h.World.OnBelt(pos) && dist(pos, spot) < 0.6
+	})
 }

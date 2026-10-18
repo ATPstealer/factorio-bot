@@ -104,7 +104,10 @@ func (l *Layout) RedScience(lt world.Tile, n int, asm, inserter, tag string) Mod
 		l.Add(Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: topY}.Center(), Dir: E, Tag: tag})
 		l.Add(Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: outY}.Center(), Dir: E, Tag: tag})
 	}
-	l.AllowEnd(world.Tile{X: lt.X + 8*n, Y: topY}) // конец ленты пластин — тупик
+	// конец ленты пластин — тупик: тайл за ним держать пустым, иначе чужая лента рядом
+	// подхватит пластины (петля, затор)
+	l.AllowEnd(world.Tile{X: lt.X + 8*n, Y: topY})
+	l.Reserved[world.Tile{X: lt.X + 8*n, Y: topY}] = true
 	l.AllowEnd(world.Tile{X: lt.X + 8*n, Y: outY}) // наука — дальше к лабораториям (стадия 7)
 	m.In = []Port{{world.Tile{X: lt.X, Y: topY}, E}}
 	m.Out = []Port{{world.Tile{X: lt.X + 8*n - 1, Y: outY}, E}}
@@ -191,9 +194,51 @@ func (l *Layout) steamChain(pump Placement, engines int) bool {
 			}
 		}
 		if ok {
+			l.boilerFeed(b)
 			return true
 		}
 		l.Rollback(mark)
 	}
 	return false
+}
+
+// boilerFeed — сундук с углём и инсертер в бойлер с тыльной стороны (не трубы): бот
+// доливает сундук раз в долгое время, а не бегает к бойлеру. Нет места — без него.
+func (l *Layout) boilerFeed(b Placement) {
+	var steam Conn
+	for _, cn := range Connections(l.P, b) {
+		if cn.Filter == "steam" {
+			steam = cn
+		}
+	}
+	back := (steam.Dir + 8) % 16
+	tiles := Tiles(l.P, b)
+	in := map[world.Tile]bool{}
+	for _, t := range tiles {
+		in[t] = true
+	}
+	// ближе к центру бойлера — раньше
+	c := world.TileOf(b.Pos)
+	best := -1
+	var bi, bc world.Tile
+	for _, t := range tiles {
+		it := Step(t, back)
+		if in[it] {
+			continue
+		}
+		ct := Step(it, back)
+		ins := Placement{Name: "inserter", Pos: it.Center(), Dir: InserterDir(l.P, "inserter", it, ct), Tag: b.Tag}
+		ch := Placement{Name: "wooden-chest", Pos: ct.Center(), Tag: b.Tag}
+		if !l.CanPlace(ins, OffOre) || !l.CanPlace(ch, OffOre) {
+			continue
+		}
+		if d := abs(t.X-c.X) + abs(t.Y-c.Y); best < 0 || d < best {
+			best, bi, bc = d, it, ct
+		}
+	}
+	if best < 0 {
+		return
+	}
+	l.Add(Placement{Name: "wooden-chest", Pos: bc.Center(), Tag: b.Tag})
+	l.Add(Placement{Name: "inserter", Pos: bi.Center(), Dir: InserterDir(l.P, "inserter", bi, bc), Tag: b.Tag})
 }

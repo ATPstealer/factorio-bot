@@ -24,6 +24,7 @@ type Owned struct {
 	Inv    map[string]map[string]int `json:"-"` // инвентари: fuel, crafter_input, crafter_output, chest
 	Status string                    `json:"-"`
 	Dir    *int                      `json:"-"` // направление в игре (nil — без направления)
+	Recipe string                    `json:"-"` // рецепт сборщика в игре
 }
 
 // Count — сколько предмета во всех инвентарях постройки.
@@ -178,6 +179,8 @@ type Primitive struct {
 	Dir   int          `json:"dir,omitempty"`
 	Spots []bridge.Pos `json:"spots,omitempty"`
 	Roles []string     `json:"roles,omitempty"`
+	// refuel: сколько угля в каждую из Roles
+	Ns []int `json:"ns,omitempty"`
 	// Area — вся площадь раскладки: персонажу не стоять внутри при стройке (замурует себя)
 	Area *bridge.Box `json:"area,omitempty"`
 	Why  []string    `json:"why"` // цепочка целей сверху вниз
@@ -194,6 +197,8 @@ func (p *Primitive) Key() string {
 		return "craft:" + p.Recipe
 	case "build":
 		return fmt.Sprintf("build:%s:%d@%.1f,%.1f", p.Item, p.Dir, p.Spots[0].X, p.Spots[0].Y)
+	case "collect", "refuel":
+		return p.Kind + ":" + p.Item + ":" + strings.Join(p.Roles, ",")
 	}
 	return p.Kind + ":" + p.Role + ":" + p.Item
 }
@@ -212,6 +217,16 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("поставить %s в (%.1f, %.1f) как %s", p.Item, p.Pos.X, p.Pos.Y, p.Role)
 	case "rotate":
 		s = fmt.Sprintf("повернуть %s направлением %d", p.Role, p.Dir)
+	case "recipe":
+		s = fmt.Sprintf("рецепт %s в %s", p.Recipe, p.Role)
+	case "collect":
+		s = fmt.Sprintf("собрать %s с %d построек (%s…)", p.Item, len(p.Roles), p.Roles[0])
+	case "refuel":
+		total := 0
+		for _, n := range p.Ns {
+			total += n
+		}
+		s = fmt.Sprintf("разнести %s ×%d по %d постройкам (%s…)", p.Item, total, len(p.Roles), p.Roles[0])
 	case "build":
 		s = fmt.Sprintf("построить %s ×%d (%s…)", p.Item, len(p.Spots), p.Roles[0])
 		if p.Dir != 0 {

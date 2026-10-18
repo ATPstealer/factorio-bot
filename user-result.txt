@@ -1,0 +1,44 @@
+Разделение тестов (2026-10-18)
+
+Как запускать
+  scripts/test.sh                  — юнит-тесты + e2e отдельных функций (быстро, на текущей карте)
+  scripts/test.sh Stage7_Build     — один тест по имени (шаблон -run)
+  COMPLEX=1 scripts/test.sh        — плюс комплексные сценарии
+  SNAP=start …                     — начать со снимка «после старта» (не ждать ~23 мин старта)
+  COMPLEX=1 NEW_MAP=1 scripts/test.sh — финальная регрессия в конце стадии (новая карта)
+
+Юнит-тесты (без игры, секунды): go test ./internal/... — планировщик, раскладки, путь, калькулятор, RCON.
+
+E2E: отдельные функции (по умолчанию, ~6–10 мин все вместе)
+  Stage0_Config, Stage0_Game            — окружение, мод, клиент
+  Stage1_Walk                           — дойти до точки
+  Stage1_Mine                           — срубить дерево
+  Stage1_OnlyCharted                    — честность: не видеть неоткрытое
+  Stage2_WorldMatchesGame               — модель карты = игра
+  Stage3_Craft                          — ручной крафт
+  Stage3_PathAroundLake                 — обойти воду
+  Stage3_Guards                         — выйти из меню/карты
+  Stage3_DrillOneOreTile                — поставить/повернуть/поднять бур
+  Stage3_FurnaceHugsTree                — поставить вплотную к дереву, срубить, не задев
+  Stage3_DropAndCollectInOrder          — выложить и собрать предметы
+  Stage3_Unstuck                        — выбраться из кольца построек
+  Stage4_SnapshotMatchesGame, Stage4_AvailabilityMatchesForce, Stage4_RocketPartPlan — справочник и калькулятор
+  Stage6_Layout                         — раскладка «на бумаге» по живой карте
+  Stage7_Build                          — построить раскладку (материалы, слои, направления, топливо)
+  Stage7_Belt                           — лента-змейка (10 изгибов): пластина доезжает до конца
+  Stage7_SetRecipe                      — задать рецепт сборщику через окно
+
+E2E: комплексные сценарии (COMPLEX=1, минуты–часы)
+  Stage3_FurnaceScenario  (~1 мин)      — камень → печь → уголь/руда → пластины
+  Stage3_SnailMaze        (~1 мин)      — выйти из «улитки» печей
+  Stage5_SmeltingLine     (~8–12 мин)   — линия из 5 печей с нуля + восстановление
+  Stage7_SteamPower       (~8 мин)      — станция у воды + лаборатория в сети
+  Stage7_Research         (~5 мин)      — исследование наукой через окно технологий
+  Stage7_Start            (~20–25 мин, новая карта; SAVE_AS=start — снимок)
+  Stage7_RedScience       (~1–2 ч)      — фабрика красной науки и исследование наукой со сборщиков
+
+Когда что гонять
+  - правка одной способности — её тест функции (scripts/test.sh Stage7_Build);
+  - перед коммитом — scripts/test.sh (все функции);
+  - правка стратегии/планировщика — нужный сценарий со снимка (SNAP=start COMPLEX=1 scripts/test.sh Stage7_RedScience);
+  - конец стадии — COMPLEX=1 NEW_MAP=1 scripts/test.sh.

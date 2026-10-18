@@ -36,10 +36,11 @@ type Layout struct {
 	Focus point
 	// Окно технологий (T) мод не видит (opened_gui_type 0) — узнаём по пикселям: кнопка
 	// закрытия и тёмный заголовок «Research queue».
-	TechProbe  []point
-	TechColors []color.RGBA
-	TechFirst  point // первая технология в списке (после поиска)
-	TechStart  point // кнопка «Start research» карточки выбранной технологии
+	TechProbe   []point
+	TechColors  []color.RGBA
+	TechFirst   point // первая технология в списке (после поиска)
+	RecipeFirst point // первый рецепт в окне выбора рецепта сборщика (после поиска)
+	TechStart   point // кнопка «Start research» карточки выбранной технологии
 }
 
 var Layout1856 = Layout{
@@ -49,13 +50,14 @@ var Layout1856 = Layout{
 	Cols:       10,
 	Quickbar: [10]point{{745, 946}, {785, 946}, {826, 946}, {866, 946}, {906, 946},
 		{950, 946}, {990, 946}, {1030, 946}, {1070, 946}, {1110, 946}},
-	MenuProbe:  []point{{880, 413}, {927, 400}},
-	MenuColors: []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
-	Focus:      point{60, 300},
-	TechProbe:  []point{{1831, 20}, {270, 22}},
-	TechColors: []color.RGBA{{226, 226, 226, 255}, {49, 48, 49, 255}},
-	TechFirst:  point{51, 535},
-	TechStart:  point{477, 422},
+	MenuProbe:   []point{{880, 413}, {927, 400}},
+	MenuColors:  []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
+	Focus:       point{60, 300},
+	TechProbe:   []point{{1831, 20}, {270, 22}},
+	TechColors:  []color.RGBA{{226, 226, 226, 255}, {49, 48, 49, 255}},
+	TechFirst:   point{51, 535},
+	RecipeFirst: point{747, 449},
+	TechStart:   point{477, 422},
 }
 
 var quickbarKeys = [10]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}
@@ -591,8 +593,12 @@ func (h *Hands) CraftWait(ctx context.Context, recipe string, n int) error {
 	if r, ok := h.Protos.Recipes[recipe]; ok {
 		wait += time.Duration(r.Energy*float64(n)*1.5) * time.Second
 	}
-	deadline := time.Now().Add(wait)
-	for time.Now().Before(deadline) {
+	deadline, hard := time.Now().Add(wait), time.Now().Add(10*time.Minute)
+	for time.Now().Before(deadline) && time.Now().Before(hard) {
+		// очередь ещё крафтит (полуфабрикаты: шестерни, схемы) — ждём дальше
+		if p, err := h.B.Player(); err == nil && len(p.CraftingQueue) > 0 {
+			deadline = time.Now().Add(wait)
+		}
 		evs, _, err := h.B.PollEvents(seq0)
 		if err != nil {
 			return err
@@ -728,4 +734,80 @@ func (h *Hands) closeTech(ctx context.Context) {
 		sleep(ctx, 2*inputLatency)
 	}
 	h.guard(ctx)
+}
+
+// SetRecipe — задать рецепт сборщику: клик по нему → окно выбора рецепта → Ctrl+F →
+// название → первый результат; подтверждение — рецепт из мода.
+func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) error {
+	cur := func() (string, error) {
+		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err != nil || st == nil {
+			return "", err
+		}
+		return st.Recipe, nil
+	}
+	if r, err := cur(); err != nil || r == recipe {
+		return err
+	}
+	h.Say("рецепт %s в %s", recipe, e.Name)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if r, _ := cur(); r != "" {
+		return fmt.Errorf("act: в %s уже рецепт %s — менять пока не умею", e.Name, r)
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.Hover(ctx, e); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool {
+		return p.OpenedGUIType != nil && *p.OpenedGUIType != 0
+	}); err != nil {
+		h.debugShot("recipe-open")
+		return fmt.Errorf("act: окно %s не открылось: %w", e.Name, err)
+	}
+	// буквы — только при открытом окне (иначе уйдут в игру хоткеями)
+	if err := h.In.Tap("f", "ctrl"); err != nil {
+		return err
+	}
+	if err := sleep(ctx, inputLatency); err != nil {
+		return err
+	}
+	if p, err := h.B.Player(); err != nil || p.OpenedGUIType == nil || *p.OpenedGUIType == 0 {
+		return fmt.Errorf("act: окно %s закрылось", e.Name)
+	}
+	if err := h.In.Tap("a", "ctrl"); err != nil {
+		return err
+	}
+	if err := h.In.Type(SearchText(recipe)); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 400*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.at(h.Layout.RecipeFirst); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 200*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	for i := 0; i < 10; i++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if r, err := cur(); err != nil || r == recipe {
+			return err
+		}
+	}
+	h.debugShot("recipe-" + recipe)
+	return fmt.Errorf("act: рецепт %s не задался", recipe)
 }

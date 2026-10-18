@@ -211,15 +211,18 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			}
 		}
 	}
-	// 1б. уголь — и из топлива угольных пар (буры выдают друг в друга)
+	// 1б. уголь — из топлива угольных пар (буры выдают друг в друга): со всех за один заход
 	if g.Item == "coal" {
+		p := c.prim(Primitive{Kind: "collect", Item: "coal"})
+		got := 0
 		for _, o := range s.Owned {
-			if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" && o.In("fuel", "coal") >= min(lack, 10) {
-				p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item})
-				if !pl.banned(p.Key()) {
-					return p, nil
-				}
+			if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" && o.In("fuel", "coal") >= 5 {
+				p.Roles = append(p.Roles, o.Role)
+				got += o.In("fuel", "coal")
 			}
+		}
+		if got >= min(lack, 10) && !pl.banned(p.Key()) {
+			return p, nil
 		}
 	}
 	// 2. скрафтить руками
@@ -319,7 +322,7 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	}
 	// 6. рецепт не изучен — изучить
 	if t := s.lockedBy(g.Item); t != "" {
-		return sub(pl, s, c, Researched{t})
+		return sub(pl, s, c, Researched{Tech: t})
 	}
 	return nil, fmt.Errorf("plan: не получить %s ×%d: нет способа %v", g.Item, lack, tried)
 }

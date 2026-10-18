@@ -13,12 +13,7 @@ func (l *Layout) Poles(pole, tag string) int {
 	added := 0
 	need := func() []int {
 		var res []int
-		var poles []Placement
-		for _, p := range l.List {
-			if isPole(p.Name) {
-				poles = append(poles, p)
-			}
-		}
+		poles := l.poleList()
 		for i, p := range l.List {
 			e := l.P.Entities[p.Name]
 			if e.Electric && !isPole(p.Name) && !l.powered(p, poles) {
@@ -70,12 +65,7 @@ func (l *Layout) Poles(pole, tag string) int {
 func (l *Layout) connectPoles(pole, tag string) int {
 	added := 0
 	for iter := 0; iter < 50; iter++ {
-		var poles []Placement
-		for _, p := range l.List {
-			if isPole(p.Name) {
-				poles = append(poles, p)
-			}
-		}
+		poles := l.poleList()
 		comp := components(l, poles)
 		if maxComp(comp) <= 1 {
 			return added
@@ -113,7 +103,7 @@ func (l *Layout) poleChain(a, b Placement, pole, tag string) int {
 		if t.X < minX || t.X > maxX || t.Y < minY || t.Y > maxY {
 			return false
 		}
-		if l.Free(t, AnyLand) {
+		if l.Free(t, AnyLand) || l.anchorAt(t) {
 			return true
 		}
 		p := l.At(t)
@@ -149,7 +139,7 @@ func (l *Layout) poleChain(a, b Placement, pole, tag string) int {
 	}
 	added := 0
 	for t := *end; t != start; t = prev[t] {
-		if p := l.At(t); p != nil && isPole(p.Name) {
+		if p := l.At(t); p != nil && isPole(p.Name) || l.anchorAt(t) {
 			continue
 		}
 		l.Add(Placement{Name: pole, Pos: t.Center(), Tag: tag})

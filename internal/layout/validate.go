@@ -113,12 +113,7 @@ func (l *Layout) Validate() []string {
 // validatePower — электрические машины в зоне какого-нибудь столба, столбы связаны.
 func (l *Layout) validatePower() []string {
 	var errs []string
-	var poles []Placement
-	for _, pl := range l.List {
-		if isPole(pl.Name) {
-			poles = append(poles, pl)
-		}
-	}
+	poles := l.poleList()
 	for _, pl := range l.List {
 		e := l.P.Entities[pl.Name]
 		if !e.Electric || isPole(pl.Name) {

@@ -67,11 +67,9 @@ func pathLen(from bridge.Pos, pts []bridge.Pos) float64 {
 }
 
 // Улитка из печей вокруг себя, затем выход из лабиринта.
-// Долгий (~1 мин): в обычной регрессии пропускается, запуск — E2E_SLOW=1 scripts/test.sh.
+// Комплексный (~1 мин): только с COMPLEX=1.
 func TestStage3_SnailMaze(t *testing.T) {
-	if os.Getenv("E2E_SLOW") == "" {
-		t.Skip("долгий тест: E2E_SLOW=1")
-	}
+	scenario(t)
 	h := handsT(t)
 	ctx := ctxT(t, 10*time.Minute)
 	blocks := snailBlocks()

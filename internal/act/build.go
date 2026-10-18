@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"factorio-bot/internal/bridge"
@@ -41,7 +42,7 @@ func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
 
 // buildReach — с какого расстояния ставим и кладём не сходя с места (досягаемость
 // персонажа 10, с запасом). Важно, например, когда персонаж строит вокруг себя.
-const buildReach = 8.5
+const buildReach = 9
 
 // standNear — подойти к месту постройки: на расстояние досягаемости, но не на саму
 // площадку (персонаж мешает поставить). Точка — ближайшая к персонажу свободная вокруг
@@ -74,21 +75,30 @@ func (h *Hands) standNear(ctx context.Context, fp bridge.Box) error {
 			}
 		}
 	}
-	return h.WalkTo(ctx, spot, 0.5)
+	err = h.WalkTo(ctx, spot, 0.5)
+	if errors.Is(err, ErrNotReached) {
+		// не дошёл до точки, но и отсюда ставится — не ошибка
+		if q, perr := h.B.Player(); perr == nil && !inBox(q.Position, fp, 0.35) && dist(q.Position, c) < buildReach {
+			return nil
+		}
+	}
+	return err
 }
 
 // Place ставит постройку из предмета item центром в pos и поворачивает в dir.
 func (h *Hands) Place(ctx context.Context, item string, pos bridge.Pos, dir int) (bridge.Entity, error) {
 	es, err := h.PlaceAll(ctx, item, []bridge.Pos{pos}, dir)
-	if len(es) == 0 {
+	if len(es) == 0 || es[0].Name == "" {
 		return bridge.Entity{}, err
 	}
 	return es[0], err
 }
 
-// PlaceAll ставит постройки из item в точки positions (в заданном порядке) направлением dir.
-// Предмет берётся в руку один раз и не убирается между постройками; подходит, только если
-// точка вне досягаемости. Подтверждение каждой — событие built_entity в этой точке.
+// PlaceAll ставит постройки из item в точки positions направлением dir. Из текущего места
+// ставит всё, что в досягаемости (ближние раньше); остальное — переходит в точку, откуда
+// достаётся больше всего оставшихся (не на ленте, не на площадках). Предмет берётся в руку
+// один раз. Подтверждение каждой — событие built_entity в этой точке. Результат выровнен
+// по positions (не поставленные — пустые, только при ошибке).
 // Направление: с предметом в руке R поворачивает сам предмет (а не постройку под курсором),
 // поэтому после первой постройки руку доворачиваем R, а уже поставленные с неверным
 // направлением поворачиваем в конце пустой рукой.
@@ -105,34 +115,76 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 	} else {
 		h.Say("ставлю %s ×%d%s", it.PlaceResult, len(positions), dirName(dir))
 	}
-	var built []bridge.Entity
+	built := make([]bridge.Entity, len(positions))
 	var misrotated []int
 	defer h.ClearCursor(ctx)
-	for _, pos := range positions {
-		if err := h.standNear(ctx, h.footprint(it.PlaceResult, pos)); err != nil {
-			return built, err
-		}
-		if err := h.Pick(ctx, item); err != nil {
-			return built, err
-		}
-		e, err := h.clickBuild(ctx, it.PlaceResult, pos)
-		if errors.Is(err, ErrPlace) {
-			// бывает, клик приходится на момент, когда камера ещё едет за персонажем, — ещё раз
-			if err := h.waitStill(ctx); err != nil {
-				return built, err
-			}
-			e, err = h.clickBuild(ctx, it.PlaceResult, pos)
-		}
+	fps := make([]bridge.Box, len(positions))
+	left := make([]int, len(positions))
+	for i, pos := range positions {
+		fps[i], left[i] = h.footprint(it.PlaceResult, pos), i
+	}
+	stalls := 0
+	for len(left) > 0 {
+		p, err := h.B.Player()
 		if err != nil {
 			return built, err
 		}
-		built = append(built, e)
-		if e.Direction != nil && *e.Direction != dir {
-			misrotated = append(misrotated, len(built)-1)
-			// довернуть предмет в руке: R — 90° по часовой (шаг 4)
-			for k := ((dir-*e.Direction)/4%4 + 4) % 4; k > 0; k-- {
-				if err := h.In.Tap("r"); err != nil {
+		var here []int
+		for _, i := range left {
+			if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach {
+				here = append(here, i)
+			}
+		}
+		if len(here) == 0 {
+			// перейти туда, откуда достаётся больше всего; не вышло дважды — к ближней
+			if stand, ok := h.buildStand(p.Position, fps, left); ok && stalls < 2 {
+				stalls++
+				if err := h.WalkTo(ctx, stand, 0.5); err != nil && !errors.Is(err, ErrNotReached) {
 					return built, err
+				}
+				continue
+			}
+			if err := h.standNear(ctx, fps[left[0]]); err != nil {
+				return built, err
+			}
+			here = []int{left[0]}
+		}
+		stalls = 0
+		sort.Slice(here, func(a, b int) bool {
+			return dist(p.Position, fps[here[a]].Center()) < dist(p.Position, fps[here[b]].Center())
+		})
+		for _, i := range here {
+			pos := positions[i]
+			if err := h.Pick(ctx, item); err != nil {
+				return built, err
+			}
+			e, err := h.clickBuild(ctx, it.PlaceResult, pos)
+			if errors.Is(err, ErrPlace) {
+				// бывает, клик приходится на момент, когда камера ещё едет за персонажем, — ещё раз
+				if err := h.waitStill(ctx); err != nil {
+					return built, err
+				}
+				e, err = h.clickBuild(ctx, it.PlaceResult, pos)
+			}
+			if err != nil {
+				return built, err
+			}
+			if w, hh := h.Protos.Entities[e.Name].TileWidth, h.Protos.Entities[e.Name].TileHeight; w != hh && e.Direction != nil && *e.Direction%8 != dir%8 {
+				// прямоугольная встала поперёк (рука была повёрнута иначе): поворот на месте
+				// сдвинет центр — поднять, довернуть руку, поставить снова
+				if e, err = h.replace(ctx, item, e, pos, dir); err != nil {
+					return built, err
+				}
+			}
+			built[i] = e
+			left = removeInt(left, i)
+			if e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
+				misrotated = append(misrotated, i)
+				// довернуть предмет в руке: R — 90° по часовой (шаг 4)
+				for k := ((dir-*e.Direction)/4%4 + 4) % 4; k > 0; k-- {
+					if err := h.In.Tap("r"); err != nil {
+						return built, err
+					}
 				}
 			}
 		}
@@ -148,6 +200,85 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 		built[i].Direction = &d
 	}
 	return built, nil
+}
+
+func removeInt(xs []int, x int) []int {
+	for k, v := range xs {
+		if v == x {
+			return append(xs[:k], xs[k+1:]...)
+		}
+	}
+	return xs
+}
+
+// buildStand — точка, откуда в досягаемости больше всего мест left (не на ленте, не на
+// самих площадках); при равенстве — ближе к персонажу.
+func (h *Hands) buildStand(from bridge.Pos, fps []bridge.Box, left []int) (bridge.Pos, bool) {
+	if h.World == nil {
+		return bridge.Pos{}, false
+	}
+	best, bestScore := bridge.Pos{}, math.Inf(-1)
+	cands := append([]int(nil), left...)
+	sort.Slice(cands, func(a, b int) bool { return dist(from, fps[cands[a]].Center()) < dist(from, fps[cands[b]].Center()) })
+	if len(cands) > 20 {
+		cands = cands[:20]
+	}
+	for _, i := range cands {
+		c := fps[i].Center()
+		for _, r := range []float64{2.5, 4.5, 6.5} {
+			for k := 0; k < 8; k++ {
+				a := float64(k) * math.Pi / 4
+				q := bridge.Pos{X: c.X + r*math.Cos(a), Y: c.Y + r*math.Sin(a)}
+				if !h.World.Standable(q) {
+					continue
+				}
+				n, blocked := 0, false
+				for _, j := range left {
+					if inBox(q, fps[j], 0.5) {
+						blocked = true
+						break
+					}
+					if dist(q, fps[j].Center()) < buildReach-0.5 {
+						n++
+					}
+				}
+				if blocked || n == 0 {
+					continue
+				}
+				if score := float64(n)*10 - dist(from, q)/3; score > bestScore {
+					best, bestScore = q, score
+				}
+			}
+		}
+	}
+	return best, !math.IsInf(bestScore, -1)
+}
+
+// replace — поднять e, довернуть предмет в руке до dir и поставить в pos снова.
+func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos bridge.Pos, dir int) (bridge.Entity, error) {
+	h.Say("%s встал не тем направлением — переставляю", e.Name)
+	if err := h.Pickup(ctx, e); err != nil {
+		return e, err
+	}
+	if err := h.Pick(ctx, item); err != nil {
+		return e, err
+	}
+	for k := ((dir-*e.Direction)/4%4 + 4) % 4; k > 0; k-- {
+		if err := h.In.Tap("r"); err != nil {
+			return e, err
+		}
+	}
+	if err := sleep(ctx, inputLatency); err != nil {
+		return e, err
+	}
+	ne, err := h.clickBuild(ctx, e.Name, pos)
+	if err != nil {
+		return e, err
+	}
+	if ne.Direction != nil && *ne.Direction%8 != dir%8 {
+		return ne, fmt.Errorf("act: %s не встал направлением %d", e.Name, dir)
+	}
+	return ne, nil
 }
 
 // clickBuild — ЛКМ по точке с постройкой в руке и ожидание события built_entity.
@@ -178,9 +309,10 @@ func (h *Hands) clickBuild(ctx context.Context, entity string, pos bridge.Pos) (
 		if err != nil {
 			return bridge.Entity{}, err
 		}
+		// прямоугольная, повёрнутая не так, встаёт со сдвигом центра — до тайла
 		for _, e := range evs {
 			if e.Type == "built_entity" && e.Entity != nil && e.Entity.Name == entity &&
-				math.Abs(e.Entity.Position.X-pos.X) < 0.01 && math.Abs(e.Entity.Position.Y-pos.Y) < 0.01 {
+				math.Abs(e.Entity.Position.X-pos.X) <= 0.5 && math.Abs(e.Entity.Position.Y-pos.Y) <= 0.5 {
 				return *e.Entity, nil
 			}
 		}
@@ -208,6 +340,12 @@ func dirName(d int) string {
 // нужное направление).
 func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
 	h.Say("поворачиваю %s%s", e.Name, dirName(dir))
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
 	if err := h.Hover(ctx, e); err != nil {
 		return err
 	}
@@ -229,8 +367,8 @@ func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
 		if err != nil {
 			return err
 		}
-		if d == dir {
-			return nil
+		if d == dir || h.Protos.Entities[e.Name].Type == "generator" && d%8 == dir%8 {
+			return nil // у симметричных (паровой двигатель) d и d+8 — одно
 		}
 		if err := h.In.Tap("r"); err != nil {
 			return err
@@ -279,8 +417,26 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 		h.ClearCursor(ctx)
 		return err
 	}
+	// много — удерживать Z (игра повторяет вставку) и отпустить чуть раньше нужного
+	// (отпускание доходит с задержкой); остаток — по одному нажатию
+	left := n
+	if n > 10 {
+		if err := h.In.KeyDown("z"); err != nil {
+			return err
+		}
+		_, _ = h.waitFor(ctx, time.Duration(n)*150*time.Millisecond+2*time.Second, func(q bridge.Player) bool {
+			return held(p0, item)-held(q, item) >= n-6
+		})
+		h.In.KeyUp("z")
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if q, err := h.B.Player(); err == nil {
+			left = n - (held(p0, item) - held(q, item))
+		}
+	}
 	// одно нажатие Z (удержание Input.Hold) — ровно один предмет
-	for i := 0; i < n; i++ {
+	for i := 0; i < left; i++ {
 		if err := h.In.Tap("z"); err != nil {
 			return err
 		}
@@ -310,7 +466,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err := h.ClearCursor(ctx); err != nil {
 		return err
 	}
-	if got := held(p0, item) - held(p1, item); werr != nil || got != n {
+	if got := held(p0, item) - held(p1, item); got < n { // перебор после удержания Z — не беда
 		return fmt.Errorf("act: в %s положено %s ×%d из %d (полон?)", e.Name, item, got, n)
 	}
 	return nil

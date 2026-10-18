@@ -206,6 +206,15 @@ function methods.get_entity(a)
     r.crafting_progress = e.crafting_progress
   end
   r.network = util.try(function() return e.electric_network_id end)
+  if e.type == "transport-belt" then -- что лежит на ленте (обе полосы)
+    local items = {}
+    for i = 1, 2 do
+      for _, it in pairs(e.get_transport_line(i).get_contents()) do
+        items[it.name] = (items[it.name] or 0) + it.count
+      end
+    end
+    r.belt = util.nonempty(items)
+  end
   if e.burner then
     local cb = e.burner.currently_burning
     -- 2.0: {name = прототип предмета, quality}

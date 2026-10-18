@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 
+	"factorio-bot/internal/world"
+
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
@@ -29,7 +31,11 @@ func (g Built) Satisfied(s *State) bool {
 		return false
 	}
 	for i, p := range g.List {
-		if o := s.Role(BuildRole(g.Tag, i)); o.Dir != nil && *o.Dir != p.Dir && rotatable(s, p.Name) {
+		o := s.Role(BuildRole(g.Tag, i))
+		if o.Dir != nil && !sameDir(s, p.Name, *o.Dir, p.Dir) && rotatable(s, p.Name) {
+			return false
+		}
+		if p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
 			return false
 		}
 	}
@@ -57,6 +63,9 @@ func (g Built) unfueled(s *State) []string {
 		}
 		role := BuildRole(g.Tag, i)
 		if o := s.Role(role); o != nil && len(o.Inv["fuel"]) == 0 && o.Status != "working" && !g.selfFed(s, o) {
+			if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") > 0 {
+				continue // кормится из сундука
+			}
 			res = append(res, role)
 		}
 	}
@@ -88,6 +97,14 @@ func layer(p *knowledge.Prototypes, entity string) int {
 	return 0
 }
 
+// sameDir — направления совпадают; у симметричных (паровой двигатель) d и d+8 — одно.
+func sameDir(s *State, entity string, a, b int) bool {
+	if s.Protos.Entities[entity].Type == "generator" {
+		return a%8 == b%8
+	}
+	return a == b
+}
+
 // rotatable — направление важно и меняется клавишей R (помпу игра ставит к воде сама).
 func rotatable(s *State, entity string) bool {
 	switch s.Protos.Entities[entity].Type {
@@ -95,6 +112,41 @@ func rotatable(s *State, entity string) bool {
 		return true
 	}
 	return false
+}
+
+// chestFeedTarget — сколько угля держать в сундуке-кормушке (бойлер на малой нагрузке
+// жжёт мало — хватает надолго).
+const chestFeedTarget = 100
+
+// feeders — постройки, которые кормятся углём из сундука через инсертер: роль постройки →
+// роль сундука (по геометрии инсертеров).
+func feeders(s *State) map[string]string {
+	res := map[string]string{}
+	at := func(t world.Tile) *Owned {
+		for _, o := range s.Owned {
+			d := 0
+			if o.Dir != nil {
+				d = *o.Dir
+			}
+			for _, x := range layout.Tiles(s.Protos, layout.Placement{Name: o.Name, Pos: o.Pos, Dir: d}) {
+				if x == t {
+					return o
+				}
+			}
+		}
+		return nil
+	}
+	for _, o := range s.Owned {
+		if s.Protos.Entities[o.Name].Type != "inserter" || o.Dir == nil {
+			continue
+		}
+		pick, drop := layout.InserterEnds(s.Protos, layout.Placement{Name: o.Name, Pos: o.Pos, Dir: *o.Dir})
+		src, dst := at(pick), at(drop)
+		if src != nil && dst != nil && src.Name == Chest && s.Protos.Entities[dst.Name].Burner != nil {
+			res[dst.Role] = src.Role
+		}
+	}
+	return res
 }
 
 // selfFed — бур угольной пары: заправляет его сосед, пока у пары есть уголь.
@@ -116,8 +168,18 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		// стоит, но повёрнуто не так (поворот мог не дойти) — довернуть
 		for i, p := range g.List {
 			role := BuildRole(g.Tag, i)
-			if o := s.Role(role); o != nil && o.Dir != nil && *o.Dir != p.Dir && rotatable(s, p.Name) {
-				pr := c.prim(Primitive{Kind: "rotate", Role: role, Dir: p.Dir})
+			if o := s.Role(role); o != nil && o.Dir != nil && !sameDir(s, p.Name, *o.Dir, p.Dir) && rotatable(s, p.Name) {
+				pr := c.prim(Primitive{Kind: "rotate", Role: role, Dir: p.Dir, Pos: p.Pos, Item: s.Protos.ItemFor(p.Name)})
+				if !pl.banned(pr.Key()) {
+					return pr, nil
+				}
+			}
+		}
+		// сборщик без нужного рецепта — задать
+		for i, p := range g.List {
+			role := BuildRole(g.Tag, i)
+			if o := s.Role(role); o != nil && p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
+				pr := c.prim(Primitive{Kind: "recipe", Role: role, Recipe: p.Recipe})
 				if !pl.banned(pr.Key()) {
 					return pr, nil
 				}
@@ -197,7 +259,13 @@ func (g Built) fuel(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if s.Inventory["coal"] < need {
 		return sub(pl, s, c, HaveItem{"coal", need})
 	}
-	return sub(pl, s, c, Supplied{roles[0], "coal", fuelFor(s, s.Role(roles[0]).Name)})
+	// угля много — с запасом: поровну на всех незаправленных, до полного слота
+	ns, caps := make([]int, len(roles)), make([]int, len(roles))
+	for i, r := range roles {
+		ns[i], caps[i] = fuelFor(s, s.Role(r).Name), fuelCap(s, s.Role(r).Name)
+	}
+	spreadExtra(ns, caps, s.Inventory["coal"]-need)
+	return sub(pl, s, c, Supplied{roles[0], "coal", ns[0]})
 }
 
 // order — порядок постройки в группе: обход ближайшего соседа (меньше ходьбы); подземки —
