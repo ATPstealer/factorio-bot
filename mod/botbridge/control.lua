@@ -41,6 +41,7 @@ function methods.get_player()
     opened_gui_type = p.opened_gui_type,
     opened_gui = util.gui_name(p.opened_gui_type),
     render_mode = util.render_name(p.render_mode),
+    alt_mode = util.try(function() return p.game_view_settings.show_entity_info end), -- Alt
     opened = p.opened and p.opened.object_name == "LuaEntity" and entity_info(p.opened) or nil,
     cursor = nil,
     inventory = {},

@@ -83,7 +83,7 @@ func ctxT(t *testing.T, d time.Duration) context.Context {
 }
 
 // Ходьба туда и обратно с точностью 0.5 тайла.
-func TestStage1_Walk(t *testing.T) {
+func TestBase_Walk(t *testing.T) {
 	h := handsT(t)
 	start, err := h.B.Player()
 	if err != nil {
@@ -113,7 +113,7 @@ func TestStage1_Walk(t *testing.T) {
 }
 
 // Добыча: дойти до дерева, навести курсор, срубить; событие mined_entity в буфере.
-func TestStage1_Mine(t *testing.T) {
+func TestBase_Mine(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 2*time.Minute)
 	_, seq0, err := h.B.PollEvents(1 << 30)
@@ -179,7 +179,7 @@ func TestStage1_Mine(t *testing.T) {
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
 
 // Честность: поиск сущностей не видит неоткрытые (не charted) чанки.
-func TestStage1_OnlyCharted(t *testing.T) {
+func TestBase_OnlyCharted(t *testing.T) {
 	b := bridgeT(t)
 	for _, find := range []func() ([]bridge.Entity, error){
 		func() ([]bridge.Entity, error) {

@@ -212,7 +212,7 @@ func checkClient(t *testing.T) {
 }
 
 // Окружение: файлы настроек и связи (без игры).
-func TestStage0_Config(t *testing.T) {
+func TestBase_Config(t *testing.T) {
 	t.Run("map-gen", checkMapGenFile)
 	t.Run("server-settings", checkServerSettings)
 	t.Run("config.ini", checkConfigIni)
@@ -220,7 +220,7 @@ func TestStage0_Config(t *testing.T) {
 }
 
 // Игра: сервер идёт, моды, мост отвечает, карта та, клиент бота в Xephyr.
-func TestStage0_Game(t *testing.T) {
+func TestBase_Game(t *testing.T) {
 	t.Run("server", checkServerRunning)
 	t.Run("mods", checkMods)
 	t.Run("botbridge", checkBotbridgePing)

@@ -503,3 +503,42 @@ func TestRefuelWithSurplus(t *testing.T) {
 		}
 	}
 }
+
+// Ожидание против реальности: пропало питание — лаборатория без питания, бойлер пуст →
+// срочная проблема, первым делом уголь в бойлер.
+func TestDiagnosePowerOutage(t *testing.T) {
+	s := newState(t)
+	s.Inventory["coal"] = 50
+	s.Owned = []*Owned{
+		{Name: "boiler", Role: "research-2", Status: "no_fuel", Inv: map[string]map[string]int{}},
+		{Name: "lab", Role: "research-6", Status: "no_power", Inv: map[string]map[string]int{}},
+	}
+	ps := Diagnose(s)
+	if len(ps) == 0 || ps[0].Key != "power" || !ps[0].Urgent || !strings.Contains(ps[0].Cause, "research-2 без топлива") {
+		t.Fatalf("проблемы: %+v", ps)
+	}
+	p, err := NewPlanner().Next(s, Repair{})
+	if err != nil || p == nil || p.Kind != "insert" || p.Role != "research-2" || p.Item != "coal" {
+		t.Errorf("первый шаг ремонта: %v %v", p, err)
+	}
+}
+
+// Лаборатории ждут науку при идущем исследовании — причина прослеживается по цепочке.
+func TestDiagnoseLabsIdle(t *testing.T) {
+	s := newState(t)
+	s.Researching = map[string]bool{"logistics": true}
+	s.Owned = []*Owned{
+		{Name: "lab", Role: "science-40", Status: "missing_science_packs", Inv: map[string]map[string]int{}},
+		{Name: "assembling-machine-1", Role: "science-17", Status: "item_ingredient_shortage", Inv: map[string]map[string]int{}},
+		{Name: Furnace, Role: "science-5", Status: "no_fuel", Inv: map[string]map[string]int{}},
+	}
+	var idle *Problem
+	for _, p := range Diagnose(s) {
+		if p.Key == "labs-idle" {
+			idle = &p
+		}
+	}
+	if idle == nil || !strings.Contains(idle.Cause, "science-17: нет ингредиентов") || !strings.Contains(idle.Cause, "science-5: нет топлива") {
+		t.Errorf("простой лабораторий: %+v", idle)
+	}
+}

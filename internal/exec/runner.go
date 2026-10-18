@@ -23,7 +23,7 @@ import (
 
 // GoalSpec — цель в сохраняемом виде.
 type GoalSpec struct {
-	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience
+	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience | site
 	Item     string `json:"item,omitempty"`
 	N        int    `json:"n"`
 	Fuel     string `json:"fuel,omitempty"`
@@ -50,6 +50,8 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		return plan.Start{}, nil
 	case "redscience":
 		return plan.RedScience{}, nil
+	case "site":
+		return plan.Site{Kind: g.Item}, nil
 	}
 	return nil, fmt.Errorf("exec: неизвестная цель %q", g.Kind)
 }
@@ -95,11 +97,15 @@ type Runner struct {
 
 	logf *os.File
 	// Until — проверяется между шагами: true — Run завершается (тесты, отладка)
-	Until    func() bool
-	minables map[string]bool
-	stores   []plan.Owned // сундуки вне реестра из последнего снимка
-	fails    int
-	explored map[bridge.ChunkPos]bool // края карты, куда уже ходили на разведку
+	Until func() bool
+	// наблюдение (plan.Diagnose): известные проблемы, прогресс исследования
+	problems     map[string]string
+	researchKey  string
+	researchSeen time.Time
+	minables     map[string]bool
+	stores       []plan.Owned // сундуки вне реестра из последнего снимка
+	fails        int
+	explored     map[bridge.ChunkPos]bool // края карты, куда уже ходили на разведку
 }
 
 func (r *Runner) Save() error {
@@ -163,6 +169,12 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done}
 	if f.Current != "" {
 		s.Researching[f.Current] = true
+	}
+	// исследование не продвигается — сколько секунд (для наблюдения)
+	if key := fmt.Sprintf("%s:%.4f", f.Current, f.Progress); f.Current == "" || key != r.researchKey {
+		r.researchKey, r.researchSeen = key, time.Now()
+	} else {
+		s.ResearchStalled = int(time.Since(r.researchSeen).Seconds())
 	}
 	for _, q := range f.Queue {
 		s.Researching[q] = true
@@ -395,11 +407,18 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	var goals []plan.Goal
+	if r.watch(s) {
+		goals = append(goals, plan.Repair{}) // есть что чинить — первым делом
+	}
 	for _, spec := range r.Saved.Goals {
 		g, err := spec.Goal()
 		if err != nil {
 			return false, err
 		}
+		goals = append(goals, g)
+	}
+	for _, g := range goals {
 		prim, err := r.Saved.Planner.Next(s, g)
 		if err != nil {
 			r.journal("цель «%s»: %v", g, err)
@@ -875,6 +894,21 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		// 0.4/с — 2 печи (каменная 0.31/с), 6 лабораторий: всё по красной (≈9600 лаб·с) —
 		// меньше получаса
 		err = l.ScienceFactory(anchor, 4, 3, 2, 6)
+	case "power-1", "power-2", "power-3", "power-4":
+		// ещё блок станции: у воды рядом со стоящей станцией, 2 двигателя на бойлер,
+		// кормушка; столбы — к сети
+		l = layout.New(r.H.Protos, r.H.World)
+		near := s.PlayerPos
+		if bs, _ := r.B.FindNearest(bridge.FindArgs{Type: "boiler", Radius: 300, Limit: 1}); len(bs) > 0 {
+			near = bs[0].Position
+		}
+		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 300, Position: &near, Limit: 50})
+		for _, e := range poles {
+			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+		}
+		if _, err = l.SteamPower(world.TileOf(near), 2, kind); err == nil {
+			l.Poles("small-electric-pole", kind)
+		}
 	default:
 		ore, ok := plan.ModuleOre(kind)
 		if !ok {
@@ -1017,6 +1051,32 @@ func (r *Runner) adopt() error {
 			} else if ok {
 				take(e, "smelter")
 				break
+			}
+		}
+	}
+	// бойлеры (станции) и их кормушки: инсертер и сундук рядом — наблюдению нужна станция
+	boilers, err := r.B.FindNearest(bridge.FindArgs{Type: "boiler", Radius: 200, Limit: 10})
+	if err != nil {
+		return err
+	}
+	for k, b := range boilers {
+		if ok, err := own(b); err != nil || !ok {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		role := fmt.Sprintf("boiler-%d", k+1)
+		take(b, role)
+		near, err := r.B.FindNearest(bridge.FindArgs{Radius: 4, Position: &b.Position, Limit: 10})
+		if err != nil {
+			return err
+		}
+		for _, e := range near {
+			if (e.Type == "inserter" || e.Name == plan.Chest) && !mine[e.Position] {
+				if ok, _ := own(e); ok {
+					take(e, fmt.Sprintf("%s-feed-%s", role, e.Type))
+				}
 			}
 		}
 	}
@@ -1169,8 +1229,9 @@ func (r *Runner) waitOutpost(ctx context.Context, o *plan.Owned, ore, item strin
 func (r *Runner) round(ctx context.Context, p *plan.Primitive) error {
 	h := r.H
 	type stop struct {
-		e bridge.Entity
-		n int
+		e    bridge.Entity
+		n    int
+		full bool
 	}
 	var left []stop
 	for i, role := range p.Roles {
@@ -1178,11 +1239,14 @@ func (r *Runner) round(ctx context.Context, p *plan.Primitive) error {
 		if err != nil {
 			continue
 		}
-		n := 0
+		n, full := 0, false
 		if i < len(p.Ns) {
 			n = p.Ns[i]
 		}
-		left = append(left, stop{e, n})
+		if i < len(p.Full) {
+			full = p.Full[i]
+		}
+		left = append(left, stop{e, n, full})
 	}
 	done := 0
 	var last error
@@ -1199,9 +1263,12 @@ func (r *Runner) round(ctx context.Context, p *plan.Primitive) error {
 		}
 		st := left[bi]
 		left = append(left[:bi], left[bi+1:]...)
-		if p.Kind == "collect" {
+		switch {
+		case p.Kind == "collect":
 			_, err = h.Take(ctx, st.e)
-		} else {
+		case st.full:
+			_, err = h.InsertAll(ctx, st.e, p.Item)
+		default:
 			err = h.Insert(ctx, st.e, p.Item, st.n)
 		}
 		if ctx.Err() != nil {
@@ -1229,4 +1296,30 @@ func (r *Runner) isOwned(pos bridge.Pos) bool {
 		}
 	}
 	return false
+}
+
+// watch — сверить ожидание с реальностью (plan.Diagnose): новые проблемы и ушедшие — в
+// журнал и консоль; true — есть что чинить (цель Repair первой).
+func (r *Runner) watch(s *plan.State) bool {
+	if r.problems == nil {
+		r.problems = map[string]string{}
+	}
+	seen := map[string]bool{}
+	fix := false
+	for _, p := range plan.Diagnose(s) {
+		seen[p.Key] = true
+		if r.problems[p.Key] != p.String() {
+			r.problems[p.Key] = p.String()
+			r.journal("проблема: %s", p)
+			r.H.Say("проблема: %s", p)
+		}
+		fix = fix || p.Fix != nil && !p.Fix.Satisfied(s)
+	}
+	for k, what := range r.problems {
+		if !seen[k] {
+			delete(r.problems, k)
+			r.journal("исправлено: %s", what)
+		}
+	}
+	return fix
 }

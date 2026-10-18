@@ -67,9 +67,8 @@ func pathLen(from bridge.Pos, pts []bridge.Pos) float64 {
 }
 
 // Улитка из печей вокруг себя, затем выход из лабиринта.
-// Комплексный (~1 мин): только с COMPLEX=1.
-func TestStage3_SnailMaze(t *testing.T) {
-	scenario(t)
+// Прочий сценарий (SET=extra).
+func TestExtra_SnailMaze(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 10*time.Minute)
 	blocks := snailBlocks()
@@ -126,7 +125,7 @@ func boxGap(a, b bridge.Box) float64 {
 }
 
 // Печь как можно ближе к дереву, срубить дерево — печь цела.
-func TestStage3_FurnaceHugsTree(t *testing.T) {
+func TestBase_FurnaceHugsTree(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
 	have(t, h, "stone-furnace", 1)
@@ -189,7 +188,7 @@ func TestStage3_FurnaceHugsTree(t *testing.T) {
 }
 
 // Бур 2×2 ровно на одной клетке руды (остальные три — пустая суша), повёрнут на восток; подобрать.
-func TestStage3_DrillOneOreTile(t *testing.T) {
+func TestBase_DrillOneOreTile(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
 	have(t, h, "burner-mining-drill", 1)
@@ -253,13 +252,12 @@ func TestStage3_DrillOneOreTile(t *testing.T) {
 	clean(t, h)
 }
 
-// 10 разных предметов на земле вокруг себя, затем сбор в заданном порядке
+// 4 разных предмета на земле вокруг себя (просьба пользователя: для скорости), затем сбор в заданном порядке
 // (обратном алфавитному): каждый раз поднимается ровно нужный, остальные лежат.
-func TestStage3_DropAndCollectInOrder(t *testing.T) {
+func TestBase_DropAndCollectInOrder(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 8*time.Minute)
-	items := []string{"stone", "coal", "wood", "iron-ore", "iron-plate", "stone-furnace",
-		"burner-mining-drill", "wooden-chest", "iron-gear-wheel", "copper-ore"}
+	items := []string{"stone", "coal", "wood", "iron-plate"}
 	// всё нужное достаёт планировщик: добудет, скрафтит, переплавит, при нужде разведает
 	var goals []exec.GoalSpec
 	for _, it := range items {
@@ -340,7 +338,7 @@ func TestStage3_DropAndCollectInOrder(t *testing.T) {
 
 // Выход из ловушки: персонажа обступили кольцом из 8 сундуков — идти наружу: поднять
 // сундук, выйти, поставить назад; все сундуки на месте.
-func TestStage3_Unstuck(t *testing.T) {
+func TestBase_Unstuck(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 5*time.Minute)
 	have(t, h, "wooden-chest", 8)

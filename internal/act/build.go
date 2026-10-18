@@ -413,6 +413,17 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err != nil {
 		return err
 	}
+	if n >= held(p0, item) {
+		// положить всё — Ctrl+клик: кладётся максимум возможного одним действием
+		got, err := h.InsertAll(ctx, e, item)
+		if err != nil {
+			return err
+		}
+		if got < n {
+			return fmt.Errorf("act: в %s положено %s ×%d из %d (полон?)", e.Name, item, got, n)
+		}
+		return nil
+	}
 	if held(p0, item) < n {
 		return fmt.Errorf("act: %s есть %d, нужно %d", item, held(p0, item), n)
 	}

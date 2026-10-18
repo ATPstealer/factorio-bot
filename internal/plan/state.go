@@ -60,6 +60,8 @@ type State struct {
 	Minable func(item string) bool
 	// Researching — что исследуется сейчас и стоит в очереди
 	Researching map[string]bool
+	// ResearchStalled — сколько секунд исследование не продвигается (0 — идёт или нет его)
+	ResearchStalled int
 	// Design — раскладка под задачу (kind: "research" — станция + лаборатории + столбы);
 	// одна и та же между циклами (роли построек стабильны). nil — не умеем (симуляция).
 	Design func(s *State, kind string) (Built, bool)
@@ -179,8 +181,10 @@ type Primitive struct {
 	Dir   int          `json:"dir,omitempty"`
 	Spots []bridge.Pos `json:"spots,omitempty"`
 	Roles []string     `json:"roles,omitempty"`
-	// refuel: сколько угля в каждую из Roles
-	Ns []int `json:"ns,omitempty"`
+	// refuel: сколько угля в каждую из Roles; Full — доливать до предела (Ctrl+клик:
+	// кладётся максимум, ограничит вместимость)
+	Ns   []int  `json:"ns,omitempty"`
+	Full []bool `json:"full,omitempty"`
 	// Area — вся площадь раскладки: персонажу не стоять внутри при стройке (замурует себя)
 	Area *bridge.Box `json:"area,omitempty"`
 	Why  []string    `json:"why"` // цепочка целей сверху вниз

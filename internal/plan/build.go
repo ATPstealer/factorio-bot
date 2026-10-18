@@ -348,3 +348,28 @@ func ahead(d int, dx, dy float64) bool {
 }
 
 func dist(a, b bridge.Pos) float64 { return math.Hypot(a.X-b.X, a.Y-b.Y) }
+
+// Site — раскладка задачи kind (State.Design: "research" — станция и лаборатории,
+// "science" — фабрика красной науки) построена и заправлена.
+type Site struct{ Kind string }
+
+func (g Site) Key() string    { return "site:" + g.Kind }
+func (g Site) String() string { return "построить " + g.Kind }
+func (g Site) Satisfied(s *State) bool {
+	if s.Design == nil {
+		return false
+	}
+	b, ok := s.Design(s, g.Kind)
+	return ok && b.Satisfied(s)
+}
+
+func (g Site) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	if s.Design == nil {
+		return nil, fmt.Errorf("plan: %s: негде проектировать", g.Kind)
+	}
+	b, ok := s.Design(s, g.Kind)
+	if !ok {
+		return nil, fmt.Errorf("plan: %s: нет места", g.Kind)
+	}
+	return sub(pl, s, c, b)
+}

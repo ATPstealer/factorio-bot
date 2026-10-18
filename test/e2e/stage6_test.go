@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestStage6_Layout(t *testing.T) {
+func TestBase_Layout(t *testing.T) {
 	bin := path("bin", "bot")
 	if _, err := os.Stat(bin); err != nil {
 		t.Skip("нет bin/bot")

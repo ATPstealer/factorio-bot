@@ -169,6 +169,7 @@ type Player struct {
 	Selected          *Entity        `json:"selected"`
 	OpenedGUIType     *int           `json:"opened_gui_type"`
 	OpenedGUI         string         `json:"opened_gui"`
+	AltMode           bool           `json:"alt_mode"`    // Alt: значки содержимого на постройках
 	RenderMode        string         `json:"render_mode"` // "game"; "chart"/"chart_zoomed_in" — открыта карта // "controller" — инвентарь, "entity" — окно сущности
 	Opened            *Entity        `json:"opened"`
 	Cursor            *Stack         `json:"cursor"`

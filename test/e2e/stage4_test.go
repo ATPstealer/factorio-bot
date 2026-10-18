@@ -19,7 +19,7 @@ import (
 
 // Снимок internal/knowledge/testdata/prototypes.json — тот же, что в игре: юнит-тесты
 // калькулятора проверяют настоящие данные.
-func TestStage4_SnapshotMatchesGame(t *testing.T) {
+func TestBase_SnapshotMatchesGame(t *testing.T) {
 	live := protosT(t)
 	snap, err := knowledge.Load(path("internal", "knowledge", "testdata", "prototypes.json"))
 	if err != nil {
@@ -47,7 +47,7 @@ func TestStage4_SnapshotMatchesGame(t *testing.T) {
 }
 
 // Доступные рецепты, посчитанные по изученным техам, совпадают с открытыми в игре.
-func TestStage4_AvailabilityMatchesForce(t *testing.T) {
+func TestBase_AvailabilityMatchesForce(t *testing.T) {
 	p := protosT(t)
 	f, err := bridgeT(t).Force()
 	if err != nil {
@@ -74,7 +74,7 @@ func TestStage4_AvailabilityMatchesForce(t *testing.T) {
 }
 
 // Критерий стадии: ракетная часть 1/мин на живом справочнике и через CLI.
-func TestStage4_RocketPartPlan(t *testing.T) {
+func TestBase_RocketPartPlan(t *testing.T) {
 	p := protosT(t)
 	f, err := bridgeT(t).Force()
 	if err != nil {

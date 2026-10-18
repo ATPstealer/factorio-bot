@@ -205,6 +205,10 @@ func refuelRound(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		return sub(pl, s, c, HaveItem{"coal", need})
 	}
 	spreadExtra(p.Ns, caps, s.Inventory["coal"]-need)
+	for i, r := range p.Roles {
+		// топливо до полного слота — Ctrl+клик (сундуки — отмеренно: туда влезет весь уголь)
+		p.Full = append(p.Full, p.Ns[i] >= caps[i] && s.Role(r).Name != Chest)
+	}
 	return p, nil
 }
 

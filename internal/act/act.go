@@ -36,6 +36,8 @@ type Hands struct {
 	DebugDir string
 	// Console — дублировать Say в консоль игры (видно в окне клиента).
 	Console bool
+
+	altChecked bool // Alt-режим проверен и включён
 }
 
 // Say — что бот собирается сделать: в лог и (Console) в консоль игры с префиксом [bot].
@@ -584,9 +586,17 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 	if err := sleep(ctx, 300*time.Millisecond); err != nil {
 		return err
 	}
-	if err = h.hoverOnce(ctx, e); errors.Is(err, ErrHover) {
-		h.debugShot("hover-" + e.Name)
+	if err = h.hoverOnce(ctx, e); !errors.Is(err, ErrHover) {
+		return err
 	}
+	// у края экрана объект могут закрывать панели интерфейса — подойти (камера следует
+	// за персонажем, объект окажется ближе к середине) и навести снова
+	if werr := h.WalkNear(ctx, e, 1.5); werr == nil || errors.Is(werr, ErrNotReached) {
+		if err = h.hoverOnce(ctx, e); !errors.Is(err, ErrHover) {
+			return err
+		}
+	}
+	h.debugShot("hover-" + e.Name)
 	return err
 }
 

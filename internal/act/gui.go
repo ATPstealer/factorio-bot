@@ -41,6 +41,9 @@ type Layout struct {
 	TechFirst   point // первая технология в списке (после поиска)
 	RecipeFirst point // первый рецепт в окне выбора рецепта сборщика (после поиска)
 	TechStart   point // кнопка «Start research» карточки выбранной технологии
+	// AltButton — кнопка ALT на панели быстрого доступа: оранжевая — Alt-режим включён
+	AltButton point
+	AltOn     color.RGBA
 }
 
 var Layout1856 = Layout{
@@ -58,6 +61,8 @@ var Layout1856 = Layout{
 	TechFirst:   point{51, 535},
 	RecipeFirst: point{747, 449},
 	TechStart:   point{477, 422},
+	AltButton:   point{1160, 948},
+	AltOn:       color.RGBA{229, 181, 96, 255},
 }
 
 var quickbarKeys = [10]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}
@@ -97,6 +102,16 @@ func near(a, b color.RGBA) bool {
 		return int(y - x)
 	}
 	return d(a.R, b.R) < 12 && d(a.G, b.G) < 12 && d(a.B, b.B) < 12
+}
+
+// altOn — включён ли Alt-режим: кнопка ALT на панели оранжевая.
+func (h *Hands) altOn() (bool, error) {
+	p := h.Layout.AltButton
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + p.X, Y: h.Win.Y + p.Y, W: 1, H: 1})
+	if err != nil {
+		return false, err
+	}
+	return near(img.RGBAAt(0, 0), h.Layout.AltOn), nil
 }
 
 // MenuOpen — открыто ли меню игры (по пикселям кнопки Resume).
@@ -167,6 +182,29 @@ func (h *Hands) guard(ctx context.Context) error {
 		if i == 3 {
 			return errors.New("act: карта не закрывается")
 		}
+	}
+	// Alt-режим (просьба пользователя): на постройках видно, что в них и что делается.
+	// Включён ли — по кнопке ALT на экране (как видит игрок): значение из мода после
+	// перезапуска сервера может не совпадать с клиентом, и нажатие выключило бы режим
+	if p, err := h.B.Player(); err == nil && p.ControllerName == "character" && !h.altChecked {
+		on, err := h.altOn()
+		if err != nil {
+			return err
+		}
+		if !on {
+			h.Say("включаю Alt-режим (содержимое построек)")
+			if err := h.Focus(); err != nil {
+				return err
+			}
+			if err := h.In.Tap("alt"); err != nil {
+				return err
+			}
+			if err := sleep(ctx, 2*inputLatency); err != nil {
+				return err
+			}
+			on, _ = h.altOn()
+		}
+		h.altChecked = on
 	}
 	open, err := h.MenuOpen()
 	if err != nil || !open {

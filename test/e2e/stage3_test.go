@@ -30,7 +30,7 @@ func clean(t *testing.T, h *act.Hands) {
 	}
 }
 
-func TestStage3_Craft(t *testing.T) {
+func TestBase_Craft(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "wood", 2)
 	p0, _ := h.B.Player()
@@ -48,7 +48,7 @@ func TestStage3_Craft(t *testing.T) {
 }
 
 // Путь A* в обход озера: точки по разные стороны воды.
-func TestStage3_PathAroundLake(t *testing.T) {
+func TestBase_PathAroundLake(t *testing.T) {
 	h := handsT(t)
 	w := h.World
 	// самый большой водоём открытой карты
@@ -93,8 +93,7 @@ func TestStage3_PathAroundLake(t *testing.T) {
 }
 
 // Критерий стадии: добыть камень → скрафтить печь → поставить → уголь и руда → забрать пластины.
-func TestStage3_FurnaceScenario(t *testing.T) {
-	scenario(t)
+func TestExtra_FurnaceScenario(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "stone", 5)
 	have(t, h, "coal", 3)
@@ -223,7 +222,7 @@ func walkTarget(t *testing.T, h *act.Hands) bridge.Pos {
 }
 
 // Защиты: меню игры и карта (мод/ввод не доходят до мира) — бот сам их закрывает.
-func TestStage3_Guards(t *testing.T) {
+func TestBase_Guards(t *testing.T) {
 	t.Run("menu", checkMenuGuard)
 	t.Run("map", checkMapGuard)
 }

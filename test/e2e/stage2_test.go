@@ -35,7 +35,7 @@ func worldT(t *testing.T) *world.World {
 }
 
 // Модель совпадает с игрой: запасы руды по видам, вода, деревья — на всей открытой карте.
-func TestStage2_WorldMatchesGame(t *testing.T) {
+func TestBase_WorldMatchesGame(t *testing.T) {
 	w := worldT(t)
 	type counts struct {
 		Ore   map[string]int

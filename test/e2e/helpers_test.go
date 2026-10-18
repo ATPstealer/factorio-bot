@@ -154,12 +154,3 @@ func ini(t *testing.T, file string) map[string]string {
 	}
 	return m
 }
-
-// scenario — комплексный тест (сценарий из многих способностей, минуты–часы): только с
-// E2E_COMPLEX=1 (scripts/test.sh: COMPLEX=1). Обычный прогон — тесты отдельных функций.
-func scenario(t *testing.T) {
-	t.Helper()
-	if os.Getenv("E2E_COMPLEX") == "" {
-		t.Skip("комплексный тест: COMPLEX=1 scripts/test.sh")
-	}
-}
