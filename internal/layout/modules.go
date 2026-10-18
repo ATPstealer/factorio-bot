@@ -3,6 +3,7 @@ package layout
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"factorio-bot/internal/world"
 )
@@ -110,93 +111,89 @@ func (l *Layout) RedScience(lt world.Tile, n int, asm, inserter, tag string) Mod
 	return m
 }
 
-// SteamPower — паровая станция у воды: кромка (суша, рядом вода с любой стороны), помпа,
-// за ней бойлер и двигатели в линию от воды. Трубные соединения в 2.0 проверит стройка
-// (стадия 7); здесь — место и габариты.
+// SteamPower — паровая станция у воды: помпа на кромке (суша, вода рядом с любой стороны),
+// бойлер стыкуется водяным входом с помпой, двигатели цепочкой от паровыхода бойлера —
+// по трубным соединениям прототипов.
 func (l *Layout) SteamPower(near world.Tile, engines int, tag string) (Module, error) {
 	if l.W == nil {
 		return Module{}, fmt.Errorf("layout: станции нужна карта")
 	}
 	type cand struct {
-		t   world.Tile
-		d   int // откуда вода
-		pls []Placement
+		t world.Tile
+		d float64
 	}
-	var best *cand
-	bestD := math.Inf(1)
+	var cands []cand
 	r := 150
 	for dy := -r; dy <= r; dy++ {
 		for dx := -r; dx <= r; dx++ {
-			d0 := math.Hypot(float64(dx), float64(dy))
-			if d0 >= bestD {
-				continue
-			}
 			t := world.Tile{X: near.X + dx, Y: near.Y + dy}
-			if l.W.TileAt(t) != world.Land {
-				continue
-			}
-			for _, wd := range []int{N, E, S, W} {
-				if l.W.TileAt(Step(t, wd)) != world.Water {
-					continue
-				}
-				// линия от воды: помпа на t, затем бойлер и двигатели (повёрнуты к воде)
-				away := (wd + 8) % 16
-				pls := []Placement{{Name: "offshore-pump", Pos: t.Center(), Dir: wd, Tag: tag}}
-				cur := Step(t, away) // первый тайл после помпы
-				ok := true
-				for i, name := range append([]string{"boiler"}, repeat("steam-engine", engines)...) {
-					_ = i
-					w, h := Size(l.P, name, wd)
-					// прямоугольник w×h, примыкающий к cur со стороны «от воды», по центру линии
-					var lt world.Tile
-					switch away {
-					case S:
-						lt = world.Tile{X: cur.X - w/2, Y: cur.Y}
-					case N:
-						lt = world.Tile{X: cur.X - w/2, Y: cur.Y - h + 1}
-					case E:
-						lt = world.Tile{X: cur.X, Y: cur.Y - h/2}
-					case W:
-						lt = world.Tile{X: cur.X - w + 1, Y: cur.Y - h/2}
-					}
-					p := Placement{Name: name, Pos: CenterAt(l.P, name, wd, lt), Dir: wd, Tag: tag}
-					if !l.CanPlace(p, OffOre) {
-						ok = false
-						break
-					}
-					pls = append(pls, p)
-					// следующий — за этим прямоугольником
-					switch away {
-					case S:
-						cur = world.Tile{X: cur.X, Y: lt.Y + h}
-					case N:
-						cur = world.Tile{X: cur.X, Y: lt.Y - 1}
-					case E:
-						cur = world.Tile{X: lt.X + w, Y: cur.Y}
-					case W:
-						cur = world.Tile{X: lt.X - 1, Y: cur.Y}
-					}
-				}
-				if ok {
-					best, bestD = &cand{t, wd, pls}, d0
-					break
-				}
+			if l.W.TileAt(t) == world.Land {
+				cands = append(cands, cand{t, math.Hypot(float64(dx), float64(dy))})
 			}
 		}
 	}
-	if best == nil {
-		return Module{}, fmt.Errorf("layout: нет кромки воды под станцию в %d тайлах", r)
+	sort.Slice(cands, func(a, b int) bool { return cands[a].d < cands[b].d })
+	for _, c := range cands {
+		for _, wd := range []int{N, E, S, W} {
+			// 2.0: перед помпой (со стороны воды) — полоса воды в 3 тайла
+			front := Step(c.t, wd)
+			side := (wd + 4) % 16
+			if l.W.TileAt(front) != world.Water || l.W.TileAt(Step(front, side)) != world.Water ||
+				l.W.TileAt(Step(front, (side+8)%16)) != world.Water {
+				continue
+			}
+			mark := l.Mark()
+			if l.steamChain(Placement{Name: "offshore-pump", Pos: c.t.Center(), Dir: wd, Tag: tag}, engines) {
+				return Module{Name: "паровая станция", LT: c.t, RB: c.t, Electric: true}, nil
+			}
+			l.Rollback(mark)
+		}
 	}
-	for _, p := range best.pls {
-		l.Add(p)
-	}
-	return Module{Name: "паровая станция", LT: best.t, RB: best.t}, nil
+	return Module{}, fmt.Errorf("layout: нет кромки воды под станцию в %d тайлах", r)
 }
 
-func repeat(s string, n int) []string {
-	res := make([]string, n)
-	for i := range res {
-		res[i] = s
+// steamChain — помпа, бойлер, двигатели; ставит (Add) по очереди, false — не встало.
+func (l *Layout) steamChain(pump Placement, engines int) bool {
+	pc := Connections(l.P, pump)
+	if len(pc) == 0 || !l.CanPlace(pump, OffOre) {
+		return false
 	}
-	return res
+	l.Add(pump)
+	out := pc[0]
+	for _, b := range Attach(l.P, out, "boiler", "water", pump.Tag) {
+		if !l.CanPlace(b, OffOre) {
+			continue
+		}
+		mark := l.Mark()
+		l.Add(b)
+		var cur Conn
+		for _, cn := range Connections(l.P, b) {
+			if cn.Filter == "steam" {
+				cur = cn
+			}
+		}
+		ok := true
+		for i := 0; i < engines && ok; i++ {
+			ok = false
+			for _, e := range Attach(l.P, cur, "steam-engine", "steam", pump.Tag) {
+				if !l.CanPlace(e, OffOre) {
+					continue
+				}
+				l.Add(e)
+				for _, cn := range Connections(l.P, e) {
+					if !Joined(cn, cur) {
+						cur = cn
+						break
+					}
+				}
+				ok = true
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+		l.Rollback(mark)
+	}
+	return false
 }

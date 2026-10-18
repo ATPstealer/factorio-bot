@@ -5,6 +5,7 @@
 package e2e
 
 import (
+	"math"
 	"testing"
 
 	"factorio-bot/internal/knowledge"
@@ -69,8 +70,9 @@ func TestStage2_WorldMatchesGame(t *testing.T) {
 	for _, p := range w.Patches() {
 		ore[p.Name] += p.Amount
 	}
+	// буры точек копают и во время сравнения — допуск 0.1%
 	for name, n := range g.Ore {
-		if ore[name] != n {
+		if math.Abs(float64(ore[name]-n)) > float64(n)/1000 {
 			t.Errorf("%s: в модели %d, в игре %d", name, ore[name], n)
 		}
 	}

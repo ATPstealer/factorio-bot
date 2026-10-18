@@ -18,7 +18,11 @@ type Layout struct {
 	// Reserved — тайлы, где строить нельзя (запас под будущее, проходы)
 	Reserved map[world.Tile]bool
 	ends     map[world.Tile]bool
+	// Usable — доступна ли постройка (изучено); nil — всё. Без подземок лента только поверху.
+	Usable func(entity string) bool
 }
+
+func (l *Layout) usable(entity string) bool { return l.Usable == nil || l.Usable(entity) }
 
 func New(p *knowledge.Prototypes, w *world.World) *Layout {
 	return &Layout{P: p, W: w, occ: map[world.Tile]int{}, Clear: map[world.Tile]bool{}, Reserved: map[world.Tile]bool{}}

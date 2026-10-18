@@ -15,10 +15,16 @@ import (
 
 const statePath, botLog = "run/state.json", "run/bot.log"
 
-// parseGoals — "have ITEM N", "smelt ORE N" (линия плавки, поддерживается) подряд.
+// parseGoals — "start" (старт игры: дерево, камни, добывающие точки; поддерживается),
+// "have ITEM N", "smelt ORE N" (линия плавки, поддерживается) подряд.
 func parseGoals(args []string) []exec.GoalSpec {
 	var gs []exec.GoalSpec
 	for i := 0; i < len(args); {
+		if args[i] == "start" {
+			gs = append(gs, exec.GoalSpec{Kind: "start", Maintain: true})
+			i++
+			continue
+		}
 		if i+2 >= len(args) {
 			log.Fatalf("цель %q: нужно «have ПРЕДМЕТ N» или «smelt РУДА N»", args[i:])
 		}
@@ -29,7 +35,7 @@ func parseGoals(args []string) []exec.GoalSpec {
 			gs = append(gs, exec.GoalSpec{Kind: args[i], Item: args[i+1], N: n, Maintain: args[i] == "smelt"})
 			i += 3
 		default:
-			log.Fatalf("неизвестная цель %q: have ПРЕДМЕТ N | smelt РУДА N | keep", args[i])
+			log.Fatalf("неизвестная цель %q: start | have ПРЕДМЕТ N | smelt РУДА N | keep", args[i])
 		}
 	}
 	return gs

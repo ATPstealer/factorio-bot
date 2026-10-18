@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Новая карта и запуск игры в фоне: остановить текущую, создать карту (SEED=… или случайную),
 # поднять сервер + Xephyr + клиент и дождаться, пока клиент зайдёт.
-#   scripts/newmap.sh          — случайная карта
-#   SEED=123 scripts/newmap.sh — конкретная
+#   scripts/newmap.sh            — случайная карта
+#   SEED=123 scripts/newmap.sh   — конкретная
+#   NEW_MAP=0 scripts/newmap.sh  — перезапуск на той же карте (например, после правки мода)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 scripts/stop.sh
-NEW_MAP=1 setsid nohup scripts/run.sh > run/run.log 2>&1 < /dev/null &
+NEW_MAP=${NEW_MAP:-1} setsid nohup scripts/run.sh > run/run.log 2>&1 < /dev/null &
 for i in $(seq 240); do
   # клиент зашёл и у игрока есть персонаж (на новой карте сначала идёт заставка крушения)
   st=$(scripts/rcon.py '/sc local p=game.connected_players[1] rcon.print(not p and "none" or p.character and "ok" or p.controller_type == defines.controllers.cutscene and "cutscene" or "wait")' 2>/dev/null || true)
@@ -16,6 +17,7 @@ for i in $(seq 240); do
   fi
   if [[ "$st" == "ok" ]]; then
     sleep 2
+    find mod/botbridge -type f | sort | xargs cat | md5sum > run/mod.hash
     echo "карта готова: $(cat run/map.json)"
     exit 0
   fi

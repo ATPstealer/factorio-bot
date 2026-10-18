@@ -136,3 +136,49 @@ func (pl Placement) String() string {
 	}
 	return s
 }
+
+// Conn — трубное соединение размещения: At — свой крайний тайл, To — тайл соседа.
+type Conn struct {
+	At, To world.Tile
+	Dir    int
+	Filter string
+	Flow   string
+}
+
+// Connections — трубные соединения размещения с учётом поворота.
+func Connections(p *knowledge.Prototypes, pl Placement) []Conn {
+	var res []Conn
+	for _, pc := range p.Entities[pl.Name].PipeConnections {
+		x, y := Rotate(pc.X, pc.Y, pl.Dir)
+		at := world.TileOf(bridge.Pos{X: pl.Pos.X + x, Y: pl.Pos.Y + y})
+		d := (pc.Direction + pl.Dir) % 16
+		res = append(res, Conn{At: at, To: Step(at, d), Dir: d, Filter: pc.Filter, Flow: pc.Flow})
+	}
+	return res
+}
+
+// Joined — соединения смотрят друг на друга.
+func Joined(a, b Conn) bool { return a.To == b.At && b.To == a.At }
+
+// Attach — размещения name (все направления), у которых есть соединение c жидкостью fluid
+// (пусто — любой), стыкующееся с from.
+func Attach(p *knowledge.Prototypes, from Conn, name, fluid, tag string) []Placement {
+	var res []Placement
+	for _, d := range []int{N, E, S, W} {
+		for _, pc := range p.Entities[name].PipeConnections {
+			if fluid != "" && pc.Filter != "" && pc.Filter != fluid {
+				continue
+			}
+			x, y := Rotate(pc.X, pc.Y, d)
+			c := from.To.Center()
+			pl := Placement{Name: name, Pos: bridge.Pos{X: c.X - x, Y: c.Y - y}, Dir: d, Tag: tag}
+			for _, cn := range Connections(p, pl) {
+				if Joined(from, cn) {
+					res = append(res, pl)
+					break
+				}
+			}
+		}
+	}
+	return res
+}

@@ -211,6 +211,17 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			}
 		}
 	}
+	// 1б. уголь — и из топлива угольных пар (буры выдают друг в друга)
+	if g.Item == "coal" {
+		for _, o := range s.Owned {
+			if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" && o.In("fuel", "coal") >= min(lack, 10) {
+				p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item})
+				if !pl.banned(p.Key()) {
+					return p, nil
+				}
+			}
+		}
+	}
 	// 2. скрафтить руками
 	if r, ok := s.craftRecipe(g.Item); ok {
 		rec := s.Protos.Recipes[r]
@@ -240,6 +251,10 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		tried = append(tried, "крафт забанен")
 	}
+	// 2б. есть добывающие точки — с них (дозаправить, подождать), руками не копать
+	if p, err := g.fromOutposts(pl, s, c, lack); p != nil || err != nil {
+		return p, err
+	}
 	// 3. переплавить в своей печи
 	if _, ore, ok := s.smeltRecipe(g.Item); ok && !pl.banned("smelt:"+g.Item) {
 		role := "smelter"
@@ -247,11 +262,31 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			return p, err
 		}
 		o := s.Role(role)
-		if o.In("fuel", "coal") < 1 {
-			return sub(pl, s, c, Supplied{role, "coal", 2})
+		// в печи плавится другая руда: дождаться и забрать (руду другого сорта не положить)
+		for other, n := range o.Inv["crafter_input"] {
+			if other == ore || n == 0 {
+				continue
+			}
+			prod := s.smeltProduct(other)
+			for it, k := range o.Inv["crafter_output"] {
+				if it != prod && k > 0 { // выход занят третьим — печь стоит
+					return c.prim(Primitive{Kind: "take", Role: role, Item: it}), nil
+				}
+			}
+			return c.prim(Primitive{Kind: "wait", Role: role, Item: prod, N: n}), nil
 		}
-		if have+o.Output(g.Item) < g.N {
-			needOre := g.N - have - o.Output(g.Item)
+		// в выходе — другой результат (печь плавила другое): пока он там, новое не плавится
+		for it, n := range o.Inv["crafter_output"] {
+			if it != g.Item && n > 0 {
+				return c.prim(Primitive{Kind: "take", Role: role, Item: it}), nil
+			}
+		}
+		needOre := max(g.N-have-o.Output(g.Item), 0)
+		// угля — на весь заказ (≈1 на 10 пластин), чтобы печь не встала посреди ожидания
+		if fuel := max(2, needOre/10+1); o.In("fuel", "coal") < 1 || (needOre > 0 && o.In("fuel", "coal") < fuel/2) {
+			return sub(pl, s, c, Supplied{role, "coal", fuel})
+		}
+		if needOre > 0 {
 			if o.In("crafter_input", ore) < needOre {
 				return sub(pl, s, c, Supplied{role, ore, needOre})
 			}
@@ -281,6 +316,10 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			return p, nil
 		}
 		tried = append(tried, "разведка ничего не дала")
+	}
+	// 6. рецепт не изучен — изучить
+	if t := s.lockedBy(g.Item); t != "" {
+		return sub(pl, s, c, Researched{t})
 	}
 	return nil, fmt.Errorf("plan: не получить %s ×%d: нет способа %v", g.Item, lack, tried)
 }

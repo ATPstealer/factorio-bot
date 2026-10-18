@@ -17,7 +17,7 @@ if [[ ! -f $SAVE || ${NEW_MAP:-0} == 1 ]]; then
   "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \
     --create "$SAVE" --map-gen-settings "$ROOT/scripts/map-gen-settings.json" --map-gen-seed "$SEED"
   printf '{"seed": %s, "created": "%s"}\n' "$SEED" "$(date -Is)" > "$R/map.json"
-  rm -f "$R/state.json"
+  rm -f "$R"/state*.json
   echo "новая карта: сид $SEED"
 fi
 

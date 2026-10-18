@@ -109,7 +109,12 @@ return function(methods)
       if r.enabled then recipes[#recipes + 1] = name end
     end
     table.sort(recipes)
+    -- сколько произведено (окно производства игрока): для trigger-технологий «скрафтить N»
+    local produced = util.try(function()
+      return f.get_item_production_statistics(util.bot_player().surface).input_counts
+    end)
     return {
+      produced = util.nonempty(produced),
       researched = researched,
       current = f.current_research and f.current_research.name or nil,
       progress = f.research_progress,

@@ -34,6 +34,12 @@ type Layout struct {
 	// Focus — куда ставить курсор перед клавишами: в окне, но не над меню/окнами
 	// (центр окна — кнопка «Save game» меню игры).
 	Focus point
+	// Окно технологий (T) мод не видит (opened_gui_type 0) — узнаём по пикселям: кнопка
+	// закрытия и тёмный заголовок «Research queue».
+	TechProbe  []point
+	TechColors []color.RGBA
+	TechFirst  point // первая технология в списке (после поиска)
+	TechStart  point // кнопка «Start research» карточки выбранной технологии
 }
 
 var Layout1856 = Layout{
@@ -46,6 +52,10 @@ var Layout1856 = Layout{
 	MenuProbe:  []point{{880, 413}, {927, 400}},
 	MenuColors: []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
 	Focus:      point{60, 300},
+	TechProbe:  []point{{1831, 20}, {270, 22}},
+	TechColors: []color.RGBA{{226, 226, 226, 255}, {49, 48, 49, 255}},
+	TechFirst:  point{51, 535},
+	TechStart:  point{477, 422},
 }
 
 var quickbarKeys = [10]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}
@@ -601,4 +611,121 @@ func (h *Hands) CraftWait(ctx context.Context, recipe string, n int) error {
 		}
 	}
 	return fmt.Errorf("act: крафт %s ×%d не закончился за %v", recipe, n, wait)
+}
+
+// techOpen — открыто ли окно технологий (по пикселям).
+func (h *Hands) techOpen() (bool, error) {
+	for i, p := range h.Layout.TechProbe {
+		img, err := h.In.Screenshot(input.Rect{X: h.Win.X + p.X, Y: h.Win.Y + p.Y, W: 1, H: 1})
+		if err != nil {
+			return false, err
+		}
+		if !near(img.RGBAAt(0, 0), h.Layout.TechColors[i]) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// researching — tech исследуется или стоит в очереди.
+func (h *Hands) researching(tech string) (bool, error) {
+	f, err := h.B.Force()
+	if err != nil {
+		return false, err
+	}
+	if f.Current == tech {
+		return true, nil
+	}
+	for _, q := range f.Queue {
+		if q == tech {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// StartResearch — запустить исследование tech через окно технологий: T → поиск по
+// названию → первая в списке (доступные идут первыми) → «Start research» → Esc.
+// Подтверждение — tech в текущем исследовании или в очереди (мод).
+func (h *Hands) StartResearch(ctx context.Context, tech string) error {
+	if ok, err := h.researching(tech); err != nil || ok {
+		return err
+	}
+	h.Say("запускаю исследование %s", tech)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.Focus(); err != nil {
+		return err
+	}
+	if err := h.In.Tap("t"); err != nil {
+		return err
+	}
+	defer h.closeTech(ctx)
+	open := false
+	for i := 0; i < 10 && !open; i++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		var err error
+		if open, err = h.techOpen(); err != nil {
+			return err
+		}
+	}
+	if !open {
+		h.debugShot("tech-open")
+		return fmt.Errorf("act: окно технологий не открылось")
+	}
+	// поиск: буквы печатать только при открытом окне (иначе уйдут в игру хоткеями)
+	if err := h.In.Tap("f", "ctrl"); err != nil {
+		return err
+	}
+	if err := sleep(ctx, inputLatency); err != nil {
+		return err
+	}
+	if ok, err := h.techOpen(); err != nil || !ok {
+		return fmt.Errorf("act: окно технологий закрылось (%v)", err)
+	}
+	if err := h.In.Tap("a", "ctrl"); err != nil {
+		return err
+	}
+	if err := h.In.Type(SearchText(tech)); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 400*time.Millisecond); err != nil {
+		return err
+	}
+	for _, p := range []point{h.Layout.TechFirst, h.Layout.TechStart} {
+		if err := h.at(p); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 300*time.Millisecond); err != nil {
+			return err
+		}
+		if err := h.In.Click(input.Left); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < 10; i++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if ok, err := h.researching(tech); err != nil || ok {
+			return err
+		}
+	}
+	h.debugShot("research-" + tech)
+	return fmt.Errorf("act: исследование %s не запустилось", tech)
+}
+
+// closeTech — закрыть окно технологий Esc (лишний Esc откроет меню — guard закроет).
+func (h *Hands) closeTech(ctx context.Context) {
+	for i := 0; i < 3; i++ {
+		if ok, _ := h.techOpen(); !ok {
+			break
+		}
+		h.In.Tap("escape")
+		sleep(ctx, 2*inputLatency)
+	}
+	h.guard(ctx)
 }

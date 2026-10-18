@@ -75,6 +75,27 @@ end
 local NATURAL = { resource = true, tree = true, ["simple-entity"] = true, ["simple-entity-with-owner"] = true,
   fish = true, cliff = true, character = true }
 
+-- трубные соединения: для каждого — куда смотрит (при «север»), тайл соседа, с которым
+-- соединяется (смещение от центра при «север»), вход/выход, жидкость-фильтр
+local function pipe_connections(e)
+  local res = {}
+  for _, fb in pairs(e.fluidbox_prototypes or {}) do
+    for _, pc in pairs(fb.pipe_connections or {}) do
+      local pos = pc.positions and pc.positions[1]
+      if pos and (pc.connection_type or "normal") == "normal" then
+        res[#res + 1] = {
+          x = pos.x or pos[1], y = pos.y or pos[2],
+          direction = pc.direction,
+          flow = pc.flow_direction,
+          production = fb.production_type,
+          filter = fb.filter and fb.filter.name or nil,
+        }
+      end
+    end
+  end
+  return res
+end
+
 function dump.entities()
   local res = {}
   for name, e in pairs(prototypes.entity) do
@@ -132,6 +153,7 @@ function dump.entities()
         vector_to_place_result = g("vector_to_place_result"),
         inserter_pickup_position = g("inserter_pickup_position"),
         inserter_drop_position = g("inserter_drop_position"),
+        pipe_connections = util.nonempty(try(function() return pipe_connections(e) end)),
       }
     end
   end

@@ -205,6 +205,7 @@ function methods.get_entity(a)
     r.recipe = rec and rec.name or nil
     r.crafting_progress = e.crafting_progress
   end
+  r.network = util.try(function() return e.electric_network_id end)
   if e.burner then
     local cb = e.burner.currently_burning
     -- 2.0: {name = прототип предмета, quality}

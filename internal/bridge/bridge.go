@@ -300,6 +300,8 @@ type Force struct {
 	Progress   float64      `json:"progress"`
 	Queue      List[string] `json:"queue"`
 	Recipes    List[string] `json:"recipes"`
+	// произведено предметов за игру (статистика производства)
+	Produced map[string]float64 `json:"produced,omitempty"`
 }
 
 func (b *Bridge) Force() (Force, error) {
@@ -322,6 +324,7 @@ type EntityState struct {
 	CraftingProgress float64                   `json:"crafting_progress"`
 	Burning          string                    `json:"burning"`
 	RemainingFuel    float64                   `json:"remaining_fuel"`
+	Network          int                       `json:"network,omitempty"` // электросеть (0 — нет)
 }
 
 // Count — сколько предмета во всех инвентарях сущности.

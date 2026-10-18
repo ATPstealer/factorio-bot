@@ -138,7 +138,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 				}
 			}
 			// подземка: вход на cur.T (смотрит d), выход через k тайлов
-			if d != cur.s.D {
+			if d != cur.s.D || !l.usable(ug) {
 				continue // вход подземки — без поворота
 			}
 			for k := 2; k <= maxUG; k++ { // выход не дальше дальности прототипа

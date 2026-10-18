@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -8,6 +9,8 @@ import (
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 var (
@@ -329,4 +332,156 @@ func TestLineAlwaysDrillsFuelAndOre(t *testing.T) {
 	if strings.Contains(got, "как mine-stone-1") {
 		t.Errorf("камня хватает, а бур на камень ставится: %s", got)
 	}
+}
+
+// Раскладка с пустого инвентаря: материалы → постройка слоями (печи → инсертеры → ленты),
+// подземки — парами «вход, выход».
+func TestBuildLayout(t *testing.T) {
+	s := newState(t)
+	s.Inventory["underground-belt"] = 2 // до logistics не скрафтить
+	l := layout.New(s.Protos, nil)
+	l.SmeltingColumn(world.Tile{X: 10, Y: 10}, 2, "stone-furnace", "burner-inserter", "smelt")
+	l.Add(layout.Placement{Name: "underground-belt", Pos: bridge.Pos{X: 30.5, Y: 0.5}, Dir: layout.E, Recipe: "output"})
+	l.Add(layout.Placement{Name: "underground-belt", Pos: bridge.Pos{X: 26.5, Y: 0.5}, Dir: layout.E, Recipe: "input"})
+	g := Built{Tag: "col", List: l.List}
+	end, steps := run(t, s, g)
+	var order []string
+	for _, p := range steps {
+		if p.Kind == "build" {
+			order = append(order, fmt.Sprintf("%s×%d", p.Item, len(p.Spots)))
+			if p.Item == "underground-belt" && p.Spots[0].X != 26.5 {
+				t.Errorf("подземки не с входа: %v", p.Spots)
+			}
+		}
+	}
+	want := "stone-furnace×2 burner-inserter×4 transport-belt×8 underground-belt×2"
+	if got := strings.Join(order, " "); got != want {
+		t.Errorf("порядок стройки %q, ждали %q", got, want)
+	}
+	if len(end.Owned) < len(l.List) {
+		t.Errorf("в реестре %d из %d", len(end.Owned), len(l.List))
+	}
+}
+
+// Помпа и столб с нуля: рецепты закрыты trigger-технологиями 2.0 (steam-power — 50
+// железных пластин, electronics — 10 медных) — бот плавит до открытия и крафтит.
+func TestTriggerTechUnlocksRecipe(t *testing.T) {
+	end, steps := run(t, newState(t), HaveItem{"offshore-pump", 1}, HaveItem{"small-electric-pole", 1})
+	for _, tech := range []string{"steam-power", "electronics"} {
+		if !end.Av.Researched[tech] {
+			t.Errorf("%s не изучена", tech)
+		}
+	}
+	if end.Produced["iron-plate"] < 50 {
+		t.Errorf("железа выплавлено %v; шаги: %s", end.Produced["iron-plate"], kinds(steps))
+	}
+}
+
+// automation с нуля: trigger-технологии (пластины, лаборатория), место с лабораторией,
+// наука руками в лабораторию, запуск, ожидание.
+func TestResearchByScience(t *testing.T) {
+	s := newState(t)
+	l := layout.New(s.Protos, nil)
+	l.Add(layout.Placement{Name: "lab", Pos: bridge.Pos{X: 50.5, Y: 50.5}})
+	s.Design = func(s *State, kind string) (Built, bool) { return Built{Tag: kind, List: l.List}, true }
+	end, steps := run(t, s, Researched{"automation"})
+	k := kinds(steps)
+	for _, want := range []string{"скрафтить lab", "построить lab", "положить automation-science-pack ×10 в research-1", "запустить исследование automation", "ждать исследования automation"} {
+		if !strings.Contains(k, want) {
+			t.Errorf("нет шага %q", want)
+		}
+	}
+	if !end.Av.Recipe("assembling-machine-1") {
+		t.Error("сборщик не открыт")
+	}
+}
+
+// Заправка 6 burner-построек (30 угля): уголь бурами — немного руками в бур, остальное из
+// сундука бура; уголь для бура не уходит в постройки, руками ≤ порога.
+func TestFuelLayoutViaCoalDrill(t *testing.T) {
+	s := newState(t)
+	l := layout.New(s.Protos, nil)
+	for i := 0; i < 6; i++ {
+		l.Add(layout.Placement{Name: "stone-furnace", Pos: bridge.Pos{X: float64(10 + 3*i), Y: 10}})
+	}
+	s.Inventory["stone-furnace"] = 6
+	_, steps := run(t, s, Built{Tag: "f", List: l.List})
+	hand := 0
+	for i, p := range steps {
+		if p.Kind == "gather" && p.Item == "coal" {
+			hand += p.N
+		}
+		if p.Kind == "insert" && p.Item == "coal" && strings.HasPrefix(p.Role, "f-") && i > 0 {
+			for _, q := range steps[i:] {
+				if q.Kind == "insert" && q.Role == SiteRole("coal", 1) {
+					t.Errorf("уголь в постройки раньше, чем в бур: %s", kinds(steps))
+					return
+				}
+			}
+		}
+	}
+	if hand >= DrillThreshold {
+		t.Errorf("руками %d угля: %s", hand, kinds(steps))
+	}
+	if !strings.Contains(kinds(steps), "забрать из "+OutRole("coal", 1)) {
+		t.Errorf("не забирал из сундука бура: %s", kinds(steps))
+	}
+}
+
+// В печи медь (и железо в выходе), нужно железо: дождаться меди, забрать, потом своё.
+func TestSmelterBusyWithOtherOre(t *testing.T) {
+	s := newState(t)
+	pos := bridge.Pos{X: 1, Y: 1}
+	s.Owned = []*Owned{{Name: Furnace, Pos: pos, Role: "smelter", Inv: map[string]map[string]int{
+		"fuel": {"coal": 5}, "crafter_input": {"copper-ore": 10}, "crafter_output": {"iron-plate": 1}}}}
+	_, steps := run(t, s, HaveItem{"iron-plate", 5})
+	k := kinds(steps)
+	if !strings.HasPrefix(k, "забрать из smelter; ждать copper-plate ×10 в smelter; забрать из smelter") {
+		t.Errorf("шаги: %s", k)
+	}
+}
+
+// startDesign — раскладки точек старта для симуляции (геометрия не важна).
+func startDesign(s *State, kind string) (Built, bool) {
+	ore, ok := ModuleOre(kind)
+	if !ok {
+		return Built{}, false
+	}
+	x := float64(len(kind)*7 + int(kind[len(kind)-1])*5)
+	d := func(dx float64) layout.Placement {
+		return layout.Placement{Name: Drill, Pos: bridge.Pos{X: x + dx, Y: 50}}
+	}
+	var l []layout.Placement
+	switch ore {
+	case "coal":
+		l = []layout.Placement{d(0), d(2)}
+	case "stone":
+		l = []layout.Placement{d(0), d(2), d(4), d(6), {Name: Chest, Pos: bridge.Pos{X: x, Y: 53.5}}}
+	default:
+		l = []layout.Placement{d(0), {Name: Furnace, Pos: bridge.Pos{X: x, Y: 48}}}
+	}
+	return Built{Tag: kind, List: l}, true
+}
+
+// Старт: дерево и камни — руками, потом точки; руду руками — только на первую заправку.
+func TestStart(t *testing.T) {
+	s := newState(t)
+	s.Design = startDesign
+	end, steps := run(t, s, Start{}, HaveItem{"iron-plate", 100})
+	hand := 0
+	for _, p := range steps {
+		if p.Kind == "gather" && p.Source == "" {
+			hand += p.N
+		}
+	}
+	if hand > 80 { // первые буры — на руду и уголь, добытые руками (точек ещё нет)
+		t.Errorf("руками добыто %d: %s", hand, kinds(steps))
+	}
+	built := 0
+	for _, o := range end.Owned {
+		if _, _, ok := moduleOf(o.Role); ok {
+			built++
+		}
+	}
+	t.Logf("шагов %d, построек точек %d, руками %d", len(steps), built, hand)
 }

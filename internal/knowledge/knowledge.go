@@ -111,6 +111,19 @@ type Entity struct {
 	// инсертер при «север»: откуда берёт и куда кладёт (смещения от центра)
 	InserterPickup []float64 `json:"inserter_pickup_position,omitempty"`
 	InserterDrop   []float64 `json:"inserter_drop_position,omitempty"`
+	// трубные соединения при «север»
+	PipeConnections List[PipeConnection] `json:"pipe_connections,omitempty"`
+}
+
+// PipeConnection — соединение жидкостного ящика: крайний тайл сущности (X, Y — его центр
+// относительно центра сущности) и сторона, к которой подходит сосед.
+type PipeConnection struct {
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	Direction  int     `json:"direction"`
+	Flow       string  `json:"flow"`       // input | output | input-output
+	Production string  `json:"production"` // input | output | input-output | none
+	Filter     string  `json:"filter,omitempty"`
 }
 
 // Trigger — технология 2.0, открываемая действием (скрафтить/добыть/построить), а не наукой.
@@ -241,4 +254,22 @@ func (p *Prototypes) TechFor(recipe string) string {
 		}
 	}
 	return ""
+}
+
+// ItemFor — предмет, из которого ставится сущность (обычно одноимённый).
+func (p *Prototypes) ItemFor(entity string) string {
+	if it, ok := p.Items[entity]; ok && it.PlaceResult == entity {
+		return entity
+	}
+	names := make([]string, 0, 4)
+	for name, it := range p.Items {
+		if it.PlaceResult == entity {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return ""
+	}
+	return names[0]
 }

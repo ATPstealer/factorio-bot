@@ -194,10 +194,8 @@ func TestStage3_FurnaceHugsTree(t *testing.T) {
 func TestStage3_DrillOneOreTile(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "burner-mining-drill", 1)
 	p0, _ := h.B.Player()
-	if p0.Inventory["burner-mining-drill"] == 0 {
-		t.Skip("нет burner-mining-drill")
-	}
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
@@ -337,6 +335,47 @@ func TestStage3_DropAndCollectInOrder(t *testing.T) {
 			if g[rest] == 0 {
 				t.Errorf("подняв %s, задели %s — он пропал с земли раньше очереди", it, rest)
 			}
+		}
+	}
+	clean(t, h)
+}
+
+// Выход из ловушки: персонажа обступили кольцом из 8 сундуков — идти наружу: поднять
+// сундук, выйти, поставить назад; все сундуки на месте.
+func TestStage3_Unstuck(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 5*time.Minute)
+	have(t, h, "wooden-chest", 8)
+	c := freeArea(t, h, 7)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	var ring []bridge.Pos
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx != 0 || dy != 0 {
+				ring = append(ring, world.Tile{X: ct.X + dx, Y: ct.Y + dy}.Center())
+			}
+		}
+	}
+	if _, err := h.PlaceAll(ctx, "wooden-chest", ring, act.North); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); !h.World.Enclosed(p.Position) {
+		t.Fatalf("кольцо не замкнуто: персонаж в (%.2f, %.2f)", p.Position.X, p.Position.Y)
+	}
+	target := bridge.Pos{X: ct.Center().X + 8, Y: ct.Center().Y}
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	for _, pos := range ring {
+		if e, _ := h.B.EntityAt("wooden-chest", pos); e == nil {
+			t.Errorf("сундука в %v нет — не поставлен назад", pos)
 		}
 	}
 	clean(t, h)

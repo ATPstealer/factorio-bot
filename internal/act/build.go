@@ -44,18 +44,36 @@ func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
 const buildReach = 8.5
 
 // standNear — подойти к месту постройки: на расстояние досягаемости, но не на саму
-// площадку (персонаж мешает поставить).
+// площадку (персонаж мешает поставить). Точка — ближайшая к персонажу свободная вокруг
+// площадки (рядом могут стоять другие постройки).
 func (h *Hands) standNear(ctx context.Context, fp bridge.Box) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err
 	}
 	c := fp.Center()
-	if !inBox(p.Position, fp, 0.8) && dist(p.Position, c) < buildReach {
+	if !inBox(p.Position, fp, 0.35) && dist(p.Position, c) < buildReach { // рамка персонажа ±0.2 + задержка
 		return nil
 	}
-	// встать к югу от площадки (камера центрирована на игроке — площадка будет на экране)
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
+	if h.World != nil {
+		best := math.Inf(1)
+		for _, r := range []float64{1.5, 2.5, 4} {
+			for k := 0; k < 16; k++ {
+				a := float64(k) * math.Pi / 8
+				q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
+				if inBox(q, fp, 0.8) || !h.World.Standable(q) {
+					continue
+				}
+				if d := dist(p.Position, q); d < best {
+					best, spot = d, q
+				}
+			}
+			if !math.IsInf(best, 1) {
+				break
+			}
+		}
+	}
 	return h.WalkTo(ctx, spot, 0.5)
 }
 
@@ -98,6 +116,13 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 			return built, err
 		}
 		e, err := h.clickBuild(ctx, it.PlaceResult, pos)
+		if errors.Is(err, ErrPlace) {
+			// бывает, клик приходится на момент, когда камера ещё едет за персонажем, — ещё раз
+			if err := h.waitStill(ctx); err != nil {
+				return built, err
+			}
+			e, err = h.clickBuild(ctx, it.PlaceResult, pos)
+		}
 		if err != nil {
 			return built, err
 		}
@@ -179,27 +204,44 @@ func dirName(d int) string {
 }
 
 // Rotate поворачивает свою постройку клавишей R (по часовой, шаг 4) до направления dir.
+// После каждого нажатия ждёт, пока игра применит поворот (иначе лишнее нажатие проскочит
+// нужное направление).
 func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
 	h.Say("поворачиваю %s%s", e.Name, dirName(dir))
 	if err := h.Hover(ctx, e); err != nil {
 		return err
 	}
-	for i := 0; i < 4; i++ {
+	cur := func() (int, bool, error) {
 		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err != nil {
+			return 0, false, err
+		}
+		if st == nil {
+			return 0, false, fmt.Errorf("act: %s исчез", e.Name)
+		}
+		if st.Direction == nil {
+			return dir, true, nil
+		}
+		return *st.Direction, true, nil
+	}
+	for i := 0; i < 6; i++ {
+		d, _, err := cur()
 		if err != nil {
 			return err
 		}
-		if st == nil {
-			return fmt.Errorf("act: %s исчез", e.Name)
-		}
-		if st.Direction == nil || *st.Direction == dir {
+		if d == dir {
 			return nil
 		}
 		if err := h.In.Tap("r"); err != nil {
 			return err
 		}
-		if err := sleep(ctx, inputLatency); err != nil {
-			return err
+		for t := 0; t < 10; t++ {
+			if err := sleep(ctx, pollEvery); err != nil {
+				return err
+			}
+			if nd, _, err := cur(); err != nil || nd != d {
+				break
+			}
 		}
 	}
 	return fmt.Errorf("act: %s не повернулся в %d", e.Name, dir)
@@ -595,4 +637,33 @@ func (h *Hands) reachMine(ctx context.Context, e bridge.Entity) error {
 		}
 	}
 	return err
+}
+
+// LeaveArea — если персонаж внутри рамки a (с полем 0.5), выйти к ближайшей свободной
+// точке снаружи (в досягаемости стройки).
+func (h *Hands) LeaveArea(ctx context.Context, a bridge.Box) error {
+	p, err := h.B.Player()
+	if err != nil || !inBox(p.Position, a, 0.5) || h.World == nil {
+		return err
+	}
+	best, spot := math.Inf(1), bridge.Pos{}
+	for _, d := range []float64{1.2, 2, 3} {
+		cands := []bridge.Pos{
+			{X: a.LeftTop.X - d, Y: p.Position.Y}, {X: a.RightBottom.X + d, Y: p.Position.Y},
+			{X: p.Position.X, Y: a.LeftTop.Y - d}, {X: p.Position.X, Y: a.RightBottom.Y + d},
+		}
+		for _, q := range cands {
+			if h.World.Standable(q) && dist(p.Position, q) < best {
+				best, spot = dist(p.Position, q), q
+			}
+		}
+		if !math.IsInf(best, 1) {
+			break
+		}
+	}
+	if math.IsInf(best, 1) {
+		return nil
+	}
+	h.Say("выхожу с площадки стройки")
+	return h.WalkTo(ctx, spot, 0.5)
 }

@@ -63,9 +63,10 @@ type Chunk struct {
 	Resources map[Tile]Resource
 	Objects   []Object
 
-	blocked map[Tile]bool // лениво: тайлы под коллизиями объектов
-	hard    map[Tile]bool // из них — занятые не деревьями (деревья можно срубить)
-	solid   map[Tile]bool // занятые тем, что руками не убрать (утёсы, постройки)
+	blocked map[Tile]bool      // лениво: тайлы под коллизиями объектов
+	hard    map[Tile]bool      // из них — занятые не деревьями (деревья можно срубить)
+	solid   map[Tile]bool      // занятые тем, что руками не убрать (утёсы, постройки)
+	cells   map[Cell]*cellInfo // лениво: ячейки навигации под объектами (path.go)
 }
 
 // clearable — объект можно убрать руками перед стройкой: дерево, камень, обломок корабля.
@@ -365,4 +366,36 @@ func (w *World) Buildable(t Tile) (ok, clear bool) {
 		}
 	}
 	return true, clear
+}
+
+// Obstacles — что убрать перед стройкой на тайлах: деревья, камни, обломки, чья рамка
+// коллизии задевает хотя бы один тайл.
+func (w *World) Obstacles(tiles []Tile) []Object {
+	if len(tiles) == 0 {
+		return nil
+	}
+	set := map[Tile]bool{}
+	var c bridge.Pos
+	for _, t := range tiles {
+		set[t] = true
+		c.X += t.Center().X / float64(len(tiles))
+		c.Y += t.Center().Y / float64(len(tiles))
+	}
+	var res []Object
+	for _, o := range w.ObjectsNear(c, float64(len(tiles))+6) {
+		if !clearable(o) {
+			continue
+		}
+		b := w.CollisionBox(o)
+		hit := false
+		for y := int(math.Floor(b.LeftTop.Y)); y < int(math.Ceil(b.RightBottom.Y)) && !hit; y++ {
+			for x := int(math.Floor(b.LeftTop.X)); x < int(math.Ceil(b.RightBottom.X)) && !hit; x++ {
+				hit = set[Tile{X: x, Y: y}]
+			}
+		}
+		if hit {
+			res = append(res, o)
+		}
+	}
+	return res
 }

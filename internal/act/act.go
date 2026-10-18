@@ -114,6 +114,16 @@ func walkKeysDZ(from, to bridge.Pos, dz float64) map[string]bool {
 	return k
 }
 
+// dirKeys — клавиши ближайшего из 8 направлений на точку to.
+func dirKeys(from, to bridge.Pos) map[string]bool {
+	a := math.Atan2(to.Y-from.Y, to.X-from.X) // y вниз: π/2 — юг
+	sector := (int(math.Round(a/(math.Pi/4))) + 8) % 8
+	return [8]map[string]bool{
+		{"d": true}, {"d": true, "s": true}, {"s": true}, {"s": true, "a": true},
+		{"a": true}, {"a": true, "w": true}, {"w": true}, {"w": true, "d": true},
+	}[sector]
+}
+
 // sidestep — обход препятствия: направление, перпендикулярное основному.
 func sidestep(want map[string]bool, flip bool) map[string]bool {
 	k := map[string]bool{}
@@ -147,128 +157,61 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	if err := h.Focus(); err != nil {
 		return err
 	}
+	t0 := time.Now()
+	defer func() {
+		h.Log("ходьба до (%.1f, %.1f): всего %.1f с", target.X, target.Y, time.Since(t0).Seconds())
+	}()
 	if h.World != nil {
-		clears := 0
 		for replan := 0; ; replan++ {
 			err := h.followPath(ctx, target, stop)
-			if errors.Is(err, world.ErrNoPath) && clears < 4 {
-				// прохода нет (персонаж в «кармане» из деревьев или цель за лесом) —
-				// прорубить дорогу, как сделал бы игрок
-				n, cerr := h.clearWay(ctx, target, stop)
-				if cerr != nil {
-					return cerr
-				}
-				if n > 0 {
-					clears++
+			if errors.Is(err, world.ErrNoPath) && replan < 2 {
+				// обступили свои постройки — поднять, выйти, поставить назад
+				p, _ := h.B.Player()
+				if h.World.Enclosed(p.Position) {
+					if uerr := h.unstuck(ctx); uerr != nil {
+						return uerr
+					}
 					continue
 				}
 			}
 			if errors.Is(err, world.ErrNoPath) {
-				// цель за препятствиями: дошли до ближайшей достижимой точки — дальше
+				// цель за водой/утёсами: дошли до ближайшей достижимой точки — дальше
 				// по прямой нельзя (упрёмся), сообщаем честно
 				h.waitStill(ctx)
 				p, _ := h.B.Player()
 				return fmt.Errorf("%w до (%.1f, %.1f): пути нет, стою в (%.2f, %.2f)", ErrNotReached, target.X, target.Y, p.Position.X, p.Position.Y)
 			}
-			if err == nil || !errors.Is(err, ErrStuck) || replan >= 2 {
-				if err != nil {
-					return err
-				}
+			if err == nil {
 				break
+			}
+			if !errors.Is(err, ErrStuck) || replan >= 2 {
+				return err
 			}
 			h.Say("застрял — перестраиваю путь")
 		}
 	}
+	t1 := time.Now()
 	if err := h.run(ctx, target, stop+brakeDist, true); err != nil {
 		return err
 	}
-	return h.approach(ctx, target, stop)
+	t2 := time.Now()
+	err := h.approach(ctx, target, stop)
+	h.Log("ходьба: маршрут %.1f с, остановка %.1f с, доводка %.1f с", t1.Sub(t0).Seconds(), t2.Sub(t1).Seconds(), time.Since(t2).Seconds())
+	return err
 }
 
-// clearWay рубит деревья на пути к target (путь сквозь деревья с надбавкой за каждое):
-// подходит к первому дереву на пути и рубит те, до которых дотягивается (до 6).
-func (h *Hands) clearWay(ctx context.Context, target bridge.Pos, stop float64) (int, error) {
-	p, err := h.B.Player()
-	if err != nil {
-		return 0, err
-	}
-	tiles, err := h.World.PathThroughTrees(p.Position, target, stop, 0, 6)
-	if len(tiles) == 0 {
-		return 0, nil
-	}
-	// что рубить: тайлы пути с деревьями и, на диагональных шагах, угловые тайлы с
-	// деревьями (между ними персонаж не протиснется — углы срезать нельзя)
-	tree := func(t world.Tile) bool { return !h.World.Walkable(t) && h.World.TreeOnly(t) }
-	var toCut []world.Tile
-	first := -1
-	for i := 1; i < len(tiles); i++ {
-		a, b := tiles[i-1], tiles[i]
-		cand := []world.Tile{b}
-		if a.X != b.X && a.Y != b.Y {
-			cand = append(cand, world.Tile{X: b.X, Y: a.Y}, world.Tile{X: a.X, Y: b.Y})
-		}
-		for _, c := range cand {
-			if tree(c) && !containsTile(toCut, c) {
-				if first < 0 {
-					first = i
-				}
-				toCut = append(toCut, c)
-			}
-		}
-	}
-	if first < 0 {
-		return 0, nil
-	}
-	h.Say("прохода нет — прорубаю путь к (%.0f, %.0f)", target.X, target.Y)
-	if first > 1 {
-		if err := h.WalkTo(ctx, tiles[first-1].Center(), 0.5); err != nil && !errors.Is(err, ErrNotReached) {
-			return 0, err
-		}
-	}
-	cut := 0
-	for _, t := range toCut {
-		if cut >= 6 || !h.World.TreeOnly(t) {
-			continue
-		}
-		for _, o := range h.World.ObjectsNear(t.Center(), 1.5) {
-			if o.Type != "tree" || !containsTile(world.BoxTiles(h.World.CollisionBox(o)), t) {
-				continue
-			}
-			p, err := h.B.Player()
-			if err != nil {
-				return cut, err
-			}
-			box := h.World.CollisionBox(o)
-			if dist(p.Position, closestOnBox(p.Position, box)) > mineReachGame {
-				return cut, nil // дальше — после следующего шага
-			}
-			sb := h.World.SelectionBox(o)
-			e := bridge.Entity{Name: o.Name, Type: o.Type, Position: o.Pos, SelectionBox: &sb}
-			if err := h.Mine(ctx, e, 10*time.Second); err != nil && !errors.Is(err, ErrHover) {
-				return cut, err
-			}
-			cut++
-		}
-		if _, err := h.World.Sync(h.B, false); err != nil {
-			return cut, err
-		}
-	}
-	return cut, nil
-}
+// treeCost — надбавка за ячейку пути сквозь деревья (≈3 ячейки на ствол): срубить дерево
+// по дороге — ~2 с, это ~18 тайлов ходьбы. Обход длиннее — рубим.
+const treeCost = 6
 
-func containsTile(ts []world.Tile, t world.Tile) bool {
-	for _, x := range ts {
-		if x == t {
-			return true
-		}
-	}
-	return false
-}
+// cutAhead — за сколько до дерева на маршруте остановиться и рубить (досягаемость ~2.4 до
+// рамки, рамка ствола ±0.4).
+const cutAhead = 1.8
 
-// followPath проходит путь A* до последней точки поворота без остановок. Держится линии
-// пути (pure pursuit): цель — точка на отрезке на lookahead впереди проекции персонажа;
-// клавиши с малой мёртвой зоной сразу поправляют боковое отклонение — в лесу коридор
-// между стволами бывает ~1 тайл, а персонаж шириной 0.4.
+// followPath проходит маршрут без остановок, кроме рубки деревьев на нём. Держится линии
+// (pure pursuit): цель — точка на отрезке на lookahead впереди проекции персонажа;
+// клавиши с малой мёртвой зоной сразу поправляют боковое отклонение — отрезки идут под
+// любым углом, а клавиши дают только 8 направлений.
 func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64) error {
 	p, err := h.B.Player()
 	if err != nil {
@@ -280,39 +223,69 @@ func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return err
 	}
-	pts, perr := h.World.Path(p.Position, target, stop, 0)
-	if perr != nil && !(errors.Is(perr, world.ErrNoPath) && len(pts) > 0) {
+	tr := time.Now()
+	r, perr := h.World.Route(p.Position, target, stop, 0, treeCost)
+	h.Log("маршрут %.1f тайлов, %d точек, рубить %d; расчёт %.2f с", r.Length(), len(r.Points), len(r.Cuts), time.Since(tr).Seconds())
+	if perr != nil && !(errors.Is(perr, world.ErrNoPath) && len(r.Points) > 1) {
 		return perr
 	}
-	// отрезки от центра стартового тайла через точки поворота; последняя точка пути —
-	// для финального run (или, если пути нет, конец пути — ближайшая достижимая точка)
-	route := append([]bridge.Pos{world.TileOf(p.Position).Center()}, pts...)
-	if perr == nil {
-		route = route[:len(route)-1]
-	}
+	route := r.Points
 	if len(route) < 2 {
 		return perr
 	}
-	seg := 0
-	const lookahead, dz = 0.6, 0.12
-	err = h.drive(ctx, 3, func(pos bridge.Pos) (map[string]bool, bool) {
-		for seg < len(route)-1 {
-			a, b := route[seg], route[seg+1]
-			l := dist(a, b)
-			along := ((pos.X-a.X)*(b.X-a.X) + (pos.Y-a.Y)*(b.Y-a.Y)) / l
-			if along < l-0.15 {
-				t := math.Min(along+lookahead, l)
-				q := bridge.Pos{X: a.X + (b.X-a.X)*t/l, Y: a.Y + (b.Y-a.Y)*t/l}
-				return walkKeysDZ(pos, q, dz), false
-			}
-			seg++
-		}
-		return nil, true
-	})
-	if err != nil {
-		return err
+	if len(r.Cuts) > 0 {
+		h.Say("по дороге срублю деревьев: %d (обход дольше)", len(r.Cuts))
 	}
-	return perr
+	seg, base, ci := 0, 0.0, 0
+	for {
+		cutNow := false
+		err = h.drive(ctx, 3, func(pos bridge.Pos) (map[string]bool, bool) {
+			// проекция на маршрут: текущий отрезок, пройденные — дальше
+			var along float64
+			for ; seg < len(route)-1; seg++ {
+				a, b := route[seg], route[seg+1]
+				l := dist(a, b)
+				along = ((pos.X-a.X)*(b.X-a.X) + (pos.Y-a.Y)*(b.Y-a.Y)) / l
+				if along < l-0.15 || seg == len(route)-2 && along < l {
+					break
+				}
+				base += l
+			}
+			if seg >= len(route)-1 || base+along >= r.Length()-0.15 {
+				return nil, true
+			}
+			if ci < len(r.Cuts) && base+along >= r.Cuts[ci].S-cutAhead {
+				cutNow = true
+				return nil, true
+			}
+			// цель — точка маршрута впереди: в открытом месте дальше (идём прямо, не
+			// виляя диагоналями), в тесноте — ближе (точнее держим линию)
+			ahead := 1.5
+			if h.World.Tight(pos) {
+				ahead = 0.5
+			}
+			return dirKeys(pos, r.At(base+math.Max(along, 0)+ahead)), false
+		})
+		if err != nil {
+			return err
+		}
+		if !cutNow {
+			return perr
+		}
+		if err := h.waitStill(ctx); err != nil {
+			return err
+		}
+		o := r.Cuts[ci].Tree
+		ci++
+		sb := h.World.SelectionBox(o)
+		e := bridge.Entity{Name: o.Name, Type: o.Type, Position: o.Pos, SelectionBox: &sb}
+		if cur, _ := h.B.EntityAt(o.Name, o.Pos); cur == nil {
+			continue // уже нет
+		}
+		if err := h.Mine(ctx, e, 10*time.Second); err != nil && !errors.Is(err, ErrHover) {
+			return err
+		}
+	}
 }
 
 // closestOnBox — ближайшая к p точка прямоугольника b (сама p, если она внутри).
@@ -678,4 +651,67 @@ func (h *Hands) CloseGUI(ctx context.Context) error {
 		}
 	}
 	return errors.New("act: окно не закрывается")
+}
+
+// unstuck — выбраться, когда персонажа обступили свои постройки: поднять ближайшие (пока
+// не откроется выход), выйти и поставить их на место с тем же направлением.
+func (h *Hands) unstuck(ctx context.Context) error {
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	near, err := h.B.FindNearest(bridge.FindArgs{Radius: 3, Limit: 12})
+	if err != nil {
+		return err
+	}
+	type lifted struct {
+		item string
+		pos  bridge.Pos
+		dir  int
+	}
+	var back []lifted
+	for _, e := range near {
+		item := h.Protos.ItemFor(e.Name)
+		if item == "" || e.Type == "character" {
+			continue
+		}
+		if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || !st.Own {
+			continue
+		}
+		h.Say("обступили постройки — поднимаю %s, выйду и поставлю назад", e.Name)
+		d := 0
+		if e.Direction != nil {
+			d = *e.Direction
+		}
+		if err := h.Pickup(ctx, e); err != nil {
+			return err
+		}
+		back = append(back, lifted{item, e.Position, d})
+		if _, err := h.World.Sync(h.B, false); err != nil {
+			return err
+		}
+		if !h.World.Enclosed(p.Position) {
+			break
+		}
+	}
+	if h.World.Enclosed(p.Position) {
+		return fmt.Errorf("act: не выбраться из (%.1f, %.1f)", p.Position.X, p.Position.Y)
+	}
+	// выйти на 4 тайла туда, куда есть путь
+	for k := 0; k < 8; k++ {
+		a := float64(k) * math.Pi / 4
+		to := bridge.Pos{X: p.Position.X + 4*math.Cos(a), Y: p.Position.Y + 4*math.Sin(a)}
+		if r, err := h.World.Route(p.Position, to, 0.5, 20000, 0); err == nil && len(r.Points) > 1 && h.World.Standable(to) {
+			if err := h.followPath(ctx, to, 0.5); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	for i := len(back) - 1; i >= 0; i-- {
+		if _, err := h.PlaceAll(ctx, back[i].item, []bridge.Pos{back[i].pos}, back[i].dir); err != nil {
+			return err
+		}
+	}
+	return nil
 }

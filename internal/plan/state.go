@@ -23,6 +23,7 @@ type Owned struct {
 	Role   string                    `json:"role"`
 	Inv    map[string]map[string]int `json:"-"` // инвентари: fuel, crafter_input, crafter_output, chest
 	Status string                    `json:"-"`
+	Dir    *int                      `json:"-"` // направление в игре (nil — без направления)
 }
 
 // Count — сколько предмета во всех инвентарях постройки.
@@ -56,6 +57,15 @@ type State struct {
 	FindSpot func(s *State, entity, role string, avoid []bridge.Pos) (bridge.Pos, bool)
 	// Minable — можно ли добыть предмет с открытой карты (руда, дерево, камень).
 	Minable func(item string) bool
+	// Researching — что исследуется сейчас и стоит в очереди
+	Researching map[string]bool
+	// Design — раскладка под задачу (kind: "research" — станция + лаборатории + столбы);
+	// одна и та же между циклами (роли построек стабильны). nil — не умеем (симуляция).
+	Design func(s *State, kind string) (Built, bool)
+	// Done — выполненные разовые этапы (Primitive.Mark): сохраняются между запусками
+	Done map[string]bool
+	// Produced — произведено за игру (статистика производства; trigger-технологии)
+	Produced map[string]float64
 	// Found — найдено разведкой (в симуляции: после шага explore предмет считается видимым).
 	Found map[string]bool
 }
@@ -110,6 +120,29 @@ func (s *State) Clone() *State {
 		c.Found[k] = v
 	}
 	c.Owned, c.Stores = cloneOwned(s.Owned), cloneOwned(s.Stores)
+	c.Researching = map[string]bool{}
+	for k, v := range s.Researching {
+		c.Researching[k] = v
+	}
+	c.Done = map[string]bool{}
+	for k, v := range s.Done {
+		c.Done[k] = v
+	}
+	c.Produced = map[string]float64{}
+	for k, v := range s.Produced {
+		c.Produced[k] = v
+	}
+	if s.Av != nil {
+		av := *s.Av
+		av.Recipes, av.Researched = map[string]bool{}, map[string]bool{}
+		for k, v := range s.Av.Recipes {
+			av.Recipes[k] = v
+		}
+		for k, v := range s.Av.Researched {
+			av.Researched[k] = v
+		}
+		c.Av = &av
+	}
 	return &c
 }
 
@@ -137,7 +170,17 @@ type Primitive struct {
 	N      int        `json:"n,omitempty"`
 	Role   string     `json:"role,omitempty"` // постройка, с которой работаем
 	Pos    bridge.Pos `json:"pos,omitempty"`
-	Why    []string   `json:"why"` // цепочка целей сверху вниз
+	// gather: откуда ("tree", "rock"; пусто — откуда угодно)
+	Source string `json:"source,omitempty"`
+	// Mark — после успеха отметить этап выполненным (State.Done)
+	Mark string `json:"mark,omitempty"`
+	// build: все места одного предмета с одним направлением и их роли
+	Dir   int          `json:"dir,omitempty"`
+	Spots []bridge.Pos `json:"spots,omitempty"`
+	Roles []string     `json:"roles,omitempty"`
+	// Area — вся площадь раскладки: персонажу не стоять внутри при стройке (замурует себя)
+	Area *bridge.Box `json:"area,omitempty"`
+	Why   []string     `json:"why"` // цепочка целей сверху вниз
 }
 
 // Key — идентичность шага для учёта отказов и банов.
@@ -146,9 +189,11 @@ func (p *Primitive) Key() string {
 	case "place":
 		return fmt.Sprintf("place:%s@%.1f,%.1f", p.Item, p.Pos.X, p.Pos.Y)
 	case "gather":
-		return "gather:" + p.Item
+		return "gather:" + p.Item + p.Source
 	case "craft":
 		return "craft:" + p.Recipe
+	case "build":
+		return fmt.Sprintf("build:%s:%d@%.1f,%.1f", p.Item, p.Dir, p.Spots[0].X, p.Spots[0].Y)
 	}
 	return p.Kind + ":" + p.Role + ":" + p.Item
 }
@@ -158,10 +203,20 @@ func (p *Primitive) String() string {
 	switch p.Kind {
 	case "gather":
 		s = fmt.Sprintf("добыть %s ×%d", p.Item, p.N)
+		if p.Source != "" {
+			s += " (" + p.Source + ")"
+		}
 	case "craft":
 		s = fmt.Sprintf("скрафтить %s ×%d", p.Recipe, p.N)
 	case "place":
 		s = fmt.Sprintf("поставить %s в (%.1f, %.1f) как %s", p.Item, p.Pos.X, p.Pos.Y, p.Role)
+	case "rotate":
+		s = fmt.Sprintf("повернуть %s направлением %d", p.Role, p.Dir)
+	case "build":
+		s = fmt.Sprintf("построить %s ×%d (%s…)", p.Item, len(p.Spots), p.Roles[0])
+		if p.Dir != 0 {
+			s += fmt.Sprintf(" направление %d", p.Dir)
+		}
 	case "insert":
 		s = fmt.Sprintf("положить %s ×%d в %s", p.Item, p.N, p.Role)
 	case "take":
@@ -170,6 +225,10 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("ждать %s ×%d в %s", p.Item, p.N, p.Role)
 	case "explore":
 		s = fmt.Sprintf("разведать карту: искать %s", p.Item)
+	case "research":
+		s = "запустить исследование " + p.Item
+	case "await":
+		s = "ждать исследования " + p.Item
 	default:
 		s = p.Kind
 	}
@@ -202,6 +261,16 @@ func (s *State) craftRecipe(item string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// smeltProduct — что получится из ore в печи.
+func (s *State) smeltProduct(ore string) string {
+	for name, rec := range s.Protos.Recipes {
+		if rec.Category == "smelting" && len(rec.Ingredients) == 1 && rec.Ingredients[0].Name == ore && len(rec.Products) > 0 && !strings.HasPrefix(name, "parameter") {
+			return rec.Products[0].Name
+		}
+	}
+	return ""
 }
 
 // smeltRecipe — рецепт плавки предмета: один ингредиент, категория smelting.
