@@ -335,12 +335,12 @@ func TestScienceFactory(t *testing.T) {
 	})
 	l := New(pt(t), w)
 	l.Anchors = []Placement{{Name: "small-electric-pole", Pos: bridge.Pos{X: 50.5, Y: 60.5}}}
-	if err := l.ScienceFactory(bridge.Pos{X: 45, Y: 30}, 1, 2, 1, 2); err != nil {
+	if err := l.ScienceFactory(bridge.Pos{X: 45, Y: 30}, 4, 3, 2, 6); err != nil {
 		t.Fatal(err)
 	}
 	noErrors(t, l)
 	c := l.Count()
-	for name, n := range map[string]int{"electric-mining-drill": 3, "stone-furnace": 3, "assembling-machine-1": 2, "lab": 2, "burner-inserter": 0, "burner-mining-drill": 0} {
+	for name, n := range map[string]int{"electric-mining-drill": 5, "stone-furnace": 5, "assembling-machine-1": 8, "lab": 6, "burner-inserter": 0, "burner-mining-drill": 0} {
 		if c[name] != n {
 			t.Errorf("%s: %d, ждали %d", name, c[name], n)
 		}

@@ -240,6 +240,8 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("ждать %s ×%d в %s", p.Item, p.N, p.Role)
 	case "explore":
 		s = fmt.Sprintf("разведать карту: искать %s", p.Item)
+	case "idle":
+		s = fmt.Sprintf("подождать %d с (%s: всё оставшееся временно не ставится)", p.N, p.Item)
 	case "research":
 		s = "запустить исследование " + p.Item
 	case "await":

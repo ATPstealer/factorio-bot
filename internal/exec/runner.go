@@ -550,6 +550,13 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 		return h.StartResearch(ctx, p.Item)
 	case "collect", "refuel":
 		return r.round(ctx, p)
+	case "idle":
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(p.N) * time.Second):
+		}
+		return nil
 	case "recipe":
 		_, e, err := r.owned(p.Role)
 		if err != nil {
@@ -864,7 +871,10 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 				anchor = e.Position
 			}
 		}
-		err = l.ScienceFactory(anchor, 1, 2, 1, 2)
+		// ~0.4 науки/с: 4 пары сборщиков (0.1/с каждая), железо 0.8/с — 3 печи, медь
+		// 0.4/с — 2 печи (каменная 0.31/с), 6 лабораторий: всё по красной (≈9600 лаб·с) —
+		// меньше получаса
+		err = l.ScienceFactory(anchor, 4, 3, 2, 6)
 	default:
 		ore, ok := plan.ModuleOre(kind)
 		if !ok {

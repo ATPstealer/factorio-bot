@@ -117,6 +117,7 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 	}
 	built := make([]bridge.Entity, len(positions))
 	var misrotated []int
+	var failed []bridge.Pos
 	defer h.ClearCursor(ctx)
 	fps := make([]bridge.Box, len(positions))
 	left := make([]int, len(positions))
@@ -166,6 +167,12 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 				}
 				e, err = h.clickBuild(ctx, it.PlaceResult, pos)
 			}
+			if errors.Is(err, ErrPlace) {
+				// место временно занято — остальные ставить, это — потом (вернём ошибку)
+				failed = append(failed, pos)
+				left = removeInt(left, i)
+				continue
+			}
 			if err != nil {
 				return built, err
 			}
@@ -198,6 +205,9 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 		}
 		d := dir
 		built[i].Direction = &d
+	}
+	if len(failed) > 0 {
+		return built, fmt.Errorf("%w %s в %d местах, первое (%.1f, %.1f)", ErrPlace, it.PlaceResult, len(failed), failed[0].X, failed[0].Y)
 	}
 	return built, nil
 }

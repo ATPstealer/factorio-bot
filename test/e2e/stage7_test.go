@@ -310,9 +310,9 @@ func TestStage7_Start(t *testing.T) {
 // sciMade — сколько красной науки сделали сборщики (Lua-выражение для lua()).
 const sciMade = `(function() local n=0 for _,e in pairs(s.find_entities_filtered{name="assembling-machine-1", force=p.force}) do local r=e.get_recipe() if r and r.name=="automation-science-pack" then n=n+e.products_finished end end return n end)()`
 
-// Автоматическая красная наука (7.5, долгий): от точек старта (состояние TestStage7_Start)
-// — фабрика (ряды плавки, сборщики, лаборатории, ленты), исследования идут наукой со
-// сборщиков: изучено ≥1 технологии после постройки фабрики.
+// Критерий стадии 7 (сценарий, ~1 ч от снимка start): автоматическая красная наука —
+// фабрика (ряды плавки на электробурах, сборщики, лаборатории, ленты) и изучено всё, что
+// требует только красной науки; основную часть науки делают сборщики.
 func TestStage7_RedScience(t *testing.T) {
 	scenario(t)
 	h := handsT(t)
@@ -320,43 +320,21 @@ func TestStage7_RedScience(t *testing.T) {
 	os.Remove(path("run", "bot-test.log"))
 	r := newRunner(t, h, state, []exec.GoalSpec{{Kind: "start"}, {Kind: "redscience"}})
 	defer r.Close()
-	var before int
-	built := false
-	last := time.Now()
-	r.Until = func() bool {
-		if time.Since(last) < 30*time.Second {
-			return false
-		}
-		last = time.Now()
-		f, err := h.B.Force()
-		if err != nil {
-			return false
-		}
-		var made int
-		lua(t, sciMade, &made)
-		if !built {
-			if made > 0 {
-				built, before = true, len(f.Researched)
-				t.Logf("наука со сборщиков пошла, изучено %d", before)
-			}
-			return false
-		}
-		return len(f.Researched) > before
-	}
+	start := time.Now()
 	if err := r.Run(ctxT(t, 150*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if !built {
-		t.Fatal("фабрика не дала науки")
+	t.Logf("всё по красной за %.0f мин", time.Since(start).Minutes())
+	f, _ := h.B.Force()
+	for name, tt := range h.Protos.Technologies {
+		if tt.Trigger == nil && !tt.Hidden && len(tt.UnitIngredients) == 1 && tt.UnitIngredients[0].Name == "automation-science-pack" && !slices.Contains(f.Researched, name) {
+			t.Errorf("%s не изучена", name)
+		}
 	}
 	var made int
 	lua(t, sciMade, &made)
-	if made == 0 {
-		t.Error("сборщики не сделали ни одной красной науки")
-	}
-	journal, _ := os.ReadFile(path("run", "bot-test.log"))
-	if strings.Contains(string(journal), "положить automation-science-pack") && built {
-		t.Log("были ручные подкладки науки (до automation — допустимо)")
-	}
 	t.Logf("сборщики сделали науки: %d", made)
+	if made < 400 {
+		t.Errorf("сборщики сделали %d науки — основная часть руками?", made)
+	}
 }

@@ -199,7 +199,14 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			}
 		}
 	}
+	feeding := map[string]bool{} // сундуки-кормушки (уголь в бойлер) — не опустошать
+	for _, ch := range feeders(s) {
+		feeding[ch] = true
+	}
 	for _, o := range s.Owned {
+		if feeding[o.Role] {
+			continue
+		}
 		out := o.Output(g.Item)
 		// забирать, когда набралось нужное (или хотя бы 10) либо больше не прибудет —
 		// не бегать к печи/сундуку за каждой штукой, пока они ещё работают

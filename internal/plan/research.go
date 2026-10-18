@@ -169,6 +169,22 @@ func (g RedScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if err != nil {
 		return nil, err
 	}
+	// очередь исследований (2.0): держать до 3 — лаборатории не простаивают, пока бот занят
+	// другим (уголь, стройка)
+	if site, ok := s.Design(s, "science"); ok && site.Satisfied(s) && len(s.Researching) > 0 && len(s.Researching) < 3 {
+		for _, t := range order {
+			if s.Av.Researched[t] || s.Researching[t] {
+				continue
+			}
+			ready := true
+			for _, pre := range s.Protos.Technologies[t].Prerequisites {
+				ready = ready && (s.Av.Researched[pre] || s.Researching[pre])
+			}
+			if p := c.prim(Primitive{Kind: "research", Item: t}); ready && !pl.banned(p.Key()) {
+				return p, nil
+			}
+		}
+	}
 	for _, t := range order {
 		if s.Av.Researched[t] {
 			continue

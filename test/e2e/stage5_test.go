@@ -90,7 +90,8 @@ func have(t *testing.T, h *act.Hands, item string, n int) {
 	defer os.Remove(state)
 	r := newRunner(t, h, state, []exec.GoalSpec{{Kind: "have", Item: item, N: n}})
 	defer r.Close()
-	if err := r.Run(ctxT(t, 5*time.Minute)); err != nil {
+	// много на свежей карте (130 камня под «улитку») — площадка буров и ожидание
+	if err := r.Run(ctxT(t, 15*time.Minute)); err != nil {
 		t.Fatalf("набрать %s ×%d: %v", item, n, err)
 	}
 }

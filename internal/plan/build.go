@@ -241,7 +241,8 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("plan: %s: все группы постройки забанены", g.Tag)
+	// всё оставшееся временно забанено (место было занято) — подождать, пока баны истекут
+	return c.prim(Primitive{Kind: "idle", N: 30, Item: g.Tag}), nil
 }
 
 // fuel — уголь во все незаправленные: набрать на всех разом, потом раскладывать.
