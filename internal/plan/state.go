@@ -180,7 +180,7 @@ type Primitive struct {
 	Roles []string     `json:"roles,omitempty"`
 	// Area — вся площадь раскладки: персонажу не стоять внутри при стройке (замурует себя)
 	Area *bridge.Box `json:"area,omitempty"`
-	Why   []string     `json:"why"` // цепочка целей сверху вниз
+	Why  []string    `json:"why"` // цепочка целей сверху вниз
 }
 
 // Key — идентичность шага для учёта отказов и банов.
