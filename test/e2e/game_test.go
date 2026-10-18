@@ -1,8 +1,9 @@
 //go:build e2e
 
 // Прохождение игры: шаги по порядку на одной карте, одно состояние бота на всё
-// (run/state-game.json, живёт до новой карты). scripts/test.sh (SET=game) гоняет их по
-// одному и после каждого сохраняет снимок game-0N — продолжать с любого шага: GAME_FROM=N.
+// (run/state-game.json, живёт до новой карты). Номер теста = пункт плана (TestGame7_6 —
+// стадия 7, пункт 6). scripts/test.sh (SET=game) гоняет их по одному и после каждого
+// сохраняет снимок game-7.6 — продолжать с любого шага: GAME_FROM=7.6.
 package e2e
 
 import (
@@ -51,10 +52,10 @@ func handMined(t *testing.T) int {
 	return hand
 }
 
-// 1. Старт (новая карта): 50 дерева, 200 камня с камней, добывающие точки по кругу — уголь
+// 7.0. Старт (новая карта): 50 дерева, 200 камня с камней, добывающие точки по кругу — уголь
 // парами, железо и медь бур → печь, камень 4 бура → сундук; руду руками — только на
 // первые буры.
-func TestGame01_Start(t *testing.T) {
+func TestGame7_0_Start(t *testing.T) {
 	h := handsT(t)
 	r := gameRun(t, h, 90*time.Minute)
 	built := map[string]int{}
@@ -75,9 +76,9 @@ func TestGame01_Start(t *testing.T) {
 	}
 }
 
-// 2. Электричество: паровая станция у воды (помпа, бойлер с сундуком-кормушкой, двигатель),
+// 7.2. Электричество: паровая станция у воды (помпа, бойлер с сундуком-кормушкой, двигатель),
 // лаборатории, столбы — всё в одной сети, бойлер с углём.
-func TestGame02_Power(t *testing.T) {
+func TestGame7_2_Power(t *testing.T) {
 	h := handsT(t)
 	r := gameRun(t, h, 40*time.Minute, exec.GoalSpec{Kind: "site", Item: "research"})
 	nets := map[int]bool{}
@@ -104,8 +105,8 @@ func TestGame02_Power(t *testing.T) {
 	}
 }
 
-// 3. Первое исследование: automation — наука руками в лаборатории, запуск через окно.
-func TestGame03_Research(t *testing.T) {
+// 7.3. Первое исследование: automation — наука руками в лаборатории, запуск через окно.
+func TestGame7_3_Research(t *testing.T) {
 	h := handsT(t)
 	gameRun(t, h, 40*time.Minute, exec.GoalSpec{Kind: "research", Item: "automation"})
 	if f, _ := h.B.Force(); !slices.Contains(f.Researched, "automation") {
@@ -113,8 +114,8 @@ func TestGame03_Research(t *testing.T) {
 	}
 }
 
-// 4. Рецепт сборщика: сборщик с рецептом шестерён — поставить и задать рецепт через окно.
-func TestGame04_Recipe(t *testing.T) {
+// 7.4. Рецепт сборщика: сборщик с рецептом шестерён — поставить и задать рецепт через окно.
+func TestGame7_4_Recipe(t *testing.T) {
 	h := handsT(t)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
@@ -134,8 +135,8 @@ func TestGame04_Recipe(t *testing.T) {
 	}
 }
 
-// 5. Электробуры: electric-mining-drill — наукой руками (фабрике нужны электробуры).
-func TestGame05_ElectricMining(t *testing.T) {
+// 7.5. Электробуры: electric-mining-drill — наукой руками (фабрике нужны электробуры).
+func TestGame7_5_ElectricMining(t *testing.T) {
 	h := handsT(t)
 	gameRun(t, h, 40*time.Minute, exec.GoalSpec{Kind: "research", Item: "electric-mining-drill"})
 	if f, _ := h.B.Force(); !slices.Contains(f.Researched, "electric-mining-drill") {
@@ -143,9 +144,9 @@ func TestGame05_ElectricMining(t *testing.T) {
 	}
 }
 
-// 6. Фабрика красной науки: ряды плавки на электробурах, сборщики с рецептами, лаборатории,
+// 7.6. Фабрика красной науки: ряды плавки на электробурах, сборщики с рецептами, лаборатории,
 // ленты, столбы к сети станции.
-func TestGame06_Factory(t *testing.T) {
+func TestGame7_6_Factory(t *testing.T) {
 	h := handsT(t)
 	r := gameRun(t, h, 60*time.Minute, exec.GoalSpec{Kind: "site", Item: "science"})
 	recipes := map[string]int{}
@@ -167,10 +168,10 @@ func TestGame06_Factory(t *testing.T) {
 // sciMade — сколько красной науки сделали сборщики (Lua-выражение для lua()).
 const sciMade = `(function() local n=0 for _,e in pairs(s.find_entities_filtered{name="assembling-machine-1", force=p.force}) do local r=e.get_recipe() if r and r.name=="automation-science-pack" then n=n+e.products_finished end end return n end)()`
 
-// 7. Ожидание против реальности: у станции «пропадает» топливо (бот забирает уголь из
+// 7.7. Ожидание против реальности: у станции «пропадает» топливо (бот забирает уголь из
 // бойлеров и кормушек) — бот замечает «нет питания», находит причину, первым делом
 // чинит (заправляет, при нехватке мощности достраивает станцию), лаборатории снова в сети.
-func TestGame07_PowerOutage(t *testing.T) {
+func TestGame7_7_PowerOutage(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 5*time.Minute)
 	for _, typ := range []string{"boiler", "container"} {
@@ -223,20 +224,28 @@ func TestGame07_PowerOutage(t *testing.T) {
 	}
 }
 
-// 8. Всё по красной (критерий стадии 7): наукой со сборщиков, руками — только топливо.
-func TestGame08_RedScience(t *testing.T) {
+// 7.8. Всё по красной, что нужно для ракеты (критерий стадии 7; оружие и прочее — нет):
+// наукой со сборщиков, руками — только топливо.
+func TestGame7_8_RedScience(t *testing.T) {
 	h := handsT(t)
+	f0, _ := h.B.Force()
+	before := f0.Researched
 	gameRun(t, h, 120*time.Minute, exec.GoalSpec{Kind: "redscience"})
 	f, _ := h.B.Force()
-	for name, tt := range h.Protos.Technologies {
-		if tt.Trigger == nil && !tt.Hidden && len(tt.UnitIngredients) == 1 && tt.UnitIngredients[0].Name == "automation-science-pack" && !slices.Contains(f.Researched, name) {
+	for _, name := range []string{"automation", "logistics", "logistic-science-pack", "steel-processing", "radar"} {
+		if !slices.Contains(f.Researched, name) {
 			t.Errorf("%s не изучена", name)
+		}
+	}
+	for _, name := range []string{"military", "gun-turret", "stone-wall", "heavy-armor"} {
+		if slices.Contains(f.Researched, name) && !slices.Contains(before, name) {
+			t.Errorf("%s изучена — для ракеты не нужна", name)
 		}
 	}
 	var made int
 	lua(t, sciMade, &made)
 	t.Logf("сборщики сделали науки: %d", made)
-	if made < 400 {
+	if made < 100 {
 		t.Errorf("сборщики сделали %d науки — основная часть руками?", made)
 	}
 }

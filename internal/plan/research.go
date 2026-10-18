@@ -125,18 +125,39 @@ func (s *State) lockedBy(item string) string {
 	return ""
 }
 
-// RedScience — автоматическая красная наука (7.5): фабрика ("science") построена и
-// изучено всё, что требует только красной науки.
+// RedScience — автоматическая красная наука (7.6–7.8): фабрика ("science") построена и
+// изучено всё на красной науке, что нужно для ракеты.
 type RedScience struct{}
 
 func (g RedScience) Key() string    { return "red-science" }
 func (g RedScience) String() string { return "автоматическая красная наука" }
 
-// redTechs — технологии только на красной науке (не trigger, не скрытые).
+// GoalTech — конечная цель игры: всё изучаемое — только то, что ведёт к ней.
+const GoalTech = "rocket-silo"
+
+// onPath — технологии, ведущие к GoalTech (её предпосылки, рекурсивно).
+func onPath(s *State) map[string]bool {
+	res := map[string]bool{}
+	stack := []string{GoalTech}
+	for len(stack) > 0 {
+		t := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if res[t] {
+			continue
+		}
+		res[t] = true
+		stack = append(stack, s.Protos.Technologies[t].Prerequisites...)
+	}
+	return res
+}
+
+// redTechs — технологии только на красной науке, нужные для ракеты (решение пользователя:
+// оружие и прочее не изучать).
 func redTechs(s *State) []string {
 	var res []string
+	need := onPath(s)
 	for name, t := range s.Protos.Technologies {
-		if t.Trigger != nil || t.Hidden || len(t.UnitIngredients) != 1 || t.UnitIngredients[0].Name != "automation-science-pack" {
+		if !need[name] || t.Trigger != nil || t.Hidden || len(t.UnitIngredients) != 1 || t.UnitIngredients[0].Name != "automation-science-pack" {
 			continue
 		}
 		res = append(res, name)
