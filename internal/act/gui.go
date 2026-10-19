@@ -175,13 +175,6 @@ func (h *Hands) firstSlotY(tabs bool) (int, bool) {
 	return 0, false
 }
 
-func absDiff(a, b uint8) int {
-	if a > b {
-		return int(a - b)
-	}
-	return int(b - a)
-}
-
 // closeStray — закрыть окно, которого мод не видит (фильтр слота быстрого доступа и т.п.):
 // Esc; если вместо этого открылось меню игры — ещё Esc.
 func (h *Hands) closeStray(ctx context.Context) error {
