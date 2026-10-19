@@ -441,6 +441,19 @@ func TestSmelterBusyWithOtherOre(t *testing.T) {
 	}
 }
 
+// Кирпич — 2 камня: в печи 1 камень, не хватает 1 кирпича — доложить камень, а не ждать.
+func TestSmelterRatio(t *testing.T) {
+	s := newState(t)
+	s.Inventory["stone"] = 100
+	s.Inventory["stone-brick"] = 9
+	s.Owned = []*Owned{{Name: Furnace, Pos: bridge.Pos{X: 1, Y: 1}, Role: "smelter", Inv: map[string]map[string]int{
+		"fuel": {"coal": 5}, "crafter_input": {"stone": 1}}}}
+	p, err := NewPlanner().Next(s, HaveItem{"stone-brick", 10})
+	if err != nil || p == nil || p.Kind != "insert" || p.Item != "stone" {
+		t.Errorf("шаг: %v %v", p, err)
+	}
+}
+
 // startDesign — раскладки точек старта для симуляции (геометрия не важна).
 func startDesign(s *State, kind string) (Built, bool) {
 	ore, ok := ModuleOre(kind)
@@ -540,5 +553,39 @@ func TestDiagnoseLabsIdle(t *testing.T) {
 	}
 	if idle == nil || !strings.Contains(idle.Cause, "science-17: нет ингредиентов") || !strings.Contains(idle.Cause, "science-5: нет топлива") {
 		t.Errorf("простой лабораторий: %+v", idle)
+	}
+}
+
+// Мощности заранее: спрос раскладок (8 сборщиков ×75 кВт и т.п.) больше выработки — сначала
+// станция; блоки растут геометрически (1, 2, 4 цепочки).
+func TestPowerPlanning(t *testing.T) {
+	s := newState(t)
+	var factory []layout.Placement
+	for i := 0; i < 30; i++ {
+		factory = append(factory, layout.Placement{Name: "assembling-machine-1", Pos: bridge.Pos{X: float64(4 * i), Y: 0}})
+	}
+	station := []layout.Placement{{Name: "steam-engine"}, {Name: "steam-engine"}}
+	designs := map[string][]layout.Placement{"science": factory, "research": station}
+	s.Designs = func() [][]layout.Placement {
+		var res [][]layout.Placement
+		for _, l := range designs {
+			res = append(res, l)
+		}
+		return res
+	}
+	s.Design = func(s *State, kind string) (Built, bool) {
+		l, ok := designs[kind]
+		return Built{Tag: kind, List: l}, ok
+	}
+	// 30 × 75 кВт ≈ 2.3 МВт (+ простой) против 1.8 МВт — строить power-1
+	if k := powerShort(s, nil); k != "power-1" {
+		t.Errorf("при нехватке: %q", k)
+	}
+	if PowerChains(1) != 1 || PowerChains(2) != 2 || PowerChains(3) != 4 {
+		t.Error("блоки не удваиваются")
+	}
+	designs["research"] = append(station, station...) // 3.6 МВт — хватает с запасом
+	if k := powerShort(s, nil); k != "" {
+		t.Errorf("хватает, а строит %q", k)
 	}
 }

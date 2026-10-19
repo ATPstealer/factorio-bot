@@ -2,6 +2,7 @@ package plan
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -204,13 +205,15 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		feeding[ch] = true
 	}
 	for _, o := range s.Owned {
-		if feeding[o.Role] {
+		// кормушки, печи и сундуки фабрик (их выход забирают инсертеры) — не трогать
+		if feeding[o.Role] || strings.HasPrefix(o.Role, "science-") || strings.HasPrefix(o.Role, "green-") || strings.HasPrefix(o.Role, "blue-") {
 			continue
 		}
 		out := o.Output(g.Item)
 		// забирать, когда набралось нужное (или хотя бы 10) либо больше не прибудет —
 		// не бегать к печи/сундуку за каждой штукой, пока они ещё работают
-		busy := len(o.Inv["crafter_input"]) > 0 || strings.HasSuffix(o.Role, "-out")
+		busy := len(o.Inv["crafter_input"]) > 0 || strings.HasSuffix(o.Role, "-out") ||
+			strings.HasPrefix(o.Role, "plates-") || strings.HasPrefix(o.Role, "coal-mine-") // склады: прибудет ещё
 		if out > 0 && (!busy || out >= lack || out >= 10) {
 			p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item})
 			if !pl.banned(p.Key()) {
@@ -261,12 +264,17 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		tried = append(tried, "крафт забанен")
 	}
+	// 2а. много пластин (стройка: сотни лент) — склад пластин на электробурах; построен —
+	// ждать у него (забирает шаг 1)
+	if p, err := g.fromPlateStore(pl, s, c, lack); p != nil || err != nil {
+		return p, err
+	}
 	// 2б. есть добывающие точки — с них (дозаправить, подождать), руками не копать
 	if p, err := g.fromOutposts(pl, s, c, lack); p != nil || err != nil {
 		return p, err
 	}
 	// 3. переплавить в своей печи
-	if _, ore, ok := s.smeltRecipe(g.Item); ok && !pl.banned("smelt:"+g.Item) {
+	if rn, ore, ok := s.smeltRecipe(g.Item); ok && !pl.banned("smelt:"+g.Item) {
 		role := "smelter"
 		if p, err := sub(pl, s, c, Placed{Furnace, role}); p != nil || err != nil {
 			return p, err
@@ -291,7 +299,11 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 				return c.prim(Primitive{Kind: "take", Role: role, Item: it}), nil
 			}
 		}
-		needOre := max(g.N-have-o.Output(g.Item), 0)
+		// руды на продукт: кирпич — 2 камня, сталь — 5 железа
+		rec := s.Protos.Recipes[rn]
+		perItem := rec.Ingredients[0].Mean() / productAmount(rec, g.Item)
+		needItems := max(g.N-have-o.Output(g.Item), 0)
+		needOre := int(math.Ceil(float64(needItems) * perItem))
 		// угля — на весь заказ (≈1 на 10 пластин), чтобы печь не встала посреди ожидания
 		if fuel := max(2, needOre/10+1); o.In("fuel", "coal") < 1 || (needOre > 0 && o.In("fuel", "coal") < fuel/2) {
 			return sub(pl, s, c, Supplied{role, "coal", fuel})
@@ -300,7 +312,7 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			if o.In("crafter_input", ore) < needOre {
 				return sub(pl, s, c, Supplied{role, ore, needOre})
 			}
-			return c.prim(Primitive{Kind: "wait", Role: role, Item: g.Item, N: needOre}), nil
+			return c.prim(Primitive{Kind: "wait", Role: role, Item: g.Item, N: needItems}), nil
 		}
 		return c.prim(Primitive{Kind: "take", Role: role, Item: g.Item}), nil
 	}
@@ -455,4 +467,98 @@ func sub(pl *Planner, s *State, c *ctx, g Goal) (*Primitive, error) {
 		return nil, err
 	}
 	return g.next(pl, s, cc)
+}
+
+// PlateStoreMin — с какой нехватки пластин строить склад пластин.
+const PlateStoreMin = 100
+
+// fromPlateStore — железо/медь много: склад пластин (раскладка plates-РУДА), ждать у его
+// сундуков. nil — склад не нужен или не выходит.
+func (g HaveItem) fromPlateStore(pl *Planner, s *State, c *ctx, lack int) (*Primitive, error) {
+	ore := map[string]string{"iron-plate": "iron-ore", "copper-plate": "copper-ore"}[g.Item]
+	if ore == "" || lack < PlateStoreMin || s.Design == nil || !s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
+		return nil, nil
+	}
+	kind := "plates-" + ore
+	site := Site{kind}
+	if c.stack[site.Key()] {
+		return nil, nil // строим сам склад — пластины на него обычным путём
+	}
+	b, ok := s.Design(s, kind)
+	if !ok {
+		return nil, nil
+	}
+	if !b.Satisfied(s) {
+		return sub(pl, s, c, site)
+	}
+	best, bestN := "", -1
+	for i, p := range b.List {
+		if p.Name != Chest {
+			continue
+		}
+		role := BuildRole(kind, i)
+		if o := s.Role(role); o != nil && o.Output(g.Item) > bestN {
+			best, bestN = role, o.Output(g.Item)
+		}
+	}
+	if best == "" {
+		return nil, nil
+	}
+	return c.prim(Primitive{Kind: "wait", Role: best, Item: g.Item, N: min(lack, 50)}), nil
+}
+
+// Stock — фоновый запас ходовых материалов (наблюдение пользователя: пока идёт
+// исследование, бот минутами ждёт). Берётся, только когда остальные цели ждут; руками не
+// копает и не разведывает (только забрать с точек, переплавить, скрафтить).
+type Stock struct{}
+
+// StockLevels — сколько чего держать в инвентаре.
+var StockLevels = []struct {
+	Item string
+	N    int
+}{
+	{"coal", 150}, {"iron-plate", 100}, {"copper-plate", 100}, {"iron-gear-wheel", 30},
+	{"electronic-circuit", 30}, {"transport-belt", 50}, {"inserter", 20}, {"small-electric-pole", 20},
+}
+
+func (g Stock) Key() string    { return "stock" }
+func (g Stock) String() string { return "запас материалов (пока ждём)" }
+func (g Stock) Satisfied(s *State) bool {
+	for _, l := range StockLevels {
+		if s.Inventory[l.Item] < l.N {
+			return false
+		}
+	}
+	return true
+}
+
+func (g Stock) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	for _, l := range StockLevels {
+		if s.Inventory[l.Item] >= l.N || !s.Av.Recipe(l.Item) && l.Item != "coal" && l.Item != "iron-plate" && l.Item != "copper-plate" {
+			continue
+		}
+		p, err := sub(pl, s, c, HaveItem{l.Item, l.N})
+		if err != nil || p == nil {
+			continue
+		}
+		switch p.Kind {
+		case "gather", "explore", "wait", "await", "idle":
+			continue // руками и ожиданием — не ради запаса
+		}
+		if stockFar(s, p) {
+			continue // ради запаса далеко не ходить (бот на нефти, точки — на базе)
+		}
+		return p, nil
+	}
+	return nil, nil
+}
+
+// stockFar — шаг запаса ведёт к постройке дальше 100 тайлов.
+func stockFar(s *State, p *Primitive) bool {
+	for _, role := range append([]string{p.Role}, p.Roles...) {
+		if o := s.Role(role); role != "" && o != nil && math.Hypot(o.Pos.X-s.PlayerPos.X, o.Pos.Y-s.PlayerPos.Y) > 100 {
+			return true
+		}
+	}
+	return false
 }

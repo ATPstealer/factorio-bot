@@ -3,6 +3,14 @@ local util = require("util")
 
 local CHUNK = 32
 
+-- cliff_box — рамка утёса; у углов она повёрнута (orientation = доля оборота по часовой).
+local function cliff_box(e)
+  local b = e.bounding_box
+  local r = util.box(b)
+  r.o = b.orientation
+  return r
+end
+
 -- Классы тайлов по слоям коллизий: 'w' — вода (не пройти), 's' — мелководье (пройти можно),
 -- 'x' — край карты. Остальное — суша '.'.
 local tile_classes
@@ -64,8 +72,8 @@ local function scan_chunk(p, cx, cy)
           u = e.unit_number,
           own = own or nil,
           st = own and status_name(e.status) or nil,
-          -- рамка зависит от ориентации (утёсы) — отдаём настоящую
-          bb = e.type == "cliff" and util.box(e.bounding_box) or nil,
+          -- рамка зависит от ориентации (утёсы) — отдаём настоящую; углы повёрнуты (o)
+          bb = e.type == "cliff" and cliff_box(e) or nil,
         }
       end
     end

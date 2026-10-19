@@ -184,10 +184,10 @@ function methods.find_minable(a)
 end
 
 -- Состояние сущности в точке: инвентари, топливо, рецепт, статус. args {name, position}.
-function methods.get_entity(a)
-  local p = bot_player()
-  if not visible(p, a.position) then return nil end
-  local e = p.surface.find_entities_filtered { name = a.name, position = a.position, radius = 0.01 }[1]
+-- entity_state — состояние своей/видимой постройки name в position (nil — нет).
+local function entity_state(p, name, position)
+  if not visible(p, position) then return nil end
+  local e = p.surface.find_entities_filtered { name = name, position = position, radius = 0.01 }[1]
   if not e then return nil end
   local r = entity_info(e)
   r.status = e.status and util.status_name(e.status) or nil
@@ -207,6 +207,10 @@ function methods.get_entity(a)
     r.crafting_progress = e.crafting_progress
   end
   r.network = util.try(function() return e.electric_network_id end)
+  if e.type == "underground-belt" then -- input/output, есть ли пара
+    r.ug_type = e.belt_to_ground_type
+    r.ug_paired = e.neighbours ~= nil or nil
+  end
   if e.type == "transport-belt" then -- что лежит на ленте (обе полосы)
     local items = {}
     for i = 1, 2 do
@@ -216,6 +220,14 @@ function methods.get_entity(a)
     end
     r.belt = util.nonempty(items)
   end
+  if e.fluidbox and #e.fluidbox > 0 then -- жидкости в ящиках: имя → количество
+    local f = {}
+    for i = 1, #e.fluidbox do
+      local fl = e.fluidbox[i]
+      if fl then f[fl.name] = (f[fl.name] or 0) + fl.amount end
+    end
+    r.fluids = util.nonempty(f)
+  end
   if e.burner then
     local cb = e.burner.currently_burning
     -- 2.0: {name = прототип предмета, quality}
@@ -223,6 +235,25 @@ function methods.get_entity(a)
     r.remaining_fuel = e.burner.remaining_burning_fuel
   end
   return r
+end
+
+function methods.get_entity(a)
+  return entity_state(bot_player(), a.name, a.position)
+end
+
+-- Пакетом (снимок состояния бота: сотни построек — один запрос вместо сотен):
+-- list = [{name, position}], ответ — [{i = номер в list, ...состояние}] найденных.
+function methods.get_entities(a)
+  local p = bot_player()
+  local res = {}
+  for i, q in ipairs(a.list or {}) do
+    local r = entity_state(p, q.name, q.position)
+    if r then
+      r.i = i
+      res[#res + 1] = r
+    end
+  end
+  return res
 end
 
 -- Есть ли сущность с таким именем ровно в этой точке.

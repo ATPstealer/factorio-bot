@@ -506,14 +506,16 @@
     {
      "type": "fluid",
      "name": "crude-oil",
-     "amount": 100
+     "amount": 100,
+     "fluidbox_index": 2
     }
    ],
    "products": [
     {
      "type": "fluid",
      "name": "petroleum-gas",
-     "amount": 45
+     "amount": 45,
+     "fluidbox_index": 3
     }
    ],
    "enabled": false,

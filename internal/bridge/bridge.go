@@ -4,6 +4,7 @@ package bridge
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"factorio-bot/internal/rcon"
@@ -97,14 +98,40 @@ type Pos struct {
 	Y float64 `json:"y"`
 }
 
-// Box — прямоугольник в тайлах (selection_box, bounding_box).
+// Box — прямоугольник в тайлах (selection_box, bounding_box). Orientation (доля оборота
+// по часовой, утёсы-углы — 0.125) — рамка повёрнута вокруг центра.
 type Box struct {
-	LeftTop     Pos `json:"left_top"`
-	RightBottom Pos `json:"right_bottom"`
+	LeftTop     Pos     `json:"left_top"`
+	RightBottom Pos     `json:"right_bottom"`
+	Orientation float64 `json:"o,omitempty"`
 }
 
 func (b Box) Center() Pos {
 	return Pos{X: (b.LeftTop.X + b.RightBottom.X) / 2, Y: (b.LeftTop.Y + b.RightBottom.Y) / 2}
+}
+
+// Contains — точка внутри рамки, раздутой на pad по её осям (с учётом поворота).
+func (b Box) Contains(p Pos, pad float64) bool {
+	c := b.Center()
+	dx, dy := p.X-c.X, p.Y-c.Y
+	if b.Orientation != 0 {
+		a := b.Orientation * 2 * math.Pi
+		dx, dy = dx*math.Cos(a)+dy*math.Sin(a), -dx*math.Sin(a)+dy*math.Cos(a)
+	}
+	return math.Abs(dx) < (b.RightBottom.X-b.LeftTop.X)/2+pad && math.Abs(dy) < (b.RightBottom.Y-b.LeftTop.Y)/2+pad
+}
+
+// Bounds — охватывающий прямоугольник без поворота.
+func (b Box) Bounds() Box {
+	if b.Orientation == 0 {
+		return b
+	}
+	c := b.Center()
+	hx, hy := (b.RightBottom.X-b.LeftTop.X)/2, (b.RightBottom.Y-b.LeftTop.Y)/2
+	a := b.Orientation * 2 * math.Pi
+	ex := math.Abs(hx*math.Cos(a)) + math.Abs(hy*math.Sin(a))
+	ey := math.Abs(hx*math.Sin(a)) + math.Abs(hy*math.Cos(a))
+	return Box{LeftTop: Pos{X: c.X - ex, Y: c.Y - ey}, RightBottom: Pos{X: c.X + ex, Y: c.Y + ey}}
 }
 
 type Entity struct {
@@ -325,8 +352,12 @@ type EntityState struct {
 	CraftingProgress float64                   `json:"crafting_progress"`
 	Burning          string                    `json:"burning"`
 	RemainingFuel    float64                   `json:"remaining_fuel"`
-	Network          int                       `json:"network,omitempty"` // электросеть (0 — нет)
-	Belt             map[string]int            `json:"belt,omitempty"`    // что лежит на ленте
+	Network          int                       `json:"network,omitempty"`   // электросеть (0 — нет)
+	Belt             map[string]int            `json:"belt,omitempty"`      // что лежит на ленте
+	UGType           string                    `json:"ug_type,omitempty"`   // подземка: input/output
+	UGPaired         bool                      `json:"ug_paired,omitempty"` // у подземки есть пара
+	Fluids           map[string]float64        `json:"fluids,omitempty"`    // жидкости в ящиках
+	I                int                       `json:"i,omitempty"`         // номер в запросе GetEntities (с 1)
 }
 
 // Count — сколько предмета во всех инвентарях сущности.
@@ -342,4 +373,28 @@ func (s *EntityState) Count(item string) int {
 func (b *Bridge) GetEntity(name string, pos Pos) (*EntityState, error) {
 	var e *EntityState
 	return e, b.Call("get_entity", map[string]any{"name": name, "position": pos}, &e)
+}
+
+// EntityRef — постройка по имени и месту.
+type EntityRef struct {
+	Name     string `json:"name"`
+	Position Pos    `json:"position"`
+}
+
+// GetEntities — GetEntity пакетом: ответ по порядку refs, nil — нет.
+func (b *Bridge) GetEntities(refs []EntityRef) ([]*EntityState, error) {
+	res := make([]*EntityState, len(refs))
+	if len(refs) == 0 {
+		return res, nil
+	}
+	var got List[EntityState]
+	if err := b.Call("get_entities", map[string]any{"list": refs}, &got); err != nil {
+		return nil, err
+	}
+	for i := range got {
+		if k := got[i].I - 1; k >= 0 && k < len(res) {
+			res[k] = &got[i]
+		}
+	}
+	return res, nil
 }

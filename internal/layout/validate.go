@@ -96,6 +96,22 @@ func (l *Layout) Validate() []string {
 			if !ok {
 				add("подземная лента %v %s: нет выхода в пределах %d", t, DirName(pl.Dir), max)
 			}
+		case e.Type == "pipe-to-ground":
+			// подземная часть — в сторону, противоположную наземному соединению; пара смотрит навстречу
+			t := world.TileOf(pl.Pos)
+			d := (pl.Dir + 8) % 16
+			ok := false
+			cur := t
+			for k := 1; k <= e.MaxUndergroundDistance+1; k++ {
+				cur = Step(cur, d)
+				if n := l.At(cur); n != nil && n.Name == pl.Name && n.Dir == d {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				add("подземная труба %v %s: нет пары", t, DirName(pl.Dir))
+			}
 		case e.Type == "inserter":
 			pick, drop := InserterEnds(l.P, pl)
 			if l.At(pick) == nil {

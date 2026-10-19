@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
 	"factorio-bot/internal/world"
 
@@ -27,7 +28,7 @@ func (g Built) String() string {
 	return fmt.Sprintf("построить %s (%d построек)", g.Tag, len(g.List))
 }
 func (g Built) Satisfied(s *State) bool {
-	if len(g.missing(s)) > 0 || len(g.unfueled(s)) > 0 {
+	if len(g.missing(s)) > 0 || len(g.unfueled(s)) > 0 || len(g.empty(s)) > 0 {
 		return false
 	}
 	for i, p := range g.List {
@@ -36,6 +37,9 @@ func (g Built) Satisfied(s *State) bool {
 			return false
 		}
 		if p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
+			return false
+		}
+		if p.Name == "underground-belt" && (o.UGType != "" && o.UGType != p.Recipe || o.Dir != nil && *o.Dir != p.Dir) {
 			return false
 		}
 	}
@@ -50,6 +54,8 @@ func fuelFor(s *State, entity string) int {
 		return 20
 	case "mining-drill":
 		return 10
+	case "container": // сундук-кормушка с углём-сырьём (пластик: 9 угля/мин — ≈45 мин)
+		return 400
 	}
 	return 5
 }
@@ -58,10 +64,19 @@ func fuelFor(s *State, entity string) int {
 func (g Built) unfueled(s *State) []string {
 	var res []string
 	for i, p := range g.List {
+		role := BuildRole(g.Tag, i)
+		// уголь — сырьё рецепта (пластик): пустой сундук-кормушка — наполнить
+		if eatsCoal(s, p.Recipe) {
+			if o := s.Role(role); o != nil && o.Status != "working" {
+				if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") == 0 {
+					res = append(res, ch.Role)
+				}
+			}
+			continue
+		}
 		if s.Protos.Entities[p.Name].Burner == nil {
 			continue
 		}
-		role := BuildRole(g.Tag, i)
 		if o := s.Role(role); o != nil && len(o.Inv["fuel"]) == 0 && o.Status != "working" && !g.selfFed(s, o) {
 			if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") > 0 {
 				continue // кормится из сундука
@@ -108,7 +123,7 @@ func sameDir(s *State, entity string, a, b int) bool {
 // rotatable — направление важно и меняется клавишей R (помпу игра ставит к воде сама).
 func rotatable(s *State, entity string) bool {
 	switch s.Protos.Entities[entity].Type {
-	case "mining-drill", "inserter", "transport-belt", "underground-belt", "splitter", "boiler", "generator":
+	case "mining-drill", "inserter", "transport-belt", "splitter", "boiler", "generator", "pipe-to-ground":
 		return true
 	}
 	return false
@@ -116,10 +131,10 @@ func rotatable(s *State, entity string) bool {
 
 // chestFeedTarget — сколько угля держать в сундуке-кормушке (бойлер на малой нагрузке
 // жжёт мало — хватает надолго).
-const chestFeedTarget = 100
+const chestFeedTarget = 300
 
-// feeders — постройки, которые кормятся углём из сундука через инсертер: роль постройки →
-// роль сундука (по геометрии инсертеров).
+// feeders — постройки, которые кормятся углём из сундука через инсертер (топливо или
+// сырьё рецепта — пластик): роль постройки → роль сундука (по геометрии инсертеров).
 func feeders(s *State) map[string]string {
 	res := map[string]string{}
 	at := func(t world.Tile) *Owned {
@@ -142,11 +157,56 @@ func feeders(s *State) map[string]string {
 		}
 		pick, drop := layout.InserterEnds(s.Protos, layout.Placement{Name: o.Name, Pos: o.Pos, Dir: *o.Dir})
 		src, dst := at(pick), at(drop)
-		if src != nil && dst != nil && src.Name == Chest && s.Protos.Entities[dst.Name].Burner != nil {
+		if src != nil && dst != nil && src.Name == Chest && (s.Protos.Entities[dst.Name].Burner != nil || eatsCoal(s, dst.Recipe)) {
 			res[dst.Role] = src.Role
 		}
 	}
 	return res
+}
+
+// supplyTarget — сколько держать в сундуке снабжения (Placement.Recipe — предмет): его
+// наполняет бот (пластик, сера, сталь для синей науки), подливает, когда меньше четверти.
+const supplyTarget = 100
+
+// empty — сундуки снабжения раскладки, где предмета нет совсем.
+func (g Built) empty(s *State) []string {
+	var res []string
+	for i, p := range g.List {
+		if p.Name != Chest || p.Recipe == "" {
+			continue
+		}
+		if o := s.Role(BuildRole(g.Tag, i)); o != nil && o.In("chest", p.Recipe) == 0 {
+			res = append(res, o.Role)
+		}
+	}
+	return res
+}
+
+// supply — подлить в сундуки снабжения, где меньше четверти.
+func (g Built) supply(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	for i, p := range g.List {
+		if p.Name != Chest || p.Recipe == "" {
+			continue
+		}
+		o := s.Role(BuildRole(g.Tag, i))
+		if o == nil || o.In("chest", p.Recipe) >= supplyTarget/4 {
+			continue
+		}
+		if pr, err := sub(pl, s, c, Supplied{o.Role, p.Recipe, supplyTarget}); pr != nil || err != nil {
+			return pr, err
+		}
+	}
+	return nil, nil
+}
+
+// eatsCoal — рецепт берёт уголь как сырьё.
+func eatsCoal(s *State, recipe string) bool {
+	for _, in := range s.Protos.Recipes[recipe].Ingredients {
+		if in.Name == "coal" {
+			return true
+		}
+	}
+	return false
 }
 
 // selfFed — бур угольной пары: заправляет его сосед, пока у пары есть уголь.
@@ -175,15 +235,39 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 				}
 			}
 		}
+		// подземка не того типа или не туда (спарилась не с той) — пересобрать; сначала
+		// входы: выход встаёт парой только к правильному входу
+		for pass := 0; pass < 2; pass++ {
+			for i, p := range g.List {
+				if p.Name != "underground-belt" || (p.Recipe == "input") != (pass == 0) {
+					continue
+				}
+				role := BuildRole(g.Tag, i)
+				if o := s.Role(role); o != nil && (o.UGType != "" && o.UGType != p.Recipe || o.Dir != nil && *o.Dir != p.Dir) {
+					pr := c.prim(Primitive{Kind: "rebuild", Item: s.Protos.ItemFor(p.Name), Dir: p.Dir, Spots: []bridge.Pos{p.Pos}, Roles: []string{role}})
+					if !pl.banned(pr.Key()) {
+						return pr, nil
+					}
+				}
+			}
+		}
 		// сборщик без нужного рецепта — задать
 		for i, p := range g.List {
 			role := BuildRole(g.Tag, i)
 			if o := s.Role(role); o != nil && p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
+				if !s.Av.Recipe(p.Recipe) { // рецепт ещё закрыт — сначала технология
+					if t := s.Protos.TechFor(p.Recipe); t != "" {
+						return sub(pl, s, c, Researched{Tech: t, Site: "science"})
+					}
+				}
 				pr := c.prim(Primitive{Kind: "recipe", Role: role, Recipe: p.Recipe})
 				if !pl.banned(pr.Key()) {
 					return pr, nil
 				}
 			}
+		}
+		if p, err := g.supply(pl, s, c); p != nil || err != nil {
+			return p, err
 		}
 		return g.fuel(pl, s, c)
 	}
@@ -232,13 +316,24 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	})
 	for _, k := range keys {
 		idx := g.order(groups[k])
-		p := c.prim(Primitive{Kind: "build", Item: s.Protos.ItemFor(k.name), Dir: k.dir, Area: g.area(s)})
-		for _, i := range idx {
-			p.Spots = append(p.Spots, g.List[i].Pos)
-			p.Roles = append(p.Roles, BuildRole(g.Tag, i))
+		// подземки — парами «вход, его выход» отдельными шагами: игра делает выходом
+		// подземку после непарного входа в пределах дальности — чужой вход рядом спутает
+		chunks := [][]int{idx}
+		if k.name == "underground-belt" {
+			chunks = nil
+			for a := 0; a < len(idx); a += 2 {
+				chunks = append(chunks, idx[a:min(a+2, len(idx))])
+			}
 		}
-		if !pl.banned(p.Key()) {
-			return p, nil
+		for _, ch := range chunks {
+			p := c.prim(Primitive{Kind: "build", Item: s.Protos.ItemFor(k.name), Dir: k.dir, Area: g.area(s)})
+			for _, i := range ch {
+				p.Spots = append(p.Spots, g.List[i].Pos)
+				p.Roles = append(p.Roles, BuildRole(g.Tag, i))
+			}
+			if !pl.banned(p.Key()) {
+				return p, nil
+			}
 		}
 	}
 	// всё оставшееся временно забанено (место было занято) — подождать, пока баны истекут
@@ -331,6 +426,11 @@ func (g Built) area(s *State) *bridge.Box {
 			b.RightBottom.X, b.RightBottom.Y = math.Max(b.RightBottom.X, float64(t.X+1)), math.Max(b.RightBottom.Y, float64(t.Y+1))
 		}
 	}
+	// вытянутая раскладка (лента на сотни тайлов, линия столбов): «выйти с площадки» —
+	// уйти за край карты; там замуровать себя нечем — не выходить
+	if b.RightBottom.X-b.LeftTop.X > 60 || b.RightBottom.Y-b.LeftTop.Y > 60 {
+		return nil
+	}
 	return &b
 }
 
@@ -363,13 +463,27 @@ func (g Site) Satisfied(s *State) bool {
 	return ok && b.Satisfied(s)
 }
 
+// siteResource — раскладка ставится на ресурс, которого может не быть на открытой карте.
+var siteResource = map[string]string{"oil": "crude-oil", "oil-jacks": "crude-oil"}
+
 func (g Site) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if s.Design == nil {
 		return nil, fmt.Errorf("plan: %s: негде проектировать", g.Kind)
 	}
+	if r := siteResource[g.Kind]; r != "" && s.Minable != nil && !s.Minable(r) {
+		return c.prim(Primitive{Kind: "explore", Item: r}), nil
+	}
 	b, ok := s.Design(s, g.Kind)
 	if !ok {
 		return nil, fmt.Errorf("plan: %s: нет места", g.Kind)
+	}
+	// потребитель — мощности заранее: не хватает с запасом — сначала станция
+	if !strings.HasPrefix(g.Kind, "power-") && !b.Satisfied(s) {
+		if kind := powerShort(s, nil); kind != "" && kind != g.Kind {
+			if p, err := sub(pl, s, c, Site{kind}); p != nil || err != nil {
+				return p, err
+			}
+		}
 	}
 	return sub(pl, s, c, b)
 }

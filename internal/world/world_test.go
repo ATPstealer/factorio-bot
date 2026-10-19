@@ -168,3 +168,44 @@ func TestCliffBox(t *testing.T) {
 		t.Error("рамка утёса шире, чем в игре, или утёс считается деревом")
 	}
 }
+
+// Квадраты разведки: открыто ±3 чанка — идти по кольцу 3+3, вглубь неизвестного.
+func TestExploreRing(t *testing.T) {
+	w := New(nil)
+	for x := -3; x <= 3; x++ {
+		for y := -3; y <= 3; y++ {
+			w.Chunks[bridge.ChunkPos{X: x, Y: y}] = &Chunk{}
+		}
+	}
+	if r, pts := w.ExploreRing(3, 100, nil); r != 7 || len(pts) != 8*7 {
+		t.Errorf("кольцо %d, точек %d; ждали 7 и 56", r, len(pts))
+	}
+}
+
+// Кольцо своих труб: изнутри наружу пути нет; без одной трубы — есть.
+func TestWithoutOpensRing(t *testing.T) {
+	w := New(nil)
+	var ents []bridge.ScanEntity
+	for i := 5; i <= 15; i++ {
+		for _, p := range [][2]int{{i, 5}, {i, 15}, {5, i}, {15, i}} {
+			ents = append(ents, bridge.ScanEntity{Name: "pipe", Type: "pipe", X: float64(p[0]) + 0.5, Y: float64(p[1]) + 0.5, Own: true})
+		}
+	}
+	w.Apply([]bridge.ChunkScan{chunk00(nil, ents)})
+	in, out := bridge.Pos{X: 10.5, Y: 10.5}, bridge.Pos{X: 25.5, Y: 10.5}
+	if _, err := w.Route(in, out, 0.5, 0, 0); err == nil {
+		t.Fatal("из кольца есть путь")
+	}
+	var o Object
+	for _, x := range w.ObjectsNear(bridge.Pos{X: 15.5, Y: 10.5}, 0.1) {
+		o = x
+	}
+	ok := false
+	w.Without(o, func() { _, err := w.Route(in, out, 0.5, 0, 0); ok = err == nil })
+	if !ok {
+		t.Error("без трубы пути нет")
+	}
+	if _, err := w.Route(in, out, 0.5, 0, 0); err == nil {
+		t.Error("труба не вернулась")
+	}
+}

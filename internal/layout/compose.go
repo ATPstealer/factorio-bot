@@ -29,6 +29,25 @@ func nearestPatch(w *world.World, ore string, from bridge.Pos, minTiles int) (wo
 	return world.Patch{}, false
 }
 
+// mineNearest — шахта на ближайшем к from месторождении ore, где она помещается (ближнее
+// может быть уже занято своими постройками).
+func (l *Layout) mineNearest(ore string, from bridge.Pos, minTiles int, drill string, drills int, tag string) (MineResult, error) {
+	ps := l.W.Patches()
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].Distance(from) < ps[j].Distance(from) })
+	err := fmt.Errorf("layout: не видно месторождения %s", ore)
+	for _, p := range ps {
+		if p.Name != ore || len(p.Tiles) < minTiles {
+			continue
+		}
+		mr, e := l.Mine(p.Tiles, ore, drill, drills, tag)
+		if e == nil {
+			return mr, nil
+		}
+		err = e
+	}
+	return MineResult{}, err
+}
+
 // Demo — критерий стадии 6: шахты железа, меди и угля, две колонны плавки, блок красной
 // науки (n пар сборщиков), паровая станция и столбы; всё связано лентами.
 // Буры — burner (без электричества), сборщики — assembling-machine-1.
@@ -68,11 +87,7 @@ func (l *Layout) Demo(from bridge.Pos, pairs int) (DemoResult, error) {
 	for _, ore := range []string{"iron-ore", "copper-ore"} {
 		furnaces := int(math.Ceil(need[ore]/furnaceRate - 1e-9))
 		drills := int(math.Ceil(need[ore]/drillRate - 1e-9))
-		pt, ok := nearestPatch(l.W, ore, from, 30)
-		if !ok {
-			return res, fmt.Errorf("layout: не видно месторождения %s", ore)
-		}
-		mr, err := l.Mine(pt.Tiles, ore, drill, drills, "mine:"+ore)
+		mr, err := l.mineNearest(ore, from, 30, drill, drills, "mine:"+ore)
 		if err != nil {
 			return res, err
 		}
@@ -94,12 +109,8 @@ func (l *Layout) Demo(from bridge.Pos, pairs int) (DemoResult, error) {
 		}
 		delete(l.Reserved, side)
 		// уголь: своя маленькая шахта, лента сбоку во вход плавильни (на другую полосу)
-		cp, ok := nearestPatch(l.W, "coal", world.Tile{X: lt.X, Y: lt.Y}.Center(), 10)
-		if !ok {
-			return res, fmt.Errorf("layout: не видно угля")
-		}
 		// топливо: печи + инсертеры — немного; 1–2 бура хватает
-		cm, err := l.Mine(cp.Tiles, "coal", drill, 2, "mine:coal:"+ore)
+		cm, err := l.mineNearest("coal", world.Tile{X: lt.X, Y: lt.Y}.Center(), 10, drill, 2, "mine:coal:"+ore)
 		if err != nil {
 			return res, err
 		}

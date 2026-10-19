@@ -156,6 +156,9 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 		})
 		for _, i := range here {
 			pos := positions[i]
+			// выход подземки (позади — свой непарный вход туда же): обычно игра сама делает
+			// поставленную выходом и спаривает; не вышло — см. ugExit ниже
+			want, exit := dir, h.ugExitBehind(it.PlaceResult, pos, dir)
 			if err := h.Pick(ctx, item); err != nil {
 				return built, err
 			}
@@ -167,6 +170,16 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 				}
 				e, err = h.clickBuild(ctx, it.PlaceResult, pos)
 			}
+			if pe := h.Protos.Entities[it.PlaceResult]; errors.Is(err, ErrPlace) && pe.TileWidth != pe.TileHeight {
+				// прямоугольная в руке повёрнута поперёк — может задевать воду/соседей:
+				// повернуть руку (R) и снова; направление поправит replace ниже
+				for k := 0; k < 3 && errors.Is(err, ErrPlace); k++ {
+					if err := h.In.Tap("r"); err != nil {
+						return built, err
+					}
+					e, err = h.clickBuild(ctx, it.PlaceResult, pos)
+				}
+			}
 			if errors.Is(err, ErrPlace) {
 				// место временно занято — остальные ставить, это — потом (вернём ошибку)
 				failed = append(failed, pos)
@@ -176,16 +189,23 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 			if err != nil {
 				return built, err
 			}
-			if w, hh := h.Protos.Entities[e.Name].TileWidth, h.Protos.Entities[e.Name].TileHeight; w != hh && e.Direction != nil && *e.Direction%8 != dir%8 {
-				// прямоугольная встала поперёк (рука была повёрнута иначе): поворот на месте
-				// сдвинет центр — поднять, довернуть руку, поставить снова
-				if e, err = h.replace(ctx, item, e, pos, dir); err != nil {
+			w, hh := h.Protos.Entities[e.Name].TileWidth, h.Protos.Entities[e.Name].TileHeight
+			ug := h.Protos.Entities[e.Name].Type == "underground-belt"
+			if e.Direction != nil && (w != hh && *e.Direction%8 != want%8 || ug && !exit && *e.Direction != want) {
+				// прямоугольная встала поперёк (поворот на месте сдвинет центр) или подземка
+				// не туда (R у подземки меняет вход/выход) — поднять, довернуть руку, поставить
+				if e, err = h.replace(ctx, item, e, pos, want); err != nil {
+					return built, err
+				}
+			}
+			if exit {
+				if e, err = h.ugExit(ctx, item, e, pos, dir); err != nil {
 					return built, err
 				}
 			}
 			built[i] = e
 			left = removeInt(left, i)
-			if e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
+			if !exit && e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
 				misrotated = append(misrotated, i)
 				// довернуть предмет в руке: R — 90° по часовой (шаг 4)
 				for k := ((dir-*e.Direction)/4%4 + 4) % 4; k > 0; k-- {
@@ -273,7 +293,8 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 	if err := h.Pick(ctx, item); err != nil {
 		return e, err
 	}
-	for k := ((dir-*e.Direction)/4%4 + 4) % 4; k > 0; k-- {
+	// взятый в руку предмет смотрит на север (поворот сбрасывается) — R до dir
+	for k := dir / 4; k > 0; k-- {
 		if err := h.In.Tap("r"); err != nil {
 			return e, err
 		}
@@ -407,17 +428,33 @@ func held(p bridge.Player, item string) int {
 var zInterval = 120 * time.Millisecond
 
 // Insert кладёт n предметов в сущность: предмет в руку → навести → Z n раз
-// (каждое нажатие — ровно один предмет). Проверка — у игрока стало на n меньше.
+// (каждое нажатие — ровно один предмет); почти всё, что есть, — Ctrl+клик (может лечь
+// чуть больше n). Проверка — у игрока стало на n меньше.
 func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int) error {
 	p0, err := h.B.Player()
 	if err != nil {
 		return err
 	}
-	if n >= held(p0, item) {
-		// положить всё — Ctrl+клик: кладётся максимум возможного одним действием
+	if n*5 >= held(p0, item)*4 {
+		// положить всё или почти всё (≥ 80%) — Ctrl+клик: кладётся максимум возможного одним
+		// действием; удержание Z кладёт по одному — 200 угля ≈ 2 минуты
 		got, err := h.InsertAll(ctx, e, item)
 		if err != nil {
 			return err
+		}
+		// Ctrl+клик бывает кладёт одну пачку (рука) — ещё, пока кладётся
+		for k := 0; k < 4 && got < n; k++ {
+			if q, err := h.B.Player(); err != nil || held(q, item) == 0 {
+				break
+			}
+			more, err := h.InsertAll(ctx, e, item)
+			if err != nil {
+				return err
+			}
+			if more == 0 {
+				break
+			}
+			got += more
 		}
 		if got < n {
 			return fmt.Errorf("act: в %s положено %s ×%d из %d (полон?)", e.Name, item, got, n)
@@ -675,8 +712,10 @@ func (h *Hands) Drop(ctx context.Context, item string, pos bridge.Pos) (bridge.E
 	if err := sleep(ctx, 60*time.Millisecond); err != nil {
 		return bridge.Entity{}, err
 	}
-	// под курсором постройка — Z положит в неё; руда и предметы на земле — не мешают
-	if p, _ := h.B.Player(); p.Selected != nil && p.Selected.Type != "resource" && p.Selected.Type != "item-entity" {
+	// под курсором постройка — Z положит в неё; руда, предметы на земле, деревья и камни
+	// (крона накрывает соседний тайл; инвентаря нет — Z бросит на землю) — не мешают
+	noInv := map[string]bool{"resource": true, "item-entity": true, "tree": true, "simple-entity": true, "cliff": true, "fish": true}
+	if p, _ := h.B.Player(); p.Selected != nil && !noInv[p.Selected.Type] {
 		h.ClearCursor(ctx)
 		return bridge.Entity{}, fmt.Errorf("act: в (%.1f, %.1f) под курсором %s — Z положил бы в него", pos.X, pos.Y, p.Selected.Name)
 	}
@@ -843,4 +882,83 @@ func (h *Hands) LeaveArea(ctx context.Context, a bridge.Box) error {
 	}
 	h.Say("выхожу с площадки стройки")
 	return h.WalkTo(ctx, spot, 0.5)
+}
+
+// ugExitBehind — позади pos (против dir, в пределах дальности) свой непарный вход подземки
+// entity, смотрящий в dir: подземка в pos — его выход.
+func (h *Hands) ugExitBehind(entity string, pos bridge.Pos, dir int) bool {
+	e := h.Protos.Entities[entity]
+	if e.Type != "underground-belt" {
+		return false
+	}
+	v := map[int][2]float64{0: {0, -1}, 4: {1, 0}, 8: {0, 1}, 12: {-1, 0}}[dir]
+	dx, dy := v[0], v[1]
+	for k := 1; k <= e.MaxUndergroundDistance; k++ {
+		q := bridge.Pos{X: pos.X - dx*float64(k), Y: pos.Y - dy*float64(k)}
+		st, err := h.B.GetEntity(entity, q)
+		if err != nil || st == nil {
+			continue
+		}
+		return st.Own && st.UGType == "input" && !st.UGPaired && st.Direction != nil && *st.Direction == dir
+	}
+	return false
+}
+
+// ugExit — подземка в pos должна быть выходом (dir) парой к входу позади. Игра обычно
+// делает её выходом сама; не вышло — перебрать направление руки (поднять, R, поставить):
+// встала выходом по ходу — готово; входом навстречу (пара сложилась наоборот) — R
+// переворачивает пару.
+func (h *Hands) ugExit(ctx context.Context, item string, e bridge.Entity, pos bridge.Pos, dir int) (bridge.Entity, error) {
+	state := func() (*bridge.EntityState, error) { return h.B.GetEntity(e.Name, pos) }
+	for try := 0; try < 5; try++ {
+		st, err := state()
+		if err != nil {
+			return e, err
+		}
+		if st != nil && st.Direction != nil && st.UGPaired {
+			switch {
+			case st.UGType == "output" && *st.Direction == dir:
+				d := dir
+				e.Direction = &d
+				return e, nil
+			case st.UGType == "input" && *st.Direction == (dir+8)%16:
+				if err := h.ClearCursor(ctx); err != nil {
+					return e, err
+				}
+				if err := h.Rotate(ctx, e, dir); err != nil {
+					return e, err
+				}
+				continue
+			}
+		}
+		if try == 4 {
+			break
+		}
+		if try == 0 {
+			h.Say("подземка не спарилась — перебираю направление руки")
+		}
+		if st != nil {
+			if err := h.Pickup(ctx, e); err != nil {
+				return e, err
+			}
+		}
+		if err := h.Pick(ctx, item); err != nil {
+			return e, err
+		}
+		// поворот предмета в руке при взятии сбрасывается — на попытке k жать R k раз
+		for k := 0; k <= try; k++ {
+			if err := h.In.Tap("r"); err != nil {
+				return e, err
+			}
+		}
+		if err := sleep(ctx, inputLatency); err != nil {
+			return e, err
+		}
+		ne, err := h.clickBuild(ctx, e.Name, pos)
+		if err != nil {
+			return e, err
+		}
+		e = ne
+	}
+	return e, fmt.Errorf("act: подземка в (%.1f, %.1f) не встала выходом", pos.X, pos.Y)
 }

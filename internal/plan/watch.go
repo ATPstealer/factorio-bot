@@ -96,14 +96,40 @@ func Diagnose(s *State) []Problem {
 		res = append(res, p)
 	}
 	// кормушка бойлера пуста — заполнить (бойлер с электроинсертером без неё встанет)
+	// Угля не напасёшься (бойлеры съедают 100 за минуты), а шахты нет — пока в кормушке
+	// что-то есть, исправление — шахта; пустая — долить немного; шахта есть — до полного
+	// лента угля к кормушкам — лучше шахты с сундуками (бот не возит совсем)
+	mine := Goal(nil)
+	if s.Design != nil && s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
+		for _, kind := range []string{"coal-belt", "coal-mine"} {
+			if b, ok := s.Design(s, kind); ok {
+				if !b.Satisfied(s) {
+					mine = Site{kind}
+				}
+				break
+			}
+		}
+	}
 	for burner, chest := range feed {
 		if ch := s.Role(chest); ch != nil && ch.In("chest", "coal") < chestFeedTarget/4 && s.Protos.Entities[s.Role(burner).Name].Type == "boiler" {
-			res = append(res, Problem{Key: "feed:" + chest, Role: chest, What: "кормушка " + chest + " почти пуста", Fix: Supplied{chest, "coal", chestFeedTarget}})
+			p := Problem{Key: "feed:" + chest, Role: chest, What: "кормушка " + chest + " почти пуста", Fix: FeedRound{}}
+			switch {
+			case mine != nil && ch.In("chest", "coal") > 0:
+				p.Cause, p.Fix = "угольной шахты нет", mine
+			case mine != nil:
+				p.Fix = Supplied{chest, "coal", chestFeedTarget / 3} // угля мало — немного, срочно
+			}
+			res = append(res, p)
 		}
 	}
 
 	// burner-постройки без топлива (кроме угольных пар — живут сами; кормящихся из
 	// сундука — если в сундуке есть)
+	round, _, _, _ := refuelPlan(s)
+	inRound := map[string]bool{}
+	for _, r := range round.Roles {
+		inRound[r] = true
+	}
 	for _, o := range byStatus["no_fuel"] {
 		if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" {
 			continue
@@ -114,7 +140,12 @@ func Diagnose(s *State) []Problem {
 		if s.Protos.Entities[o.Name].Type == "boiler" {
 			continue // это — в «нет питания»
 		}
-		res = append(res, Problem{Key: "fuel:" + o.Role, Role: o.Role, What: o.Role + " без топлива", Fix: Supplied{o.Role, "coal", fuelFor(s, o.Name)}})
+		// в общем обходе — обходом (все разом), иначе с запасом (до полного слота)
+		var fix Goal = Supplied{o.Role, "coal", fuelCap(s, o.Name)}
+		if inRound[o.Role] {
+			fix = FeedRound{}
+		}
+		res = append(res, Problem{Key: "fuel:" + o.Role, Role: o.Role, What: o.Role + " без топлива", Fix: fix})
 	}
 
 	// лаборатории ждут науку, а исследование идёт — проследить цепочку вверх

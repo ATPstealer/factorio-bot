@@ -2,6 +2,7 @@ package plan
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -73,12 +74,17 @@ func (g Start) Satisfied(s *State) bool {
 		return false
 	}
 	for _, tag := range StartModules {
+		if s.exhausted(tag) {
+			continue
+		}
 		if site, ok := s.Design(s, tag); ok && !site.Satisfied(s) {
 			return false
 		}
 	}
 	return true
 }
+
+func (s *State) exhausted(tag string) bool { return s.Exhausted != nil && s.Exhausted(tag) }
 
 func (g Start) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	// добыча руками в статистику производства не попадает — этапы отмечаются в Done
@@ -95,6 +101,9 @@ func (g Start) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		return p, err
 	}
 	for _, tag := range StartModules {
+		if s.exhausted(tag) {
+			continue // руда под буром кончилась — точка закрыта
+		}
 		site, ok := s.Design(s, tag)
 		if !ok {
 			continue // нет места/месторождения — следующая
@@ -155,49 +164,17 @@ func (g HaveItem) fromOutposts(pl *Planner, s *State, c *ctx, lack int) (*Primit
 // refuelRound — дозаправить свои burner-постройки (кроме угольных пар — они сами) одним
 // обходом: набрать уголь на всех разом и разнести маршрутом.
 func refuelRound(pl *Planner, s *State, c *ctx) (*Primitive, error) {
-	// обход — когда у кого-то меньше четверти минимума; доливаем всем, у кого меньше трёх
-	// четвертей; угля в инвентаре много — сверх минимума поровну, до полного слота
-	p := c.prim(Primitive{Kind: "refuel", Item: "coal"})
-	var caps []int
-	need, low := 0, false
-	feed := feeders(s)
-	fedBy := map[string]bool{}
-	for burner, chest := range feed {
-		if ch := s.Role(chest); ch != nil {
-			have := ch.In("chest", "coal")
-			if b := s.Role(burner); have > 0 || b == nil || len(b.Inv["fuel"]) > 0 || b.Status == "working" {
-				fedBy[burner] = true // пустую пару «сундук + бойлер» — заправить бойлер напрямую
-			}
-			low = low || have < chestFeedTarget/4
-			if have < chestFeedTarget*3/4 {
-				p.Roles = append(p.Roles, chest)
-				p.Ns = append(p.Ns, chestFeedTarget-have)
-				caps = append(caps, chestFeedTarget*2-have)
-				need += chestFeedTarget - have
+	// кормушки бойлеров есть, электробуры открыты — сначала угольная шахта: угля много
+	// и сразу (угольные пары не успевают за станцией)
+	if len(feeders(s)) > 0 && s.Protos.EntityAvailable("electric-mining-drill", s.Av) && s.Design != nil {
+		if _, ok := s.Design(s, "coal-mine"); ok { // нет места/угля — по-старому
+			if p, err := sub(pl, s, c, Site{"coal-mine"}); p != nil || err != nil {
+				return p, err
 			}
 		}
 	}
-	for _, o := range s.Owned {
-		if fedBy[o.Role] {
-			continue
-		}
-		if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" || s.Protos.Entities[o.Name].Burner == nil {
-			continue
-		}
-		// ручная плавильня и площадки/линии старых целей — у них своя заправка
-		if o.Role == "smelter" || strings.HasPrefix(o.Role, "mine-") || strings.HasPrefix(o.Role, "smelt-") {
-			continue
-		}
-		full := fuelFor(s, o.Name)
-		have := o.In("fuel", "coal")
-		low = low || have < full/4
-		if have < full*3/4 {
-			p.Roles = append(p.Roles, o.Role)
-			p.Ns = append(p.Ns, full-have)
-			caps = append(caps, fuelCap(s, o.Name)-have)
-			need += full - have
-		}
-	}
+	plan, caps, need, low := refuelPlan(s)
+	p := c.prim(plan)
 	if !low || pl.banned(p.Key()) {
 		return nil, nil
 	}
@@ -246,4 +223,111 @@ func spreadExtra(ns, caps []int, extra int) {
 			}
 		}
 	}
+}
+
+// refuelPlan — обход дозаправки: кого и сколько (кормушки бойлеров и burner-постройки),
+// low — у кого-то меньше четверти: пора.
+func refuelPlan(s *State) (p Primitive, caps []int, need int, low bool) {
+	// обход — когда у кого-то меньше четверти минимума; доливаем всем, у кого меньше трёх
+	// четвертей; угля в инвентаре много — сверх минимума поровну, до полного слота
+	p = Primitive{Kind: "refuel", Item: "coal"}
+	// обход — когда пустой кто-то или ниже четверти хотя бы пятая часть (по одной печи
+	// ходить через каждые несколько минут — дорого)
+	lowN, total, empty := 0, 0, false
+	count := func(isLow, isEmpty bool) {
+		total++
+		if isLow {
+			lowN++
+		}
+		empty = empty || isEmpty
+	}
+	rich := false
+	for _, o := range s.Owned {
+		rich = rich || strings.HasPrefix(o.Role, "coal-mine-")
+	}
+	feed := feeders(s)
+	fedBy := map[string]bool{}
+	for burner, chest := range feed {
+		if b := s.Role(burner); b == nil || s.Protos.Entities[b.Name].Burner == nil {
+			continue // уголь — сырьё рецепта (пластик у нефти): его заправляет стройка нефти
+		}
+		if ch := s.Role(chest); ch != nil {
+			have := ch.In("chest", "coal")
+			if b := s.Role(burner); have > 0 || b == nil || len(b.Inv["fuel"]) > 0 || b.Status == "working" {
+				fedBy[burner] = true // пустую пару «сундук + бойлер» — заправить бойлер напрямую
+			}
+			count(have < chestFeedTarget/4, have == 0)
+			if have < chestFeedTarget*3/4 {
+				p.Roles = append(p.Roles, chest)
+				p.Ns = append(p.Ns, chestFeedTarget-have)
+				caps = append(caps, chestFeedTarget*2-have)
+				need += chestFeedTarget - have
+			}
+		}
+	}
+	for _, o := range s.Owned {
+		if fedBy[o.Role] {
+			continue
+		}
+		if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" || s.Protos.Entities[o.Name].Burner == nil {
+			continue
+		}
+		// ручная плавильня и площадки/линии старых целей — у них своя заправка
+		if o.Role == "smelter" || strings.HasPrefix(o.Role, "mine-") || strings.HasPrefix(o.Role, "smelt-") {
+			continue
+		}
+		// угольная шахта есть — до полного слота (печь: 50 угля ≈ 37 мин): обходы реже,
+		// но крупнее; на старте угля мало — по минимуму
+		full := fuelFor(s, o.Name)
+		if rich {
+			full = fuelCap(s, o.Name)
+		}
+		have := o.In("fuel", "coal")
+		count(have < full/4, have == 0 && o.Status != "working")
+		if have < full*3/4 {
+			p.Roles = append(p.Roles, o.Role)
+			p.Ns = append(p.Ns, full-have)
+			caps = append(caps, fuelCap(s, o.Name)-have)
+			need += full - have
+		}
+	}
+	low = empty || lowN > 0 && lowN*5 >= total
+	// за один обход — сколько унести (уголь не влезет — бот добирает по 5 бесконечно):
+	// самые пустые первыми
+	if need > maxRefuelCarry {
+		idx := make([]int, len(p.Roles))
+		for i := range idx {
+			idx[i] = i
+		}
+		sort.SliceStable(idx, func(a, b int) bool { return caps[idx[a]] > caps[idx[b]] })
+		q := Primitive{Kind: p.Kind, Item: p.Item}
+		var qc []int
+		need = 0
+		for _, i := range idx {
+			if need+p.Ns[i] > maxRefuelCarry && len(q.Roles) > 0 {
+				continue
+			}
+			q.Roles, q.Ns, qc = append(q.Roles, p.Roles[i]), append(q.Ns, p.Ns[i]), append(qc, caps[i])
+			need += p.Ns[i]
+		}
+		p, caps = q, qc
+	}
+	return p, caps, need, low
+}
+
+// maxRefuelCarry — угля за один обход дозаправки (16 слотов по 50).
+const maxRefuelCarry = 800
+
+// FeedRound — дозаправка одним обходом (исправление «кормушка почти пуста», когда уголь
+// есть): все кормушки и печи разом, а не по рейсу на каждую.
+type FeedRound struct{}
+
+func (g FeedRound) Key() string    { return "feed-round" }
+func (g FeedRound) String() string { return "дозаправить всех обходом" }
+func (g FeedRound) Satisfied(s *State) bool {
+	_, _, _, low := refuelPlan(s)
+	return !low
+}
+func (g FeedRound) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	return refuelRound(pl, s, c)
 }

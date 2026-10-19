@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"container/heap"
 	"math"
 
 	"factorio-bot/internal/world"
@@ -90,15 +91,15 @@ func (l *Layout) connectPoles(pole, tag string) int {
 	return added
 }
 
-// poleChain — столбы от a до b с наименьшим числом новых: поиск в ширину по местам под
+// poleChain — столбы от a до b с наименьшим числом новых: A* по местам под
 // столб (свободные тайлы и уже стоящие столбы), шаг — не длиннее провода. Провод идёт над
 // лентами и постройками, поэтому сплошной проход не нужен.
 func (l *Layout) poleChain(a, b Placement, pole, tag string) int {
 	wire := l.P.Entities[pole].MaxWireDistance - 0.3
 	R := int(wire)
 	start, goal := world.TileOf(a.Pos), world.TileOf(b.Pos)
-	minX, maxX := min(start.X, goal.X)-20, max(start.X, goal.X)+20
-	minY, maxY := min(start.Y, goal.Y)-20, max(start.Y, goal.Y)+20
+	minX, maxX := min(start.X, goal.X)-150, max(start.X, goal.X)+150
+	minY, maxY := min(start.Y, goal.Y)-150, max(start.Y, goal.Y)+150
 	spot := func(t world.Tile) bool {
 		if t.X < minX || t.X > maxX || t.Y < minY || t.Y > maxY {
 			return false
@@ -112,12 +113,16 @@ func (l *Layout) poleChain(a, b Placement, pole, tag string) int {
 	near := func(x, y world.Tile) bool {
 		return math.Hypot(float64(x.X-y.X), float64(x.Y-y.Y)) <= wire
 	}
+	// A*: цена — число столбов, оценка — оставшееся расстояние в длинах провода
+	h := func(t world.Tile) float64 {
+		return math.Hypot(float64(t.X-goal.X), float64(t.Y-goal.Y)) / wire // дробная: без «плато»
+	}
 	prev := map[world.Tile]world.Tile{start: start}
-	q := []world.Tile{start}
+	g := map[world.Tile]float64{start: 0}
+	q := &poleHeap{{start, h(start)}}
 	var end *world.Tile
-	for len(q) > 0 && end == nil && len(prev) < 60000 {
-		t := q[0]
-		q = q[1:]
+	for q.Len() > 0 && end == nil && len(prev) < 300000 {
+		t := heap.Pop(q).(poleNode).t
 		if near(t, goal) {
 			e := t
 			end = &e
@@ -130,7 +135,8 @@ func (l *Layout) poleChain(a, b Placement, pole, tag string) int {
 					continue
 				}
 				prev[n] = t
-				q = append(q, n)
+				g[n] = g[t] + 1
+				heap.Push(q, poleNode{n, g[n] + h(n)})
 			}
 		}
 	}
@@ -178,4 +184,22 @@ func maxComp(comp []int) int {
 		m = max(m, c+1)
 	}
 	return m
+}
+
+type poleNode struct {
+	t world.Tile
+	f float64
+}
+
+type poleHeap []poleNode
+
+func (h poleHeap) Len() int           { return len(h) }
+func (h poleHeap) Less(i, j int) bool { return h[i].f < h[j].f }
+func (h poleHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *poleHeap) Push(x any)        { *h = append(*h, x.(poleNode)) }
+func (h *poleHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
 }

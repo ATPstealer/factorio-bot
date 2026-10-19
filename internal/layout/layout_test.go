@@ -28,11 +28,11 @@ func pt(t *testing.T) *knowledge.Prototypes {
 }
 
 // synth — карта из чанков cw×ch (от (0,0)): суша; fill(x, y) → 'w' вода, 'i'/'c'/'k'/'s'
-// руда (железо/медь/уголь/камень), '.' суша.
+// руда (железо/медь/уголь/камень), 'o' нефть, '.' суша.
 func synth(t *testing.T, cw, ch int, fill func(x, y int) byte) *world.World {
 	t.Helper()
 	w := world.New(pt(t))
-	ores := map[byte]string{'i': "iron-ore", 'c': "copper-ore", 'k': "coal", 's': "stone"}
+	ores := map[byte]string{'i': "iron-ore", 'c': "copper-ore", 'k': "coal", 's': "stone", 'o': "crude-oil"}
 	var scans []bridge.ChunkScan
 	for cy := 0; cy < ch; cy++ {
 		for cx := 0; cx < cw; cx++ {
@@ -384,4 +384,410 @@ func TestScienceFactory(t *testing.T) {
 		}
 	}
 	t.Logf("%s", l.Summary())
+}
+
+// Зелёная наука к стоящей фабрике красной: ряды плавки, блок прямой подачи, ленты; наука —
+// сбоку сверху на ленту лабораторий (левая полоса; красная — правая); без ошибок.
+func TestGreenFactory(t *testing.T) {
+	w := synth(t, 5, 5, func(x, y int) byte {
+		switch {
+		case x >= 10 && x < 40 && y >= 10 && y < 30:
+			return 'i'
+		case x >= 90 && x < 110 && y >= 12 && y < 30:
+			return 'c'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	l.Anchors = []Placement{{Name: "small-electric-pole", Pos: bridge.Pos{X: 60.5, Y: 80.5}}}
+	if err := l.ScienceFactory(bridge.Pos{X: 55, Y: 40}, 4, 3, 2, 6); err != nil {
+		t.Fatal(err)
+	}
+	var labsIn *Placement
+	for i, p := range l.List {
+		if p.Tag == "labs" && p.Name == "transport-belt" && (labsIn == nil || p.Pos.X < labsIn.Pos.X) {
+			labsIn = &l.List[i]
+		}
+	}
+	mark := len(l.List)
+	if err := l.GreenFactory(bridge.Pos{X: 55, Y: 40}, world.TileOf(labsIn.Pos), 2, 3, 1); err != nil {
+		t.Fatal(err)
+	}
+	noErrors(t, l)
+	c := map[string]int{}
+	for _, p := range l.List[mark:] {
+		c[p.Recipe]++
+	}
+	for _, r := range []string{"copper-cable", "electronic-circuit", "inserter", "iron-gear-wheel", "transport-belt", "logistic-science-pack"} {
+		if c[r] == 0 {
+			t.Errorf("нет сборщика %s: %v", r, c)
+		}
+	}
+	// инсертеры и ленты — на общую ленту по разным полосам: инсертеры через отвод сбоку
+	// (сверху), ленты — длинноруким прямо (с дальней стороны)
+	var stub, longIns *Placement
+	for i, p := range l.List[mark:] {
+		if p.Tag == "green" && p.Name == "transport-belt" && p.Dir == S {
+			stub = &l.List[mark+i]
+		}
+		if p.Name == "long-handed-inserter" {
+			longIns = &l.List[mark+i]
+		}
+	}
+	if stub == nil || longIns == nil {
+		t.Fatalf("нет отвода или длиннорукого: %v %v", stub, longIns)
+	}
+	if _, drop := InserterEnds(pt(t), *longIns); l.At(drop) == nil || l.At(drop).Dir != W || l.At(Step(world.TileOf(stub.Pos), S)).Dir != W {
+		t.Errorf("длиннорукий и отвод — не на общую ленту")
+	}
+	side := l.At(world.Tile{X: world.TileOf(labsIn.Pos).X + 1, Y: world.TileOf(labsIn.Pos).Y - 1})
+	if side == nil || side.Tag != "green-belt-science" || side.Dir != S {
+		t.Errorf("зелёная не подаётся сверху на ленту лабораторий: %+v", side)
+	}
+	t.Logf("%s", l.Summary())
+}
+
+// Сталь: столбики «бур → печь → инсертер → печь → инсертер → сундук»: бур выдаёт в печь,
+// инсертеры берут из печи и кладут в печь/сундук; столбы к сети; без ошибок.
+func TestSteelRow(t *testing.T) {
+	w := synth(t, 2, 2, func(x, y int) byte {
+		if x >= 10 && x < 30 && y >= 10 && y < 30 {
+			return 'i'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	l.Anchors = []Placement{{Name: "small-electric-pole", Pos: bridge.Pos{X: 40.5, Y: 40.5}}}
+	if err := l.SteelRow(w.Patches()[0].Tiles, 3, world.Tile{X: 20, Y: 20}, "steel"); err != nil {
+		t.Fatal(err)
+	}
+	l.Poles("small-electric-pole", "power")
+	noErrors(t, l)
+	for _, p := range l.List {
+		if p.Name == "inserter" {
+			pick, drop := InserterEnds(pt(t), p)
+			if src, dst := l.At(pick), l.At(drop); src == nil || dst == nil || src.Name != "stone-furnace" {
+				t.Errorf("инсертер %v: берёт %v, кладёт %v", p, src, dst)
+			}
+		}
+	}
+	if c := l.Count(); c["stone-furnace"] != 6 || c["wooden-chest"] != 3 {
+		t.Errorf("состав: %v", c)
+	}
+}
+
+// fluidGroup — тайлы построек, соединённых по жидкости с tile (трубные соединения и
+// подземные пары). Жидкость идёт насквозь только через трубы и баки; машины — концы
+// (у них входы и выходы — разные ящики).
+func fluidGroup(l *Layout, tile world.Tile) map[world.Tile]bool {
+	seen := map[world.Tile]bool{}
+	var walk func(t world.Tile)
+	walk = func(t world.Tile) {
+		p := l.At(t)
+		if p == nil || seen[world.TileOf(p.Pos)] {
+			return
+		}
+		seen[world.TileOf(p.Pos)] = true
+		if t != tile && p.Name != "pipe" && p.Name != "pipe-to-ground" && p.Name != "storage-tank" {
+			return
+		}
+		for _, c := range Connections(l.P, *p) {
+			if n := l.At(c.To); n != nil {
+				for _, b := range Connections(l.P, *n) {
+					if Joined(c, b) {
+						walk(c.To)
+					}
+				}
+			}
+		}
+		if p.Name == "pipe-to-ground" {
+			d := (p.Dir + 8) % 16
+			cur := world.TileOf(p.Pos)
+			for k := 1; k <= l.P.Entities[p.Name].MaxUndergroundDistance+1; k++ {
+				cur = Step(cur, d)
+				if n := l.At(cur); n != nil && n.Name == p.Name && n.Dir == d {
+					walk(cur)
+					break
+				}
+			}
+		}
+	}
+	walk(tile)
+	return seen
+}
+
+// Труба между двумя баками: через чужую трубу и воду — подземкой, с чужой не соединяется.
+func TestRoutePipe(t *testing.T) {
+	w := synth(t, 2, 2, func(x, y int) byte {
+		if x >= 32 && x < 35 && y < 40 {
+			return 'w'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	a := Placement{Name: "storage-tank", Pos: bridge.Pos{X: 10.5, Y: 10.5}, Tag: "a"}
+	b := Placement{Name: "storage-tank", Pos: bridge.Pos{X: 45.5, Y: 10.5}, Tag: "b"}
+	l.Add(a)
+	l.Add(b)
+	for y := 0; y < 40; y++ {
+		l.Add(Placement{Name: "pipe", Pos: world.Tile{X: 25, Y: y}.Center(), Tag: "x"})
+	}
+	var from, to Conn
+	for _, c := range Connections(l.P, a) {
+		if c.Dir == E {
+			from = c
+		}
+	}
+	for _, c := range Connections(l.P, b) {
+		if c.Dir == W {
+			to = c
+		}
+	}
+	res, err := l.RoutePipe(from, to, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := fluidGroup(l, from.At)
+	if !g[world.TileOf(b.Pos)] {
+		t.Errorf("баки не соединены: %d построек, %v", len(res), l.Count())
+	}
+	if g[world.Tile{X: 25, Y: 0}] {
+		t.Error("труба соединилась с чужой")
+	}
+	noErrors(t, l)
+	if l.Count()["pipe-to-ground"] < 4 {
+		t.Errorf("чужая труба и вода — подземками: %v", l.Count())
+	}
+	// третий бак — к уже проложенной трубе
+	c := Placement{Name: "storage-tank", Pos: bridge.Pos{X: 15.5, Y: 30.5}, Tag: "c"}
+	l.Add(c)
+	if _, err := l.JoinPipe(Connections(l.P, c)[0], "p"); err != nil {
+		t.Fatal(err)
+	}
+	noErrors(t, l)
+	if g := fluidGroup(l, world.TileOf(c.Pos)); !g[world.TileOf(b.Pos)] || g[world.Tile{X: 25, Y: 0}] {
+		t.Errorf("третий бак: с сетью %v, с чужой %v", g[world.TileOf(b.Pos)], g[world.Tile{X: 25, Y: 0}])
+	}
+	// вода шире дальности подземки — не провести
+	wide := synth(t, 2, 2, func(x, y int) byte {
+		if x >= 20 && x < 32 {
+			return 'w'
+		}
+		return '.'
+	})
+	l = New(pt(t), wide)
+	l.Add(a)
+	l.Add(b)
+	if _, err := l.RoutePipe(from, to, "p"); err == nil {
+		t.Error("через воду шириной 12 труба прошла")
+	}
+}
+
+// Нефть: насосы → нефтезавод → химзаводы (пластик, сера), вода от помпы; жидкости не смешаны.
+func TestOil(t *testing.T) {
+	w := synth(t, 3, 3, func(x, y int) byte {
+		switch {
+		case x > 80:
+			return 'w'
+		case (x == 20 || x == 26 || x == 32) && (y == 20 || y == 27):
+			return 'o'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	if err := l.Oil(bridge.Pos{X: 30, Y: 30}, 3, 2, 1); err != nil {
+		t.Fatal(err)
+	}
+	noErrors(t, l)
+	c := l.Count()
+	if c["pumpjack"] != 3 || c["oil-refinery"] != 1 || c["chemical-plant"] != 3 || c["offshore-pump"] != 1 {
+		t.Fatalf("состав: %v", c)
+	}
+	var ref Placement
+	var jacks, plants []Placement
+	for _, p := range l.List {
+		switch p.Name {
+		case "oil-refinery":
+			ref = p
+		case "pumpjack":
+			jacks = append(jacks, p)
+		case "chemical-plant":
+			plants = append(plants, p)
+		}
+	}
+	ci, _ := FluidConn(l.P, ref, "crude-oil")
+	gasOut, _ := FluidConn(l.P, ref, "petroleum-gas")
+	crude := fluidGroup(l, ci.To)
+	gas := fluidGroup(l, gasOut.To)
+	if !crude[world.TileOf(ref.Pos)] || !gas[world.TileOf(ref.Pos)] {
+		t.Error("нефтезавод не подключён")
+	}
+	for _, p := range plants {
+		if !gas[world.TileOf(p.Pos)] {
+			t.Errorf("газ не идёт в химзавод %v", p.Pos)
+		}
+	}
+	for _, j := range jacks {
+		if !crude[world.TileOf(j.Pos)] {
+			t.Errorf("насос %v не соединён с нефтезаводом", j.Pos)
+		}
+	}
+	for _, p := range plants {
+		if crude[world.TileOf(p.Pos)] {
+			t.Errorf("нефть попала в химзавод %v", p.Pos)
+		}
+	}
+	// пластик и сера — лентой к «базе»
+	if sulfur, err := l.OilBelt(world.Tile{X: 60, Y: 70}, S, "ob"); err != nil || !sulfur {
+		t.Fatal(sulfur, err)
+	}
+	l.AllowEnd(world.Tile{X: 60, Y: 71})
+	l.Poles("small-electric-pole", "ob")
+	noErrors(t, l)
+}
+
+// Далёкие сети (нефть в 450 тайлах от базы) связываются цепочкой столбов.
+func TestLongPoleChain(t *testing.T) {
+	w := synth(t, 16, 3, func(x, y int) byte { return '.' })
+	l := New(pt(t), w)
+	l.Add(Placement{Name: "small-electric-pole", Pos: bridge.Pos{X: 5.5, Y: 5.5}})
+	l.Add(Placement{Name: "small-electric-pole", Pos: bridge.Pos{X: 480.5, Y: 60.5}})
+	n := l.connectPoles("small-electric-pole", "p")
+	noErrors(t, l)
+	if n == 0 || n > 70 {
+		t.Errorf("столбов в цепочке %d", n)
+	}
+}
+
+// Угольная шахта: пары электробуров навстречу, общий сундук между ними.
+func TestChestMine(t *testing.T) {
+	w := synth(t, 2, 2, func(x, y int) byte {
+		if x >= 10 && x < 30 && y >= 10 && y < 20 {
+			return 'k'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	var patch []world.Tile
+	for x := 10; x < 30; x++ {
+		for y := 10; y < 20; y++ {
+			patch = append(patch, world.Tile{X: x, Y: y})
+		}
+	}
+	if err := l.ChestMine(patch, "coal", 3, world.Tile{X: 5, Y: 5}, "m"); err != nil {
+		t.Fatal(err)
+	}
+	if c := l.Count(); c["electric-mining-drill"] != 6 || c["wooden-chest"] != 3 {
+		t.Fatalf("состав %v", c)
+	}
+	for _, p := range l.List {
+		if p.Name == "electric-mining-drill" {
+			if o := l.At(DrillOutput(l.P, p)); o == nil || o.Name != "wooden-chest" {
+				t.Errorf("%s выдаёт мимо сундука", p)
+			}
+		}
+	}
+}
+
+// Лента угля от шахты мимо кормушек: инсертер с ленты в каждый сундук.
+func TestFeedBelt(t *testing.T) {
+	w := synth(t, 3, 2, func(x, y int) byte {
+		if x >= 10 && x < 26 && y >= 10 && y < 26 {
+			return 'k'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	var patch []world.Tile
+	for x := 10; x < 26; x++ {
+		for y := 10; y < 26; y++ {
+			patch = append(patch, world.Tile{X: x, Y: y})
+		}
+	}
+	mr, err := l.Mine(patch, "coal", "electric-mining-drill", 6, "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chests := []world.Tile{{X: 60, Y: 20}, {X: 70, Y: 40}, {X: 80, Y: 15}}
+	for _, c := range chests {
+		l.Add(Placement{Name: "wooden-chest", Pos: c.Center(), Tag: "feed"})
+	}
+	var groups [][]world.Tile
+	for _, c := range chests {
+		groups = append(groups, []world.Tile{c})
+	}
+	if fed, err := l.FeedBelt(mr.Out, mr.OutDir, groups, "fb"); err != nil || fed != 3 {
+		t.Fatal(fed, err)
+	}
+	l.Poles("small-electric-pole", "fb")
+	noErrors(t, l)
+	for _, c := range chests {
+		fed := false
+		for _, p := range l.List {
+			if p.Name == "inserter" && p.Tag == "fb" {
+				if _, drop := InserterEnds(l.P, p); drop == c {
+					pick, _ := InserterEnds(l.P, p)
+					fed = l.At(pick) != nil && isBelt(l.At(pick).Name)
+				}
+			}
+		}
+		if !fed {
+			t.Errorf("кормушка %v без инсертера с ленты", c)
+		}
+	}
+}
+
+// Склад пластин: бур → печь → инсертер → сундук.
+func TestPlateRow(t *testing.T) {
+	w := synth(t, 2, 2, func(x, y int) byte {
+		if x >= 10 && x < 40 && y >= 10 && y < 20 {
+			return 'i'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	var patch []world.Tile
+	for x := 10; x < 40; x++ {
+		for y := 10; y < 20; y++ {
+			patch = append(patch, world.Tile{X: x, Y: y})
+		}
+	}
+	if err := l.PlateRow(patch, "iron-ore", 8, world.Tile{X: 5, Y: 5}, "p"); err != nil {
+		t.Fatal(err)
+	}
+	l.Poles("small-electric-pole", "p")
+	noErrors(t, l)
+	if c := l.Count(); c["electric-mining-drill"] != 8 || c["wooden-chest"] != 8 {
+		t.Errorf("состав %v", c)
+	}
+}
+
+// Синяя наука: блок, ряды плавки, лента синей под лабораториями.
+func TestBlueFactory(t *testing.T) {
+	w := synth(t, 4, 4, func(x, y int) byte {
+		switch {
+		case x >= 10 && x < 40 && y >= 10 && y < 22:
+			return 'i'
+		case x >= 10 && x < 40 && y >= 90 && y < 102:
+			return 'c'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	lm := l.Labs(world.Tile{X: 70, Y: 38}, 3, "inserter", "labs")
+	l.AllowEnd(world.Tile{X: lm.LT.X - 1, Y: lm.LT.Y})
+	var labs []Placement
+	for _, p := range l.List {
+		if p.Name == "lab" {
+			labs = append(labs, p)
+		}
+	}
+	if err := l.BlueFactory(bridge.Pos{X: 60, Y: 60}, labs, 4, 3); err != nil {
+		t.Fatal(err)
+	}
+	noErrors(t, l)
+	c := l.Count()
+	if c["assembling-machine-2"]+c["assembling-machine-1"] != 8 {
+		t.Errorf("сборщиков %v", c)
+	}
 }

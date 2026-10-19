@@ -40,11 +40,21 @@ type Layout struct {
 	TechColors  []color.RGBA
 	TechFirst   point // первая технология в списке (после поиска)
 	RecipeFirst point // первый рецепт в окне выбора рецепта сборщика (после поиска)
-	TechStart   point // кнопка «Start research» карточки выбранной технологии
+	// RecipeChange — кнопка смены рецепта в окне сборщика с рецептом; RecipeFirstChange — первый
+	// рецепт в окне выбора, открытом этой кнопкой (оно выше на 20 пикселей)
+	RecipeChange      point
+	RecipeFirstChange point
+	TechStart         point // кнопка «Start research» карточки выбранной технологии
 	// AltButton — кнопка ALT на панели быстрого доступа: оранжевая — Alt-режим включён
 	AltButton point
 	AltOn     color.RGBA
+	// Panels — панели интерфейса поверх мира (быстрый доступ, оружие, миникарта): клик туда
+	// не по миру — курсор на сущность там не ставить
+	Panels []rect
 }
+
+// rect — прямоугольник в координатах окна.
+type rect struct{ X, Y, W, H int }
 
 var Layout1856 = Layout{
 	InvSlot1:   point{530, 350},
@@ -53,16 +63,30 @@ var Layout1856 = Layout{
 	Cols:       10,
 	Quickbar: [10]point{{745, 946}, {785, 946}, {826, 946}, {866, 946}, {906, 946},
 		{950, 946}, {990, 946}, {1030, 946}, {1070, 946}, {1110, 946}},
-	MenuProbe:   []point{{880, 413}, {927, 400}},
-	MenuColors:  []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
-	Focus:       point{60, 300},
-	TechProbe:   []point{{1831, 20}, {270, 22}},
-	TechColors:  []color.RGBA{{226, 226, 226, 255}, {49, 48, 49, 255}},
-	TechFirst:   point{51, 535},
-	RecipeFirst: point{747, 449},
-	TechStart:   point{477, 422},
-	AltButton:   point{1160, 948},
-	AltOn:       color.RGBA{229, 181, 96, 255},
+	MenuProbe:         []point{{880, 413}, {927, 400}},
+	MenuColors:        []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
+	Focus:             point{60, 300},
+	TechProbe:         []point{{1831, 20}, {270, 22}},
+	TechColors:        []color.RGBA{{226, 226, 226, 255}, {49, 48, 49, 255}},
+	TechFirst:         point{51, 535},
+	RecipeFirst:       point{747, 449},
+	RecipeChange:      point{1325, 506},
+	RecipeFirstChange: point{747, 429},
+	TechStart:         point{477, 422},
+	AltButton:         point{1160, 948},
+	AltOn:             color.RGBA{229, 181, 96, 255},
+	Panels:            []rect{{0, 915, 192, 101}, {668, 918, 540, 98}, {1600, 0, 256, 592}},
+}
+
+// underPanel — точка экрана (sx, sy) под панелью интерфейса.
+func (h *Hands) underPanel(sx, sy int) bool {
+	x, y := sx-h.Win.X, sy-h.Win.Y
+	for _, r := range h.Layout.Panels {
+		if x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H {
+			return true
+		}
+	}
+	return false
 }
 
 var quickbarKeys = [10]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}
@@ -105,13 +129,66 @@ func near(a, b color.RGBA) bool {
 }
 
 // altOn — включён ли Alt-режим: кнопка ALT на панели оранжевая.
-func (h *Hands) altOn() (bool, error) {
+func (h *Hands) altOn() (on, visible bool, err error) {
 	p := h.Layout.AltButton
-	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + p.X, Y: h.Win.Y + p.Y, W: 1, H: 1})
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + p.X - 10, Y: h.Win.Y + p.Y, W: 21, H: 1})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return near(img.RGBAAt(0, 0), h.Layout.AltOn), nil
+	// на кнопке надпись ALT — пиксели разные; ровный цвет — кнопку закрыло окно
+	for x := 1; x < 21; x++ {
+		if img.RGBAAt(x, 0) != img.RGBAAt(0, 0) {
+			visible = true
+		}
+	}
+	return near(img.RGBAAt(10, 0), h.Layout.AltOn), visible, nil
+}
+
+// firstSlotY — середина первой ячейки окна выбора рецепта: в столбце левее её центра на
+// 17 px первая светлая полоса высотой с ячейку (кнопка рецепта: серая или оранжевая — нет
+// ингредиентов; пустые клетки тёмные, буквы заголовка ниже ячейки); не нашлась — false.
+func (h *Hands) firstSlotY(first point) (int, bool) {
+	const y0, n = 250, 400
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + first.X - 17, Y: h.Win.Y + y0, W: 1, H: n})
+	if err != nil {
+		return 0, false
+	}
+	top := -1
+	for y := 0; y < n; y++ {
+		c := img.RGBAAt(0, y)
+		light := max(c.R, c.G, c.B) > 70
+		if light && top < 0 {
+			top = y
+		}
+		if !light && top >= 0 {
+			if h := y - top; h >= 25 && h <= 40 { // ячейка ~36 px
+				return y0 + (top+y)/2, true
+			}
+			top = -1
+		}
+	}
+	return 0, false
+}
+
+// closeStray — закрыть окно, которого мод не видит (фильтр слота быстрого доступа и т.п.):
+// Esc; если вместо этого открылось меню игры — ещё Esc.
+func (h *Hands) closeStray(ctx context.Context) error {
+	if err := h.Focus(); err != nil {
+		return err
+	}
+	if err := h.In.Tap("escape"); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 400*time.Millisecond); err != nil {
+		return err
+	}
+	if open, err := h.MenuOpen(); err != nil || !open {
+		return err
+	}
+	if err := h.In.Tap("escape"); err != nil {
+		return err
+	}
+	return sleep(ctx, 400*time.Millisecond)
 }
 
 // MenuOpen — открыто ли меню игры (по пикселям кнопки Resume).
@@ -187,9 +264,12 @@ func (h *Hands) guard(ctx context.Context) error {
 	// Включён ли — по кнопке ALT на экране (как видит игрок): значение из мода после
 	// перезапуска сервера может не совпадать с клиентом, и нажатие выключило бы режим
 	if p, err := h.B.Player(); err == nil && p.ControllerName == "character" && !h.altChecked {
-		on, err := h.altOn()
+		on, visible, err := h.altOn()
 		if err != nil {
 			return err
+		}
+		if !visible {
+			on = true // кнопку закрыло окно — проверить в другой раз (не нажимать вслепую)
 		}
 		if !on {
 			h.Say("включаю Alt-режим (содержимое построек)")
@@ -202,9 +282,9 @@ func (h *Hands) guard(ctx context.Context) error {
 			if err := sleep(ctx, 2*inputLatency); err != nil {
 				return err
 			}
-			on, _ = h.altOn()
+			on, _, _ = h.altOn()
 		}
-		h.altChecked = on
+		h.altChecked = on && visible
 	}
 	open, err := h.MenuOpen()
 	if err != nil || !open {
@@ -313,6 +393,30 @@ func (h *Hands) search(ctx context.Context, text string) error {
 // SearchText — что набирать в поиске: английское название ≈ имя без дефисов.
 func SearchText(name string) string { return strings.ReplaceAll(name, "-", " ") }
 
+// searchWord — что набирать в поиске рецепта: слово имени, которое встречается в наименьшем
+// числе рецептов (при равенстве — длиннее), из тех, где рецепт окажется на первой вкладке
+// результатов (fits; «burner» — сначала burner-inserter из «логистики», а бур — в
+// «производстве»). Целиком нельзя: английские названия бывают с дефисом («Long-handed
+// inserter»), «long handed» не найдётся; место рецепта среди найденных считает craftSlot.
+func (h *Hands) searchWord(name string, fits func(word string) bool) string {
+	best, bestN := name, 1<<30
+	for _, w := range strings.Split(name, "-") {
+		if len(w) < 3 || !fits(w) {
+			continue
+		}
+		n := 0
+		for r := range h.Protos.Recipes {
+			if strings.Contains(r, w) {
+				n++
+			}
+		}
+		if n < bestN || n == bestN && len(w) > len(best) {
+			best, bestN = w, n
+		}
+	}
+	return best
+}
+
 func cursorName(p bridge.Player) string {
 	if p.Cursor == nil {
 		return ""
@@ -381,6 +485,10 @@ func (h *Hands) Pick(ctx context.Context, item string) error {
 			}
 			if !errors.Is(err, errTimeout) || p.Cursor != nil {
 				return fmt.Errorf("act: клавиша %s не дала %s в руку (в руке %+v): %w", quickbarKeys[i], item, p.Cursor, err)
+			}
+			// клавиши мог перехватить окно, которого мод не видит (фильтр слота) — закрыть
+			if err := h.closeStray(ctx); err != nil {
+				return err
 			}
 		}
 		return fmt.Errorf("act: клавиша %s не дала %s в руку", quickbarKeys[i], item)
@@ -455,7 +563,7 @@ func craftSlot(protos *knowledge.Prototypes, available []string, handcraft map[s
 		if !ok || r.Hidden || !handcraft[r.Category] {
 			continue
 		}
-		if strings.Contains(SearchText(name), text) {
+		if strings.Contains(name, text) {
 			match = append(match, rec{name, r})
 		}
 	}
@@ -473,7 +581,7 @@ func craftSlot(protos *knowledge.Prototypes, available []string, handcraft map[s
 		return match[i].name < match[j].name
 	})
 	if len(match) == 0 {
-		return 0, 0, fmt.Errorf("act: рецепт %s недоступен для ручного крафта", recipe)
+		return 0, 0, fmt.Errorf("act: рецепт %s недоступен здесь", recipe)
 	}
 	group := match[0].r.Group
 	sub, inSub := "", 0
@@ -521,7 +629,10 @@ func (h *Hands) Craft(ctx context.Context, recipe string, n int) error {
 			handcraft[c] = true
 		}
 	}
-	text := SearchText(recipe)
+	text := h.searchWord(recipe, func(w string) bool {
+		_, _, err := craftSlot(h.Protos, f.Recipes, handcraft, recipe, w)
+		return err == nil
+	})
 	row, col, err := craftSlot(h.Protos, f.Recipes, handcraft, recipe, text)
 	if err != nil {
 		return err
@@ -774,8 +885,10 @@ func (h *Hands) closeTech(ctx context.Context) {
 	h.guard(ctx)
 }
 
-// SetRecipe — задать рецепт сборщику: клик по нему → окно выбора рецепта → Ctrl+F →
-// название → первый результат; подтверждение — рецепт из мода.
+// SetRecipe — задать рецепт сборщику: клик по нему → окно выбора рецепта (если рецепт уже
+// задан другой — кнопка смены рецепта в окне сборщика) → Ctrl+F → название → ячейка
+// рецепта среди найденных (порядок как в игре: группа, подгруппа, order — craftSlot);
+// подтверждение — рецепт из мода.
 func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) error {
 	cur := func() (string, error) {
 		st, err := h.B.GetEntity(e.Name, e.Position)
@@ -784,17 +897,18 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 		}
 		return st.Recipe, nil
 	}
-	if r, err := cur(); err != nil || r == recipe {
+	was, err := cur()
+	if err != nil || was == recipe {
 		return err
 	}
 	h.Say("рецепт %s в %s", recipe, e.Name)
 	if err := h.Clean(ctx); err != nil {
 		return err
 	}
-	if r, _ := cur(); r != "" {
-		return fmt.Errorf("act: в %s уже рецепт %s — менять пока не умею", e.Name, r)
-	}
 	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
 		return err
 	}
 	if err := h.Hover(ctx, e); err != nil {
@@ -804,11 +918,28 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 		return err
 	}
 	defer h.CloseGUI(ctx)
-	if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool {
-		return p.OpenedGUIType != nil && *p.OpenedGUIType != 0
-	}); err != nil {
+	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
+	if _, err := h.waitFor(ctx, time.Second, opened); err != nil {
 		h.debugShot("recipe-open")
 		return fmt.Errorf("act: окно %s не открылось: %w", e.Name, err)
+	}
+	first := h.Layout.RecipeFirst
+	if was != "" {
+		// рецепт уже есть (не тот) — кнопка смены рецепта открывает окно выбора
+		h.Say("в %s рецепт %s — меняю", e.Name, was)
+		if err := h.at(h.Layout.RecipeChange); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 200*time.Millisecond); err != nil {
+			return err
+		}
+		if err := h.In.Click(input.Left); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 400*time.Millisecond); err != nil {
+			return err
+		}
+		first = h.Layout.RecipeFirstChange
 	}
 	// буквы — только при открытом окне (иначе уйдут в игру хоткеями)
 	if err := h.In.Tap("f", "ctrl"); err != nil {
@@ -817,19 +948,43 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	if err := sleep(ctx, inputLatency); err != nil {
 		return err
 	}
-	if p, err := h.B.Player(); err != nil || p.OpenedGUIType == nil || *p.OpenedGUIType == 0 {
+	if p, err := h.B.Player(); err != nil || !opened(p) {
 		return fmt.Errorf("act: окно %s закрылось", e.Name)
 	}
+	// где рецепт среди найденных: доступные рецепты категорий этого сборщика
+	f, err := h.B.Force()
+	if err != nil {
+		return err
+	}
+	cats := map[string]bool{}
+	for _, c := range h.Protos.Entities[e.Name].CraftingCategories {
+		cats[c] = true
+	}
+	text := h.searchWord(recipe, func(w string) bool {
+		_, _, err := craftSlot(h.Protos, f.Recipes, cats, recipe, w)
+		return err == nil
+	})
 	if err := h.In.Tap("a", "ctrl"); err != nil {
 		return err
 	}
-	if err := h.In.Type(SearchText(recipe)); err != nil {
+	if err := h.In.Type(text); err != nil {
 		return err
 	}
 	if err := sleep(ctx, 400*time.Millisecond); err != nil {
 		return err
 	}
-	if err := h.at(h.Layout.RecipeFirst); err != nil {
+	row, col, err := craftSlot(h.Protos, f.Recipes, cats, recipe, text)
+	if err != nil {
+		return err
+	}
+	// окно выбора по высоте подстраивается под число рецептов машины (у нефтезавода их
+	// мало — окно ниже, ячейки выше): первая ячейка — по оранжевой рамке найденного
+	if y, ok := h.firstSlotY(first); ok {
+		first.Y = y
+	}
+	step := h.Layout.SlotStep
+	h.Log("рецепт %s: ячейка %d,%d → (%d, %d)", recipe, row, col, first.X+col*step, first.Y+row*step)
+	if err := h.at(point{first.X + col*step, first.Y + row*step}); err != nil {
 		return err
 	}
 	if err := sleep(ctx, 200*time.Millisecond); err != nil {
@@ -847,5 +1002,6 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 		}
 	}
 	h.debugShot("recipe-" + recipe)
-	return fmt.Errorf("act: рецепт %s не задался", recipe)
+	r, _ := cur()
+	return fmt.Errorf("act: рецепт %s не задался (стоит %q)", recipe, r)
 }

@@ -53,12 +53,13 @@ func (w *World) cellSet(c *Chunk) map[Cell]*cellInfo {
 			continue
 		}
 		b := w.CollisionBox(o)
+		bb := b.Bounds()
 		r := charHalf + margin
-		for y := int(math.Floor((b.LeftTop.Y - r) / cellSize)); float64(y)*cellSize < b.RightBottom.Y+r; y++ {
-			for x := int(math.Floor((b.LeftTop.X - r) / cellSize)); float64(x)*cellSize < b.RightBottom.X+r; x++ {
+		for y := int(math.Floor((bb.LeftTop.Y - r) / cellSize)); float64(y)*cellSize < bb.RightBottom.Y+r; y++ {
+			for x := int(math.Floor((bb.LeftTop.X - r) / cellSize)); float64(x)*cellSize < bb.RightBottom.X+r; x++ {
 				cl := Cell{x, y}
 				p := cl.Center()
-				if p.X <= b.LeftTop.X-r || p.X >= b.RightBottom.X+r || p.Y <= b.LeftTop.Y-r || p.Y >= b.RightBottom.Y+r {
+				if !b.Contains(p, r) {
 					continue
 				}
 				in := c.cells[cl]
@@ -66,7 +67,7 @@ func (w *World) cellSet(c *Chunk) map[Cell]*cellInfo {
 					in = &cellInfo{}
 					c.cells[cl] = in
 				}
-				if p.X > b.LeftTop.X-charHalf && p.X < b.RightBottom.X+charHalf && p.Y > b.LeftTop.Y-charHalf && p.Y < b.RightBottom.Y+charHalf {
+				if b.Contains(p, charHalf) {
 					in.core = true
 				}
 				if o.Type == "tree" {
@@ -83,6 +84,9 @@ func (w *World) cellSet(c *Chunk) map[Cell]*cellInfo {
 // cellState — проходимость ячейки: free; иначе hard (не пройти) или деревья (с их
 // объектами). Объект у края чанка задевает ячейки соседнего — смотрим соседей.
 func (w *World) cellState(cl Cell) (free, hard, core bool, trees []Object) {
+	if w.Stuck[cl] {
+		return false, true, true, nil
+	}
 	switch w.TileAt(cl.tile()) {
 	case Land, Shallow:
 	default:
@@ -107,6 +111,52 @@ func (w *World) cellState(cl Cell) (free, hard, core bool, trees []Object) {
 		}
 	}
 	return !hard && len(trees) == 0, hard, core, trees
+}
+
+// Without — выполнить fn, будто объекта o нет на карте (проверить путь сквозь свою постройку).
+func (w *World) Without(o Object, fn func()) {
+	c := w.Chunks[ChunkOf(TileOf(o.Pos))]
+	idx := -1
+	if c != nil {
+		for i, x := range c.Objects {
+			if x.Name == o.Name && x.Pos == o.Pos {
+				idx = i
+			}
+		}
+	}
+	if idx < 0 {
+		fn()
+		return
+	}
+	saved := c.Objects
+	c.Objects = append(append([]Object(nil), saved[:idx]...), saved[idx+1:]...)
+	c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+	defer func() {
+		c.Objects = saved
+		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+	}()
+	fn()
+}
+
+// MarkStuck — персонаж в at упёрся, идя по (dx, dy), во что-то, чего модель не видит (щель
+// между утёсами уже, чем по рамкам): ячейки впереди считать непроходимыми.
+func (w *World) MarkStuck(at bridge.Pos, dx, dy float64) {
+	l := math.Hypot(dx, dy)
+	if l == 0 {
+		return
+	}
+	if w.Stuck == nil {
+		w.Stuck = map[Cell]bool{}
+	}
+	c := bridge.Pos{X: at.X + dx/l*0.8, Y: at.Y + dy/l*0.8}
+	start := CellOf(at)
+	for y := c.Y - 0.6; y <= c.Y+0.6; y += 0.25 {
+		for x := c.X - 0.6; x <= c.X+0.6; x += 0.25 {
+			if cl := CellOf(bridge.Pos{X: x, Y: y}); cl != start {
+				w.Stuck[cl] = true
+			}
+		}
+	}
 }
 
 // Cut — дерево на маршруте: срубить, дойдя до отметки S (длина пути от старта).
@@ -182,13 +232,19 @@ func (w *World) Route(from, to bridge.Pos, near float64, maxNodes int, treeCost 
 	// у старта персонаж может стоять вплотную к стволу (в запасе рамки) — там можно
 	// всё, кроме самой рамки
 	nearStart := func(c Cell) bool { return abs(c.X-start.X) <= 1 && abs(c.Y-start.Y) <= 1 }
+	// персонаж может стоять краем на тайле воды (у берега) — его тайл проходим
+	startTile := TileOf(from)
 	pass := func(c Cell) (bool, float64) {
 		free, hard, core, _ := w.cellState(c)
 		switch {
 		case c == start, free, nearStart(c) && !core:
 			return true, 0
+		case nearStart(c) && c.tile() == startTile && w.TileAt(startTile) == Water:
+			return true, 0
 		case !hard && treeCost > 0:
 			return true, treeCost
+		case w.Squeeze && hard && !core:
+			return true, 3 // запас у рамки: протиснуться можно, но дорого
 		}
 		return false, 0
 	}
@@ -450,8 +506,7 @@ func (w *World) clearSegment(a, b bridge.Pos) bool {
 			if noCollision[o.Type] || o.Type == "transport-belt" {
 				continue
 			}
-			bx := w.CollisionBox(o)
-			if p.X > bx.LeftTop.X-charHalf && p.X < bx.RightBottom.X+charHalf && p.Y > bx.LeftTop.Y-charHalf && p.Y < bx.RightBottom.Y+charHalf {
+			if w.CollisionBox(o).Contains(p, charHalf) {
 				return false
 			}
 		}
@@ -493,14 +548,15 @@ func (w *World) escape(from bridge.Pos) ([]bridge.Pos, bool) {
 		switch w.TileAt(TileOf(p)) {
 		case Land, Shallow:
 		default:
-			return false
+			if TileOf(p) != TileOf(from) { // стоим краем на воде — свой тайл можно
+				return false
+			}
 		}
 		for _, o := range objs {
 			if noCollision[o.Type] || o.Type == "transport-belt" || o.Type == "character" {
 				continue
 			}
-			b := w.CollisionBox(o)
-			if p.X > b.LeftTop.X-charHalf && p.X < b.RightBottom.X+charHalf && p.Y > b.LeftTop.Y-charHalf && p.Y < b.RightBottom.Y+charHalf {
+			if w.CollisionBox(o).Contains(p, charHalf) {
 				return false
 			}
 		}

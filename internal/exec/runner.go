@@ -23,7 +23,7 @@ import (
 
 // GoalSpec — цель в сохраняемом виде.
 type GoalSpec struct {
-	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience | site
+	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience | greenscience | site
 	Item     string `json:"item,omitempty"`
 	N        int    `json:"n"`
 	Fuel     string `json:"fuel,omitempty"`
@@ -52,6 +52,8 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		return plan.RedScience{}, nil
 	case "site":
 		return plan.Site{Kind: g.Item}, nil
+	case "greenscience":
+		return plan.GreenScience{Target: g.Item}, nil
 	}
 	return nil, fmt.Errorf("exec: неизвестная цель %q", g.Kind)
 }
@@ -105,7 +107,10 @@ type Runner struct {
 	minables     map[string]bool
 	stores       []plan.Owned // сундуки вне реестра из последнего снимка
 	fails        int
-	explored     map[bridge.ChunkPos]bool // края карты, куда уже ходили на разведку
+	deferred     string                   // отложенное ожидание (в журнал — при смене)
+	designFailed map[string]time.Time     // раскладки, которые не вышли (когда)
+	exploreRing  int                      // текущий квадрат разведки (полуширина)
+	exploreSkip  map[bridge.ChunkPos]bool // чанки периметра, к которым не пройти
 }
 
 func (r *Runner) Save() error {
@@ -165,8 +170,15 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 		inv[p.Cursor.Name] += p.Cursor.Count
 	}
 	s := &plan.State{Protos: r.H.Protos, Av: r.H.Protos.NewAvailability(f.Researched, false),
-		Inventory: inv, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Produced: f.Produced,
-		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done}
+		Inventory: inv, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
+		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done,
+		Designs: func() [][]layout.Placement {
+			var res [][]layout.Placement
+			for _, l := range r.Saved.Designs {
+				res = append(res, l)
+			}
+			return res
+		}}
 	if f.Current != "" {
 		s.Researching[f.Current] = true
 	}
@@ -180,23 +192,29 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 		s.Researching[q] = true
 	}
 	var kept []plan.Owned
-	for _, o := range r.Saved.Owned {
-		st, err := r.B.GetEntity(o.Name, o.Pos)
-		if err != nil {
-			return nil, err
-		}
+	refs := make([]bridge.EntityRef, len(r.Saved.Owned))
+	for i, o := range r.Saved.Owned {
+		refs[i] = bridge.EntityRef{Name: o.Name, Position: o.Pos}
+	}
+	states, err := r.B.GetEntities(refs) // одним запросом: построек сотни
+	if err != nil {
+		return nil, err
+	}
+	for i, o := range r.Saved.Owned {
+		st := states[i]
 		if st == nil {
 			r.journal("постройка %s (%s) в (%.1f, %.1f) исчезла", o.Name, o.Role, o.Pos.X, o.Pos.Y)
 			r.H.Say("%s (%s) исчезла — восстановлю", o.Name, o.Role)
 			continue
 		}
-		o.Inv, o.Status, o.Dir, o.Recipe = st.Inventories, st.Status, st.Direction, st.Recipe
+		o.Inv, o.Status, o.Dir, o.Recipe, o.UGType = st.Inventories, st.Status, st.Direction, st.Recipe, st.UGType
 		if o.Inv == nil {
 			o.Inv = map[string]map[string]int{}
 		}
 		kept = append(kept, o)
 	}
 	r.Saved.Owned = kept
+	r.alias()
 	if err := r.adopt(); err != nil {
 		return nil, err
 	}
@@ -251,8 +269,16 @@ func (r *Runner) minable(item string) bool {
 	if v, ok := r.minables[item]; ok {
 		return v
 	}
-	es, err := r.B.FindMinable(item, 300, 1)
-	ok := err == nil && len(es) > 0
+	ok := false
+	if r.H.Protos.Entities[item].ResourceCategory == "basic-fluid" {
+		// нефть — насосом, не руками: есть ли поле на открытой карте
+		for _, p := range r.H.World.Patches() {
+			ok = ok || p.Name == item
+		}
+	} else {
+		es, err := r.B.FindMinable(item, 300, 1)
+		ok = err == nil && len(es) > 0
+	}
 	r.minables[item] = ok
 	return ok
 }
@@ -408,25 +434,55 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		return false, err
 	}
 	var goals []plan.Goal
-	if r.watch(s) {
-		goals = append(goals, plan.Repair{}) // есть что чинить — первым делом
-	}
+	repair := r.watch(s)
+	all, maintain := true, false
 	for _, spec := range r.Saved.Goals {
 		g, err := spec.Goal()
 		if err != nil {
 			return false, err
 		}
 		goals = append(goals, g)
+		all = all && g.Satisfied(s)
+		maintain = maintain || spec.Maintain
 	}
+	if all && !maintain {
+		return true, nil // цели выполнены: ремонт — забота следующих целей или режима «следить»
+	}
+	if repair {
+		goals = append([]plan.Goal{plan.Repair{}}, goals...) // есть что чинить — первым делом
+	}
+	// ожидание «мягкое» (наблюдение пользователя: пока идёт исследование, минуты уходят
+	// впустую): цель хочет ждать — взять полезный шаг у следующих целей, ждать — только
+	// если делать больше нечего
+	var prim *plan.Primitive
 	for _, g := range goals {
-		prim, err := r.Saved.Planner.Next(s, g)
+		p, err := r.Saved.Planner.Next(s, g)
 		if err != nil {
 			r.journal("цель «%s»: %v", g, err)
 			return false, err
 		}
-		if prim == nil {
+		if p == nil {
 			continue
 		}
+		if !waiting(p) {
+			prim = p
+			break
+		}
+		if prim == nil {
+			prim = p
+		}
+	}
+	// все ждут — сделать запас ходовых материалов (не ждать впустую)
+	if prim != nil && waiting(prim) {
+		if p, err := r.Saved.Planner.Next(s, plan.Stock{}); err == nil && p != nil && !waiting(p) {
+			if w := prim.String(); w != r.deferred {
+				r.deferred = w
+				r.journal("ожидание: %s | почему: %s — пока запас", w, prim.Reason())
+			}
+			prim = p
+		}
+	}
+	if prim != nil {
 		r.H.Say("%s — %s", prim, strings.Join(prim.Why[:min(2, len(prim.Why))], " ← "))
 		r.journal("шаг: %s | почему: %s", prim, prim.Reason())
 		t0 := time.Now()
@@ -455,6 +511,15 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		return false, r.Save()
 	}
 	return true, r.Save()
+}
+
+// waiting — шаг-ожидание (исследование, печь, бур, бан): его можно отложить ради дела.
+func waiting(p *plan.Primitive) bool {
+	switch p.Kind {
+	case "await", "wait", "idle":
+		return true
+	}
+	return false
 }
 
 // Run — шаги до выполнения всех целей; с поддерживаемыми целями — не выходит, а следит
@@ -565,6 +630,17 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 		return nil
 	case "build":
 		return r.build(ctx, p)
+	case "rebuild":
+		// поднять и поставить заново (подземка спарилась не так): из реестра — тоже
+		_, e, err := r.owned(p.Roles[0])
+		if err != nil {
+			return err
+		}
+		if err := h.Pickup(ctx, e); err != nil {
+			return err
+		}
+		r.forget(p.Roles[0])
+		return r.build(ctx, &plan.Primitive{Kind: "build", Item: p.Item, Dir: p.Dir, Spots: p.Spots, Roles: p.Roles})
 	case "research":
 		return h.StartResearch(ctx, p.Item)
 	case "collect", "refuel":
@@ -674,45 +750,77 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 	return fmt.Errorf("exec: неизвестный шаг %s", p.Kind)
 }
 
-// explore — шаг разведки: дойти до ближайшего края открытой зоны, где ещё не были;
-// персонаж открывает карту вокруг себя. Удача — открылись новые чанки (или нашёлся item).
+// exploreSight — на сколько чанков вокруг персонаж открывает карту (по наблюдению ~3),
+// exploreHop — длина перехода (путь строится только по открытой карте).
+const exploreSight, exploreHop = 3, 48
+
+// explore — разведка концентрическими квадратами вокруг (0,0), только по неизвестному: идти
+// по кольцу на exploreSight чанков глубже края открытого (World.ExploreRing) к ближайшей
+// точке, около которой ещё есть неоткрытое; открылось — следующая, дальше по кольцу. Без остановок, пока item
+// не появится на карте (до 15 минут за вызов).
 func (r *Runner) explore(ctx context.Context, item string) error {
-	if r.explored == nil {
-		r.explored = map[bridge.ChunkPos]bool{}
+	if r.exploreSkip == nil {
+		r.exploreSkip = map[bridge.ChunkPos]bool{}
 	}
 	w := r.H.World
-	if _, err := w.Sync(r.B, false); err != nil {
-		return err
-	}
-	before := len(w.Chunks)
-	p, err := r.B.Player()
-	if err != nil {
-		return err
-	}
-	for _, cp := range w.Frontier(p.Position) {
-		if r.explored[cp] {
-			continue
-		}
-		r.explored[cp] = true
-		c := bridge.Pos{X: float64(cp.X*world.ChunkSize + world.ChunkSize/2), Y: float64(cp.Y*world.ChunkSize + world.ChunkSize/2)}
-		target, ok := w.FreeSpot(c, 1, 1, 12, nil)
-		if !ok {
-			continue
-		}
-		r.H.Say("разведка: ищу %s, иду к краю открытой карты (%.0f, %.0f)", item, target.X, target.Y)
-		if err := r.H.WalkTo(ctx, target, 3); err != nil && !errors.Is(err, act.ErrNotReached) {
-			return err
-		}
-		time.Sleep(time.Second) // карта вокруг открывается не мгновенно
+	start := len(w.Chunks)
+	deadline := time.Now().Add(15 * time.Minute)
+	for time.Now().Before(deadline) {
 		if _, err := w.Sync(r.B, false); err != nil {
 			return err
 		}
-		if len(w.Chunks) > before {
-			r.journal("  разведка: открыто чанков %d → %d", before, len(w.Chunks))
+		delete(r.minables, item)
+		if r.minable(item) {
+			r.journal("  разведка: %s найден, открыто чанков %d → %d", item, start, len(w.Chunks))
 			return nil
 		}
+		ring, pts := w.ExploreRing(exploreSight, 128, r.exploreSkip)
+		if ring == 0 {
+			return fmt.Errorf("exec: разведка: всё открыто, %s нет", item)
+		}
+		p, err := r.B.Player()
+		if err != nil {
+			return err
+		}
+		dist := func(a bridge.Pos) float64 { return math.Hypot(a.X-p.Position.X, a.Y-p.Position.Y) }
+		target := pts[0]
+		for _, pt := range pts {
+			if dist(pt) < dist(target) {
+				target = pt
+			}
+		}
+		if ring != r.exploreRing {
+			r.exploreRing = ring
+			r.H.Say("разведка: ищу %s, квадрат ±%d вокруг (0, 0)", item, ring*world.ChunkSize)
+		}
+		// шаг к цели по открытой земле
+		d := dist(target)
+		var spot bridge.Pos
+		ok := false
+		for _, hop := range []float64{exploreHop, 32, 16, 8} {
+			k := math.Min(1, hop/d)
+			pt := bridge.Pos{X: p.Position.X + (target.X-p.Position.X)*k, Y: p.Position.Y + (target.Y-p.Position.Y)*k}
+			if spot, ok = w.FreeSpot(pt, 1, 1, 6, nil); ok {
+				break
+			}
+		}
+		moved := false
+		if ok {
+			if err := r.H.WalkTo(ctx, spot, 3); err != nil && !errors.Is(err, act.ErrNotReached) {
+				if ctx.Err() != nil {
+					return err
+				}
+				r.journal("  разведка: %v", err) // застрял — другой точкой
+			}
+			q, err := r.B.Player()
+			moved = err == nil && math.Hypot(q.Position.X-p.Position.X, q.Position.Y-p.Position.Y) >= 4
+		}
+		if !moved { // не пройти (вода, утёсы) — эту точку пропустить
+			r.exploreSkip[world.ChunkOf(world.TileOf(target))] = true
+		}
 	}
-	return fmt.Errorf("exec: разведка не открыла ничего нового (ищу %s)", item)
+	r.journal("  разведка: открыто чанков %d → %d", start, len(w.Chunks))
+	return nil
 }
 
 // gather — добыть, пока предмета не прибавится n: руду — единицами за раз, деревья и
@@ -828,12 +936,17 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 	if _, err := h.World.Sync(r.B, false); err != nil {
 		return err
 	}
-	for _, o := range h.World.Obstacles(tiles) {
+	obs := h.World.Obstacles(tiles)
+	if len(obs) > 0 {
+		r.journal("  расчистка: %d (деревья, камни) под %d тайлами", len(obs), len(tiles))
+	}
+	for _, o := range obs {
 		e, err := r.B.EntityAt(o.Name, o.Pos)
 		if err != nil {
 			return err
 		}
 		if e == nil {
+			r.journal("  %s в (%.1f, %.1f) уже нет", o.Name, o.Pos.X, o.Pos.Y)
 			continue
 		}
 		h.Say("расчищаю место: %s", o.Name)
@@ -864,13 +977,17 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	if l, ok := r.Saved.Designs[kind]; ok {
 		return plan.Built{Tag: kind, List: l}, true
 	}
+	// не вышло недавно — не пересчитывать каждый шаг (карта меняется медленно)
+	if t, ok := r.designFailed[kind]; ok && time.Since(t) < 2*time.Minute {
+		return plan.Built{}, false
+	}
 	var l *layout.Layout
 	var err error
 	switch kind {
 	case "research":
 		// уже стоят свои лаборатории в электросети — их и взять
 		if labs := r.poweredLabs(); len(labs) > 0 {
-			l = layout.New(r.H.Protos, r.H.World)
+			l = r.newLayout(kind)
 			for i, e := range labs {
 				l.List = append(l.List, layout.Placement{Name: e.Name, Pos: e.Position, Tag: kind})
 				r.Saved.Owned = append(r.Saved.Owned, plan.Owned{Unit: e.UnitNumber, Name: e.Name, Pos: e.Position, Role: plan.BuildRole(kind, i)})
@@ -880,7 +997,7 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		}
 		l, err = ResearchSite(r.H.Protos, r.H.World, world.TileOf(s.PlayerPos), 2)
 	case "science":
-		l = layout.New(r.H.Protos, r.H.World)
+		l = r.newLayout(kind)
 		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
 		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 200, Limit: 50})
 		anchor := s.PlayerPos
@@ -894,10 +1011,164 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		// 0.4/с — 2 печи (каменная 0.31/с), 6 лабораторий: всё по красной (≈9600 лаб·с) —
 		// меньше получаса
 		err = l.ScienceFactory(anchor, 4, 3, 2, 6)
+	case "green":
+		// к стоящей фабрике красной науки: зелёная — сбоку на ленту её лабораторий
+		var labsIn *layout.Placement
+		for i, p := range r.Saved.Designs["science"] {
+			if p.Tag == "labs" && p.Name == "transport-belt" && (labsIn == nil || p.Pos.X < labsIn.Pos.X) {
+				labsIn = &r.Saved.Designs["science"][i]
+			}
+		}
+		if labsIn == nil {
+			err = fmt.Errorf("нет фабрики красной науки (лент лабораторий)")
+			break
+		}
+		l = r.newLayout(kind)
+		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
+		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 300, Position: &labsIn.Pos, Limit: 80})
+		for _, e := range poles {
+			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+		}
+		// ~0.17 зелёной/с: 2 сборщика науки; железо ~0.95/с — 3 печи, медь ~0.25/с — 1
+		err = l.GreenFactory(labsIn.Pos, world.TileOf(labsIn.Pos), 2, 3, 1)
+	case "steel":
+		// сталь (8.3): 3 столбика (~0.19 стали/с) на ближайшем к фабрике железе, столбы к сети
+		l = r.newLayout(kind)
+		near := s.PlayerPos
+		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
+			near = ls[0].Pos
+		}
+		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 300, Position: &near, Limit: 80})
+		for _, e := range poles {
+			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+		}
+		var patch []world.Tile
+		best := math.Inf(1)
+		for _, p := range r.H.World.Patches() {
+			if d := p.Distance(near); p.Name == "iron-ore" && d < best {
+				best, patch = d, p.Tiles
+			}
+		}
+		if err = l.SteelRow(patch, 3, world.TileOf(near), "steel"); err == nil {
+			l.Poles("small-electric-pole", kind)
+		}
+	case "coal-mine":
+		// уголь большими партиями (кормушки бойлеров, печи): 3 пары электробуров с общими
+		// сундуками на ближайшем к станции угле
+		l = r.newLayout(kind)
+		near := s.PlayerPos
+		if bs, _ := r.B.FindNearest(bridge.FindArgs{Type: "boiler", Radius: 300, Limit: 1}); len(bs) > 0 {
+			near = bs[0].Position
+		}
+		r.anchors(l, near)
+		patch, ok := nearestOre(r.H.World, "coal", near)
+		if !ok {
+			err = fmt.Errorf("угля не видно")
+			break
+		}
+		if err = l.ChestMine(patch, "coal", 3, world.TileOf(near), kind); err == nil {
+			l.Poles("small-electric-pole", kind)
+		}
+	case "blue":
+		// синяя наука (8.8) у фабрики: синяя — лентой под её лабораториями
+		var labs []layout.Placement
+		for _, p := range r.Saved.Designs["science"] {
+			if p.Name == "lab" {
+				labs = append(labs, p)
+			}
+		}
+		near := s.PlayerPos
+		if len(labs) > 0 {
+			near = labs[0].Pos
+		}
+		l = r.newLayout(kind)
+		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
+		r.anchors(l, near)
+		// ~0.1 синей/с: железо ~1.2/с — 4 печи, медь ~0.75/с — 3
+		err = l.BlueFactory(near, labs, 4, 3)
+	case "plates-iron-ore", "plates-copper-ore":
+		// склад пластин (стройка — сотни лент): 8 столбиков бур → печь → сундук на
+		// ближайшем к базе месторождении
+		ore := strings.TrimPrefix(kind, "plates-")
+		near := s.PlayerPos
+		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
+			near = ls[0].Pos
+		}
+		l = r.newLayout(kind)
+		r.anchors(l, near)
+		patch, ok := nearestOre(r.H.World, ore, near)
+		if !ok {
+			err = fmt.Errorf("%s не видно", ore)
+			break
+		}
+		if err = l.PlateRow(patch, ore, 8, world.TileOf(near), kind); err == nil {
+			l.Poles("small-electric-pole", kind)
+		}
+	case "coal-belt":
+		// уголь лентой к кормушкам бойлеров (бот не возит)
+		groups := FeedTargets(r.H.Protos, r.Saved.Designs)
+		if len(groups) == 0 {
+			err = fmt.Errorf("нет кормушек бойлеров")
+			break
+		}
+		near := groups[0][0].Center()
+		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
+		var anchors []layout.Placement
+		for _, e := range poles {
+			anchors = append(anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+		}
+		var fed int
+		if l, fed, err = CoalBeltSite(r.newLayout(kind), groups, anchors, kind); err == nil {
+			r.journal("лента угля: подведено к %d бойлерам из %d", fed, len(groups))
+		}
+	case "oil-belt":
+		// пластик и сера с нефти на базу (8.7)
+		oil, ok := r.design(s, "oil")
+		if !ok {
+			err = fmt.Errorf("нет раскладки oil")
+			break
+		}
+		near := s.PlayerPos
+		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
+			near = ls[0].Pos
+		}
+		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
+		var anchors []layout.Placement
+		for _, e := range poles {
+			anchors = append(anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+		}
+		l, err = OilBeltSite(r.newLayout(kind), oil.List, anchors, near, kind)
+	case "oil":
+		// нефть (8.5): 2 насоса на ближайшем к базе поле → нефтезавод → химзаводы (пластик,
+		// сера), столбы — к ближайшей сети
+		l = r.newLayout(kind)
+		l.Usable = func(e string) bool {
+			return r.H.Protos.EntityAvailable(e, s.Av) || e == "oil-refinery" || e == "chemical-plant"
+		}
+		near := s.PlayerPos
+		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
+			near = ls[0].Pos
+		}
+		r.anchors(l, near)
+		err = l.Oil(near, 2, 1, 1)
+	case "oil-jacks":
+		// насосы и столбы из раскладки oil (oil-processing — trigger «добыть нефть»: завод
+		// и химия ещё закрыты); потом oil возьмёт уже стоящее в реестр
+		full, ok := r.design(s, "oil")
+		if !ok {
+			err = fmt.Errorf("нет раскладки oil")
+			break
+		}
+		l = r.newLayout(kind)
+		for _, p := range full.List {
+			if p.Tag == "oil-jack" || r.H.Protos.Entities[p.Name].Type == "electric-pole" {
+				l.Add(p)
+			}
+		}
 	case "power-1", "power-2", "power-3", "power-4":
 		// ещё блок станции: у воды рядом со стоящей станцией, 2 двигателя на бойлер,
 		// кормушка; столбы — к сети
-		l = layout.New(r.H.Protos, r.H.World)
+		l = r.newLayout(kind)
 		near := s.PlayerPos
 		if bs, _ := r.B.FindNearest(bridge.FindArgs{Type: "boiler", Radius: 300, Limit: 1}); len(bs) > 0 {
 			near = bs[0].Position
@@ -906,7 +1177,13 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		for _, e := range poles {
 			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
 		}
-		if _, err = l.SteamPower(world.TileOf(near), 2, kind); err == nil {
+		// геометрический рост: блок power-n — 2^(n-1) цепочек (1.8, 3.6, 7.2, 14.4 МВт)
+		var n int
+		fmt.Sscanf(kind, "power-%d", &n)
+		for c := 0; c < plan.PowerChains(n) && err == nil; c++ {
+			_, err = l.SteamPower(world.TileOf(near), 2, kind)
+		}
+		if err == nil {
 			l.Poles("small-electric-pole", kind)
 		}
 	default:
@@ -919,6 +1196,10 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	}
 	if err != nil {
 		r.journal("раскладка %s: %v", kind, err)
+		if r.designFailed == nil {
+			r.designFailed = map[string]time.Time{}
+		}
+		r.designFailed[kind] = time.Now()
 		return plan.Built{}, false
 	}
 	if r.Saved.Designs == nil {
@@ -927,6 +1208,135 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	r.Saved.Designs[kind] = l.List
 	r.journal("раскладка %s: %s", kind, l.Summary())
 	return plan.Built{Tag: kind, List: l.List}, true
+}
+
+// alias — постройка из раскладки уже стоит под ролью другой раскладки (насосы oil-jacks
+// входят в oil): та же постройка получает и эту роль — не строить второй раз.
+func (r *Runner) alias() {
+	at := map[string]plan.Owned{}
+	roles := map[string]bool{}
+	for _, o := range r.Saved.Owned {
+		at[fmt.Sprintf("%s@%.1f,%.1f", o.Name, o.Pos.X, o.Pos.Y)] = o
+		roles[o.Role] = true
+	}
+	for kind, list := range r.Saved.Designs {
+		for i, p := range list {
+			role := plan.BuildRole(kind, i)
+			if roles[role] {
+				continue
+			}
+			if o, ok := at[fmt.Sprintf("%s@%.1f,%.1f", p.Name, p.Pos.X, p.Pos.Y)]; ok {
+				o.Role = role
+				r.Saved.Owned = append(r.Saved.Owned, o)
+				roles[role] = true
+			}
+		}
+	}
+}
+
+// FeedTargets — куда класть уголь каждому бойлеру раскладок designs: тайл его
+// сундука-кормушки (сундук → инсертер → бойлер), затем тайлы самого бойлера.
+func FeedTargets(p *knowledge.Prototypes, designs map[string][]layout.Placement) [][]world.Tile {
+	var res [][]world.Tile
+	for _, list := range designs {
+		at := map[world.Tile]layout.Placement{}
+		for _, pl := range list {
+			for _, t := range layout.Tiles(p, pl) {
+				at[t] = pl
+			}
+		}
+		for _, pl := range list {
+			if p.Entities[pl.Name].Type != "inserter" {
+				continue
+			}
+			pick, drop := layout.InserterEnds(p, pl)
+			if src, dst := at[pick], at[drop]; src.Name == "wooden-chest" && p.Entities[dst.Name].Type == "boiler" {
+				res = append(res, append([]world.Tile{pick}, layout.Tiles(p, dst)...))
+			}
+		}
+	}
+	sort.Slice(res, func(i, j int) bool {
+		return res[i][0].X < res[j][0].X || res[i][0].X == res[j][0].X && res[i][0].Y < res[j][0].Y
+	})
+	return res
+}
+
+// CoalBeltSite — шахта угля на электробурах на ленту (ближайшее к первому бойлеру
+// месторождение) и лента мимо бойлеров groups (FeedTargets); fed — к скольким подведено.
+func CoalBeltSite(l *layout.Layout, groups [][]world.Tile, anchors []layout.Placement, tag string) (*layout.Layout, int, error) {
+	w := l.W
+	l.Anchors = anchors
+	patch, ok := nearestOre(w, "coal", groups[0][0].Center())
+	if !ok {
+		return nil, 0, fmt.Errorf("угля не видно")
+	}
+	mr, err := l.Mine(patch, "coal", "electric-mining-drill", 6, tag)
+	if err != nil {
+		return nil, 0, err
+	}
+	fed, err := l.FeedBelt(mr.Out, mr.OutDir, groups, tag)
+	if err != nil {
+		return nil, 0, err
+	}
+	l.Poles("small-electric-pole", tag)
+	return l, fed, nil
+}
+
+// nearestOre — тайлы ближайшего к near месторождения ore (≥ 60 тайлов — под буры).
+func nearestOre(w *world.World, ore string, near bridge.Pos) ([]world.Tile, bool) {
+	var patch []world.Tile
+	best := math.Inf(1)
+	for _, p := range w.Patches() {
+		if d := p.Distance(near); p.Name == ore && len(p.Tiles) >= 60 && d < best {
+			best, patch = d, p.Tiles
+		}
+	}
+	return patch, patch != nil
+}
+
+// exhausted — у раскладки tag (точка старта) под каким-нибудь буром руды не осталось.
+func (r *Runner) exhausted(tag string) bool {
+	for _, p := range r.Saved.Designs[tag] {
+		if r.H.Protos.Entities[p.Name].Type != "mining-drill" {
+			continue
+		}
+		ore := false
+		for _, t := range layout.Tiles(r.H.Protos, p) {
+			if _, ok := r.H.World.ResourceAt(t); ok {
+				ore = true
+			}
+		}
+		if !ore {
+			return true
+		}
+	}
+	return false
+}
+
+// newLayout — раскладка с забронированными тайлами всех уже спроектированных раскладок
+// (кроме kind): спроектированное, но ещё не построенное, иначе займут (склад пластин
+// встал на трассу ленты пластика).
+func (r *Runner) newLayout(kind string) *layout.Layout {
+	l := layout.New(r.H.Protos, r.H.World)
+	for k, list := range r.Saved.Designs {
+		if k == kind {
+			continue
+		}
+		for _, p := range list {
+			for _, t := range layout.Tiles(r.H.Protos, p) {
+				l.Reserved[t] = true
+			}
+		}
+	}
+	return l
+}
+
+// anchors — стоящие столбы около near (ближайшие 50) — к ним тянуть сеть.
+func (r *Runner) anchors(l *layout.Layout, near bridge.Pos) {
+	poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
+	for _, e := range poles {
+		l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
+	}
 }
 
 // poweredLabs — свои лаборатории рядом в электросети, которых нет в реестре.
@@ -946,6 +1356,38 @@ func (r *Runner) poweredLabs() []bridge.Entity {
 		}
 	}
 	return res
+}
+
+// OilBeltSite — раскладка ленты пластика и серы с нефти (oil — раскладка нефти, в разметке,
+// но не в списке) до буфера у near: лента → инсертер → сундук; столбы — к anchors.
+func OilBeltSite(l *layout.Layout, oil, anchors []layout.Placement, near bridge.Pos, tag string) (*layout.Layout, error) {
+	p, w := l.P, l.W
+	for _, pl := range oil {
+		l.Add(pl)
+	}
+	n0 := len(l.List)
+	l.Anchors = anchors
+	end, ok := l.FindArea(world.TileOf(near), 3, 1, 2, 80, layout.OffOre)
+	if !ok {
+		return nil, fmt.Errorf("нет места под буфер пластика и серы")
+	}
+	ins, chest := layout.Step(end, layout.E), layout.Step(layout.Step(end, layout.E), layout.E)
+	l.Reserved[ins], l.Reserved[chest] = true, true
+	if _, err := l.OilBelt(end, layout.E, tag); err != nil {
+		return nil, err
+	}
+	delete(l.Reserved, ins)
+	delete(l.Reserved, chest)
+	l.Add(layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(p, "inserter", ins, end), Tag: tag})
+	l.Add(layout.Placement{Name: "wooden-chest", Pos: chest.Center(), Tag: tag})
+	l.Poles("small-electric-pole", tag)
+	res := layout.New(p, w) // только своё: раскладка нефти — уже стоит
+	for _, pl := range l.List[n0:] {
+		res.Add(pl)
+	}
+	res.Anchors = anchors
+	res.AllowEnd(ins) // лента упирается в инсертер буфера
+	return res, nil
 }
 
 // ResearchSite — паровая станция у ближайшей воды, labs лабораторий рядом с двигателем,
@@ -1322,4 +1764,15 @@ func (r *Runner) watch(s *plan.State) bool {
 		}
 	}
 	return fix
+}
+
+// forget — убрать роль из реестра (постройку подняли).
+func (r *Runner) forget(role string) {
+	kept := r.Saved.Owned[:0]
+	for _, o := range r.Saved.Owned {
+		if o.Role != role {
+			kept = append(kept, o)
+		}
+	}
+	r.Saved.Owned = kept
 }

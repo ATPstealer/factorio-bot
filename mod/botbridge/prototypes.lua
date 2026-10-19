@@ -19,6 +19,7 @@ local function amounts(list)
       type = x.type, name = x.name,
       amount = x.amount, amount_min = x.amount_min, amount_max = x.amount_max,
       probability = x.probability ~= 1 and x.probability or nil,
+      fluidbox_index = x.fluidbox_index, -- жидкость — в этот по счёту вход/выход машины
     }
   end
   return res

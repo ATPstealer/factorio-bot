@@ -118,8 +118,19 @@ func (l *Layout) RedScience(lt world.Tile, n int, asm, inserter, tag string) Mod
 // бойлер стыкуется водяным входом с помпой, двигатели цепочкой от паровыхода бойлера —
 // по трубным соединениям прототипов.
 func (l *Layout) SteamPower(near world.Tile, engines int, tag string) (Module, error) {
+	pump, err := l.WaterPump(near, tag, func(pump Placement) bool { return l.steamChain(pump, engines) })
+	if err != nil {
+		return Module{}, err
+	}
+	t := world.TileOf(pump.Pos)
+	return Module{Name: "паровая станция", LT: t, RB: t, Electric: true}, nil
+}
+
+// WaterPump — помпа на ближайшей к near кромке воды, для которой fit (ставит остальное
+// через Add) вернул true; при false всё, что fit добавил, откатывается.
+func (l *Layout) WaterPump(near world.Tile, tag string, fit func(pump Placement) bool) (Placement, error) {
 	if l.W == nil {
-		return Module{}, fmt.Errorf("layout: станции нужна карта")
+		return Placement{}, fmt.Errorf("layout: помпе нужна карта")
 	}
 	type cand struct {
 		t world.Tile
@@ -146,13 +157,14 @@ func (l *Layout) SteamPower(near world.Tile, engines int, tag string) (Module, e
 				continue
 			}
 			mark := l.Mark()
-			if l.steamChain(Placement{Name: "offshore-pump", Pos: c.t.Center(), Dir: wd, Tag: tag}, engines) {
-				return Module{Name: "паровая станция", LT: c.t, RB: c.t, Electric: true}, nil
+			pump := Placement{Name: "offshore-pump", Pos: c.t.Center(), Dir: wd, Tag: tag}
+			if fit(pump) {
+				return pump, nil
 			}
 			l.Rollback(mark)
 		}
 	}
-	return Module{}, fmt.Errorf("layout: нет кромки воды под станцию в %d тайлах", r)
+	return Placement{}, fmt.Errorf("layout: нет кромки воды в %d тайлах", r)
 }
 
 // steamChain — помпа, бойлер, двигатели; ставит (Add) по очереди, false — не встало.

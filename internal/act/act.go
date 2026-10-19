@@ -139,6 +139,9 @@ func sidestep(want map[string]bool, flip bool) map[string]bool {
 
 var ErrStuck = errors.New("act: застрял")
 
+// longHop — участок дальней ходьбы, тайлов (A* на сотни тайлов упирается в лимит).
+const longHop = 120.0
+
 // ErrNotReached — доводка не довела до точки (обычно мешает препятствие у цели).
 var ErrNotReached = errors.New("act: не дошёл")
 
@@ -176,16 +179,59 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	defer func() {
 		h.Log("ходьба до (%.1f, %.1f): всего %.1f с", target.X, target.Y, time.Since(t0).Seconds())
 	}()
+	// далеко (сотни тайлов): путь целиком не укладывается в поиск — участками по ~120
+	// тайлов к точкам на прямой до цели (где можно стоять)
 	if h.World != nil {
+		for hop := 0; hop < 20; hop++ {
+			p, err := h.B.Player()
+			if err != nil {
+				return err
+			}
+			d := dist(p.Position, target)
+			if d <= longHop*1.3 {
+				break
+			}
+			k := longHop / d
+			mid := bridge.Pos{X: p.Position.X + (target.X-p.Position.X)*k, Y: p.Position.Y + (target.Y-p.Position.Y)*k}
+			spot, ok := h.World.FreeSpot(mid, 1, 1, 20, nil)
+			if !ok {
+				break
+			}
+			if err := h.followPath(ctx, spot, 3); err != nil && !errors.Is(err, world.ErrNoPath) && !errors.Is(err, ErrNotReached) {
+				return err
+			}
+			if q, err := h.B.Player(); err == nil && dist(q.Position, p.Position) < 10 {
+				break // не продвинулись — дальше обычным путём (пролом и т.п.)
+			}
+		}
+	}
+	if h.World != nil {
+		unstuckTried := false // вышел из тесноты, а пути всё нет — карман: дальше пролом
 		for replan := 0; ; replan++ {
 			err := h.followPath(ctx, target, stop)
-			if errors.Is(err, world.ErrNoPath) && replan < 2 {
+			if errors.Is(err, world.ErrNoPath) && replan < 3 {
 				// обступили свои постройки — поднять, выйти, поставить назад
 				p, _ := h.B.Player()
-				if h.World.Enclosed(p.Position) {
+				if !unstuckTried && h.World.Enclosed(p.Position) {
+					unstuckTried = true
 					if uerr := h.unstuck(ctx); uerr != nil {
 						return uerr
 					}
+					continue
+				}
+				// щель уже запаса модели (персонаж сюда как-то зашёл) — протиснуться
+				if replan == 0 {
+					h.World.Squeeze = true
+					serr := h.followPath(ctx, target, stop)
+					h.World.Squeeze = false
+					if serr == nil {
+						break
+					}
+				}
+				// за кольцом своих построек (трубы вокруг химзаводов) — пролом
+				if ok, berr := h.breach(ctx, target); berr != nil {
+					return berr
+				} else if ok {
 					continue
 				}
 			}
@@ -402,6 +448,7 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 			return err
 		}
 		want, done := steer(p.Position)
+		ahead := want
 		if done {
 			release()
 			return nil
@@ -428,6 +475,15 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 				h.debugShot(fmt.Sprintf("stuck-%.0f_%.0f", p.Position.X, p.Position.Y))
 			}
 			if stucks > maxStucks {
+				if h.World != nil { // не идти этой щелью снова
+					var dx, dy float64
+					for k, v := range map[string][2]float64{"d": {1, 0}, "a": {-1, 0}, "s": {0, 1}, "w": {0, -1}} {
+						if ahead[k] {
+							dx, dy = dx+v[0], dy+v[1]
+						}
+					}
+					h.World.MarkStuck(p.Position, dx, dy)
+				}
 				return fmt.Errorf("%w у (%.1f, %.1f)", ErrStuck, p.Position.X, p.Position.Y)
 			}
 			side = sidestep(want, stucks%2 == 0)
@@ -589,6 +645,13 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 	if err = h.hoverOnce(ctx, e); !errors.Is(err, ErrHover) {
 		return err
 	}
+	// мир может закрывать окно, которого мод не видит (фильтр слота) — закрыть и снова
+	if err := h.closeStray(ctx); err != nil {
+		return err
+	}
+	if err = h.hoverOnce(ctx, e); !errors.Is(err, ErrHover) {
+		return err
+	}
 	// у края экрана объект могут закрывать панели интерфейса — подойти (камера следует
 	// за персонажем, объект окажется ближе к середине) и навести снова
 	if werr := h.WalkNear(ctx, e, 1.5); werr == nil || errors.Is(werr, ErrNotReached) {
@@ -617,29 +680,36 @@ func (h *Hands) hoverOnce(ctx context.Context, e bridge.Entity) error {
 			others = append(others, h.World.SelectionBox(o))
 		}
 	}
-	for _, pt := range hoverPoints(e) {
-		if !cam.Visible(pt.X, pt.Y, 20) {
-			continue
-		}
-		covered := false
-		for _, b := range others {
-			covered = covered || inBox(pt, b, 0.15)
-		}
-		if covered {
-			continue
-		}
-		if err := h.In.Move(cam.ToScreen(pt.X, pt.Y)); err != nil {
-			return err
-		}
-		if err := sleep(ctx, 40*time.Millisecond); err != nil {
-			return err
-		}
-		p, err := h.B.Player()
-		if err != nil {
-			return err
-		}
-		if same(p.Selected, e) {
-			return nil
+	// сначала точки вне чужих рамок; целиком перекрыт (сухой ствол под кроной) — и
+	// перекрытые: игра может выделить и его, подтверждение всё равно по selected
+	for pass := 0; pass < 2; pass++ {
+		for _, pt := range hoverPoints(e) {
+			if !cam.Visible(pt.X, pt.Y, 20) {
+				continue
+			}
+			if sx, sy := cam.ToScreen(pt.X, pt.Y); h.underPanel(sx, sy) {
+				continue
+			}
+			covered := false
+			for _, b := range others {
+				covered = covered || inBox(pt, b, 0.15)
+			}
+			if covered != (pass == 1) {
+				continue
+			}
+			if err := h.In.Move(cam.ToScreen(pt.X, pt.Y)); err != nil {
+				return err
+			}
+			if err := sleep(ctx, 40*time.Millisecond); err != nil {
+				return err
+			}
+			p, err := h.B.Player()
+			if err != nil {
+				return err
+			}
+			if same(p.Selected, e) {
+				return nil
+			}
 		}
 	}
 	return fmt.Errorf("%w: %s (%.1f, %.1f)", ErrHover, e.Name, e.Position.X, e.Position.Y)
@@ -745,6 +815,133 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// breachable — свои постройки, которые можно поднять, чтобы пройти, и поставить назад
+// (ленты не мешают — по ним ходят; рецепт сборщика восстановит стройка).
+func breachable(o world.Object) bool {
+	return o.Own && o.Type != "transport-belt" && o.Type != "character"
+}
+
+// breach — пути до target нет, но появится, если поднять одну-три свои постройки рядом с
+// ботом или с целью (кольцо своих труб, карман у станции): поднять, пройти на 2.5 тайла
+// дальше по пути и поставить назад. false — таких нет (цель за водой/утёсами).
+func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
+	p, err := h.B.Player()
+	if err != nil {
+		return false, err
+	}
+	seen := map[bridge.Pos]bool{}
+	var objs []world.Object
+	for _, o := range append(h.World.ObjectsNear(p.Position, 15), h.World.ObjectsNear(target, 30)...) {
+		if breachable(o) && h.Protos.ItemFor(o.Name) != "" && !seen[o.Pos] {
+			seen[o.Pos] = true
+			objs = append(objs, o)
+		}
+	}
+	// сначала ближние к прямой «бот — цель»
+	off := func(o world.Object) float64 { return dist(p.Position, o.Pos) + dist(o.Pos, target) }
+	sort.Slice(objs, func(i, j int) bool { return off(objs[i]) < off(objs[j]) })
+	b0, _ := h.World.Route(p.Position, target, 1.5, 300000, 6)
+	base := b0.Length()
+	// годится — путь до цели или хотя бы на 20+ тайлов дальше, чем сейчас (до дальней цели
+	// путь целиком может не уложиться в лимит)
+	try := func(set []world.Object) (world.Route, bool) {
+		var route world.Route
+		ok := false
+		var rec func(i int)
+		rec = func(i int) {
+			if i == len(set) {
+				r, err := h.World.Route(p.Position, target, 1.5, 300000, 6)
+				route, ok = r, err == nil || r.Length() > base+20
+				return
+			}
+			h.World.Without(set[i], func() { rec(i + 1) })
+		}
+		rec(0)
+		return route, ok
+	}
+	var set []world.Object
+	var route world.Route
+	found := false
+	for i := 0; i < len(objs) && i < 30 && !found; i++ {
+		set = []world.Object{objs[i]}
+		route, found = try(set)
+	}
+	// пары и тройки — из ближайших к боту (две параллельные трубы — нефть и газ)
+	close := append([]world.Object(nil), objs...)
+	sort.Slice(close, func(i, j int) bool { return dist(close[i].Pos, p.Position) < dist(close[j].Pos, p.Position) })
+	for i := 0; i < len(close) && i < 10 && !found; i++ {
+		for j := i + 1; j < len(close) && j < 10 && !found; j++ {
+			set = []world.Object{close[i], close[j]}
+			route, found = try(set)
+		}
+	}
+	for i := 0; i < len(close) && i < 7 && !found; i++ {
+		for j := i + 1; j < len(close) && j < 7 && !found; j++ {
+			for k := j + 1; k < len(close) && k < 7 && !found; k++ {
+				set = []world.Object{close[i], close[j], close[k]}
+				route, found = try(set)
+			}
+		}
+	}
+	if !found {
+		h.Log("пролом: из %d своих построек рядом ни одна (и пары, тройки) не открывает путь", len(objs))
+		return false, nil
+	}
+	for _, o := range set {
+		e, err := h.B.EntityAt(o.Name, o.Pos)
+		if err != nil || e == nil {
+			return false, err
+		}
+		h.Say("путь закрыт своими постройками — поднимаю %s, пройду и поставлю назад", o.Name)
+		if err := h.Pickup(ctx, *e); err != nil {
+			return false, err
+		}
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return false, err
+	}
+	// точка пути за поднятым: после ближайшего к нему места, в 2.5 тайла от всех
+	var pts []bridge.Pos
+	for i := 1; i < len(route.Points); i++ {
+		a, b := route.Points[i-1], route.Points[i]
+		n := int(dist(a, b)/0.25) + 1
+		for k := 1; k <= n; k++ {
+			f := float64(k) / float64(n)
+			pts = append(pts, bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f})
+		}
+	}
+	near := func(q bridge.Pos) float64 {
+		d := math.Inf(1)
+		for _, o := range set {
+			d = math.Min(d, dist(q, o.Pos))
+		}
+		return d
+	}
+	closest := 0
+	for i, q := range pts {
+		if near(q) < near(pts[closest]) {
+			closest = i
+		}
+	}
+	past := target
+	for _, q := range pts[closest:] {
+		if near(q) >= 2.5 {
+			past = q
+			break
+		}
+	}
+	if err := h.followPath(ctx, past, 0.5); err != nil && !errors.Is(err, world.ErrNoPath) {
+		return false, err
+	}
+	for i := len(set) - 1; i >= 0; i-- {
+		o := set[i]
+		if _, err := h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // stepOffBelt — сойти с ленты на ближайшую точку, где можно стоять.

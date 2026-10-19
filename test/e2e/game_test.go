@@ -249,3 +249,131 @@ func TestGame7_8_RedScience(t *testing.T) {
 		t.Errorf("сборщики сделали %d науки — основная часть руками?", made)
 	}
 }
+
+// 8.1. Зелёная наука: блок прямой подачи (кабель → схемы → инсертеры ← шестерни → ленты →
+// наука) с рядами плавки построен, зелёная наука доходит до лабораторий.
+func TestGame8_1_GreenScience(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 60*time.Minute, exec.GoalSpec{Kind: "site", Item: "green"})
+	const greenInLabs = `(function() local n=0 for _,e in pairs(s.find_entities_filtered{type="lab", force=p.force}) do n=n+e.get_inventory(defines.inventory.lab_input).get_item_count("logistic-science-pack") end return n end)()`
+	deadline := time.Now().Add(6 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n int
+		lua(t, greenInLabs, &n)
+		if n > 0 {
+			t.Logf("зелёная в лабораториях: %d", n)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	var made int
+	lua(t, `(function() local n=0 for _,e in pairs(s.find_entities_filtered{name="assembling-machine-1", force=p.force}) do local r=e.get_recipe() if r and r.name=="logistic-science-pack" then n=n+e.products_finished end end return n end)()`, &made)
+	t.Errorf("зелёная наука не дошла до лабораторий (сборщики сделали %d)", made)
+}
+
+// 8.2. Исследования на красной+зелёной — путь к нефти (oil-gathering: fluid-handling,
+// engine, automation-2): наукой со сборщиков.
+func TestGame8_2_GreenResearch(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 90*time.Minute, exec.GoalSpec{Kind: "greenscience", Item: "oil-gathering"})
+	f, _ := h.B.Force()
+	for _, name := range []string{"fluid-handling", "oil-gathering"} {
+		if !slices.Contains(f.Researched, name) {
+			t.Errorf("%s не изучена", name)
+		}
+	}
+}
+
+// 8.3. Сталь: столбики «электробур → печь → печь (сталь) → сундук», сталь копится.
+func TestGame8_3_Steel(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 40*time.Minute, exec.GoalSpec{Kind: "site", Item: "steel"})
+	const steel = `(function() local n=0 for _,e in pairs(s.find_entities_filtered{name="wooden-chest", force=p.force}) do n=n+e.get_item_count("steel-plate") end return n end)()`
+	deadline := time.Now().Add(6 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n int
+		lua(t, steel, &n)
+		if n >= 3 {
+			t.Logf("стали в сундуках: %d", n)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	t.Error("сталь не копится")
+}
+
+// 8.5. Нефть: насосы → нефтезавод → химзаводы; пластик и сера копятся в сундуках.
+// oil-processing — trigger (добыть нефть), plastics и sulfur-processing — наукой, по ходу.
+func TestGame8_5_Oil(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 120*time.Minute, exec.GoalSpec{Kind: "site", Item: "oil"})
+	const count = `(function() local r={} for _,e in pairs(s.find_entities_filtered{name="wooden-chest", force=p.force}) do for _,n in pairs{"plastic-bar","sulfur"} do r[n]=(r[n] or 0)+e.get_item_count(n) end end return r end)()`
+	deadline := time.Now().Add(6 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n map[string]int
+		lua(t, count, &n)
+		if n["plastic-bar"] >= 5 && n["sulfur"] >= 5 {
+			t.Logf("в сундуках: %v", n)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	t.Error("пластик и сера не копятся")
+}
+
+// 8.6. Уголь большими партиями: шахта на электробурах с сундуками, уголь копится.
+func TestGame8_6_CoalMine(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 40*time.Minute, exec.GoalSpec{Kind: "site", Item: "coal-mine"})
+	const coal = `(function() local n=0 for _,d in pairs(s.find_entities_filtered{name="electric-mining-drill", force=p.force}) do local t=d.drop_target if t and t.name=="wooden-chest" then n=n+t.get_item_count("coal") end end return n end)()`
+	deadline := time.Now().Add(4 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n int
+		lua(t, coal, &n)
+		if n >= 30 {
+			t.Logf("угля в сундуках шахты: %d", n)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	t.Error("уголь в шахте не копится")
+}
+
+// 8.7. Пластик (и сера, если её ленту подвести) на базу: лента от химзаводов у нефти до
+// буфера у фабрики.
+func TestGame8_7_OilBelt(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 90*time.Minute, exec.GoalSpec{Kind: "site", Item: "oil-belt"})
+	// в сундуках дальше 100 тайлов от насоса — то, что доехало по ленте
+	const count = `(function() local j=s.find_entities_filtered{name="pumpjack", force=p.force}[1] local r={} for _,e in pairs(s.find_entities_filtered{name="wooden-chest", force=p.force}) do local dx,dy=e.position.x-j.position.x,e.position.y-j.position.y if dx*dx+dy*dy>100*100 then for _,n in pairs{"plastic-bar","sulfur"} do r[n]=(r[n] or 0)+e.get_item_count(n) end end end return r end)()`
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n map[string]int
+		lua(t, count, &n)
+		if n["plastic-bar"] >= 5 {
+			t.Logf("доехало до базы: %v", n)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	t.Error("пластик не доезжает до базы")
+}
+
+// 8.8. Синяя наука: блок (красные схемы, двигатели, синяя), пластик с ленты 8.7, сера и
+// сталь — бот; синяя доходит до лабораторий.
+func TestGame8_8_BlueScience(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 180*time.Minute, exec.GoalSpec{Kind: "site", Item: "blue"})
+	const blue = `(function() local n=0 for _,e in pairs(s.find_entities_filtered{name="lab", force=p.force}) do n=n+e.get_item_count("chemical-science-pack") end return n end)()`
+	deadline := time.Now().Add(15 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n int
+		lua(t, blue, &n)
+		if n > 0 {
+			t.Logf("синей в лабораториях: %d", n)
+			return
+		}
+		time.Sleep(15 * time.Second)
+	}
+	t.Error("синяя наука не доходит до лабораторий")
+}

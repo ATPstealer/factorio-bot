@@ -178,6 +178,11 @@ func apply(s *State, p *Primitive) error {
 			}
 			o.Inv[slot][p.Item] += p.Ns[i]
 		}
+	case "rebuild":
+		if o := s.Role(p.Roles[0]); o != nil {
+			d := p.Dir
+			o.Dir, o.UGType = &d, ""
+		}
 	case "recipe":
 		if o := s.Role(p.Role); o != nil {
 			o.Recipe = p.Recipe

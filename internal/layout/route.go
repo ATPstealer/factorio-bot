@@ -79,8 +79,17 @@ func (l *Layout) RouteBelt(from world.Tile, inDir int, to world.Tile, toDir int,
 func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int, tag string) ([]Placement, error) {
 	belt, ug := "transport-belt", "underground-belt"
 	maxUG := l.P.Entities[ug].MaxUndergroundDistance
+	intoMemo := map[world.Tile]bool{}
+	into := func(t world.Tile) bool {
+		v, ok := intoMemo[t]
+		if !ok {
+			v = l.beltInto(t)
+			intoMemo[t] = v
+		}
+		return v
+	}
 	cost := func(t world.Tile) (float64, bool) {
-		if !l.Free(t, AnyLand) {
+		if !l.Free(t, AnyLand) || t != from && into(t) {
 			return 0, false
 		}
 		c := 1.0
@@ -94,8 +103,14 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 		}
 		return c, true
 	}
+	// дальний маршрут (лента с нефти на базу — сотни тайлов через лес): взвешенная оценка —
+	// поиск идёт к цели, а не расползается по равноценным обходам; путь почти кратчайший
+	w := 1.0
+	if abs(from.X-to.X)+abs(from.Y-to.Y) > 100 {
+		w = 2
+	}
 	h := func(t world.Tile) float64 {
-		return float64(abs(t.X-to.X) + abs(t.Y-to.Y))
+		return w * float64(abs(t.X-to.X)+abs(t.Y-to.Y))
 	}
 	start := rstate{from, inDir}
 	if _, ok := cost(from); !ok {
@@ -109,7 +124,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 	came := map[rstate]redge{}
 	heap.Push(open, &rnode{s: start, f: h(from)})
 	var goal *rstate
-	for open.Len() > 0 && len(best) < 300000 {
+	for open.Len() > 0 && len(best) < 1500000 {
 		cur := heap.Pop(open).(*rnode)
 		if cur.g > best[cur.s] {
 			continue
@@ -141,6 +156,9 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 			if d != cur.s.D || !l.usable(ug) {
 				continue // вход подземки — без поворота
 			}
+			if came[cur.s].ug > 0 {
+				continue // вход сразу за выходом другой — игра спаривает их как попало
+			}
 			for k := 2; k <= maxUG; k++ { // выход не дальше дальности прототипа
 				outT := cur.s.T
 				for i := 0; i < k; i++ {
@@ -153,7 +171,9 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 				if _, ok := cost(after); !ok {
 					continue
 				}
-				g := cur.g + float64(k) + 4
+				// подземка — пара ≈ 17 железа против 1.5 за тайл ленты: только где обход
+				// заметно длиннее (вода, постройки, густой лес)
+				g := cur.g + float64(k) + 8
 				ns := rstate{after, d}
 				if old, ok := best[ns]; !ok || g < old {
 					best[ns] = g
@@ -192,4 +212,25 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// beltInto — в тайл t смотрит конец чужой ленты (в раскладке или уже стоящей): лента,
+// проложенная через t, примет её груз сбоку (медь со старого ряда — на ленту железа).
+func (l *Layout) beltInto(t world.Tile) bool {
+	for _, d := range []int{N, E, S, W} {
+		n := Step(t, d)
+		back := (d + 8) % 16 // лента в n должна смотреть сюда
+		if p := l.At(n); p != nil && (isBelt(p.Name) || isUnderground(p.Name) && p.Recipe == "output") && p.Dir == back {
+			return true
+		}
+		if l.W == nil {
+			continue
+		}
+		for _, o := range l.W.ObjectsNear(n.Center(), 0.3) {
+			if (o.Type == "transport-belt" || o.Type == "underground-belt") && world.TileOf(o.Pos) == n && o.Direction == back {
+				return true
+			}
+		}
+	}
+	return false
 }

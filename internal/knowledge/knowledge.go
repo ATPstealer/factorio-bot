@@ -21,6 +21,9 @@ type Amount struct {
 	AmountMin   float64 `json:"amount_min,omitempty"`
 	AmountMax   float64 `json:"amount_max,omitempty"`
 	Probability float64 `json:"probability,omitempty"` // 0 — значит 1
+	// FluidboxIndex — жидкость рецепта идёт в этот по счёту (с 1) вход/выход машины;
+	// 0 — по порядку жидкостей в рецепте
+	FluidboxIndex int `json:"fluidbox_index,omitempty"`
 }
 
 // Mean — среднее количество с учётом диапазона и вероятности.

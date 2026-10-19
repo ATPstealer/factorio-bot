@@ -3,7 +3,6 @@ package world
 
 import (
 	"math"
-	"sort"
 	"strings"
 
 	"factorio-bot/internal/bridge"
@@ -77,7 +76,11 @@ func clearable(o Object) bool {
 type World struct {
 	Protos   *knowledge.Prototypes // nil — коллизии объектов считаются 1×1
 	Chunks   map[bridge.ChunkPos]*Chunk
-	EventSeq int // последнее учтённое событие мода
+	EventSeq int           // последнее учтённое событие мода
+	Stuck    map[Cell]bool // ячейки, где персонаж упёрся (MarkStuck)
+	// Squeeze — маршрут через запас у рамок (не через сами рамки): обычного пути нет,
+	// а персонаж зашёл сюда через узкую щель
+	Squeeze bool
 }
 
 func New(protos *knowledge.Prototypes) *World {
@@ -199,10 +202,14 @@ func place(b bridge.Box, o Object) bridge.Box {
 // BoxTiles — тайлы, которые рамка задевает изнутри (касание края не считается).
 func BoxTiles(b bridge.Box) []Tile {
 	const eps = 1e-6
+	bb := b.Bounds()
 	var res []Tile
-	for y := int(math.Floor(b.LeftTop.Y + eps)); float64(y) < b.RightBottom.Y-eps; y++ {
-		for x := int(math.Floor(b.LeftTop.X + eps)); float64(x) < b.RightBottom.X-eps; x++ {
-			res = append(res, Tile{x, y})
+	for y := int(math.Floor(bb.LeftTop.Y + eps)); float64(y) < bb.RightBottom.Y-eps; y++ {
+		for x := int(math.Floor(bb.LeftTop.X + eps)); float64(x) < bb.RightBottom.X-eps; x++ {
+			// повёрнутая рамка (утёс-угол) — только тайлы, которые она задевает
+			if t := (Tile{x, y}); b.Orientation == 0 || b.Contains(t.Center(), 0.5) {
+				res = append(res, t)
+			}
 		}
 	}
 	return res
@@ -319,29 +326,53 @@ func (w *World) FreeSpotWhere(near bridge.Pos, width, height, radius int, avoid 
 	return best, !math.IsInf(bestD, 1)
 }
 
-// Frontier — открытые чанки на краю открытой зоны (хоть один сосед по стороне не открыт),
-// ближние к from — первыми.
-func (w *World) Frontier(from bridge.Pos) []bridge.ChunkPos {
-	var res []bridge.ChunkPos
-	for cp := range w.Chunks {
-		for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-			if w.Chunks[bridge.ChunkPos{X: cp.X + d[0], Y: cp.Y + d[1]}] == nil {
-				res = append(res, cp)
+// ExploreRing — маршрут разведки концентрическими квадратами вокруг (0,0) в чанках:
+// k — ближайшее к центру кольцо (по Чебышёву) с неоткрытыми чанками; идти надо по кольцу
+// k+sight (персонаж открывает карту на sight чанков вокруг) — вглубь неизвестного, а не по
+// краю. Возвращает k+sight и центры чанков этого кольца, около которых (≤ sight) ещё есть
+// неоткрытое (skip — чанки, к которым не пройти: не цели и не «неоткрытое»). 0 — всё открыто.
+func (w *World) ExploreRing(sight, max int, skip map[bridge.ChunkPos]bool) (int, []bridge.Pos) {
+	unknown := func(c bridge.ChunkPos) bool { return w.Chunks[c] == nil && !skip[c] }
+	k := -1
+	for r := 0; r <= max && k < 0; r++ {
+		for _, c := range ringChunks(r) {
+			if unknown(c) {
+				k = r
 				break
 			}
 		}
 	}
-	center := func(c bridge.ChunkPos) bridge.Pos {
-		return bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)}
+	if k < 0 {
+		return 0, nil
 	}
-	sort.Slice(res, func(i, j int) bool {
-		a, b := center(res[i]), center(res[j])
-		da, db := math.Hypot(a.X-from.X, a.Y-from.Y), math.Hypot(b.X-from.X, b.Y-from.Y)
-		if da != db {
-			return da < db
+	m := k + sight
+	var pts []bridge.Pos
+	for _, c := range ringChunks(m) {
+		if skip[c] {
+			continue
 		}
-		return res[i].X*100000+res[i].Y < res[j].X*100000+res[j].Y
-	})
+		useful := false
+		for dy := -sight; dy <= sight && !useful; dy++ {
+			for dx := -sight; dx <= sight && !useful; dx++ {
+				useful = unknown(bridge.ChunkPos{X: c.X + dx, Y: c.Y + dy})
+			}
+		}
+		if useful {
+			pts = append(pts, bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)})
+		}
+	}
+	return m, pts
+}
+
+// ringChunks — чанки квадратного кольца r вокруг чанка (0,0).
+func ringChunks(r int) []bridge.ChunkPos {
+	if r == 0 {
+		return []bridge.ChunkPos{{}}
+	}
+	var res []bridge.ChunkPos
+	for i := -r; i < r; i++ {
+		res = append(res, bridge.ChunkPos{X: i, Y: -r}, bridge.ChunkPos{X: r, Y: i}, bridge.ChunkPos{X: -i, Y: r}, bridge.ChunkPos{X: -r, Y: -i})
+	}
 	return res
 }
 
@@ -371,30 +402,37 @@ func (w *World) Buildable(t Tile) (ok, clear bool) {
 // Obstacles — что убрать перед стройкой на тайлах: деревья, камни, обломки, чья рамка
 // коллизии задевает хотя бы один тайл.
 func (w *World) Obstacles(tiles []Tile) []Object {
-	if len(tiles) == 0 {
-		return nil
-	}
 	set := map[Tile]bool{}
-	var c bridge.Pos
+	chunks := map[bridge.ChunkPos]bool{}
 	for _, t := range tiles {
 		set[t] = true
-		c.X += t.Center().X / float64(len(tiles))
-		c.Y += t.Center().Y / float64(len(tiles))
-	}
-	var res []Object
-	for _, o := range w.ObjectsNear(c, float64(len(tiles))+6) {
-		if !clearable(o) {
-			continue
-		}
-		b := w.CollisionBox(o)
-		hit := false
-		for y := int(math.Floor(b.LeftTop.Y)); y < int(math.Ceil(b.RightBottom.Y)) && !hit; y++ {
-			for x := int(math.Floor(b.LeftTop.X)); x < int(math.Ceil(b.RightBottom.X)) && !hit; x++ {
-				hit = set[Tile{X: x, Y: y}]
+		c := ChunkOf(t)
+		for dy := -1; dy <= 1; dy++ { // объект у края соседнего чанка тоже задевает
+			for dx := -1; dx <= 1; dx++ {
+				chunks[bridge.ChunkPos{X: c.X + dx, Y: c.Y + dy}] = true
 			}
 		}
-		if hit {
-			res = append(res, o)
+	}
+	var res []Object
+	for cp := range chunks {
+		ch := w.Chunks[cp]
+		if ch == nil {
+			continue
+		}
+		for _, o := range ch.Objects {
+			if !clearable(o) {
+				continue
+			}
+			b := w.CollisionBox(o).Bounds()
+			hit := false
+			for y := int(math.Floor(b.LeftTop.Y)); y < int(math.Ceil(b.RightBottom.Y)) && !hit; y++ {
+				for x := int(math.Floor(b.LeftTop.X)); x < int(math.Ceil(b.RightBottom.X)) && !hit; x++ {
+					hit = set[Tile{X: x, Y: y}]
+				}
+			}
+			if hit {
+				res = append(res, o)
+			}
 		}
 	}
 	return res

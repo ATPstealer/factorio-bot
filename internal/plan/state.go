@@ -13,6 +13,7 @@ import (
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/layout"
 )
 
 // Owned — своя постройка из реестра: зачем поставлена (роль) и что внутри.
@@ -25,6 +26,7 @@ type Owned struct {
 	Status string                    `json:"-"`
 	Dir    *int                      `json:"-"` // направление в игре (nil — без направления)
 	Recipe string                    `json:"-"` // рецепт сборщика в игре
+	UGType string                    `json:"-"` // подземка в игре: input/output
 }
 
 // Count — сколько предмета во всех инвентарях постройки.
@@ -58,6 +60,8 @@ type State struct {
 	FindSpot func(s *State, entity, role string, avoid []bridge.Pos) (bridge.Pos, bool)
 	// Minable — можно ли добыть предмет с открытой карты (руда, дерево, камень).
 	Minable func(item string) bool
+	// Exhausted — у раскладки точки старта руда под буром кончилась: точка закрыта.
+	Exhausted func(tag string) bool
 	// Researching — что исследуется сейчас и стоит в очереди
 	Researching map[string]bool
 	// ResearchStalled — сколько секунд исследование не продвигается (0 — идёт или нет его)
@@ -65,6 +69,8 @@ type State struct {
 	// Design — раскладка под задачу (kind: "research" — станция + лаборатории + столбы);
 	// одна и та же между циклами (роли построек стабильны). nil — не умеем (симуляция).
 	Design func(s *State, kind string) (Built, bool)
+	// Designs — все уже спроектированные раскладки (для расчёта мощности); nil — нет
+	Designs func() [][]layout.Placement
 	// Done — выполненные разовые этапы (Primitive.Mark): сохраняются между запусками
 	Done map[string]bool
 	// Produced — произведено за игру (статистика производства; trigger-технологии)
@@ -199,8 +205,8 @@ func (p *Primitive) Key() string {
 		return "gather:" + p.Item + p.Source
 	case "craft":
 		return "craft:" + p.Recipe
-	case "build":
-		return fmt.Sprintf("build:%s:%d@%.1f,%.1f", p.Item, p.Dir, p.Spots[0].X, p.Spots[0].Y)
+	case "build", "rebuild":
+		return fmt.Sprintf("%s:%s:%d@%.1f,%.1f", p.Kind, p.Item, p.Dir, p.Spots[0].X, p.Spots[0].Y)
 	case "collect", "refuel":
 		return p.Kind + ":" + p.Item + ":" + strings.Join(p.Roles, ",")
 	}
@@ -231,6 +237,8 @@ func (p *Primitive) String() string {
 			total += n
 		}
 		s = fmt.Sprintf("разнести %s ×%d по %d постройкам (%s…)", p.Item, total, len(p.Roles), p.Roles[0])
+	case "rebuild":
+		s = fmt.Sprintf("пересобрать %s (%s): поднять и поставить заново", p.Item, p.Roles[0])
 	case "build":
 		s = fmt.Sprintf("построить %s ×%d (%s…)", p.Item, len(p.Spots), p.Roles[0])
 		if p.Dir != 0 {

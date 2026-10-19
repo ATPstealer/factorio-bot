@@ -43,11 +43,15 @@ const usage = `bot — бот Factorio: действует только мышь
                         поставить постройку центром в (X, Y); DIR: n|e|s|w (n)
   insert ПРЕДМЕТ N X Y  положить N предметов в постройку в точке (X, Y) (клавиша Z по одному)
   take X Y              забрать результат из постройки в точке (X, Y) (Ctrl+ЛКМ)
+  recipe X Y РЕЦЕПТ     задать рецепт машине в точке (X, Y) через окно выбора
+  rotate X Y n|e|s|w    повернуть постройку в точке (X, Y) (R)
   pickup X Y            подобрать свою постройку в точке (X, Y)
   run ЦЕЛЬ… | keep      выполнять цели (планировщик сам добывает, крафтит, плавит, ставит):
                           start — старт игры: 50 дерева, 200 камня с камней, добывающие точки на бурах
                           (уголь парами, железо/медь бур→печь, камень 4 бура→сундук; поддерживается);
-                          redscience — фабрика красной науки и всё по красной;
+                          redscience — фабрика красной науки и нужное для ракеты по красной;
+                          greenscience [ТЕХ] — блок зелёной науки и нужное по красной+зелёной (до ТЕХ);
+                          site ТИП — построить раскладку задачи (research, science, green, power-N);
                           research ТЕХ — изучить (trigger — выполнить условие, наукой — лаборатории);
                           have ПРЕДМЕТ N — иметь в инвентаре; smelt РУДА N — линия из N печей на руде
                           с углём (поддерживается: бот следит и чинит, выход — Ctrl+C или -t);
@@ -230,11 +234,19 @@ func main() {
 		r := fs.Int("r", 150, "радиус, тайлов")
 		sc := fs.Int("s", 3, "пикселей на тайл")
 		out := fs.String("o", "map.png", "файл")
+		at := fs.String("at", "", "центр X,Y (по умолчанию — игрок)")
 		fs.Parse(args[1:])
 		w := loadWorld(b)
 		p, err := b.Player()
 		check(err)
-		img := w.Render(world.RenderOptions{Center: world.TileOf(p.Position), Radius: *r, Scale: *sc, Player: &p.Position, Labels: true})
+		c := world.TileOf(p.Position)
+		if *at != "" {
+			var x, y int
+			_, err := fmt.Sscanf(*at, "%d,%d", &x, &y)
+			check(err)
+			c = world.Tile{X: x, Y: y}
+		}
+		img := w.Render(world.RenderOptions{Center: c, Radius: *r, Scale: *sc, Player: &p.Position, Labels: true})
 		f, err := os.Create(*out)
 		check(err)
 		check(png.Encode(f, img))
@@ -293,14 +305,16 @@ func main() {
 		e, err := hands().Place(ctx, args[1], bridge.Pos{X: atof(args[2]), Y: atof(args[3])}, dir)
 		check(err)
 		log.Printf("поставлено %s в (%.1f, %.1f)", e.Name, e.Position.X, e.Position.Y)
-	case "insert", "take", "pickup":
+	case "insert", "take", "pickup", "recipe", "rotate":
 		var pos bridge.Pos
 		var item string
 		n := 0
 		switch {
 		case args[0] == "insert" && len(args) >= 5:
 			item, n, pos = args[1], atoi(args[2]), bridge.Pos{X: atof(args[3]), Y: atof(args[4])}
-		case args[0] != "insert" && len(args) >= 3:
+		case (args[0] == "recipe" || args[0] == "rotate") && len(args) >= 4:
+			pos, item = bridge.Pos{X: atof(args[1]), Y: atof(args[2])}, args[3]
+		case args[0] != "insert" && args[0] != "recipe" && args[0] != "rotate" && len(args) >= 3:
 			pos = bridge.Pos{X: atof(args[1]), Y: atof(args[2])}
 		default:
 			log.Fatalf("bot %s: см. bin/bot", args[0])
@@ -329,6 +343,13 @@ func main() {
 		case "pickup":
 			check(h.Pickup(ctx, *target))
 			log.Printf("подобрано %s", target.Name)
+		case "recipe":
+			check(h.SetRecipe(ctx, *target, item))
+			log.Printf("в %s рецепт %s", target.Name, item)
+		case "rotate":
+			d := map[string]int{"n": 0, "e": 4, "s": 8, "w": 12}[item]
+			check(h.Rotate(ctx, *target, d))
+			log.Printf("%s повёрнут", target.Name)
 		}
 	case "run":
 		runRun(ctx, hands(), args[1:])

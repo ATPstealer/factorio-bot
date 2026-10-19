@@ -19,7 +19,8 @@ func TestBase_Layout(t *testing.T) {
 	png := path("run", "debug", "layout-test.png")
 	os.MkdirAll(path("run", "debug"), 0o755)
 	os.Remove(png)
-	cmd := exec.Command(bin, "layout", "-o", png, "demo")
+	// от стартовой зоны: там ресурсы есть на любой карте (у игрока может быть озеро и т.п.)
+	cmd := exec.Command(bin, "layout", "-o", png, "-at", "0,0", "demo")
 	cmd.Dir = root()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
