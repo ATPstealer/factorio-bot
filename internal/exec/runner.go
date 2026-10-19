@@ -61,7 +61,7 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		if len(packs) == 0 {
 			return plan.Site{Kind: fmt.Sprintf("stage-%d", g.N)}, nil
 		}
-		return plan.StageScience{N: g.N, Packs: packs}, nil
+		return plan.StageScience{N: g.N, Packs: packs, Until: StageUntil[g.N]}, nil
 	case "site":
 		return plan.Site{Kind: g.Item}, nil
 	}

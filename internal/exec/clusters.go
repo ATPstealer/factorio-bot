@@ -25,10 +25,17 @@ import (
 var StageTargets = map[int]map[string]float64{
 	1: {"iron-plate": 1, "copper-plate": 0.5},
 	2: {"automation-science-pack": 0.1},
+	3: {"automation-science-pack": 0.45, "logistic-science-pack": 0.45},
 }
 
-// labSeconds — секунд исследования на пакет (технологии красной науки: 1225 с / 175).
-const labSeconds = 7.0
+// StageUntil — до каких технологий изучать на этапе (пусто — всё на пакетах этапа для ракеты).
+var StageUntil = map[int][]string{
+	3: {"oil-gathering", "automation-2"}, // нужное до нефти и стали
+}
+
+// labSeconds — секунд исследования на пакет (лаборатория со скоростью 1): технологии на пути
+// к ракете — красные 1225 с / 175, красные+зелёные 65 700 с / 2435.
+var labSeconds = map[int]float64{2: 7, 3: 27}
 
 // clusterMode — база строится кластерами: есть кластеры или цель — этап ("stage-N").
 func (r *Runner) clusterMode() bool {
@@ -102,7 +109,7 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 		}
 	}
 	if len(packs) > 0 {
-		cs = append(cs, cluster.Labs(p, packs, labSeconds, stageReserve(n)))
+		cs = append(cs, cluster.Labs(p, packs, labSeconds[n], stageReserve(n)))
 	}
 	if n == 1 {
 		cs = append(cs, cluster.StorageCluster())

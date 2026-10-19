@@ -206,6 +206,23 @@ func researchLoop(pl *Planner, s *State, c *ctx, techs []string, site string) (*
 type StageScience struct {
 	N     int
 	Packs []string
+	Until []string // только путь к этим технологиям (пусто — всё на пакетах)
+}
+
+// techs — что изучать на этапе.
+func (g StageScience) techs(s *State) []string {
+	all := packTechs(s, g.Packs...)
+	if len(g.Until) == 0 {
+		return all
+	}
+	path, _ := s.Protos.TechPath(g.Until, map[string]bool{})
+	var res []string
+	for _, t := range all {
+		if slices.Contains(path, t) {
+			res = append(res, t)
+		}
+	}
+	return res
 }
 
 func (g StageScience) site() string   { return fmt.Sprintf("stage-%d", g.N) }
@@ -213,7 +230,7 @@ func (g StageScience) Key() string    { return "stage-science:" + g.site() }
 func (g StageScience) String() string { return fmt.Sprintf("этап %d: наука %v", g.N, g.Packs) }
 
 func (g StageScience) Satisfied(s *State) bool {
-	for _, t := range packTechs(s, g.Packs...) {
+	for _, t := range g.techs(s) {
 		if !s.Av.Researched[t] {
 			return false
 		}
@@ -225,5 +242,5 @@ func (g StageScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if p, err := sub(pl, s, c, Site{g.site()}); p != nil || err != nil {
 		return p, err
 	}
-	return researchLoop(pl, s, c, packTechs(s, g.Packs...), g.site())
+	return researchLoop(pl, s, c, g.techs(s), g.site())
 }

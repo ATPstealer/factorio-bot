@@ -104,14 +104,15 @@ func TestSplitRed(t *testing.T) {
 		got[string(c.Kind)+":"+c.Product] = c
 		t.Log(c)
 	}
-	for _, k := range []string{"mine:iron-ore", "mine:copper-ore", "mine:coal", "smelt:iron-plate", "smelt:copper-plate", "make:automation-science-pack", "make:iron-gear-wheel", "power:power"} {
+	for _, k := range []string{"mine:iron-ore", "mine:copper-ore", "mine:coal", "smelt:iron-plate", "smelt:copper-plate", "make:automation-science-pack", "power:power"} {
 		if got[k] == nil {
 			t.Errorf("нет кластера %s", k)
 		}
 	}
 	if c := got["make:automation-science-pack"]; c != nil {
-		if !hasIn(c, "iron-gear-wheel") || !hasIn(c, "copper-plate") {
-			t.Errorf("входы науки: %v", c)
+		// шестерни — парой прямой подачи внутри: на входе железо и медь
+		if c.Sub != "iron-gear-wheel" || !hasIn(c, "iron-plate") || !hasIn(c, "copper-plate") {
+			t.Errorf("пара науки: %v (sub %q)", c, c.Sub)
 		}
 		for _, f := range c.Out {
 			if f.Item == "automation-science-pack" && f.Rate < 0.1*Margin-1e-6 {
@@ -179,7 +180,7 @@ func TestPlaceRed(t *testing.T) {
 	for _, c := range b.Clusters {
 		names[c.Name] = c
 	}
-	for _, n := range []string{"iron-ore-1", "coal-1", "iron-plate-1", "gear-1", "red-science-1", "power-1", "lab-1", "storage-1"} {
+	for _, n := range []string{"iron-ore-1", "coal-1", "iron-plate-1", "red-science-1", "power-1", "lab-1", "storage-1"} {
 		if names[n] == nil {
 			t.Errorf("нет %s: %v", n, keys(names))
 		}
@@ -401,4 +402,43 @@ func TestGrow(t *testing.T) {
 	if Grow(old, &Cluster{Kind: Mine, Product: "iron-ore", Count: 1}) {
 		t.Error("другой продукт")
 	}
+}
+
+// Зелёная наука кластерами: у каждого кластера сборки не больше двух входов с лент
+// (промежуточное — парой прямой подачи), внутренности и логистика без ошибок проверки.
+func TestConnectGreen(t *testing.T) {
+	plan, err := calc.Solve(pt(t), map[string]float64{"logistic-science-pack": 0.45, "automation-science-pack": 0.45}, calc.Options{All: true,
+		Machines: map[string]string{"crafting": "assembling-machine-1", "smelting": "stone-furnace"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := Split(pt(t), plan, 5, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs = append(cs, Labs(pt(t), map[string]float64{"automation-science-pack": 0.45, "logistic-science-pack": 0.45}, 7, 5))
+	if cs, err = AddPower(pt(t), cs, 5, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cs {
+		t.Log(c, c.Sub)
+		if c.Kind == Make && len(c.In) > 2 {
+			t.Errorf("%s: входов %d", c.Product, len(c.In))
+		}
+	}
+	b := NewBase(pt(t), testMap(t), world.Tile{X: 160, Y: 160})
+	if err := b.PlaceAll(cs); err != nil {
+		t.Fatal(err)
+	}
+	l, err := b.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Connect(l, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range l.Validate() {
+		t.Error(e)
+	}
+	t.Log(l.Summary())
 }

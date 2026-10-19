@@ -87,3 +87,17 @@ func TestGame10_2_Stage2(t *testing.T) {
 		}
 	}
 }
+
+// 10.3. Этап 3 (45 мин): зелёная наука кластерами — промежуточное (шестерни, провод) парами
+// прямой подачи внутри потребителей, лаборатории под красную и зелёную; изучено нужное до
+// нефти и стали.
+func TestGame10_3_Stage3(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 120*time.Minute, exec.GoalSpec{Kind: "stage", N: 3})
+	f, _ := h.B.Force()
+	for _, tech := range []string{"oil-gathering", "automation-2"} {
+		if !slices.Contains(f.Researched, tech) {
+			t.Errorf("%s не изучена", tech)
+		}
+	}
+}

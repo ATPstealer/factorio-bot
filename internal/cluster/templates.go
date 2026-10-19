@@ -156,7 +156,12 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		if c.Kind != Smelt {
 			mach, mh = c.machine(), 3
 		}
-		for i := 0; i < c.Count; i++ {
+		for i := 0; i < c.Count && c.Sub != ""; i++ {
+			if err := pair(l, f, c, 1+i*c.Pitch, belts, mach, ins, tag, add); err != nil {
+				return err
+			}
+		}
+		for i := 0; i < c.Count && c.Sub == ""; i++ {
 			u := 1 + i*c.Pitch
 			m := f.at(l, mach, u, belts+2, layout.N, tag)
 			if c.Kind == Make {
@@ -242,6 +247,41 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		delete(l.Reserved, t)
 	}
 	return nil
+}
+
+// pair — пара прямой подачи с u: сборщик промежуточного (Sub) → инсертер → основной (Main)
+// [→ инсертер ← второй Sub]; все берут с ленты входа, выход — только у основного.
+func pair(l *layout.Layout, f frame, c *Cluster, u, belts int, mach, ins, tag string, add func(layout.Placement) error) error {
+	mv := belts + 2       // ряд сборщиков (3×3)
+	xs := []int{u, u + 4} // Sub, Main
+	recs := []string{c.Sub, c.Main}
+	if c.SubPer > 1 {
+		xs, recs = append(xs, u+8), append(recs, c.Sub)
+	}
+	for k, x := range xs {
+		m := f.at(l, mach, x, mv, layout.N, tag)
+		m.Recipe = recs[k]
+		if err := add(m); err != nil {
+			return err
+		}
+		if err := add(f.inserter(l, ins, x+1, belts+1, belts, tag)); err != nil { // с ленты
+			return err
+		}
+	}
+	direct := func(at, from int) error { // инсертер в среднем ряду сборщиков: из Sub в Main
+		a := f.tile(at, mv+1)
+		return add(layout.Placement{Name: ins, Pos: a.Center(), Dir: layout.InserterDir(l.P, ins, a, f.tile(from, mv+1)), Tag: tag})
+	}
+	if err := direct(u+3, u+2); err != nil {
+		return err
+	}
+	if c.SubPer > 1 {
+		if err := direct(u+7, u+8); err != nil {
+			return err
+		}
+	}
+	ov := mv + 3 // выход основного
+	return add(f.inserter(l, ins, u+5, ov, ov-1, tag))
 }
 
 // mineRow — буры по обе стороны ленты ряда 3 (сверху смотрят S, снизу N), только где под
