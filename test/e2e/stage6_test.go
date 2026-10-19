@@ -1,7 +1,7 @@
 //go:build e2e
 
-// Стадия 6 — layout «на бумаге»: шахты, плавильни, блок красной науки, станция, столбы,
-// всё связано лентами, без коллизий с картой (живой скан случайной карты), PNG.
+// Раскладка «на бумаге» кластерами (красная наука от добычи до лабораторий, станция,
+// логистика по коридорам) на живой карте — без ошибок проверки, PNG.
 package e2e
 
 import (
@@ -20,14 +20,14 @@ func TestBase_Layout(t *testing.T) {
 	os.MkdirAll(path("run", "debug"), 0o755)
 	os.Remove(png)
 	// от стартовой зоны: там ресурсы есть на любой карте (у игрока может быть озеро и т.п.)
-	cmd := exec.Command(bin, "layout", "-o", png, "-at", "0,0", "demo")
+	cmd := exec.Command(bin, "clusters", "-o", png, "-at", "0,0", "automation-science-pack", "0.1/s")
 	cmd.Dir = root()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if strings.Contains(string(out), "не видно") {
 			t.Skipf("на открытой карте нет нужного: %s", out)
 		}
-		t.Fatalf("bot layout: %v\n%s", err, out)
+		t.Fatalf("bot clusters: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "проверка: без ошибок") {
 		t.Errorf("вывод:\n%s", out)

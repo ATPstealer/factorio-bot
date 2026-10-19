@@ -288,11 +288,6 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		tried = append(tried, "крафт забанен")
 	}
-	// 2а. много пластин (стройка: сотни лент) — склад пластин на электробурах; построен —
-	// ждать у него (забирает шаг 1)
-	if p, err := g.fromPlateStore(pl, s, c, lack); p != nil || err != nil {
-		return p, err
-	}
 	// 2б. есть добывающие точки — с них (дозаправить, подождать), руками не копать
 	if p, err := g.fromOutposts(pl, s, c, lack); p != nil || err != nil {
 		return p, err
@@ -491,46 +486,6 @@ func sub(pl *Planner, s *State, c *ctx, g Goal) (*Primitive, error) {
 		return nil, err
 	}
 	return g.next(pl, s, cc)
-}
-
-// PlateStoreMin — с какой нехватки пластин строить склад пластин.
-const PlateStoreMin = 100
-
-// fromPlateStore — железо/медь много: склад пластин (раскладка plates-РУДА), ждать у его
-// сундуков. nil — склад не нужен или не выходит.
-func (g HaveItem) fromPlateStore(pl *Planner, s *State, c *ctx, lack int) (*Primitive, error) {
-	ore := map[string]string{"iron-plate": "iron-ore", "copper-plate": "copper-ore"}[g.Item]
-	// кластерная база: склада пластин (бур → печь прямо на руде) нет — пластины с точек
-	// нулевого этапа и кластеров
-	if ore == "" || s.Clusters || lack < PlateStoreMin || s.Design == nil || !s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
-		return nil, nil
-	}
-	kind := "plates-" + ore
-	site := Site{kind}
-	if c.stack[site.Key()] {
-		return nil, nil // строим сам склад — пластины на него обычным путём
-	}
-	b, ok := s.Design(s, kind)
-	if !ok {
-		return nil, nil
-	}
-	if !b.Satisfied(s) {
-		return sub(pl, s, c, site)
-	}
-	best, bestN := "", -1
-	for i, p := range b.List {
-		if p.Name != Chest {
-			continue
-		}
-		role := BuildRole(kind, i)
-		if o := s.Role(role); o != nil && o.Output(g.Item) > bestN {
-			best, bestN = role, o.Output(g.Item)
-		}
-	}
-	if best == "" {
-		return nil, nil
-	}
-	return c.prim(Primitive{Kind: "wait", Role: best, Item: g.Item, N: min(lack, 50)}), nil
 }
 
 // Stock — фоновый запас ходовых материалов (наблюдение пользователя: пока идёт

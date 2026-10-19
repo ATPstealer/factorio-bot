@@ -24,7 +24,7 @@ import (
 
 // GoalSpec — цель в сохраняемом виде.
 type GoalSpec struct {
-	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience | greenscience | site | stage (N)
+	Kind     string `json:"kind"` // have | smelt | build | research | start | site | stage (N)
 	Item     string `json:"item,omitempty"`
 	N        int    `json:"n"`
 	Fuel     string `json:"fuel,omitempty"`
@@ -49,8 +49,6 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		return plan.Researched{Tech: g.Item}, nil
 	case "start":
 		return plan.Start{}, nil
-	case "redscience":
-		return plan.RedScience{}, nil
 	case "stage":
 		// этап кластерами с наукой: пакеты — из целей этапа
 		var packs []string
@@ -66,8 +64,6 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		return plan.StageScience{N: g.N, Packs: packs}, nil
 	case "site":
 		return plan.Site{Kind: g.Item}, nil
-	case "greenscience":
-		return plan.GreenScience{Target: g.Item}, nil
 	}
 	return nil, fmt.Errorf("exec: неизвестная цель %q", g.Kind)
 }
@@ -1155,148 +1151,6 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 			break
 		}
 		l, err = ResearchSite(r.H.Protos, r.H.World, world.TileOf(s.PlayerPos), 2)
-	case "science":
-		l = r.newLayout(kind)
-		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
-		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 200, Limit: 50})
-		anchor := s.PlayerPos
-		for i, e := range poles {
-			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-			if i == 0 {
-				anchor = e.Position
-			}
-		}
-		// ~0.4 науки/с: 4 пары сборщиков (0.1/с каждая), железо 0.8/с — 3 печи, медь
-		// 0.4/с — 2 печи (каменная 0.31/с), 6 лабораторий: всё по красной (≈9600 лаб·с) —
-		// меньше получаса
-		err = l.ScienceFactory(anchor, 4, 3, 2, 6)
-	case "green":
-		// к стоящей фабрике красной науки: зелёная — сбоку на ленту её лабораторий
-		var labsIn *layout.Placement
-		for i, p := range r.Saved.Designs["science"] {
-			if p.Tag == "labs" && p.Name == "transport-belt" && (labsIn == nil || p.Pos.X < labsIn.Pos.X) {
-				labsIn = &r.Saved.Designs["science"][i]
-			}
-		}
-		if labsIn == nil {
-			err = fmt.Errorf("нет фабрики красной науки (лент лабораторий)")
-			break
-		}
-		l = r.newLayout(kind)
-		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
-		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 300, Position: &labsIn.Pos, Limit: 80})
-		for _, e := range poles {
-			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-		}
-		// ~0.17 зелёной/с: 2 сборщика науки; железо ~0.95/с — 3 печи, медь ~0.25/с — 1
-		err = l.GreenFactory(labsIn.Pos, world.TileOf(labsIn.Pos), 2, 3, 1)
-	case "steel":
-		// сталь (8.3): 3 столбика (~0.19 стали/с) на ближайшем к фабрике железе, столбы к сети
-		l = r.newLayout(kind)
-		near := s.PlayerPos
-		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
-			near = ls[0].Pos
-		}
-		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 300, Position: &near, Limit: 80})
-		for _, e := range poles {
-			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-		}
-		var patch []world.Tile
-		best := math.Inf(1)
-		for _, p := range r.H.World.Patches() {
-			if d := p.Distance(near); p.Name == "iron-ore" && d < best {
-				best, patch = d, p.Tiles
-			}
-		}
-		if err = l.SteelRow(patch, 3, world.TileOf(near), "steel"); err == nil {
-			l.Poles("small-electric-pole", kind)
-		}
-	case "coal-mine":
-		// уголь большими партиями (кормушки бойлеров, печи): 3 пары электробуров с общими
-		// сундуками на ближайшем к станции угле
-		l = r.newLayout(kind)
-		near := s.PlayerPos
-		if bs, _ := r.B.FindNearest(bridge.FindArgs{Type: "boiler", Radius: 300, Limit: 1}); len(bs) > 0 {
-			near = bs[0].Position
-		}
-		r.anchors(l, near)
-		patch, ok := nearestOre(r.H.World, "coal", near)
-		if !ok {
-			err = fmt.Errorf("угля не видно")
-			break
-		}
-		if err = l.ChestMine(patch, "coal", 3, world.TileOf(near), kind); err == nil {
-			l.Poles("small-electric-pole", kind)
-		}
-	case "blue":
-		// синяя наука (8.8) у фабрики: синяя — лентой под её лабораториями
-		var labs []layout.Placement
-		for _, p := range r.Saved.Designs["science"] {
-			if p.Name == "lab" {
-				labs = append(labs, p)
-			}
-		}
-		near := s.PlayerPos
-		if len(labs) > 0 {
-			near = labs[0].Pos
-		}
-		l = r.newLayout(kind)
-		l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
-		r.anchors(l, near)
-		// ~0.1 синей/с: железо ~1.2/с — 4 печи, медь ~0.75/с — 3
-		err = l.BlueFactory(near, labs, 4, 3)
-	case "plates-iron-ore", "plates-copper-ore":
-		// склад пластин (стройка — сотни лент): 8 столбиков бур → печь → сундук на
-		// ближайшем к базе месторождении
-		ore := strings.TrimPrefix(kind, "plates-")
-		near := s.PlayerPos
-		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
-			near = ls[0].Pos
-		}
-		l = r.newLayout(kind)
-		r.anchors(l, near)
-		patch, ok := nearestOre(r.H.World, ore, near)
-		if !ok {
-			err = fmt.Errorf("%s не видно", ore)
-			break
-		}
-		if err = l.PlateRow(patch, ore, 8, world.TileOf(near), kind); err == nil {
-			l.Poles("small-electric-pole", kind)
-		}
-	case "coal-belt":
-		// уголь лентой к кормушкам бойлеров (бот не возит)
-		groups := FeedTargets(r.H.Protos, r.Saved.Designs)
-		if len(groups) == 0 {
-			err = fmt.Errorf("нет кормушек бойлеров")
-			break
-		}
-		near := groups[0][0].Center()
-		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
-		var anchors []layout.Placement
-		for _, e := range poles {
-			anchors = append(anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-		}
-		var fed int
-		if l, fed, err = CoalBeltSite(r.newLayout(kind), groups, anchors, kind); err == nil {
-			r.journal("лента угля: подведено к %d бойлерам из %d", fed, len(groups))
-		}
-	case "oil-belt":
-		// пластик и сера с нефти на базу (8.7)
-		oil, ok := r.design(s, "oil")
-		if !ok {
-			err = fmt.Errorf("нет раскладки oil")
-			break
-		}
-		near := s.PlayerPos
-		if ls := r.Saved.Designs["science"]; len(ls) > 0 {
-			near = ls[0].Pos
-		}
-		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
-		var anchors []layout.Placement
-		for _, e := range poles {
-			anchors = append(anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-		}
-		l, err = OilBeltSite(r.newLayout(kind), oil.List, anchors, near, kind)
 	case "oil":
 		// нефть (8.5): 2 насоса на ближайшем к базе поле → нефтезавод → химзаводы (пластик,
 		// сера), столбы — к ближайшей сети
@@ -1323,27 +1177,6 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 			if p.Tag == "oil-jack" || r.H.Protos.Entities[p.Name].Type == "electric-pole" {
 				l.Add(p)
 			}
-		}
-	case "power-1", "power-2", "power-3", "power-4":
-		// ещё блок станции: у воды рядом со стоящей станцией, 2 двигателя на бойлер,
-		// кормушка; столбы — к сети
-		l = r.newLayout(kind)
-		near := s.PlayerPos
-		if bs, _ := r.B.FindNearest(bridge.FindArgs{Type: "boiler", Radius: 300, Limit: 1}); len(bs) > 0 {
-			near = bs[0].Position
-		}
-		poles, _ := r.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 300, Position: &near, Limit: 50})
-		for _, e := range poles {
-			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-		}
-		// геометрический рост: блок power-n — 2^(n-1) цепочек (1.8, 3.6, 7.2, 14.4 МВт)
-		var n int
-		fmt.Sscanf(kind, "power-%d", &n)
-		for c := 0; c < plan.PowerChains(n) && err == nil; c++ {
-			_, err = l.SteamPower(world.TileOf(near), 2, kind)
-		}
-		if err == nil {
-			l.Poles("small-electric-pole", kind)
 		}
 	default:
 		var n int
@@ -1396,66 +1229,6 @@ func (r *Runner) alias() {
 			}
 		}
 	}
-}
-
-// FeedTargets — куда класть уголь каждому бойлеру раскладок designs: тайл его
-// сундука-кормушки (сундук → инсертер → бойлер), затем тайлы самого бойлера.
-func FeedTargets(p *knowledge.Prototypes, designs map[string][]layout.Placement) [][]world.Tile {
-	var res [][]world.Tile
-	for _, list := range designs {
-		at := map[world.Tile]layout.Placement{}
-		for _, pl := range list {
-			for _, t := range layout.Tiles(p, pl) {
-				at[t] = pl
-			}
-		}
-		for _, pl := range list {
-			if p.Entities[pl.Name].Type != "inserter" {
-				continue
-			}
-			pick, drop := layout.InserterEnds(p, pl)
-			if src, dst := at[pick], at[drop]; src.Name == "wooden-chest" && p.Entities[dst.Name].Type == "boiler" {
-				res = append(res, append([]world.Tile{pick}, layout.Tiles(p, dst)...))
-			}
-		}
-	}
-	sort.Slice(res, func(i, j int) bool {
-		return res[i][0].X < res[j][0].X || res[i][0].X == res[j][0].X && res[i][0].Y < res[j][0].Y
-	})
-	return res
-}
-
-// CoalBeltSite — шахта угля на электробурах на ленту (ближайшее к первому бойлеру
-// месторождение) и лента мимо бойлеров groups (FeedTargets); fed — к скольким подведено.
-func CoalBeltSite(l *layout.Layout, groups [][]world.Tile, anchors []layout.Placement, tag string) (*layout.Layout, int, error) {
-	w := l.W
-	l.Anchors = anchors
-	patch, ok := nearestOre(w, "coal", groups[0][0].Center())
-	if !ok {
-		return nil, 0, fmt.Errorf("угля не видно")
-	}
-	mr, err := l.Mine(patch, "coal", "electric-mining-drill", 6, tag)
-	if err != nil {
-		return nil, 0, err
-	}
-	fed, err := l.FeedBelt(mr.Out, mr.OutDir, groups, tag)
-	if err != nil {
-		return nil, 0, err
-	}
-	l.Poles("small-electric-pole", tag)
-	return l, fed, nil
-}
-
-// nearestOre — тайлы ближайшего к near месторождения ore (≥ 60 тайлов — под буры).
-func nearestOre(w *world.World, ore string, near bridge.Pos) ([]world.Tile, bool) {
-	var patch []world.Tile
-	best := math.Inf(1)
-	for _, p := range w.Patches() {
-		if d := p.Distance(near); p.Name == ore && len(p.Tiles) >= 60 && d < best {
-			best, patch = d, p.Tiles
-		}
-	}
-	return patch, patch != nil
 }
 
 // exhausted — у раскладки tag (точка старта) под каким-нибудь буром руды не осталось.
@@ -1540,38 +1313,6 @@ func (r *Runner) poweredLabs() []bridge.Entity {
 		}
 	}
 	return res
-}
-
-// OilBeltSite — раскладка ленты пластика и серы с нефти (oil — раскладка нефти, в разметке,
-// но не в списке) до буфера у near: лента → инсертер → сундук; столбы — к anchors.
-func OilBeltSite(l *layout.Layout, oil, anchors []layout.Placement, near bridge.Pos, tag string) (*layout.Layout, error) {
-	p, w := l.P, l.W
-	for _, pl := range oil {
-		l.Add(pl)
-	}
-	n0 := len(l.List)
-	l.Anchors = anchors
-	end, ok := l.FindArea(world.TileOf(near), 3, 1, 2, 80, layout.OffOre)
-	if !ok {
-		return nil, fmt.Errorf("нет места под буфер пластика и серы")
-	}
-	ins, chest := layout.Step(end, layout.E), layout.Step(layout.Step(end, layout.E), layout.E)
-	l.Reserved[ins], l.Reserved[chest] = true, true
-	if _, err := l.OilBelt(end, layout.E, tag); err != nil {
-		return nil, err
-	}
-	delete(l.Reserved, ins)
-	delete(l.Reserved, chest)
-	l.Add(layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(p, "inserter", ins, end), Tag: tag})
-	l.Add(layout.Placement{Name: "wooden-chest", Pos: chest.Center(), Tag: tag})
-	l.Poles("small-electric-pole", tag)
-	res := layout.New(p, w) // только своё: раскладка нефти — уже стоит
-	for _, pl := range l.List[n0:] {
-		res.Add(pl)
-	}
-	res.Anchors = anchors
-	res.AllowEnd(ins) // лента упирается в инсертер буфера
-	return res, nil
 }
 
 // ResearchSite — паровая станция у ближайшей воды, labs лабораторий рядом с двигателем,

@@ -24,12 +24,14 @@ const statePath, botLog = "run/state.json", "run/bot.log"
 func parseGoals(args []string) []exec.GoalSpec {
 	var gs []exec.GoalSpec
 	for i := 0; i < len(args); {
-		if args[i] == "greenscience" && i+1 < len(args) && !isGoalWord(args[i+1]) {
-			gs = append(gs, exec.GoalSpec{Kind: "greenscience", Item: args[i+1]})
+		if args[i] == "stage" && i+1 < len(args) {
+			n, err := strconv.Atoi(args[i+1])
+			check(err)
+			gs = append(gs, exec.GoalSpec{Kind: "stage", N: n})
 			i += 2
 			continue
 		}
-		if args[i] == "start" || args[i] == "redscience" || args[i] == "greenscience" {
+		if args[i] == "start" {
 			gs = append(gs, exec.GoalSpec{Kind: args[i], Maintain: args[i] == "start"})
 			i++
 			continue
@@ -54,7 +56,7 @@ func parseGoals(args []string) []exec.GoalSpec {
 			gs = append(gs, exec.GoalSpec{Kind: args[i], Item: args[i+1], N: n, Maintain: args[i] == "smelt"})
 			i += 3
 		default:
-			log.Fatalf("неизвестная цель %q: start | redscience | greenscience | site ТИП | research ТЕХ | have ПРЕДМЕТ N | smelt РУДА N | keep", args[i])
+			log.Fatalf("неизвестная цель %q: start | stage N | site ТИП | research ТЕХ | have ПРЕДМЕТ N | smelt РУДА N | keep", args[i])
 		}
 	}
 	return gs
@@ -118,15 +120,6 @@ func runGoals() {
 	for k, until := range saved.Planner.Bans {
 		fmt.Printf("  бан: %s до %s\n", k, until.Format("15:04:05"))
 	}
-}
-
-// isGoalWord — слово начинает следующую цель.
-func isGoalWord(w string) bool {
-	switch w {
-	case "start", "redscience", "greenscience", "site", "research", "have", "smelt", "keep":
-		return true
-	}
-	return false
 }
 
 // runStage — план этапа кластерами без стройки: bot stage N [-state F] → кластеры и

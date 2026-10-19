@@ -52,68 +52,6 @@ func (l *Layout) FindArea(near world.Tile, w, h, margin, radius int, r Rule) (wo
 	return best, !math.IsInf(bestD, 1)
 }
 
-// SmeltingColumn — n печей в колонну (сверху вниз), слева входная лента ↓ (руда + топливо
-// на разных полосах), инсертеры → печи → инсертеры, справа выходная лента ↓.
-// Ширина 6, высота 2n. Вход — верх левой ленты, выход — низ правой.
-func (l *Layout) SmeltingColumn(lt world.Tile, n int, furnace, inserter, tag string) Module {
-	fw, fh := Size(l.P, furnace, N)
-	m := Module{Name: "плавильня", LT: lt, RB: world.Tile{X: lt.X + 3 + fw, Y: lt.Y + n*fh - 1}}
-	inX, insIn, fX, insOut, outX := lt.X, lt.X+1, lt.X+2, lt.X+2+fw, lt.X+3+fw
-	for i := 0; i < n; i++ {
-		y := lt.Y + i*fh
-		l.Add(Placement{Name: furnace, Pos: CenterAt(l.P, furnace, N, world.Tile{X: fX, Y: y}), Tag: tag})
-		a := world.Tile{X: insIn, Y: y}
-		l.Add(Placement{Name: inserter, Pos: a.Center(), Dir: InserterDir(l.P, inserter, a, world.Tile{X: inX, Y: y}), Tag: tag})
-		b := world.Tile{X: insOut, Y: y}
-		l.Add(Placement{Name: inserter, Pos: b.Center(), Dir: InserterDir(l.P, inserter, b, world.Tile{X: insOut - 1, Y: y}), Tag: tag})
-	}
-	for y := lt.Y; y < lt.Y+n*fh; y++ {
-		l.Add(Placement{Name: "transport-belt", Pos: world.Tile{X: inX, Y: y}.Center(), Dir: S, Tag: tag})
-		l.Add(Placement{Name: "transport-belt", Pos: world.Tile{X: outX, Y: y}.Center(), Dir: S, Tag: tag})
-	}
-	// низ входной ленты — тупик (печи разбирают); выход — дальше маршрутом
-	l.AllowEnd(world.Tile{X: inX, Y: lt.Y + n*fh})
-	l.AllowEnd(world.Tile{X: outX, Y: lt.Y + n*fh})
-	m.In = []Port{{world.Tile{X: inX, Y: lt.Y}, S}}
-	m.Out = []Port{{world.Tile{X: outX, Y: lt.Y + n*fh - 1}, S}}
-	m.Electric = l.P.Entities[inserter].Electric
-	return m
-}
-
-// RedScience — n пар «сборщик шестерён → инсертер → сборщик науки» в ряд (слева направо).
-// Сверху лента пластин → (железо и медь по полосам), снизу лента науки →.
-// Пара: 3 + 1 + 3 + 1 (проход под столб) = 8 тайлов; высота 7.
-func (l *Layout) RedScience(lt world.Tile, n int, asm, inserter, tag string) Module {
-	m := Module{Name: "красная наука", LT: lt, RB: world.Tile{X: lt.X + 8*n - 1, Y: lt.Y + 6}, Electric: true}
-	topY, insY, asmY, outInsY, outY := lt.Y, lt.Y+1, lt.Y+2, lt.Y+5, lt.Y+6
-	for i := 0; i < n; i++ {
-		x := lt.X + 8*i
-		gear := Placement{Name: asm, Pos: CenterAt(l.P, asm, N, world.Tile{X: x, Y: asmY}), Recipe: "iron-gear-wheel", Tag: tag}
-		sci := Placement{Name: asm, Pos: CenterAt(l.P, asm, N, world.Tile{X: x + 4, Y: asmY}), Recipe: "automation-science-pack", Tag: tag}
-		l.Add(gear)
-		l.Add(sci)
-		for _, ins := range []world.Tile{{X: x + 1, Y: insY}, {X: x + 5, Y: insY}} { // лента → сборщики
-			l.Add(Placement{Name: inserter, Pos: ins.Center(), Dir: InserterDir(l.P, inserter, ins, world.Tile{X: ins.X, Y: topY}), Tag: tag})
-		}
-		mid := world.Tile{X: x + 3, Y: asmY + 1} // шестерни → наука
-		l.Add(Placement{Name: inserter, Pos: mid.Center(), Dir: InserterDir(l.P, inserter, mid, world.Tile{X: x + 2, Y: mid.Y}), Tag: tag})
-		out := world.Tile{X: x + 5, Y: outInsY} // наука → нижняя лента
-		l.Add(Placement{Name: inserter, Pos: out.Center(), Dir: InserterDir(l.P, inserter, out, world.Tile{X: out.X, Y: out.Y - 1}), Tag: tag})
-	}
-	for x := lt.X; x < lt.X+8*n; x++ {
-		l.Add(Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: topY}.Center(), Dir: E, Tag: tag})
-		l.Add(Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: outY}.Center(), Dir: E, Tag: tag})
-	}
-	// конец ленты пластин — тупик: тайл за ним держать пустым, иначе чужая лента рядом
-	// подхватит пластины (петля, затор)
-	l.AllowEnd(world.Tile{X: lt.X + 8*n, Y: topY})
-	l.Reserved[world.Tile{X: lt.X + 8*n, Y: topY}] = true
-	l.AllowEnd(world.Tile{X: lt.X + 8*n, Y: outY}) // наука — дальше к лабораториям (стадия 7)
-	m.In = []Port{{world.Tile{X: lt.X, Y: topY}, E}}
-	m.Out = []Port{{world.Tile{X: lt.X + 8*n - 1, Y: outY}, E}}
-	return m
-}
-
 // SteamPower — паровая станция у воды: помпа на кромке (суша, вода рядом с любой стороны),
 // бойлер стыкуется водяным входом с помпой, двигатели цепочкой от паровыхода бойлера —
 // по трубным соединениям прототипов.

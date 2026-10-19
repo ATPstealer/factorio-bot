@@ -32,25 +32,6 @@ func (p Problem) String() string {
 // ResearchStall — исследование не продвигается столько секунд, считаем застрявшим.
 const ResearchStall = 180
 
-// MaxPowerBlocks — сколько блоков «помпа, бойлер, 2 двигателя» достраивать к станции.
-const MaxPowerBlocks = 4
-
-// powerBlocks — сколько блоков расширения станции уже спроектировано (power-N).
-func powerBlocks(s *State) int {
-	n := 0
-	for k := 1; k <= MaxPowerBlocks; k++ {
-		if s.Design == nil {
-			break
-		}
-		if b, ok := s.Design(s, fmt.Sprintf("power-%d", k)); ok && b.Satisfied(s) {
-			n = k
-		} else {
-			break
-		}
-	}
-	return n
-}
-
 // Diagnose — проблемы своих построек и исследования.
 func Diagnose(s *State) []Problem {
 	var res []Problem
@@ -110,41 +91,17 @@ func Diagnose(s *State) []Problem {
 			}
 		}
 		if p.Cause == "" && boilers > 0 {
-			p.Cause = "бойлеры горят — мощности станции мало"
-			if n := powerBlocks(s); n < MaxPowerBlocks && !s.Clusters {
-				p.Fix = Site{fmt.Sprintf("power-%d", n+1)}
-			}
+			p.Cause = "бойлеры горят — мощности станции мало (рост кластера станции — следующий этап)"
 		}
 		if p.Cause == "" {
 			p.Cause = "станции нет или столбы не связаны"
 		}
 		res = append(res, p)
 	}
-	// кормушка бойлера пуста — заполнить (бойлер с электроинсертером без неё встанет)
-	// Угля не напасёшься (бойлеры съедают 100 за минуты), а шахты нет — пока в кормушке
-	// что-то есть, исправление — шахта; пустая — долить немного; шахта есть — до полного
-	// лента угля к кормушкам — лучше шахты с сундуками (бот не возит совсем)
-	mine := Goal(nil)
-	if s.Design != nil && !s.Clusters && s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
-		for _, kind := range []string{"coal-belt", "coal-mine"} {
-			if b, ok := s.Design(s, kind); ok {
-				if !b.Satisfied(s) {
-					mine = Site{kind}
-				}
-				break
-			}
-		}
-	}
+	// кормушка бойлера станции нулевого этапа почти пуста — дозаправить обходом
 	for burner, chest := range feed {
 		if ch := s.Role(chest); ch != nil && ch.In("chest", "coal") < chestFeedTarget/4 && s.Protos.Entities[s.Role(burner).Name].Type == "boiler" {
-			p := Problem{Key: "feed:" + chest, Role: chest, What: "кормушка " + chest + " почти пуста", Fix: FeedRound{}}
-			switch {
-			case mine != nil && ch.In("chest", "coal") > 0:
-				p.Cause, p.Fix = "угольной шахты нет", mine
-			case mine != nil:
-				p.Fix = Supplied{chest, "coal", chestFeedTarget / 3} // угля мало — немного, срочно
-			}
-			res = append(res, p)
+			res = append(res, Problem{Key: "feed:" + chest, Role: chest, What: "кормушка " + chest + " почти пуста", Fix: FeedRound{}})
 		}
 	}
 

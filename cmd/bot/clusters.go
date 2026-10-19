@@ -75,6 +75,18 @@ func runClusters(b *bridge.Bridge, args []string) {
 		fmt.Println(" ", c)
 	}
 	check(err)
+	// внутренности и логистика — «на бумаге», с проверкой раскладки
+	l, err := base.Layout()
+	check(err)
+	check(base.Connect(l, nil, nil))
+	fmt.Println("  итого:", l.Summary())
+	if errs := l.Validate(); len(errs) == 0 {
+		fmt.Println("  проверка: без ошибок")
+	} else {
+		for _, e := range errs {
+			fmt.Println("  ✗", e)
+		}
+	}
 	// картинка: все кластеры с коридорами
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
@@ -86,6 +98,7 @@ func runClusters(b *bridge.Bridge, args []string) {
 		Radius: max(maxX-minX, maxY-minY)/2 + 20, Scale: *scale, Player: &p.Position, Labels: true}
 	img := w.Render(ro)
 	base.Draw(img, ro)
+	l.Draw(img, ro)
 	f, err := os.Create(*out)
 	check(err)
 	check(png.Encode(f, img))

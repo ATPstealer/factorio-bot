@@ -164,15 +164,6 @@ func (g HaveItem) fromOutposts(pl *Planner, s *State, c *ctx, lack int) (*Primit
 // refuelRound — дозаправить свои burner-постройки (кроме угольных пар — они сами) одним
 // обходом: набрать уголь на всех разом и разнести маршрутом.
 func refuelRound(pl *Planner, s *State, c *ctx) (*Primitive, error) {
-	// кормушки бойлеров есть, электробуры открыты — сначала угольная шахта: угля много
-	// и сразу (угольные пары не успевают за станцией)
-	if len(feeders(s)) > 0 && !s.Clusters && s.Protos.EntityAvailable("electric-mining-drill", s.Av) && s.Design != nil {
-		if _, ok := s.Design(s, "coal-mine"); ok { // нет места/угля — по-старому
-			if p, err := sub(pl, s, c, Site{"coal-mine"}); p != nil || err != nil {
-				return p, err
-			}
-		}
-	}
 	plan, caps, need, low := refuelPlan(s)
 	p := c.prim(plan)
 	if !low || pl.banned(p.Key()) {

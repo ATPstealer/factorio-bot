@@ -53,11 +53,27 @@ func TestBase_Build(t *testing.T) {
 	}
 	p, _ := h.B.Player()
 	l := layout.New(h.Protos, h.World)
-	lt, ok := l.FindArea(world.TileOf(p.Position), 6, 4, 1, 40, layout.OffOre)
+	lt, ok := l.FindArea(world.TileOf(p.Position), 7, 6, 1, 40, layout.OffOre)
+	lt.Y++ // ряд ленты над колонной
 	if !ok {
 		t.Skip("нет места 6×4 рядом")
 	}
-	l.SmeltingColumn(lt, 2, "stone-furnace", "burner-inserter", "smelt")
+	// 2 печи, burner-инсертеры на вход и выход, ленты (как колонна плавки)
+	for i := 0; i < 2; i++ {
+		x := lt.X + 3*i
+		l.Add(layout.Placement{Name: "stone-furnace", Pos: layout.CenterAt(h.Protos, "stone-furnace", layout.N, world.Tile{X: x, Y: lt.Y + 1}), Tag: "col"})
+		for _, y := range []int{lt.Y, lt.Y + 3} {
+			a := world.Tile{X: x, Y: y}
+			l.Add(layout.Placement{Name: "burner-inserter", Pos: a.Center(), Dir: layout.S, Tag: "col"})
+		}
+	}
+	for x := lt.X; x < lt.X+6; x++ {
+		for _, y := range []int{lt.Y - 1, lt.Y + 4} {
+			l.Add(layout.Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: y}.Center(), Dir: layout.E, Tag: "col"})
+		}
+	}
+	l.AllowEnd(world.Tile{X: lt.X + 6, Y: lt.Y - 1})
+	l.AllowEnd(world.Tile{X: lt.X + 6, Y: lt.Y + 4})
 	t.Logf("колонна в %v: %s", lt, l.Summary())
 
 	buildT(t, h, l, "col", 15*time.Minute)

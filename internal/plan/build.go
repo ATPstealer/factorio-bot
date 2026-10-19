@@ -315,7 +315,7 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			if o := s.Role(role); o != nil && p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
 				if !s.Av.Recipe(p.Recipe) { // рецепт ещё закрыт — сначала технология
 					if t := s.Protos.TechFor(p.Recipe); t != "" {
-						return sub(pl, s, c, Researched{Tech: t, Site: "science"})
+						return sub(pl, s, c, Researched{Tech: t})
 					}
 				}
 				pr := c.prim(Primitive{Kind: "recipe", Role: role, Recipe: p.Recipe})
@@ -575,14 +575,6 @@ func (g Site) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	b, ok := s.Design(s, g.Kind)
 	if !ok {
 		return nil, fmt.Errorf("plan: %s: нет места", g.Kind)
-	}
-	// потребитель — мощности заранее: не хватает с запасом — сначала станция
-	if !strings.HasPrefix(g.Kind, "power-") && !s.Clusters && !b.Satisfied(s) {
-		if kind := powerShort(s, nil); kind != "" && kind != g.Kind {
-			if p, err := sub(pl, s, c, Site{kind}); p != nil || err != nil {
-				return p, err
-			}
-		}
 	}
 	// группа, где всё временно забанено (место занято), — не ждать: следующую
 	var wait *Primitive

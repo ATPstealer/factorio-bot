@@ -13,7 +13,7 @@ import (
 type Researched struct {
 	Tech string
 	// Site — раскладка с лабораториями (State.Design): "research" (по умолчанию) — науку
-	// подкладывает бот; "science" — фабрика, наука идёт в лаборатории сама
+	// подкладывает бот; этап кластеров ("stage-N") — наука идёт в лаборатории с ленты
 	Site string
 }
 
@@ -91,7 +91,7 @@ func (g Researched) byScience(pl *Planner, s *State, c *ctx, t knowledge.Technol
 	if len(labs) == 0 {
 		return nil, fmt.Errorf("plan: в %s нет лабораторий", site.Tag)
 	}
-	auto := kind != "research" // фабрика, этап кластеров: наука в лаборатории идёт с ленты
+	auto := kind != "research" // этап кластеров: наука в лаборатории идёт с ленты
 	// наука — в пустые лаборатории (на всех разом)
 	for _, ing := range t.UnitIngredients {
 		if auto {
@@ -134,13 +134,6 @@ func (s *State) lockedBy(item string) string {
 	return ""
 }
 
-// RedScience — автоматическая красная наука (7.6–7.8): фабрика ("science") построена и
-// изучено всё на красной науке, что нужно для ракеты.
-type RedScience struct{}
-
-func (g RedScience) Key() string    { return "red-science" }
-func (g RedScience) String() string { return "автоматическая красная наука" }
-
 // GoalTech — конечная цель игры: всё изучаемое — только то, что ведёт к ней.
 const GoalTech = "rocket-silo"
 
@@ -160,10 +153,6 @@ func onPath(s *State) map[string]bool {
 	return res
 }
 
-// redTechs — технологии только на красной науке, нужные для ракеты (решение пользователя:
-// оружие и прочее не изучать).
-func redTechs(s *State) []string { return packTechs(s, "automation-science-pack") }
-
 // packTechs — технологии на пути к ракете, которым хватает наук packs (не trigger).
 func packTechs(s *State, packs ...string) []string {
 	var res []string
@@ -182,80 +171,6 @@ func packTechs(s *State, packs ...string) []string {
 	}
 	sort.Strings(res)
 	return res
-}
-
-func (g RedScience) Satisfied(s *State) bool {
-	for _, t := range redTechs(s) {
-		if !s.Av.Researched[t] {
-			return false
-		}
-	}
-	return true
-}
-
-func (g RedScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
-	if p, err := refuelRound(pl, s, c); p != nil || err != nil {
-		return p, err
-	}
-	// фабрике нужны сборщики и электробуры (решение пользователя: с электричеством —
-	// только электробуры) — их изучить наукой руками первыми
-	for _, t := range []string{"automation", "electric-mining-drill"} {
-		if !s.Av.Researched[t] {
-			return sub(pl, s, c, Researched{Tech: t})
-		}
-	}
-	if site, ok := s.Design(s, "science"); !ok || !site.Satisfied(s) {
-		return sub(pl, s, c, Site{"science"})
-	}
-	return researchLoop(pl, s, c, redTechs(s), "science")
-}
-
-// GreenScience — зелёная наука (8.1–8.2): блок "green" построен, изучено на красной+
-// зелёной нужное для ракеты — до Target (её предпосылки; пусто — всё); наука в
-// лаборатории фабрики идёт с лент.
-type GreenScience struct{ Target string }
-
-// techs — что изучать: всё на красной+зелёной для ракеты или только путь к Target.
-func (g GreenScience) techs(s *State) []string {
-	all := packTechs(s, greenPacks...)
-	if g.Target == "" {
-		return all
-	}
-	path, _ := s.Protos.TechPath([]string{g.Target}, map[string]bool{})
-	var res []string
-	for _, t := range all {
-		if slices.Contains(path, t) {
-			res = append(res, t)
-		}
-	}
-	return res
-}
-
-var greenPacks = []string{"automation-science-pack", "logistic-science-pack"}
-
-func (g GreenScience) Key() string    { return "green-science:" + g.Target }
-func (g GreenScience) String() string { return "зелёная наука" }
-
-func (g GreenScience) Satisfied(s *State) bool {
-	for _, t := range g.techs(s) {
-		if !s.Av.Researched[t] {
-			return false
-		}
-	}
-	return true
-}
-
-func (g GreenScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
-	if !(RedScience{}).Satisfied(s) {
-		return sub(pl, s, c, RedScience{})
-	}
-	if p, err := refuelRound(pl, s, c); p != nil || err != nil {
-		return p, err
-	}
-	if p, err := sub(pl, s, c, Site{"green"}); p != nil || err != nil {
-		return p, err
-	}
-	return researchLoop(pl, s, c, g.techs(s), "science")
 }
 
 // researchLoop — изучить techs по порядку TechPath наукой с лент раскладки site; очередь до 3.

@@ -3,7 +3,6 @@ package main
 // Команда стадии 6: раскладка «на бумаге» по живой карте + PNG.
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"image/png"
@@ -11,7 +10,6 @@ import (
 	"os"
 
 	"factorio-bot/internal/bridge"
-	"factorio-bot/internal/exec"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -19,12 +17,10 @@ import (
 func runLayout(b *bridge.Bridge, args []string) {
 	fs := flag.NewFlagSet("layout", flag.ExitOnError)
 	out := fs.String("o", "layout.png", "картинка")
-	pairs := fs.Int("pairs", 2, "пар сборщиков красной науки (demo)")
 	scale := fs.Int("s", 4, "пикселей на тайл")
 	at := fs.String("at", "", "центр X,Y (по умолчанию — позиция игрока)")
-	state := fs.String("state", "run/state-game.json", "состояние бота (oil-belt)")
 	fs.Parse(args)
-	what := "demo"
+	what := ""
 	if fs.NArg() > 0 {
 		what = fs.Arg(0)
 	}
@@ -40,12 +36,6 @@ func runLayout(b *bridge.Bridge, args []string) {
 	}
 	l := layout.New(w.Protos, w)
 	switch what {
-	case "demo":
-		res, err := l.Demo(p.Position, *pairs)
-		for _, n := range res.Notes {
-			fmt.Println(" ", n)
-		}
-		check(err)
 	case "mine":
 		if fs.NArg() < 2 {
 			log.Fatal("bot layout mine РУДА [N]")
@@ -74,47 +64,8 @@ func runLayout(b *bridge.Bridge, args []string) {
 			l.Anchors = append(l.Anchors, layout.Placement{Name: e.Name, Pos: e.Position})
 		}
 		check(l.Oil(p.Position, 2, 1, 1))
-	case "oil-belt", "coal-belt":
-		// как Runner.design по сохранённым раскладкам бота (run/state-game.json)
-		raw, err := os.ReadFile(*state)
-		check(err)
-		var st struct {
-			Designs map[string][]layout.Placement `json:"designs"`
-		}
-		check(json.Unmarshal(raw, &st))
-		if what == "coal-belt" {
-			groups := exec.FeedTargets(w.Protos, st.Designs)
-			if len(groups) == 0 {
-				log.Fatal("нет кормушек бойлеров")
-			}
-			near := groups[0][0].Center()
-			poles, err := b.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
-			check(err)
-			var anchors []layout.Placement
-			for _, e := range poles {
-				anchors = append(anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-			}
-			cl, fed, err := exec.CoalBeltSite(layout.New(w.Protos, w), groups, anchors, "coal-belt")
-			check(err)
-			fmt.Printf("  подведено к %d бойлерам из %d\n", fed, len(groups))
-			l = cl
-			break
-		}
-		near := p.Position
-		if ls := st.Designs["science"]; len(ls) > 0 {
-			near = ls[0].Pos
-		}
-		poles, err := b.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &near, Limit: 50})
-		check(err)
-		var anchors []layout.Placement
-		for _, e := range poles {
-			anchors = append(anchors, layout.Placement{Name: e.Name, Pos: e.Position})
-		}
-		ol, err := exec.OilBeltSite(layout.New(w.Protos, w), st.Designs["oil"], anchors, near, "oil-belt")
-		check(err)
-		l = ol
 	default:
-		log.Fatalf("bot layout [demo | mine РУДА [N] | oil | oil-belt | coal-belt]")
+		log.Fatalf("bot layout [mine РУДА [N] | oil]")
 	}
 	fmt.Println("  итого:", l.Summary())
 	errs := l.Validate()

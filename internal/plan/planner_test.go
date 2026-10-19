@@ -10,7 +10,6 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
-	"factorio-bot/internal/world"
 )
 
 var (
@@ -340,7 +339,17 @@ func TestBuildLayout(t *testing.T) {
 	s := newState(t)
 	s.Inventory["underground-belt"] = 2 // до logistics не скрафтить
 	l := layout.New(s.Protos, nil)
-	l.SmeltingColumn(world.Tile{X: 10, Y: 10}, 2, "stone-furnace", "burner-inserter", "smelt")
+	// 2 печи, по 2 burner-инсертера и ленты (как колонна плавки)
+	for i := 0; i < 2; i++ {
+		x := float64(10 + 3*i)
+		l.Add(layout.Placement{Name: "stone-furnace", Pos: bridge.Pos{X: x + 1, Y: 12}})
+		l.Add(layout.Placement{Name: "burner-inserter", Pos: bridge.Pos{X: x + 0.5, Y: 10.5}, Dir: layout.S})
+		l.Add(layout.Placement{Name: "burner-inserter", Pos: bridge.Pos{X: x + 0.5, Y: 13.5}, Dir: layout.S})
+	}
+	for x := 0; x < 4; x++ {
+		l.Add(layout.Placement{Name: "transport-belt", Pos: bridge.Pos{X: 10.5 + float64(x), Y: 9.5}, Dir: layout.E})
+		l.Add(layout.Placement{Name: "transport-belt", Pos: bridge.Pos{X: 10.5 + float64(x), Y: 14.5}, Dir: layout.E})
+	}
 	l.Add(layout.Placement{Name: "underground-belt", Pos: bridge.Pos{X: 30.5, Y: 0.5}, Dir: layout.E, Recipe: "output"})
 	l.Add(layout.Placement{Name: "underground-belt", Pos: bridge.Pos{X: 26.5, Y: 0.5}, Dir: layout.E, Recipe: "input"})
 	g := Built{Tag: "col", List: l.List}
@@ -570,40 +579,6 @@ func TestDiagnoseLabsIdle(t *testing.T) {
 	}
 	if idle == nil || !strings.Contains(idle.Cause, "science-17: нет ингредиентов") || !strings.Contains(idle.Cause, "science-5: нет топлива") {
 		t.Errorf("простой лабораторий: %+v", idle)
-	}
-}
-
-// Мощности заранее: спрос раскладок (8 сборщиков ×75 кВт и т.п.) больше выработки — сначала
-// станция; блоки растут геометрически (1, 2, 4 цепочки).
-func TestPowerPlanning(t *testing.T) {
-	s := newState(t)
-	var factory []layout.Placement
-	for i := 0; i < 30; i++ {
-		factory = append(factory, layout.Placement{Name: "assembling-machine-1", Pos: bridge.Pos{X: float64(4 * i), Y: 0}})
-	}
-	station := []layout.Placement{{Name: "steam-engine"}, {Name: "steam-engine"}}
-	designs := map[string][]layout.Placement{"science": factory, "research": station}
-	s.Designs = func() [][]layout.Placement {
-		var res [][]layout.Placement
-		for _, l := range designs {
-			res = append(res, l)
-		}
-		return res
-	}
-	s.Design = func(s *State, kind string) (Built, bool) {
-		l, ok := designs[kind]
-		return Built{Tag: kind, List: l}, ok
-	}
-	// 30 × 75 кВт ≈ 2.3 МВт (+ простой) против 1.8 МВт — строить power-1
-	if k := powerShort(s, nil); k != "power-1" {
-		t.Errorf("при нехватке: %q", k)
-	}
-	if PowerChains(1) != 1 || PowerChains(2) != 2 || PowerChains(3) != 4 {
-		t.Error("блоки не удваиваются")
-	}
-	designs["research"] = append(station, station...) // 3.6 МВт — хватает с запасом
-	if k := powerShort(s, nil); k != "" {
-		t.Errorf("хватает, а строит %q", k)
 	}
 }
 
