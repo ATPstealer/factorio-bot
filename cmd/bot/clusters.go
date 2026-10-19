@@ -80,6 +80,11 @@ func runClusters(b *bridge.Bridge, args []string) {
 	check(err)
 	check(base.Connect(l, nil, nil))
 	fmt.Println("  итого:", l.Summary())
+	if os.Getenv("CLUSTERS_DUMP") != "" { // отладка: размещения раскладки
+		for _, pl := range l.List {
+			fmt.Printf("    %s %s\n", pl.Tag, pl)
+		}
+	}
 	if errs := l.Validate(); len(errs) == 0 {
 		fmt.Println("  проверка: без ошибок")
 	} else {

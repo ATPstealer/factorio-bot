@@ -298,8 +298,12 @@ func lineBuffer(l *layout.Layout, line []layout.Placement, c *Cluster, item stri
 	for k := 0; k+span <= len(line) && k < 30; k++ {
 		run := line[k : k+span]
 		straight := true
-		for _, b := range run {
+		for i, b := range run {
 			straight = straight && b.Name == "transport-belt" && b.Dir == run[0].Dir
+			// подряд на карте (между ними может быть подземка — тогда не участок)
+			if i > 0 && straight {
+				straight = layout.Step(world.TileOf(b.Pos), b.Dir) == world.TileOf(run[i-1].Pos)
+			}
 		}
 		if !straight {
 			continue
