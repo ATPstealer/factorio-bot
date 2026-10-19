@@ -454,6 +454,23 @@ func TestSmelterRatio(t *testing.T) {
 	}
 }
 
+// Лаборатория без питания, но не подключена к сети (станция ещё строится) — не нехватка
+// мощности: блок станции не строить.
+func TestDiagnoseUnconnected(t *testing.T) {
+	s := newState(t)
+	s.Owned = []*Owned{
+		{Name: "boiler", Role: "research-2", Status: "working", Inv: map[string]map[string]int{"fuel": {"coal": 5}}},
+		{Name: "lab", Role: "research-6", Status: "no_power", Inv: map[string]map[string]int{}},
+		{Name: "steam-engine", Role: "research-3", Status: "working", Network: 1, Inv: map[string]map[string]int{}},
+		{Name: "lab", Role: "research-7", Status: "no_power", Network: 7, Inv: map[string]map[string]int{}}, // своя сеть без двигателя
+	}
+	for _, p := range Diagnose(s) {
+		if p.Key == "power" || p.Fix != nil {
+			t.Errorf("проблема %+v", p)
+		}
+	}
+}
+
 // startDesign — раскладки точек старта для симуляции (геометрия не важна).
 func startDesign(s *State, kind string) (Built, bool) {
 	ore, ok := ModuleOre(kind)
@@ -524,7 +541,7 @@ func TestDiagnosePowerOutage(t *testing.T) {
 	s.Inventory["coal"] = 50
 	s.Owned = []*Owned{
 		{Name: "boiler", Role: "research-2", Status: "no_fuel", Inv: map[string]map[string]int{}},
-		{Name: "lab", Role: "research-6", Status: "no_power", Inv: map[string]map[string]int{}},
+		{Name: "lab", Role: "research-6", Status: "no_power", Network: 1, Inv: map[string]map[string]int{}},
 	}
 	ps := Diagnose(s)
 	if len(ps) == 0 || ps[0].Key != "power" || !ps[0].Urgent || !strings.Contains(ps[0].Cause, "research-2 без топлива") {
@@ -587,5 +604,37 @@ func TestPowerPlanning(t *testing.T) {
 	designs["research"] = append(station, station...) // 3.6 МВт — хватает с запасом
 	if k := powerShort(s, nil); k != "" {
 		t.Errorf("хватает, а строит %q", k)
+	}
+}
+
+// Лента с поворотами — один шаг стройки на всю трассу (свои направления у мест), а не по
+// проходу на каждое направление.
+func TestBeltOnePass(t *testing.T) {
+	s := newState(t)
+	var list []layout.Placement
+	for i := 0; i < 4; i++ {
+		list = append(list, layout.Placement{Name: "transport-belt", Pos: bridge.Pos{X: 10.5 + float64(i), Y: 10.5}, Dir: layout.E})
+	}
+	for i := 0; i < 4; i++ {
+		list = append(list, layout.Placement{Name: "transport-belt", Pos: bridge.Pos{X: 14.5, Y: 10.5 + float64(i)}, Dir: layout.S})
+	}
+	s.Inventory["transport-belt"] = len(list)
+	_, steps := run(t, s, Built{Tag: "b", List: list})
+	builds := 0
+	for _, p := range steps {
+		if p.Kind == "build" {
+			builds++
+			if len(p.Dirs) != len(list) {
+				t.Errorf("направления: %v", p.Dirs)
+			}
+		}
+	}
+	if builds != 1 {
+		t.Errorf("шагов стройки %d: %s", builds, kinds(steps))
+	}
+	for _, o := range s.Owned {
+		if o.Name == "transport-belt" && o.Pos.X == 14.5 && o.Pos.Y > 11 && *o.Dir != layout.S {
+			t.Errorf("%v смотрит %d", o.Pos, *o.Dir)
+		}
 	}
 }

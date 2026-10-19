@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"factorio-bot/internal/bridge"
@@ -241,4 +242,38 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 		}
 	}
 	return res, nil
+}
+
+// MineCovered — Mine; курсор не навёлся (в густом лесу ствол целиком под кроной соседнего
+// дерева) — срубить сначала соседние деревья поблизости, ближние первыми, и ещё раз.
+func (h *Hands) MineCovered(ctx context.Context, e bridge.Entity, limit time.Duration) error {
+	err := h.Mine(ctx, e, limit)
+	if !errors.Is(err, ErrHover) || h.World == nil {
+		return err
+	}
+	near := h.World.ObjectsNear(e.Position, 3)
+	sort.Slice(near, func(i, j int) bool { return dist(near[i].Pos, e.Position) < dist(near[j].Pos, e.Position) })
+	for _, o := range near {
+		if o.Type != "tree" || dist(o.Pos, e.Position) < 0.01 {
+			continue
+		}
+		t, err := h.B.EntityAt(o.Name, o.Pos)
+		if err != nil || t == nil {
+			continue
+		}
+		h.Say("%s закрыт кроной — сначала рублю %s", e.Name, o.Name)
+		if err := h.WalkToMine(ctx, *t); err != nil && !errors.Is(err, ErrNotReached) {
+			return err
+		}
+		if err := h.Mine(ctx, *t, limit); err != nil && !errors.Is(err, ErrHover) {
+			return err
+		}
+		if _, err := h.World.Sync(h.B, false); err != nil {
+			return err
+		}
+		if err = h.Mine(ctx, e, limit); !errors.Is(err, ErrHover) {
+			return err
+		}
+	}
+	return err
 }

@@ -208,6 +208,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 			continue
 		}
 		o.Inv, o.Status, o.Dir, o.Recipe, o.UGType = st.Inventories, st.Status, st.Direction, st.Recipe, st.UGType
+		o.Network = st.Network
 		if o.Inv == nil {
 			o.Inv = map[string]map[string]int{}
 		}
@@ -486,7 +487,15 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		r.H.Say("%s — %s", prim, strings.Join(prim.Why[:min(2, len(prim.Why))], " ← "))
 		r.journal("шаг: %s | почему: %s", prim, prim.Reason())
 		t0 := time.Now()
-		if err := r.exec(ctx, s, prim); err != nil {
+		// у шага — свой предел: зациклившееся действие (сход с ленты, наведение) не держит
+		// весь прогон; превысил — отказ, как любой другой
+		pctx, cancel := context.WithTimeout(ctx, stepLimit(prim))
+		err := r.exec(pctx, s, prim)
+		if err != nil && pctx.Err() != nil && ctx.Err() == nil {
+			err = fmt.Errorf("шаг дольше %v: %w", stepLimit(prim), err)
+		}
+		cancel()
+		if err != nil {
 			if ctx.Err() != nil {
 				return false, ctx.Err()
 			}
@@ -953,7 +962,7 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 		if err := h.WalkToMine(ctx, *e); err != nil && !errors.Is(err, act.ErrNotReached) {
 			return err
 		}
-		if err := h.Mine(ctx, *e, 15*time.Second); err != nil {
+		if err := h.MineCovered(ctx, *e, 15*time.Second); err != nil {
 			return err
 		}
 	}
@@ -963,7 +972,14 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 			return err
 		}
 	}
-	es, err := h.PlaceAll(ctx, p.Item, p.Spots, p.Dir)
+	dirs := p.Dirs
+	if dirs == nil {
+		dirs = make([]int, len(p.Spots))
+		for i := range dirs {
+			dirs[i] = p.Dir
+		}
+	}
+	es, err := h.PlaceDirs(ctx, p.Item, p.Spots, dirs)
 	for i, e := range es {
 		if e.Name != "" {
 			r.Saved.Owned = append(r.Saved.Owned, plan.Owned{Unit: e.UnitNumber, Name: e.Name, Pos: e.Position, Role: p.Roles[i]})
@@ -1311,6 +1327,18 @@ func (r *Runner) exhausted(tag string) bool {
 		}
 	}
 	return false
+}
+
+// stepLimit — предел времени шага: стройка — по числу мест (длинные ленты), разведка —
+// дольше, прочее — 10 минут.
+func stepLimit(p *plan.Primitive) time.Duration {
+	switch p.Kind {
+	case "build":
+		return 3*time.Minute + time.Duration(len(p.Spots))*10*time.Second
+	case "explore":
+		return 20 * time.Minute
+	}
+	return 10 * time.Minute
 }
 
 // newLayout — раскладка с забронированными тайлами всех уже спроектированных раскладок

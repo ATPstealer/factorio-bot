@@ -72,6 +72,9 @@ func apply(s *State, p *Primitive) error {
 		name := s.Protos.Items[p.Item].PlaceResult
 		for i, pos := range p.Spots {
 			d := p.Dir
+			if p.Dirs != nil {
+				d = p.Dirs[i]
+			}
 			s.Owned = append(s.Owned, &Owned{Name: name, Pos: pos, Role: p.Roles[i], Dir: &d, Inv: map[string]map[string]int{}})
 		}
 	case "insert":

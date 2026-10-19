@@ -88,49 +88,14 @@ func (l *Layout) BlueFactory(from bridge.Pos, labs []Placement, ironPairs, coppe
 		asm = "assembling-machine-1"
 	}
 	near := world.TileOf(from)
-	// синяя — лентой над лентой лабораторий (ряд Labs: лента y, инсертеры y+1, лаборатории
-	// y+2..y+4): длиннорукий инсертер на свободной клетке ряда инсертеров берёт с неё через
-	// ленту лабораторий; лента идёт на восток от третьего тайла (второй — отвод зелёной)
+	// синяя — своей лентой вдоль лабораторий, по инсертеру в каждую, до какой дотянуться
 	if len(labs) == 0 {
 		return fmt.Errorf("layout: нет лабораторий")
 	}
-	const long = "long-handed-inserter"
-	minX, maxX, top := 1<<30, -(1 << 30), 1<<30
-	for _, lab := range labs {
-		for _, t := range Tiles(l.P, lab) {
-			minX, maxX, top = min(minX, t.X), max(maxX, t.X), min(top, t.Y)
-		}
+	entry, entryDir, err := l.labsFeed(labs)
+	if err != nil {
+		return err
 	}
-	row := top - 3
-	var feed []Placement
-	for _, lab := range labs {
-		lx := Tiles(l.P, lab)[0].X
-		for _, t := range Tiles(l.P, lab) {
-			lx = min(lx, t.X)
-		}
-		a := world.Tile{X: lx + 2, Y: top - 1}
-		if !l.Free(a, AnyLand) {
-			continue // клетка занята (столб) — эта лаборатория без синей
-		}
-		feed = append(feed, Placement{Name: long, Pos: a.Center(), Dir: InserterDir(l.P, long, a, world.Tile{X: a.X, Y: row}), Tag: "blue-labs"})
-	}
-	if len(feed) == 0 {
-		return fmt.Errorf("layout: ни к одной лаборатории не подвести синюю")
-	}
-	for x := minX + 2; x <= maxX; x++ {
-		feed = append(feed, Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: row}.Center(), Dir: E, Tag: "blue-labs"})
-	}
-	for _, p := range feed {
-		if !l.CanPlace(p, AnyLand) {
-			return fmt.Errorf("layout: над лентой лабораторий занято (%s)", p)
-		}
-	}
-	for _, p := range feed {
-		l.Add(p)
-	}
-	entry := world.Tile{X: minX + 2, Y: row - 1} // сюда приходит лента от блока (на юг)
-	l.AllowEnd(world.Tile{X: maxX + 1, Y: row})
-	l.Reserved[world.Tile{X: maxX + 1, Y: row}] = true
 	l.Reserved[entry] = true
 
 	ironOut, err := l.smeltRowNearest("iron-ore", from, ironPairs, drill, furnace, ins, "blue-iron")
@@ -164,7 +129,7 @@ func (l *Layout) BlueFactory(from bridge.Pos, labs []Placement, ironPairs, coppe
 		return fmt.Errorf("медь → синяя: %w", err)
 	}
 	delete(l.Reserved, entry)
-	if _, err := l.RouteBelt(b.Out[0].T, S, entry, S, "blue-belt-science"); err != nil {
+	if _, err := l.RouteBelt(b.Out[0].T, S, entry, entryDir, "blue-belt-science"); err != nil {
 		return fmt.Errorf("синяя → лаборатории: %w", err)
 	}
 	l.Poles("small-electric-pole", "blue-power")
@@ -188,4 +153,100 @@ func (l *Layout) smeltRowNearest(ore string, from bridge.Pos, pairs int, drill, 
 		err = e
 	}
 	return Port{}, err
+}
+
+// labsFeed — лента синей вдоль ряда лабораторий (Labs: лента y, инсертеры y+1, лаборатории
+// y+2..y+4) и по инсертеру в каждую, до какой дотянуться: над лентой лабораторий (ряд y-1,
+// длиннорукий через ленту) или под лабораториями (ряд y+6, обычный). Ряд бывает занят
+// чужими лентами — берётся самый длинный свободный отрезок с наибольшим числом лабораторий.
+// Возвращает тайл, куда подвести ленту, и её направление там.
+func (l *Layout) labsFeed(labs []Placement) (world.Tile, int, error) {
+	minX, maxX, top, bottom := 1<<30, -(1 << 30), 1<<30, -(1 << 30)
+	var lxs []int
+	for _, lab := range labs {
+		lx := 1 << 30
+		for _, t := range Tiles(l.P, lab) {
+			minX, maxX, top, bottom = min(minX, t.X), max(maxX, t.X), min(top, t.Y), max(bottom, t.Y)
+			lx = min(lx, t.X)
+		}
+		lxs = append(lxs, lx)
+	}
+	type variant struct {
+		ins, row, side int // ряд инсертеров, ряд ленты, откуда входит лента (N — сверху)
+		name           string
+		xs             func(lx int) []int
+	}
+	vars := []variant{
+		{top - 1, top - 3, N, "long-handed-inserter", func(lx int) []int { return []int{lx + 2, lx} }},
+		{bottom + 1, bottom + 2, S, "inserter", func(lx int) []int { return []int{lx + 1, lx, lx + 2} }},
+	}
+	var best []Placement
+	var bestEntry world.Tile
+	bestDir := 0
+	for _, v := range vars {
+		if !l.usable(v.name) {
+			continue
+		}
+		ok := func(x int) bool {
+			t := world.Tile{X: x, Y: v.row}
+			return l.Free(t, AnyLand) && !l.beltInto(t)
+		}
+		// свободные отрезки ряда
+		for x0 := minX - 1; x0 <= maxX; {
+			if !ok(x0) {
+				x0++
+				continue
+			}
+			x1 := x0
+			for x1+1 <= maxX+1 && ok(x1+1) {
+				x1++
+			}
+			// лента x0..x1-1, x1 — пустой тайл за её концом (иначе упрётся в соседа и
+			// сольёт синюю в чужую ленту)
+			end := x1 - 1
+			var pls []Placement
+			for _, lx := range lxs {
+				for _, x := range v.xs(lx) {
+					a := world.Tile{X: x, Y: v.ins}
+					if x >= x0 && x <= end && l.Free(a, AnyLand) {
+						pls = append(pls, Placement{Name: v.name, Pos: a.Center(), Dir: InserterDir(l.P, v.name, a, world.Tile{X: x, Y: v.row}), Tag: "blue-labs"})
+						break
+					}
+				}
+			}
+			entry := Step(world.Tile{X: x0, Y: v.row}, v.side)
+			if len(pls) > 0 && end >= x0 && l.Free(entry, AnyLand) && (len(pls) > countIns(best) || len(pls) == countIns(best) && end-x0+1 > len(best)-countIns(best)) {
+				best = pls
+				for x := x0; x <= end; x++ {
+					best = append(best, Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: v.row}.Center(), Dir: E, Tag: "blue-labs"})
+				}
+				bestEntry, bestDir = entry, (v.side+8)%16
+			}
+			x0 = x1 + 1
+		}
+	}
+	if len(best) == 0 {
+		return world.Tile{}, 0, fmt.Errorf("layout: ни к одной лаборатории не подвести синюю")
+	}
+	end := world.Tile{}
+	for _, p := range best {
+		l.Add(p)
+		if isBelt(p.Name) {
+			end = world.TileOf(p.Pos)
+		}
+	}
+	l.AllowEnd(Step(end, E))
+	l.Reserved[Step(end, E)] = true
+	return bestEntry, bestDir, nil
+}
+
+// countIns — сколько инсертеров в размещениях.
+func countIns(pls []Placement) int {
+	n := 0
+	for _, p := range pls {
+		if !isBelt(p.Name) {
+			n++
+		}
+	}
+	return n
 }

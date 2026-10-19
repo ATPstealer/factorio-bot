@@ -290,7 +290,8 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			return sub(pl, s, c, HaveItem{it, need[it]})
 		}
 	}
-	// группа «предмет + направление» нижнего слоя; забаненные — пропустить
+	// группа «предмет + направление» нижнего слоя; обычные ленты — без направления (трасса
+	// с поворотами — одним проходом, рука доворачивается); забаненные — пропустить
 	type key struct {
 		layer, dir int
 		name       string
@@ -300,6 +301,9 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	for _, i := range miss {
 		p := g.List[i]
 		k := key{layer(s.Protos, p.Name), p.Dir, p.Name}
+		if s.Protos.Entities[p.Name].Type == "transport-belt" {
+			k.dir = -1
+		}
 		if groups[k] == nil {
 			keys = append(keys, k)
 		}
@@ -326,10 +330,16 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 			}
 		}
 		for _, ch := range chunks {
-			p := c.prim(Primitive{Kind: "build", Item: s.Protos.ItemFor(k.name), Dir: k.dir, Area: g.area(s)})
+			p := c.prim(Primitive{Kind: "build", Item: s.Protos.ItemFor(k.name), Dir: max(k.dir, 0), Area: g.area(s)})
 			for _, i := range ch {
 				p.Spots = append(p.Spots, g.List[i].Pos)
 				p.Roles = append(p.Roles, BuildRole(g.Tag, i))
+				if k.dir < 0 {
+					p.Dirs = append(p.Dirs, g.List[i].Dir)
+				}
+			}
+			if k.dir < 0 {
+				p.Dir = p.Dirs[0]
 			}
 			if !pl.banned(p.Key()) {
 				return p, nil

@@ -144,30 +144,42 @@ func (h *Hands) altOn() (on, visible bool, err error) {
 	return near(img.RGBAAt(10, 0), h.Layout.AltOn), visible, nil
 }
 
-// firstSlotY — середина первой ячейки окна выбора рецепта: в столбце левее её центра на
-// 17 px первая светлая полоса высотой с ячейку (кнопка рецепта: серая или оранжевая — нет
-// ингредиентов; пустые клетки тёмные, буквы заголовка ниже ячейки); не нашлась — false.
-func (h *Hands) firstSlotY(first point) (int, bool) {
-	const y0, n = 250, 400
-	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + first.X - 17, Y: h.Win.Y + y0, W: 1, H: n})
+// firstSlotY — середина первой ячейки окна выбора рецепта: от верха поля поиска (светло-
+// серое, правее заголовка) на 133 px вниз, если в окне вкладки групп (у сборщика), иначе на
+// 62 (нефтезавод, химзавод: одна группа — окно ниже). Окно по высоте подстраивается под число
+// рецептов машины, поэтому постоянной точки нет. Не нашлось — false.
+func (h *Hands) firstSlotY(tabs bool) (int, bool) {
+	const x, y0, n, w = 960, 200, 400, 41
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + x, Y: h.Win.Y + y0, W: w, H: n})
 	if err != nil {
 		return 0, false
 	}
-	top := -1
-	for y := 0; y < n; y++ {
+	// поле поиска — ровная светлая полоса (серая, а пока вводим — бежевая) сразу под тёмной
+	// рамкой заголовка; одинаковая по ширине — не пятно местности
+	light := func(y int) bool {
 		c := img.RGBAAt(0, y)
-		light := max(c.R, c.G, c.B) > 70
-		if light && top < 0 {
-			top = y
-		}
-		if !light && top >= 0 {
-			if h := y - top; h >= 25 && h <= 40 { // ячейка ~36 px
-				return y0 + (top+y)/2, true
+		return max(c.R, c.G, c.B) > 100 && img.RGBAAt(w/2, y) == c && img.RGBAAt(w-1, y) == c
+	}
+	dark := func(y int) bool {
+		c := img.RGBAAt(0, y)
+		return max(c.R, c.G, c.B) < 70 && img.RGBAAt(w-1, y) == c
+	}
+	for y := 3; y+10 < n; y++ {
+		if light(y) && light(y+5) && light(y+10) && (dark(y-1) || dark(y-2) || dark(y-3)) {
+			if tabs {
+				return y0 + y + 133, true
 			}
-			top = -1
+			return y0 + y + 62, true
 		}
 	}
 	return 0, false
+}
+
+func absDiff(a, b uint8) int {
+	if a > b {
+		return int(a - b)
+	}
+	return int(b - a)
 }
 
 // closeStray — закрыть окно, которого мод не видит (фильтр слота быстрого доступа и т.п.):
@@ -979,8 +991,17 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	}
 	// окно выбора по высоте подстраивается под число рецептов машины (у нефтезавода их
 	// мало — окно ниже, ячейки выше): первая ячейка — по оранжевой рамке найденного
-	if y, ok := h.firstSlotY(first); ok {
+	groups := map[string]bool{}
+	for _, r := range f.Recipes {
+		// parameter-N (категория parameters) в окне выбора не показываются
+		if rec, ok := h.Protos.Recipes[r]; ok && cats[rec.Category] && !rec.Hidden && rec.Category != "parameters" {
+			groups[rec.Group] = true
+		}
+	}
+	if y, ok := h.firstSlotY(len(groups) > 1); ok {
 		first.Y = y
+	} else {
+		h.Log("окно рецептов: поле поиска не найдено (групп %d)", len(groups))
 	}
 	step := h.Layout.SlotStep
 	h.Log("рецепт %s: ячейка %d,%d → (%d, %d)", recipe, row, col, first.X+col*step, first.Y+row*step)

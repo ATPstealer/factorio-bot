@@ -571,6 +571,7 @@ func (h *Hands) waitStill(ctx context.Context) error {
 		return err
 	}
 	var last *bridge.Pos
+	offs := 0
 	for i := 0; i < 60; i++ {
 		p, err := h.B.Player()
 		if err != nil {
@@ -582,6 +583,9 @@ func (h *Hands) waitStill(ctx context.Context) error {
 		}
 		// клавиши отпущены, а персонажа несёт — стоит на ленте: сойти
 		if still && last != nil && i > 10 && h.World != nil && h.World.OnBelt(p.Position) {
+			if offs++; offs > 3 {
+				return fmt.Errorf("%w: не сойти с ленты у (%.1f, %.1f)", ErrStuck, p.Position.X, p.Position.Y)
+			}
 			if err := h.stepOffBelt(ctx, p.Position); err != nil {
 				return err
 			}
@@ -946,20 +950,43 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 
 // stepOffBelt — сойти с ленты на ближайшую точку, где можно стоять.
 func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
-	best, spot := math.Inf(1), bridge.Pos{}
+	type cand struct {
+		q bridge.Pos
+		d float64
+	}
+	var cs []cand
 	for dy := -2.0; dy <= 2; dy += 0.5 {
 		for dx := -2.0; dx <= 2; dx += 0.5 {
 			q := bridge.Pos{X: from.X + dx, Y: from.Y + dy}
-			if h.World.Standable(q) && dist(from, q) < best {
-				best, spot = dist(from, q), q
+			if h.World.Standable(q) {
+				cs = append(cs, cand{q, dist(from, q)})
 			}
 		}
 	}
-	if math.IsInf(best, 1) {
-		return errors.New("act: персонажа несёт лента, сойти некуда")
+	sort.Slice(cs, func(i, j int) bool { return cs[i].d < cs[j].d })
+	// ближняя может быть за стволом, которого модель не знает, — по очереди несколько,
+	// отличающихся хотя бы на тайл
+	var tried []bridge.Pos
+	for _, c := range cs {
+		if len(tried) == 4 {
+			break
+		}
+		near := false
+		for _, t := range tried {
+			near = near || dist(t, c.q) < 1
+		}
+		if near {
+			continue
+		}
+		tried = append(tried, c.q)
+		spot := c.q
+		h.Log("на ленте — схожу в (%.1f, %.1f)", spot.X, spot.Y)
+		err := h.drive(ctx, 2, func(pos bridge.Pos) (map[string]bool, bool) {
+			return walkKeys(pos, spot), !h.World.OnBelt(pos) && dist(pos, spot) < 0.6
+		})
+		if err == nil || !errors.Is(err, ErrStuck) {
+			return err
+		}
 	}
-	h.Log("на ленте — схожу в (%.1f, %.1f)", spot.X, spot.Y)
-	return h.drive(ctx, 3, func(pos bridge.Pos) (map[string]bool, bool) {
-		return walkKeys(pos, spot), !h.World.OnBelt(pos) && dist(pos, spot) < 0.6
-	})
+	return errors.New("act: персонажа несёт лента, сойти некуда")
 }

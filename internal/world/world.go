@@ -333,35 +333,38 @@ func (w *World) FreeSpotWhere(near bridge.Pos, width, height, radius int, avoid 
 // неоткрытое (skip — чанки, к которым не пройти: не цели и не «неоткрытое»). 0 — всё открыто.
 func (w *World) ExploreRing(sight, max int, skip map[bridge.ChunkPos]bool) (int, []bridge.Pos) {
 	unknown := func(c bridge.ChunkPos) bool { return w.Chunks[c] == nil && !skip[c] }
-	k := -1
-	for r := 0; r <= max && k < 0; r++ {
-		for _, c := range ringChunks(r) {
+	for k := 0; k <= max; k++ {
+		has := false
+		for _, c := range ringChunks(k) {
 			if unknown(c) {
-				k = r
+				has = true
 				break
 			}
 		}
-	}
-	if k < 0 {
-		return 0, nil
-	}
-	m := k + sight
-	var pts []bridge.Pos
-	for _, c := range ringChunks(m) {
-		if skip[c] {
+		if !has {
 			continue
 		}
-		useful := false
-		for dy := -sight; dy <= sight && !useful; dy++ {
-			for dx := -sight; dx <= sight && !useful; dx++ {
-				useful = unknown(bridge.ChunkPos{X: c.X + dx, Y: c.Y + dy})
+		m := k + sight
+		var pts []bridge.Pos
+		for _, c := range ringChunks(m) {
+			if skip[c] {
+				continue
+			}
+			useful := false
+			for dy := -sight; dy <= sight && !useful; dy++ {
+				for dx := -sight; dx <= sight && !useful; dx++ {
+					useful = unknown(bridge.ChunkPos{X: c.X + dx, Y: c.Y + dy})
+				}
+			}
+			if useful {
+				pts = append(pts, bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)})
 			}
 		}
-		if useful {
-			pts = append(pts, bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)})
+		if len(pts) > 0 { // все точки кольца недоступны — следующее кольцо
+			return m, pts
 		}
 	}
-	return m, pts
+	return 0, nil
 }
 
 // ringChunks — чанки квадратного кольца r вокруг чанка (0,0).

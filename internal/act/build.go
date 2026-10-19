@@ -103,6 +103,21 @@ func (h *Hands) Place(ctx context.Context, item string, pos bridge.Pos, dir int)
 // поэтому после первой постройки руку доворачиваем R, а уже поставленные с неверным
 // направлением поворачиваем в конце пустой рукой.
 func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Pos, dir int) ([]bridge.Entity, error) {
+	dirs := make([]int, len(positions))
+	for i := range dirs {
+		dirs[i] = dir
+	}
+	return h.PlaceDirs(ctx, item, positions, dirs)
+}
+
+// PlaceDirs — как PlaceAll, но у каждого места своё направление (лента с поворотами — одним
+// проходом по трассе): рука доворачивается R между постановками.
+func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.Pos, dirs []int) ([]bridge.Entity, error) {
+	dir := dirs[0]
+	mixed := false
+	for _, d := range dirs {
+		mixed = mixed || d != dir
+	}
 	it, ok := h.Protos.Items[item]
 	if !ok || it.PlaceResult == "" {
 		return nil, fmt.Errorf("act: %s не ставится", item)
@@ -112,9 +127,15 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 	}
 	if len(positions) == 1 {
 		h.Say("ставлю %s в (%.1f, %.1f)%s", it.PlaceResult, positions[0].X, positions[0].Y, dirName(dir))
+	} else if mixed {
+		h.Say("ставлю %s ×%d по трассе", it.PlaceResult, len(positions))
 	} else {
 		h.Say("ставлю %s ×%d%s", it.PlaceResult, len(positions), dirName(dir))
 	}
+	hand := 0 // куда смотрит предмет в руке
+	// held — предмет точно в руке (после удачной постановки игра доливает руку из инвентаря,
+	// пока он есть): не спрашивать игру перед каждой постановкой
+	held, stock := false, -1
 	built := make([]bridge.Entity, len(positions))
 	var misrotated []int
 	var failed []bridge.Pos
@@ -151,16 +172,43 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 			here = []int{left[0]}
 		}
 		stalls = 0
+		held = false // после ходьбы — проверить руку
 		sort.Slice(here, func(a, b int) bool {
 			return dist(p.Position, fps[here[a]].Center()) < dist(p.Position, fps[here[b]].Center())
 		})
 		for _, i := range here {
-			pos := positions[i]
+			pos, dir := positions[i], dirs[i]
 			// выход подземки (позади — свой непарный вход туда же): обычно игра сама делает
 			// поставленную выходом и спаривает; не вышло — см. ugExit ниже
 			want, exit := dir, h.ugExitBehind(it.PlaceResult, pos, dir)
-			if err := h.Pick(ctx, item); err != nil {
-				return built, err
+			fresh := false
+			if !held {
+				// в руке уже — с прежним поворотом; иначе взять
+				q, err := h.B.Player()
+				if err != nil || cursorName(q) != item {
+					fresh = true
+				}
+				stock = q.Inventory[item]
+				if !fresh {
+					stock += q.Cursor.Count
+				}
+				if err := h.Pick(ctx, item); err != nil {
+					return built, err
+				}
+				held = true
+			}
+			if fresh {
+				hand = 0
+			}
+			if fresh || hand != want {
+				// взятый в руку предмет смотрит на север — сразу довернуть (иначе первая
+				// постройка встанет не так и её придётся переставлять); дальше — от прежнего
+				for k := ((want-hand)/4%4 + 4) % 4; k > 0; k-- {
+					if err := h.In.Tap("r"); err != nil {
+						return built, err
+					}
+				}
+				hand = want
 			}
 			e, err := h.clickBuild(ctx, it.PlaceResult, pos)
 			if errors.Is(err, ErrPlace) {
@@ -177,6 +225,7 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 					if err := h.In.Tap("r"); err != nil {
 						return built, err
 					}
+					hand = (hand + 4) % 16
 					e, err = h.clickBuild(ctx, it.PlaceResult, pos)
 				}
 			}
@@ -197,22 +246,23 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 				if e, err = h.replace(ctx, item, e, pos, want); err != nil {
 					return built, err
 				}
+				held = false
 			}
 			if exit {
 				if e, err = h.ugExit(ctx, item, e, pos, dir); err != nil {
 					return built, err
 				}
+				held = false
+			}
+			if stock--; stock <= 0 {
+				held = false
 			}
 			built[i] = e
 			left = removeInt(left, i)
 			if !exit && e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
 				misrotated = append(misrotated, i)
-				// довернуть предмет в руке: R — 90° по часовой (шаг 4)
-				for k := ((dir-*e.Direction)/4%4 + 4) % 4; k > 0; k-- {
-					if err := h.In.Tap("r"); err != nil {
-						return built, err
-					}
-				}
+				// рука смотрит, куда встала постройка: следующая постановка довернёт
+				hand = *e.Direction
 			}
 		}
 	}
@@ -220,10 +270,10 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 		return built, err
 	}
 	for _, i := range misrotated {
-		if err := h.Rotate(ctx, built[i], dir); err != nil {
+		if err := h.Rotate(ctx, built[i], dirs[i]); err != nil {
 			return built, err
 		}
-		d := dir
+		d := dirs[i]
 		built[i].Direction = &d
 	}
 	if len(failed) > 0 {

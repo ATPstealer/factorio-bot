@@ -27,6 +27,8 @@ type Owned struct {
 	Dir    *int                      `json:"-"` // направление в игре (nil — без направления)
 	Recipe string                    `json:"-"` // рецепт сборщика в игре
 	UGType string                    `json:"-"` // подземка в игре: input/output
+	// Network — электросеть в игре (0 — не подключена к столбам; в симуляции -1 — неизвестно)
+	Network int `json:"-"`
 }
 
 // Count — сколько предмета во всех инвентарях постройки.
@@ -187,6 +189,8 @@ type Primitive struct {
 	Dir   int          `json:"dir,omitempty"`
 	Spots []bridge.Pos `json:"spots,omitempty"`
 	Roles []string     `json:"roles,omitempty"`
+	// Dirs — своё направление у каждого места (лента с поворотами — одним проходом)
+	Dirs []int `json:"dirs,omitempty"`
 	// refuel: сколько угля в каждую из Roles; Full — доливать до предела (Ctrl+клик:
 	// кладётся максимум, ограничит вместимость)
 	Ns   []int  `json:"ns,omitempty"`

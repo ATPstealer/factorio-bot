@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Наблюдение «ожидание против реальности» (стадия 11, просьба пользователя): каждый снимок
+// Наблюдение «ожидание против реальности» (стадия 12, просьба пользователя): каждый снимок
 // состояния статусы своих построек сверяются с тем, что от них ждём. Проблема с известным
 // исправлением становится целью Repair — она идёт первой (меняет приоритеты: сначала
 // поднять питание/заправить, потом остальное); остальные — в журнал и консоль.
@@ -62,8 +62,27 @@ func Diagnose(s *State) []Problem {
 
 	// нет питания: ищем причину на станциях (бойлер без топлива, кормушка пуста); бойлеры
 	// горят, а питания мало — станции не хватает мощности: построить ещё блок
-	if len(byStatus["no_power"])+len(byStatus["low_power"]) > 0 {
-		victims := append(byStatus["no_power"], byStatus["low_power"]...)
+	// не подключённые к сети (столбов ещё нет — стройка не закончена) — это не нехватка
+	// мощности: их достроит своя цель; станцию за это не расширять
+	// и сеть без своего двигателя — столбы до станции ещё не дотянуты
+	powered := map[int]bool{}
+	for _, o := range s.Owned {
+		if s.Protos.Entities[o.Name].Type == "generator" && o.Network != 0 {
+			powered[o.Network] = true
+		}
+	}
+	var victims, cut []*Owned
+	for _, o := range append(byStatus["no_power"], byStatus["low_power"]...) {
+		if o.Network == 0 || len(powered) > 0 && !powered[o.Network] {
+			cut = append(cut, o)
+		} else {
+			victims = append(victims, o)
+		}
+	}
+	if len(cut) > 0 && len(victims) == 0 {
+		res = append(res, Problem{Key: "power-cut", Role: cut[0].Role, What: fmt.Sprintf("%d построек не подключены к сети (%s…)", len(cut), cut[0].Role), Cause: "стройка не закончена: нет столбов до станции"})
+	}
+	if len(victims) > 0 {
 		p := Problem{Key: "power", Role: victims[0].Role, What: fmt.Sprintf("нет питания у %d построек (%s…)", len(victims), victims[0].Role), Urgent: true}
 		boilers := 0
 		for _, o := range s.Owned {
@@ -152,7 +171,37 @@ func Diagnose(s *State) []Problem {
 	if len(s.Researching) > 0 && len(byStatus["missing_science_packs"]) > 0 {
 		labs := byStatus["missing_science_packs"]
 		p := Problem{Key: "labs-idle", Role: labs[0].Role, What: fmt.Sprintf("лаборатории простаивают (%d) — нет науки", len(labs))}
+		// какой науки нет: нужна исследованию, а в лабораториях её нет; не делается вовсе —
+		// так и сказать (а не «выход красной забит»)
+		var missing []string
+		need := map[string]bool{}
+		for t := range s.Researching {
+			for _, in := range s.Protos.Technologies[t].UnitIngredients {
+				need[in.Name] = true
+			}
+		}
+		for pack := range need {
+			have := false
+			for _, o := range labs {
+				have = have || o.In("lab_input", pack) > 0
+			}
+			if !have {
+				made := false
+				for _, o := range s.Owned {
+					made = made || o.Recipe == pack
+				}
+				if made {
+					missing = append(missing, pack)
+				} else {
+					missing = append(missing, pack+" (не производится)")
+				}
+			}
+		}
+		sort.Strings(missing)
 		p.Cause = upstream(s)
+		if len(missing) > 0 {
+			p.What += ": " + strings.Join(missing, ", ")
+		}
 		res = append(res, p)
 	}
 

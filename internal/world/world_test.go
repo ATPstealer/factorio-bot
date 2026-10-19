@@ -209,3 +209,20 @@ func TestWithoutOpensRing(t *testing.T) {
 		t.Error("труба не вернулась")
 	}
 }
+
+// Все точки кольца недоступны — разведка берёт следующее кольцо, а не пустой список.
+func TestExploreRingSkipped(t *testing.T) {
+	w := New(nil)
+	for x := -3; x <= 3; x++ {
+		for y := -3; y <= 3; y++ {
+			w.Chunks[bridge.ChunkPos{X: x, Y: y}] = &Chunk{}
+		}
+	}
+	skip := map[bridge.ChunkPos]bool{}
+	for _, c := range ringChunks(7) {
+		skip[c] = true
+	}
+	if r, pts := w.ExploreRing(3, 100, skip); r == 0 || len(pts) == 0 {
+		t.Errorf("кольцо %d, точек %d", r, len(pts))
+	}
+}
