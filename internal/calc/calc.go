@@ -16,6 +16,8 @@ type Options struct {
 	Researched []string          // изученные техи силы игрока
 	All        bool              // всё доступно (план на будущее); недостающие техи всё равно считаются
 	Machines   map[string]string // категория рецепта → принудительная машина
+	// Have — что уже производится и свободно (шт/с): берётся первым, до этого предела
+	Have map[string]float64
 }
 
 // Node — один рецепт (или добыча) в плане.
@@ -35,6 +37,7 @@ type Plan struct {
 	Nodes   []*Node            // по рецептам, от целей к сырью
 	Raw     map[string]float64 // сырьё с карты: руды, нефть, вода
 	Sources map[string]float64 // предметы без рецепта (дерево, рыба…) — добывать вручную
+	Given   map[string]float64 // взято из уже производимого (Options.Have)
 	Surplus map[string]float64 // излишки (побочные продукты)
 	PowerW  float64            // электричество всех машин
 	Steam   Steam              // паровая станция под PowerW
@@ -72,6 +75,7 @@ type column struct {
 	resource string // для добычи
 	net      map[string]float64
 	cost     float64
+	cap      float64 // > 0 — не больше (готовое, Options.Have)
 }
 
 // Solve считает план для целей targets (предмет → в секунду).
@@ -119,6 +123,9 @@ func Solve(p *knowledge.Prototypes, targets map[string]float64, o Options) (*Pla
 			}
 		}
 		found := false
+		if v := o.Have[it]; v > 0 {
+			add(&column{name: "have:" + it, net: map[string]float64{it: 1}, cost: 0, cap: v})
+		}
 		// доступные рецепты; если у предмета доступных нет — закрытые (план покажет,
 		// что исследовать)
 		recipes := []string{}
@@ -210,18 +217,28 @@ func Solve(p *knowledge.Prototypes, targets map[string]float64, o Options) (*Pla
 	}
 	for j, c := range cols {
 		cvec[j] = c.cost
+		if c.cap > 0 { // готовое — не больше свободного: −x ≥ −cap
+			row := make([]float64, len(cols))
+			row[j] = -1
+			A = append(A, row)
+			bvec = append(bvec, -c.cap)
+		}
 	}
 	x, err := Minimize(cvec, A, bvec)
 	if err != nil {
 		return nil, err
 	}
 
-	plan := &Plan{Targets: targets, Raw: map[string]float64{}, Sources: map[string]float64{},
+	plan := &Plan{Targets: targets, Raw: map[string]float64{}, Sources: map[string]float64{}, Given: map[string]float64{},
 		Surplus: map[string]float64{}, Belts: map[string]float64{}}
 	var used []string
 	produced := map[string]float64{}
 	for j, c := range cols {
 		if x[j] < 1e-9 {
+			continue
+		}
+		if strings.HasPrefix(c.name, "have:") {
+			plan.Given[strings.TrimPrefix(c.name, "have:")] += x[j]
 			continue
 		}
 		n := &Node{Recipe: c.name, Crafts: x[j], In: map[string]float64{}, Out: map[string]float64{}}
@@ -277,7 +294,7 @@ func Solve(p *knowledge.Prototypes, targets map[string]float64, o Options) (*Pla
 		}
 	}
 
-	plan.Steam = steamFor(p, plan.PowerW)
+	plan.Steam = SteamFor(p, plan.PowerW)
 	if b, ok := p.Entities["boiler"]; ok && b.Burner != nil {
 		plan.Fuel += plan.Steam.Boilers * b.MaxEnergyUsage * 60 / (coalJ * b.Burner.Effectivity)
 	}
@@ -328,10 +345,10 @@ func energy(p *knowledge.Prototypes, n *Node) {
 	}
 }
 
-// steamFor — паровая станция под мощность W: двигатели по их выработке, бойлеры по
+// SteamFor — паровая станция под мощность W: двигатели по их выработке, бойлеры по
 // соотношению мощностей, помпы — по расходу воды бойлера (60/с в 2.0: 1.8 МВт на нагрев
 // воды 15→165 °C при теплоёмкости 0.2 кДж/°C).
-func steamFor(p *knowledge.Prototypes, W float64) Steam {
+func SteamFor(p *knowledge.Prototypes, W float64) Steam {
 	eng, b, pump := p.Entities["steam-engine"], p.Entities["boiler"], p.Entities["offshore-pump"]
 	if W <= 0 || eng.MaxEnergyProduction == 0 || b.MaxEnergyUsage == 0 {
 		return Steam{}

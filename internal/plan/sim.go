@@ -65,6 +65,17 @@ func apply(s *State, p *Primitive) error {
 		name := s.Protos.Items[p.Item].PlaceResult
 		s.Owned = append(s.Owned, &Owned{Name: name, Pos: p.Pos, Role: p.Role, Inv: map[string]map[string]int{}})
 	case "build":
+		if p.Item == "*" {
+			for i, pos := range p.Spots {
+				if inv[p.Items[i]] < 1 {
+					return fmt.Errorf("sim: нет %s", p.Items[i])
+				}
+				inv[p.Items[i]]--
+				d := p.Dirs[i]
+				s.Owned = append(s.Owned, &Owned{Name: s.Protos.Items[p.Items[i]].PlaceResult, Pos: pos, Role: p.Roles[i], Dir: &d, Inv: map[string]map[string]int{}})
+			}
+			break
+		}
 		if inv[p.Item] < len(p.Spots) {
 			return fmt.Errorf("sim: нет %s ×%d", p.Item, len(p.Spots))
 		}
@@ -159,10 +170,21 @@ func apply(s *State, p *Primitive) error {
 		}
 	case "collect":
 		for _, r := range p.Roles {
-			if o := s.Role(r); o != nil {
+			o := s.Role(r)
+			if o == nil {
+				continue
+			}
+			if p.Item == "coal" {
 				inv[p.Item] += o.In("fuel", p.Item)
 				delete(o.Inv["fuel"], p.Item)
 				o.Status = "working" // горящий уголь догорает — пара работает
+			}
+			// выход печей и сундуков — как take
+			for _, slot := range []string{"crafter_output", "chest"} {
+				for it, n := range o.Inv[slot] {
+					inv[it] += n
+				}
+				delete(o.Inv, slot)
 			}
 		}
 	case "refuel":

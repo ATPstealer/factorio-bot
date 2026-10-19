@@ -405,6 +405,15 @@ func (w *World) Buildable(t Tile) (ok, clear bool) {
 // Obstacles — что убрать перед стройкой на тайлах: деревья, камни, обломки, чья рамка
 // коллизии задевает хотя бы один тайл.
 func (w *World) Obstacles(tiles []Tile) []Object {
+	return w.objectsIn(tiles, clearable)
+}
+
+// OwnIn — свои постройки, задевающие тайлы рамкой коллизии.
+func (w *World) OwnIn(tiles []Tile) []Object {
+	return w.objectsIn(tiles, func(o Object) bool { return o.Own })
+}
+
+func (w *World) objectsIn(tiles []Tile, keep func(Object) bool) []Object {
 	set := map[Tile]bool{}
 	chunks := map[bridge.ChunkPos]bool{}
 	for _, t := range tiles {
@@ -423,7 +432,7 @@ func (w *World) Obstacles(tiles []Tile) []Object {
 			continue
 		}
 		for _, o := range ch.Objects {
-			if !clearable(o) {
+			if !keep(o) {
 				continue
 			}
 			b := w.CollisionBox(o).Bounds()

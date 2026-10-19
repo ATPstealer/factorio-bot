@@ -2,6 +2,8 @@
 # Снимки игры (экономия времени на тестах): сейв сервера + состояния бота + сид.
 #   scripts/snapshot.sh save ИМЯ ["описание"] — остановить игру (сервер сохраняет bot.zip),
 #                                   скопировать в run/snapshots/ИМЯ/ (+ NOTE.txt), поднять игру
+#   scripts/snapshot.sh grab ИМЯ ["описание"] — без остановки игры: последний автосейв
+#                                   сервера (_autosave*, раз в 10 мин) + состояния бота сейчас
 #   scripts/snapshot.sh load ИМЯ  — остановить игру, вернуть снимок, поднять
 #   scripts/snapshot.sh list
 # По RCON ничего не пишется: сохраняет сам сервер при штатной остановке.
@@ -19,6 +21,17 @@ save)
   printf '%s\nсохранён: %s\n' "${3:-}" "$(date -Is)" > "$S/NOTE.txt"
   NEW_MAP=0 scripts/newmap.sh >/dev/null
   echo "снимок $2: $(cat "$S/map.json")"
+  ;;
+grab)
+  [[ -n "${2:-}" ]] || { echo "нужно имя" >&2; exit 1; }
+  auto=$(ls -t $R/server/saves/_autosave*.zip 2>/dev/null | head -1)
+  [[ -n "$auto" ]] || { echo "нет автосейва" >&2; exit 1; }
+  rm -rf "$S" && mkdir -p "$S"
+  cp "$auto" "$S"/bot.zip
+  cp $R/map.json "$S"/
+  cp $R/state*.json "$S"/ 2>/dev/null || true
+  printf '%s\nсохранён: %s (автосейв %s)\n' "${3:-}" "$(date -Is)" "$(date -r "$auto" +%T)" > "$S/NOTE.txt"
+  echo "снимок $2 из $(basename "$auto"): $(cat "$S/map.json")"
   ;;
 load)
   [[ -f "$S/bot.zip" ]] || { echo "нет снимка $S" >&2; exit 1; }
@@ -38,6 +51,6 @@ list)
   done
   ;;
 *)
-  echo "scripts/snapshot.sh save|load ИМЯ | list" >&2; exit 1
+  echo "scripts/snapshot.sh save|grab|load ИМЯ | list" >&2; exit 1
   ;;
 esac

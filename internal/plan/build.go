@@ -18,13 +18,44 @@ import (
 type Built struct {
 	Tag  string
 	List []layout.Placement
+	// Groups — строить только размещения с этими тегами (кластер и его входящие ленты);
+	// пусто — все. Роли — по индексу в полном List.
+	Groups []string
+	// Order — очередь групп (этап кластерами): строить по одной — кластер начинает работать,
+	// не дожидаясь материалов на весь этап
+	Order [][]string
+}
+
+// in — размещение i входит в строимое.
+func (g Built) in(i int) bool {
+	if len(g.Groups) == 0 {
+		return true
+	}
+	for _, t := range g.Groups {
+		if g.List[i].Tag == t {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildRole — роль i-го размещения раскладки tag.
 func BuildRole(tag string, i int) string { return fmt.Sprintf("%s-%d", tag, i+1) }
 
-func (g Built) Key() string { return "built:" + g.Tag }
+func (g Built) Key() string { return "built:" + g.Tag + ":" + strings.Join(g.Groups, ",") }
 func (g Built) String() string {
+	if len(g.Groups) > 0 {
+		n := 0
+		for i := range g.List {
+			if !g.in(i) {
+				continue
+			}
+			if g.in(i) {
+				n++
+			}
+		}
+		return fmt.Sprintf("построить %s (%d построек)", strings.TrimPrefix(g.Groups[0], "c/"), n)
+	}
 	return fmt.Sprintf("построить %s (%d построек)", g.Tag, len(g.List))
 }
 func (g Built) Satisfied(s *State) bool {
@@ -32,6 +63,9 @@ func (g Built) Satisfied(s *State) bool {
 		return false
 	}
 	for i, p := range g.List {
+		if !g.in(i) {
+			continue
+		}
 		o := s.Role(BuildRole(g.Tag, i))
 		if o.Dir != nil && !sameDir(s, p.Name, *o.Dir, p.Dir) && rotatable(s, p.Name) {
 			return false
@@ -64,6 +98,9 @@ func fuelFor(s *State, entity string) int {
 func (g Built) unfueled(s *State) []string {
 	var res []string
 	for i, p := range g.List {
+		if !g.in(i) {
+			continue
+		}
 		role := BuildRole(g.Tag, i)
 		// уголь — сырьё рецепта (пластик): пустой сундук-кормушка — наполнить
 		if eatsCoal(s, p.Recipe) {
@@ -90,6 +127,9 @@ func (g Built) unfueled(s *State) []string {
 func (g Built) missing(s *State) []int {
 	var res []int
 	for i := range g.List {
+		if !g.in(i) {
+			continue
+		}
 		if s.Role(BuildRole(g.Tag, i)) == nil {
 			res = append(res, i)
 		}
@@ -172,6 +212,9 @@ const supplyTarget = 100
 func (g Built) empty(s *State) []string {
 	var res []string
 	for i, p := range g.List {
+		if !g.in(i) {
+			continue
+		}
 		if p.Name != Chest || p.Recipe == "" {
 			continue
 		}
@@ -185,6 +228,9 @@ func (g Built) empty(s *State) []string {
 // supply — подлить в сундуки снабжения, где меньше четверти.
 func (g Built) supply(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	for i, p := range g.List {
+		if !g.in(i) {
+			continue
+		}
 		if p.Name != Chest || p.Recipe == "" {
 			continue
 		}
@@ -215,6 +261,9 @@ func (g Built) selfFed(s *State, o *Owned) bool {
 		return false
 	}
 	for i := range g.List {
+		if !g.in(i) {
+			continue
+		}
 		if p := s.Role(BuildRole(g.Tag, i)); p != nil && (len(p.Inv["fuel"]) > 0 || p.Status == "working") {
 			return true
 		}
@@ -227,6 +276,9 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if len(miss) == 0 {
 		// стоит, но повёрнуто не так (поворот мог не дойти) — довернуть
 		for i, p := range g.List {
+			if !g.in(i) {
+				continue
+			}
 			role := BuildRole(g.Tag, i)
 			if o := s.Role(role); o != nil && o.Dir != nil && !sameDir(s, p.Name, *o.Dir, p.Dir) && rotatable(s, p.Name) {
 				pr := c.prim(Primitive{Kind: "rotate", Role: role, Dir: p.Dir, Pos: p.Pos, Item: s.Protos.ItemFor(p.Name)})
@@ -239,6 +291,9 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		// входы: выход встаёт парой только к правильному входу
 		for pass := 0; pass < 2; pass++ {
 			for i, p := range g.List {
+				if !g.in(i) {
+					continue
+				}
 				if p.Name != "underground-belt" || (p.Recipe == "input") != (pass == 0) {
 					continue
 				}
@@ -253,6 +308,9 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		// сборщик без нужного рецепта — задать
 		for i, p := range g.List {
+			if !g.in(i) {
+				continue
+			}
 			role := BuildRole(g.Tag, i)
 			if o := s.Role(role); o != nil && p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
 				if !s.Av.Recipe(p.Recipe) { // рецепт ещё закрыт — сначала технология
@@ -318,8 +376,28 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		return keys[a].dir < keys[b].dir
 	})
+	// кластер (группа этапа): всё разом с мест стояния — встал, поставил всё, что достаёт
+	// (машины → инсертеры → ленты → столбы), дальше; без обхода кластера по слою на каждый
+	// предмет. Подземки — парами, как ниже
+	if len(g.Groups) > 0 {
+		p := c.prim(Primitive{Kind: "build", Item: "*", Area: g.area(s)})
+		for _, k := range keys {
+			if k.name == "underground-belt" {
+				continue
+			}
+			for _, i := range g.order(groups[k], s.PlayerPos) {
+				p.Spots = append(p.Spots, g.List[i].Pos)
+				p.Roles = append(p.Roles, BuildRole(g.Tag, i))
+				p.Dirs = append(p.Dirs, g.List[i].Dir)
+				p.Items = append(p.Items, s.Protos.ItemFor(g.List[i].Name))
+			}
+		}
+		if len(p.Spots) > 0 && !pl.banned(p.Key()) {
+			return p, nil
+		}
+	}
 	for _, k := range keys {
-		idx := g.order(groups[k])
+		idx := g.order(groups[k], s.PlayerPos)
 		// подземки — парами «вход, его выход» отдельными шагами: игра делает выходом
 		// подземку после непарного входа в пределах дальности — чужой вход рядом спутает
 		chunks := [][]int{idx}
@@ -374,10 +452,10 @@ func (g Built) fuel(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	return sub(pl, s, c, Supplied{roles[0], "coal", ns[0]})
 }
 
-// order — порядок постройки в группе: обход ближайшего соседа (меньше ходьбы); подземки —
+// order — порядок постройки в группе: обход ближайшего соседа от бота (меньше ходьбы); подземки —
 // парами «вход, его выход»: игра делает выходом подземку, поставленную после
 // непарного входа в пределах дальности.
-func (g Built) order(idx []int) []int {
+func (g Built) order(idx []int, from bridge.Pos) []int {
 	if len(idx) == 0 {
 		return idx
 	}
@@ -408,10 +486,14 @@ func (g Built) order(idx []int) []int {
 		}
 		return res
 	}
-	res := []int{idx[0]}
-	left := append([]int(nil), idx[1:]...)
+	// от бота: первая — ближайшая к нему, дальше — ближайший сосед
+	var res []int
+	left := append([]int(nil), idx...)
 	for len(left) > 0 {
-		last := g.List[res[len(res)-1]].Pos
+		last := from
+		if len(res) > 0 {
+			last = g.List[res[len(res)-1]].Pos
+		}
 		bi := 0
 		for k, i := range left {
 			if dist(g.List[i].Pos, last) < dist(g.List[left[bi]].Pos, last) {
@@ -483,17 +565,42 @@ func (g Site) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if r := siteResource[g.Kind]; r != "" && s.Minable != nil && !s.Minable(r) {
 		return c.prim(Primitive{Kind: "explore", Item: r}), nil
 	}
+	// этап кластерами: без подземных лент ленты не пересекаются — кольцо из лент запирает
+	// выход кластера; logistics — до проектирования (наукой руками, как электробуры)
+	if strings.HasPrefix(g.Kind, "stage-") && !s.Av.All && !s.Av.Researched["logistics"] {
+		if _, ok := s.Protos.Technologies["logistics"]; ok {
+			return sub(pl, s, c, Researched{Tech: "logistics"})
+		}
+	}
 	b, ok := s.Design(s, g.Kind)
 	if !ok {
 		return nil, fmt.Errorf("plan: %s: нет места", g.Kind)
 	}
 	// потребитель — мощности заранее: не хватает с запасом — сначала станция
-	if !strings.HasPrefix(g.Kind, "power-") && !b.Satisfied(s) {
+	if !strings.HasPrefix(g.Kind, "power-") && !s.Clusters && !b.Satisfied(s) {
 		if kind := powerShort(s, nil); kind != "" && kind != g.Kind {
 			if p, err := sub(pl, s, c, Site{kind}); p != nil || err != nil {
 				return p, err
 			}
 		}
+	}
+	// группа, где всё временно забанено (место занято), — не ждать: следующую
+	var wait *Primitive
+	for _, grp := range b.Order {
+		gb := Built{Tag: b.Tag, List: b.List, Groups: grp}
+		if gb.Satisfied(s) {
+			continue
+		}
+		p, err := sub(pl, s, c, gb)
+		if err != nil || p == nil || p.Kind != "idle" {
+			return p, err
+		}
+		if wait == nil {
+			wait = p
+		}
+	}
+	if wait != nil {
+		return wait, nil
 	}
 	return sub(pl, s, c, b)
 }

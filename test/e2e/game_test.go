@@ -377,3 +377,60 @@ func TestGame8_8_BlueScience(t *testing.T) {
 	}
 	t.Error("синяя наука не доходит до лабораторий")
 }
+
+// Стадия 10 — прохождение кластерами по этапам game-stages.md; лимит шага — 2× лимита этапа.
+
+// 10.0. Этап 0 (новая карта, 30 мин): старт руками (дерево, камни, точки на угольных бурах),
+// станция и лаборатории, изучены электробуры — всё для электрических кластеров.
+func TestGame10_0_Stage0(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 60*time.Minute, exec.GoalSpec{Kind: "research", Item: "electric-mining-drill"})
+	if f, _ := h.B.Force(); !slices.Contains(f.Researched, "electric-mining-drill") {
+		t.Error("electric-mining-drill не изучена")
+	}
+}
+
+// 10.1. Этап 1 (30 мин): добыча угля, железа, меди на электробурах → плавка (уголь — отводом
+// на вторую полосу) → пластины лентой; станция power-1 на угле с ленты. Монитор пишет
+// run/clusters.txt.
+func TestGame10_1_Stage1(t *testing.T) {
+	h := handsT(t)
+	r := gameRun(t, h, 60*time.Minute, exec.GoalSpec{Kind: "site", Item: "stage-1"})
+	const onBelts = `(function() local r={} for _,b in pairs(s.find_entities_filtered{type="transport-belt", force=p.force}) do for i=1,2 do for n,c in pairs(b.get_transport_line(i).get_contents()) do local name=c.name or n local cnt=c.count or c r[name]=(r[name] or 0)+cnt end end end return r end)()`
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		var n map[string]int
+		lua(t, onBelts, &n)
+		s, err := r.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := r.Monitor(s)
+		boiler := false
+		for _, c := range st {
+			if strings.HasPrefix(c.Name, "power-") && c.Status["working"] > 0 {
+				boiler = true
+			}
+		}
+		if n["iron-plate"] >= 20 && n["copper-plate"] >= 10 && boiler {
+			t.Logf("на лентах: %v; станция работает", n)
+			return
+		}
+		time.Sleep(20 * time.Second)
+	}
+	out, _ := os.ReadFile(path("run", "clusters.txt"))
+	t.Errorf("пластины не идут лентой / станция стоит:\n%s", out)
+}
+
+// 10.2. Этап 2 (60 мин): шестерни и красная наука — свои кластеры (пластины — с этапа 1),
+// лаборатории; изучено всё на красной, что нужно для ракеты.
+func TestGame10_2_Stage2(t *testing.T) {
+	h := handsT(t)
+	gameRun(t, h, 120*time.Minute, exec.GoalSpec{Kind: "stage", N: 2})
+	f, _ := h.B.Force()
+	for _, tech := range []string{"automation", "logistics", "logistic-science-pack", "steel-processing"} {
+		if !slices.Contains(f.Researched, tech) {
+			t.Errorf("%s не изучена", tech)
+		}
+	}
+}

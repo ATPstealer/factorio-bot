@@ -24,11 +24,15 @@ const (
 // ErrPlace — постройка не встала (место занято, далеко, не та клетка).
 var ErrPlace = errors.New("act: не удалось поставить")
 
-// footprint — рамка коллизии постройки item в точке pos (без поворота).
-func (h *Hands) footprint(entity string, pos bridge.Pos) bridge.Box {
+// footprint — рамка коллизии постройки item в точке pos с направлением dir (восток/запад —
+// поперёк: двигатель 3×5 → 5×3).
+func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
 	b := bridge.Box{LeftTop: bridge.Pos{X: -0.5, Y: -0.5}, RightBottom: bridge.Pos{X: 0.5, Y: 0.5}}
 	if e, ok := h.Protos.Entities[entity]; ok {
 		b = e.CollisionBox
+	}
+	if dir%8 == 4 { // восток/запад
+		b = bridge.Box{LeftTop: bridge.Pos{X: b.LeftTop.Y, Y: b.LeftTop.X}, RightBottom: bridge.Pos{X: b.RightBottom.Y, Y: b.RightBottom.X}}
 	}
 	return bridge.Box{
 		LeftTop:     bridge.Pos{X: pos.X + b.LeftTop.X, Y: pos.Y + b.LeftTop.Y},
@@ -132,6 +136,11 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 	} else {
 		h.Say("ставлю %s ×%d%s", it.PlaceResult, len(positions), dirName(dir))
 	}
+	// предмет в руке с прошлого шага повёрнут неизвестно как — убрать: взятый заново смотрит
+	// на север (иначе первая постановка — наугад: подземки вставали не тем концом)
+	if err := h.ClearCursor(ctx); err != nil {
+		return nil, err
+	}
 	hand := 0 // куда смотрит предмет в руке
 	// held — предмет точно в руке (после удачной постановки игра доливает руку из инвентаря,
 	// пока он есть): не спрашивать игру перед каждой постановкой
@@ -143,7 +152,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 	fps := make([]bridge.Box, len(positions))
 	left := make([]int, len(positions))
 	for i, pos := range positions {
-		fps[i], left[i] = h.footprint(it.PlaceResult, pos), i
+		fps[i], left[i] = h.footprint(it.PlaceResult, pos, dirs[i]), i
 	}
 	stalls := 0
 	for len(left) > 0 {
@@ -153,13 +162,13 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 		}
 		var here []int
 		for _, i := range left {
-			if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach {
+			if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
 				here = append(here, i)
 			}
 		}
 		if len(here) == 0 {
 			// перейти туда, откуда достаётся больше всего; не вышло дважды — к ближней
-			if stand, ok := h.buildStand(p.Position, fps, left); ok && stalls < 2 {
+			if stand, ok := h.buildStand(p, fps, left); ok && stalls < 2 {
 				stalls++
 				if err := h.WalkTo(ctx, stand, 0.5); err != nil && !errors.Is(err, ErrNotReached) {
 					return built, err
@@ -173,9 +182,20 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 		}
 		stalls = 0
 		held = false // после ходьбы — проверить руку
-		sort.Slice(here, func(a, b int) bool {
-			return dist(p.Position, fps[here[a]].Center()) < dist(p.Position, fps[here[b]].Center())
-		})
+		if h.Protos.Entities[it.PlaceResult].Type == "underground-belt" {
+			// подземки — строго по порядку «вход, потом его выход»: первая поставленная пары
+			// становится входом; ближняя первой — выход встанет входом и пара не сложится
+			if len(here) == 0 || here[0] != left[0] {
+				if err := h.standNear(ctx, fps[left[0]]); err != nil {
+					return built, err
+				}
+			}
+			here = []int{left[0]}
+		} else {
+			sort.Slice(here, func(a, b int) bool {
+				return dist(p.Position, fps[here[a]].Center()) < dist(p.Position, fps[here[b]].Center())
+			})
+		}
 		for _, i := range here {
 			pos, dir := positions[i], dirs[i]
 			// выход подземки (позади — свой непарный вход туда же): обычно игра сама делает
@@ -293,7 +313,8 @@ func removeInt(xs []int, x int) []int {
 
 // buildStand — точка, откуда в досягаемости больше всего мест left (не на ленте, не на
 // самих площадках); при равенстве — ближе к персонажу.
-func (h *Hands) buildStand(from bridge.Pos, fps []bridge.Box, left []int) (bridge.Pos, bool) {
+func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (bridge.Pos, bool) {
+	from := pl.Position
 	if h.World == nil {
 		return bridge.Pos{}, false
 	}
@@ -318,7 +339,7 @@ func (h *Hands) buildStand(from bridge.Pos, fps []bridge.Box, left []int) (bridg
 						blocked = true
 						break
 					}
-					if dist(q, fps[j].Center()) < buildReach-0.5 {
+					if dist(q, fps[j].Center()) < buildReach-0.5 && h.clickable(pl, q, fps[j].Center()) {
 						n++
 					}
 				}
@@ -1011,4 +1032,44 @@ func (h *Hands) ugExit(ctx context.Context, item string, e bridge.Entity, pos br
 		e = ne
 	}
 	return e, fmt.Errorf("act: подземка в (%.1f, %.1f) не встала выходом", pos.X, pos.Y)
+}
+
+// clickable — точка мира target видна на экране персонажу, стоящему в stand, и не под
+// панелью интерфейса (быстрый доступ внизу, миникарта): клик туда попал бы в интерфейс.
+func (h *Hands) clickable(p bridge.Player, stand, target bridge.Pos) bool {
+	p.Position = stand
+	x, y := h.Camera(p).ToScreen(target.X, target.Y)
+	wx, wy := x-h.Win.X, y-h.Win.Y
+	const margin = 24
+	if wx < margin || wy < margin || wx >= h.Win.W-margin || wy >= h.Win.H-margin {
+		return false
+	}
+	return !h.underPanel(x, y)
+}
+
+// StandFor — где встать, чтобы ставить из places (сущность и место) больше всего разом,
+// и что оттуда ставится сейчас (стоя на месте): индексы places.
+func (h *Hands) StandFor(ctx context.Context, entities []string, places []bridge.Pos, dirs []int) (here []int, stand bridge.Pos, err error) {
+	p, err := h.B.Player()
+	if err != nil {
+		return nil, bridge.Pos{}, err
+	}
+	fps := make([]bridge.Box, len(places))
+	left := make([]int, len(places))
+	for i := range places {
+		fps[i], left[i] = h.footprint(entities[i], places[i], dirs[i]), i
+	}
+	for _, i := range left {
+		if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach-0.5 && h.clickable(p, p.Position, fps[i].Center()) {
+			here = append(here, i)
+		}
+	}
+	if len(here) > 0 {
+		return here, p.Position, nil
+	}
+	stand, ok := h.buildStand(p, fps, left)
+	if !ok {
+		return nil, fps[0].Center(), nil
+	}
+	return nil, stand, nil
 }

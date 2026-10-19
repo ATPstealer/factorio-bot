@@ -23,13 +23,19 @@ type Layout struct {
 	// Anchors — уже стоящие в игре свои столбы: узлы сети, к которым тянуть столбы
 	// раскладки (не строятся)
 	Anchors []Placement
+	// PoleTag — Poles только для размещений с этим тегом (внутренность кластера): покрыть его
+	// машины и связать его столбы между собой, без чужих сетей и Anchors
+	PoleTag string
 }
 
 // poleList — столбы раскладки и уже стоящие (Anchors).
 func (l *Layout) poleList() []Placement {
-	poles := append([]Placement(nil), l.Anchors...)
+	var poles []Placement
+	if l.PoleTag == "" {
+		poles = append(poles, l.Anchors...)
+	}
 	for _, p := range l.List {
-		if isPole(p.Name) {
+		if isPole(p.Name) && (l.PoleTag == "" || p.Tag == l.PoleTag) {
 			poles = append(poles, p)
 		}
 	}

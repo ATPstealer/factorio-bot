@@ -204,9 +204,13 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	for _, ch := range feeders(s) {
 		feeding[ch] = true
 	}
+	// со всех готовых за один обход (ближайший сосед), а не по одной печи за шаг: бот иначе
+	// бегает туда-сюда (наблюдение пользователя)
+	round := c.prim(Primitive{Kind: "collect", Item: g.Item})
+	got := 0
 	for _, o := range s.Owned {
-		// кормушки, печи и сундуки фабрик (их выход забирают инсертеры) — не трогать
-		if feeding[o.Role] || strings.HasPrefix(o.Role, "science-") || strings.HasPrefix(o.Role, "green-") || strings.HasPrefix(o.Role, "blue-") {
+		// кормушки, печи и сундуки фабрик и кластеров (их выход забирают инсертеры) — не трогать
+		if feeding[o.Role] || strings.HasPrefix(o.Role, "science-") || strings.HasPrefix(o.Role, "green-") || strings.HasPrefix(o.Role, "blue-") || strings.HasPrefix(o.Role, "stage-") {
 			continue
 		}
 		out := o.Output(g.Item)
@@ -215,25 +219,45 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		busy := len(o.Inv["crafter_input"]) > 0 || strings.HasSuffix(o.Role, "-out") ||
 			strings.HasPrefix(o.Role, "plates-") || strings.HasPrefix(o.Role, "coal-mine-") // склады: прибудет ещё
 		if out > 0 && (!busy || out >= lack || out >= 10) {
-			p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item})
-			if !pl.banned(p.Key()) {
-				return p, nil
+			if p := c.prim(Primitive{Kind: "take", Role: o.Role, Item: g.Item}); !pl.banned(p.Key()) {
+				round.Roles = append(round.Roles, o.Role)
+				got += out
 			}
 		}
 	}
-	// 1б. уголь — из топлива угольных пар (буры выдают друг в друга): со всех за один заход
-	if g.Item == "coal" {
-		p := c.prim(Primitive{Kind: "collect", Item: "coal"})
-		got := 0
+	// и попутно с тех, где набралось хоть 5 (раз уж идём)
+	if len(round.Roles) > 0 && got < lack {
+		in := map[string]bool{}
+		for _, r := range round.Roles {
+			in[r] = true
+		}
 		for _, o := range s.Owned {
-			if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" && o.In("fuel", "coal") >= 5 {
-				p.Roles = append(p.Roles, o.Role)
-				got += o.In("fuel", "coal")
+			if !in[o.Role] && !feeding[o.Role] && !strings.HasPrefix(o.Role, "stage-") && o.Output(g.Item) >= 5 && o.Role != "smelter" {
+				if _, _, ok := moduleOf(o.Role); ok || strings.HasSuffix(o.Role, "-out") {
+					round.Roles = append(round.Roles, o.Role)
+				}
 			}
 		}
-		if got >= min(lack, 10) && !pl.banned(p.Key()) {
-			return p, nil
+	}
+	// 1б. уголь — и из топлива угольных пар (буры выдают друг в друга): тем же обходом
+	if g.Item == "coal" {
+		pairs := 0
+		var roles []string
+		for _, o := range s.Owned {
+			if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" && o.In("fuel", "coal") >= 5 {
+				roles = append(roles, o.Role)
+				pairs += o.In("fuel", "coal")
+			}
 		}
+		if len(round.Roles) > 0 || pairs >= min(lack, 10) {
+			round.Roles = append(round.Roles, roles...)
+		}
+	}
+	switch {
+	case len(round.Roles) == 1:
+		return c.prim(Primitive{Kind: "take", Role: round.Roles[0], Item: g.Item}), nil
+	case len(round.Roles) > 0 && !pl.banned(round.Key()):
+		return round, nil
 	}
 	// 2. скрафтить руками
 	if r, ok := s.craftRecipe(g.Item); ok {
@@ -476,7 +500,9 @@ const PlateStoreMin = 100
 // сундуков. nil — склад не нужен или не выходит.
 func (g HaveItem) fromPlateStore(pl *Planner, s *State, c *ctx, lack int) (*Primitive, error) {
 	ore := map[string]string{"iron-plate": "iron-ore", "copper-plate": "copper-ore"}[g.Item]
-	if ore == "" || lack < PlateStoreMin || s.Design == nil || !s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
+	// кластерная база: склада пластин (бур → печь прямо на руде) нет — пластины с точек
+	// нулевого этапа и кластеров
+	if ore == "" || s.Clusters || lack < PlateStoreMin || s.Design == nil || !s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
 		return nil, nil
 	}
 	kind := "plates-" + ore
@@ -510,7 +536,9 @@ func (g HaveItem) fromPlateStore(pl *Planner, s *State, c *ctx, lack int) (*Prim
 // Stock — фоновый запас ходовых материалов (наблюдение пользователя: пока идёт
 // исследование, бот минутами ждёт). Берётся, только когда остальные цели ждут; руками не
 // копает и не разведывает (только забрать с точек, переплавить, скрафтить).
-type Stock struct{}
+// Keep — чего ждёт основная цель: запас из этого не крафтить (шестерни из железа, которое
+// ждут на ленты, — ждать дольше).
+type Stock struct{ Keep string }
 
 // StockLevels — сколько чего держать в инвентаре.
 var StockLevels = []struct {
@@ -544,6 +572,10 @@ func (g Stock) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		switch p.Kind {
 		case "gather", "explore", "wait", "await", "idle":
 			continue // руками и ожиданием — не ради запаса
+		case "craft":
+			if g.Keep != "" && calc.Handcraft(s.Protos, s.Av, p.Item, float64(max(p.N, 1))).Base[g.Keep] > 0 {
+				continue // съест то, чего ждём
+			}
 		}
 		if stockFar(s, p) {
 			continue // ради запаса далеко не ходить (бот на нефти, точки — на базе)

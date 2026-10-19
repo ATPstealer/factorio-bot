@@ -1,6 +1,7 @@
 package world
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -224,5 +225,33 @@ func TestExploreRingSkipped(t *testing.T) {
 	}
 	if r, pts := w.ExploreRing(3, 100, skip); r == 0 || len(pts) == 0 {
 		t.Errorf("кольцо %d, точек %d", r, len(pts))
+	}
+}
+
+// Вдоль ленты не идти (сносит; между бурами из коридора не выйти) — рядом по земле.
+func TestRouteAvoidsBeltAlong(t *testing.T) {
+	w := New(nil)
+	var ents []bridge.ScanEntity
+	for x := 3; x <= 20; x++ {
+		ents = append(ents, bridge.ScanEntity{Name: "transport-belt", Type: "transport-belt", X: float64(x) + 0.5, Y: 10.5, Own: true})
+	}
+	w.Apply([]bridge.ChunkScan{chunk00(nil, ents)})
+	r, err := w.Route(bridge.Pos{X: 2.5, Y: 10.5}, bridge.Pos{X: 21.5, Y: 10.5}, 0.5, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	on := 0
+	for i := 1; i < len(r.Points); i++ { // точки по отрезкам маршрута через 0.25 тайла
+		a, b := r.Points[i-1], r.Points[i]
+		n := int(math.Hypot(b.X-a.X, b.Y-a.Y)/0.25) + 1
+		for k := 0; k <= n; k++ {
+			x, y := a.X+(b.X-a.X)*float64(k)/float64(n), a.Y+(b.Y-a.Y)*float64(k)/float64(n)
+			if y > 10 && y < 11 && x > 6 && x < 19 {
+				on++
+			}
+		}
+	}
+	if on > 0 {
+		t.Errorf("путь вдоль ленты: %v", r.Points)
 	}
 }

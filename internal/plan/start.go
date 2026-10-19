@@ -74,7 +74,7 @@ func (g Start) Satisfied(s *State) bool {
 		return false
 	}
 	for _, tag := range StartModules {
-		if s.exhausted(tag) {
+		if s.exhausted(tag) || s.Done["evicted:"+tag] {
 			continue
 		}
 		if site, ok := s.Design(s, tag); ok && !site.Satisfied(s) {
@@ -101,8 +101,8 @@ func (g Start) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		return p, err
 	}
 	for _, tag := range StartModules {
-		if s.exhausted(tag) {
-			continue // руда под буром кончилась — точка закрыта
+		if s.exhausted(tag) || s.Done["evicted:"+tag] {
+			continue // руда под буром кончилась / место занял кластер — точка закрыта
 		}
 		site, ok := s.Design(s, tag)
 		if !ok {
@@ -166,7 +166,7 @@ func (g HaveItem) fromOutposts(pl *Planner, s *State, c *ctx, lack int) (*Primit
 func refuelRound(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	// кормушки бойлеров есть, электробуры открыты — сначала угольная шахта: угля много
 	// и сразу (угольные пары не успевают за станцией)
-	if len(feeders(s)) > 0 && s.Protos.EntityAvailable("electric-mining-drill", s.Av) && s.Design != nil {
+	if len(feeders(s)) > 0 && !s.Clusters && s.Protos.EntityAvailable("electric-mining-drill", s.Av) && s.Design != nil {
 		if _, ok := s.Design(s, "coal-mine"); ok { // нет места/угля — по-старому
 			if p, err := sub(pl, s, c, Site{"coal-mine"}); p != nil || err != nil {
 				return p, err
@@ -274,6 +274,10 @@ func refuelPlan(s *State) (p Primitive, caps []int, need int, low bool) {
 		}
 		// ручная плавильня и площадки/линии старых целей — у них своя заправка
 		if o.Role == "smelter" || strings.HasPrefix(o.Role, "mine-") || strings.HasPrefix(o.Role, "smelt-") {
+			continue
+		}
+		// кластеры (этапы "stage-N") — уголь лентой; бот только заправляет при стройке
+		if strings.HasPrefix(o.Role, "stage-") {
 			continue
 		}
 		// угольная шахта есть — до полного слота (печь: 50 угля ≈ 37 мин): обходы реже,

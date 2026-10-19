@@ -147,7 +147,11 @@ func (l *Layout) WaterPump(near world.Tile, tag string, fit func(pump Placement)
 		}
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].d < cands[b].d })
+	tries := 0
 	for _, c := range cands {
+		if tries >= maxPumpTries {
+			break // ближние кромки не подошли — дальние тем более (каждая — поиск трубы)
+		}
 		for _, wd := range []int{N, E, S, W} {
 			// 2.0: перед помпой (со стороны воды) — полоса воды в 3 тайла
 			front := Step(c.t, wd)
@@ -156,6 +160,7 @@ func (l *Layout) WaterPump(near world.Tile, tag string, fit func(pump Placement)
 				l.W.TileAt(Step(front, (side+8)%16)) != world.Water {
 				continue
 			}
+			tries++
 			mark := l.Mark()
 			pump := Placement{Name: "offshore-pump", Pos: c.t.Center(), Dir: wd, Tag: tag}
 			if fit(pump) {
@@ -166,6 +171,9 @@ func (l *Layout) WaterPump(near world.Tile, tag string, fit func(pump Placement)
 	}
 	return Placement{}, fmt.Errorf("layout: нет кромки воды в %d тайлах", r)
 }
+
+// maxPumpTries — сколько ближайших мест на кромке пробовать под помпу.
+const maxPumpTries = 40
 
 // steamChain — помпа, бойлер, двигатели; ставит (Add) по очереди, false — не встало.
 func (l *Layout) steamChain(pump Placement, engines int) bool {

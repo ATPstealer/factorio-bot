@@ -90,6 +90,12 @@ func Diagnose(s *State) []Problem {
 				continue
 			}
 			boilers++
+			if strings.HasPrefix(o.Role, "stage-") { // бойлер кластера — уголь лентой, не руками
+				if len(o.Inv["fuel"]) == 0 && o.Status != "working" && p.Cause == "" {
+					p.Cause = o.Role + " без топлива: уголь не доходит по ленте (см. кластеры)"
+				}
+				continue
+			}
 			if len(o.Inv["fuel"]) == 0 && o.Status != "working" {
 				p.Cause = o.Role + " без топлива"
 				if ch := s.Role(feed[o.Role]); ch != nil {
@@ -105,7 +111,7 @@ func Diagnose(s *State) []Problem {
 		}
 		if p.Cause == "" && boilers > 0 {
 			p.Cause = "бойлеры горят — мощности станции мало"
-			if n := powerBlocks(s); n < MaxPowerBlocks {
+			if n := powerBlocks(s); n < MaxPowerBlocks && !s.Clusters {
 				p.Fix = Site{fmt.Sprintf("power-%d", n+1)}
 			}
 		}
@@ -119,7 +125,7 @@ func Diagnose(s *State) []Problem {
 	// что-то есть, исправление — шахта; пустая — долить немного; шахта есть — до полного
 	// лента угля к кормушкам — лучше шахты с сундуками (бот не возит совсем)
 	mine := Goal(nil)
-	if s.Design != nil && s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
+	if s.Design != nil && !s.Clusters && s.Protos.EntityAvailable("electric-mining-drill", s.Av) {
 		for _, kind := range []string{"coal-belt", "coal-mine"} {
 			if b, ok := s.Design(s, kind); ok {
 				if !b.Satisfied(s) {
@@ -151,6 +157,11 @@ func Diagnose(s *State) []Problem {
 	}
 	for _, o := range byStatus["no_fuel"] {
 		if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" {
+			continue
+		}
+		// постройки кластеров — уголь лентой: нехватку видит монитор кластеров (вход), руками
+		// не заправлять (это для нулевого этапа)
+		if strings.HasPrefix(o.Role, "stage-") {
 			continue
 		}
 		if ch := s.Role(feed[o.Role]); ch != nil && ch.In("chest", "coal") > 0 {

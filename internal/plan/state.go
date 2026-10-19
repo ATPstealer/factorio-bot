@@ -71,6 +71,9 @@ type State struct {
 	// Design — раскладка под задачу (kind: "research" — станция + лаборатории + столбы);
 	// одна и та же между циклами (роли построек стабильны). nil — не умеем (симуляция).
 	Design func(s *State, kind string) (Built, bool)
+	// Clusters — база кластерами (стадия 9): станция, уголь и ленты — в кластерах; старые
+	// исправления (блоки power-N, шахта угля, лента угля к кормушкам) не строятся
+	Clusters bool
 	// Designs — все уже спроектированные раскладки (для расчёта мощности); nil — нет
 	Designs func() [][]layout.Placement
 	// Done — выполненные разовые этапы (Primitive.Mark): сохраняются между запусками
@@ -191,6 +194,8 @@ type Primitive struct {
 	Roles []string     `json:"roles,omitempty"`
 	// Dirs — своё направление у каждого места (лента с поворотами — одним проходом)
 	Dirs []int `json:"dirs,omitempty"`
+	// Items — свой предмет у каждого места (Item "*": кластер разом с мест стояния)
+	Items []string `json:"items,omitempty"`
 	// refuel: сколько угля в каждую из Roles; Full — доливать до предела (Ctrl+клик:
 	// кладётся максимум, ограничит вместимость)
 	Ns   []int  `json:"ns,omitempty"`
@@ -245,6 +250,9 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("пересобрать %s (%s): поднять и поставить заново", p.Item, p.Roles[0])
 	case "build":
 		s = fmt.Sprintf("построить %s ×%d (%s…)", p.Item, len(p.Spots), p.Roles[0])
+		if p.Item == "*" {
+			s = fmt.Sprintf("построить разом %d построек (%s…)", len(p.Spots), p.Roles[0])
+		}
 		if p.Dir != 0 {
 			s += fmt.Sprintf(" направление %d", p.Dir)
 		}

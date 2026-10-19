@@ -91,7 +91,7 @@ func (g Researched) byScience(pl *Planner, s *State, c *ctx, t knowledge.Technol
 	if len(labs) == 0 {
 		return nil, fmt.Errorf("plan: в %s нет лабораторий", site.Tag)
 	}
-	auto := kind == "science" // наука в лаборатории идёт с ленты
+	auto := kind != "research" // фабрика, этап кластеров: наука в лаборатории идёт с ленты
 	// наука — в пустые лаборатории (на всех разом)
 	for _, ing := range t.UnitIngredients {
 		if auto {
@@ -207,7 +207,7 @@ func (g RedScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if site, ok := s.Design(s, "science"); !ok || !site.Satisfied(s) {
 		return sub(pl, s, c, Site{"science"})
 	}
-	return researchLoop(pl, s, c, redTechs(s))
+	return researchLoop(pl, s, c, redTechs(s), "science")
 }
 
 // GreenScience — зелёная наука (8.1–8.2): блок "green" построен, изучено на красной+
@@ -255,11 +255,11 @@ func (g GreenScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if p, err := sub(pl, s, c, Site{"green"}); p != nil || err != nil {
 		return p, err
 	}
-	return researchLoop(pl, s, c, g.techs(s))
+	return researchLoop(pl, s, c, g.techs(s), "science")
 }
 
-// researchLoop — изучить techs по порядку TechPath наукой с лент фабрики; очередь до 3.
-func researchLoop(pl *Planner, s *State, c *ctx, techs []string) (*Primitive, error) {
+// researchLoop — изучить techs по порядку TechPath наукой с лент раскладки site; очередь до 3.
+func researchLoop(pl *Planner, s *State, c *ctx, techs []string, site string) (*Primitive, error) {
 	order, err := s.Protos.TechPath(techs, s.Av.Researched)
 	if err != nil {
 		return nil, err
@@ -280,8 +280,35 @@ func researchLoop(pl *Planner, s *State, c *ctx, techs []string) (*Primitive, er
 	}
 	for _, t := range order {
 		if !s.Av.Researched[t] {
-			return sub(pl, s, c, Researched{Tech: t, Site: "science"})
+			return sub(pl, s, c, Researched{Tech: t, Site: site})
 		}
 	}
 	return nil, nil
+}
+
+// StageScience — этап кластерной базы с наукой (стадия 10): раскладка "stage-N" построена,
+// изучено всё на пакетах Packs, что нужно для ракеты; наука идёт в лаборатории кластера.
+type StageScience struct {
+	N     int
+	Packs []string
+}
+
+func (g StageScience) site() string   { return fmt.Sprintf("stage-%d", g.N) }
+func (g StageScience) Key() string    { return "stage-science:" + g.site() }
+func (g StageScience) String() string { return fmt.Sprintf("этап %d: наука %v", g.N, g.Packs) }
+
+func (g StageScience) Satisfied(s *State) bool {
+	for _, t := range packTechs(s, g.Packs...) {
+		if !s.Av.Researched[t] {
+			return false
+		}
+	}
+	return true
+}
+
+func (g StageScience) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	if p, err := sub(pl, s, c, Site{g.site()}); p != nil || err != nil {
+		return p, err
+	}
+	return researchLoop(pl, s, c, packTechs(s, g.Packs...), g.site())
 }

@@ -380,7 +380,7 @@ const mineReach = 1.5
 func (h *Hands) collisionBox(e bridge.Entity) *bridge.Box {
 	if h.Protos != nil {
 		if pe, ok := h.Protos.Entities[e.Name]; ok {
-			b := h.footprint(e.Name, e.Position)
+			b := h.footprint(e.Name, e.Position, dirOf(e))
 			if e.Direction != nil && (*e.Direction == East || *e.Direction == West) && pe.TileWidth != pe.TileHeight {
 				c := e.Position
 				b = bridge.Box{
@@ -989,4 +989,12 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		}
 	}
 	return errors.New("act: персонажа несёт лента, сойти некуда")
+}
+
+// dirOf — направление сущности (нет — север).
+func dirOf(e bridge.Entity) int {
+	if e.Direction != nil {
+		return *e.Direction
+	}
+	return 0
 }

@@ -15,6 +15,7 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/plan"
@@ -23,7 +24,7 @@ import (
 
 // GoalSpec — цель в сохраняемом виде.
 type GoalSpec struct {
-	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience | greenscience | site
+	Kind     string `json:"kind"` // have | smelt | build | research | start | redscience | greenscience | site | stage (N)
 	Item     string `json:"item,omitempty"`
 	N        int    `json:"n"`
 	Fuel     string `json:"fuel,omitempty"`
@@ -50,6 +51,19 @@ func (g GoalSpec) Goal() (plan.Goal, error) {
 		return plan.Start{}, nil
 	case "redscience":
 		return plan.RedScience{}, nil
+	case "stage":
+		// этап кластерами с наукой: пакеты — из целей этапа
+		var packs []string
+		for it := range StageTargets[g.N] {
+			if strings.HasSuffix(it, "-science-pack") {
+				packs = append(packs, it)
+			}
+		}
+		sort.Strings(packs)
+		if len(packs) == 0 {
+			return plan.Site{Kind: fmt.Sprintf("stage-%d", g.N)}, nil
+		}
+		return plan.StageScience{N: g.N, Packs: packs}, nil
 	case "site":
 		return plan.Site{Kind: g.Item}, nil
 	case "greenscience":
@@ -67,6 +81,8 @@ type Saved struct {
 	Designs map[string][]layout.Placement `json:"designs,omitempty"`
 	// Done — выполненные разовые этапы (plan.State.Done)
 	Done map[string]bool `json:"done,omitempty"`
+	// Clusters — кластеры базы (стадия 9): места, потоки, порты
+	Clusters []*cluster.Cluster `json:"clusters,omitempty"`
 }
 
 func Load(path string) (*Saved, error) {
@@ -101,16 +117,18 @@ type Runner struct {
 	// Until — проверяется между шагами: true — Run завершается (тесты, отладка)
 	Until func() bool
 	// наблюдение (plan.Diagnose): известные проблемы, прогресс исследования
-	problems     map[string]string
-	researchKey  string
-	researchSeen time.Time
-	minables     map[string]bool
-	stores       []plan.Owned // сундуки вне реестра из последнего снимка
-	fails        int
-	deferred     string                   // отложенное ожидание (в журнал — при смене)
-	designFailed map[string]time.Time     // раскладки, которые не вышли (когда)
-	exploreRing  int                      // текущий квадрат разведки (полуширина)
-	exploreSkip  map[bridge.ChunkPos]bool // чанки периметра, к которым не пройти
+	problems        map[string]string
+	researchKey     string
+	researchSeen    time.Time
+	minables        map[string]bool
+	stores          []plan.Owned // сундуки вне реестра из последнего снимка
+	fails           int
+	deferred        string                   // отложенное ожидание (в журнал — при смене)
+	designFailed    map[string]time.Time     // раскладки, которые не вышли (когда)
+	exploreRing     int                      // текущий квадрат разведки (полуширина)
+	exploreSkip     map[bridge.ChunkPos]bool // чанки периметра, к которым не пройти
+	monitored       time.Time                // последний замер кластеров
+	clusterProblems map[string]string        // кластер → проблемы последнего замера
 }
 
 func (r *Runner) Save() error {
@@ -171,7 +189,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 	}
 	s := &plan.State{Protos: r.H.Protos, Av: r.H.Protos.NewAvailability(f.Researched, false),
 		Inventory: inv, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
-		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done,
+		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done, Clusters: r.clusterMode(),
 		Designs: func() [][]layout.Placement {
 			var res [][]layout.Placement
 			for _, l := range r.Saved.Designs {
@@ -434,6 +452,22 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	if len(r.Saved.Clusters) > 0 && time.Since(r.monitored) >= time.Minute {
+		r.monitored = time.Now()
+		// в журнал — только перемены
+		now := map[string]string{}
+		for _, c := range r.Monitor(s) {
+			now[c.Name] = strings.Join(c.Problems, "; ")
+			if now[c.Name] != r.clusterProblems[c.Name] {
+				if now[c.Name] == "" {
+					r.journal("кластер %s: в порядке", c.Name)
+				} else {
+					r.journal("кластер %s: %s", c.Name, now[c.Name])
+				}
+			}
+		}
+		r.clusterProblems = now
+	}
 	var goals []plan.Goal
 	repair := r.watch(s)
 	all, maintain := true, false
@@ -475,7 +509,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	}
 	// все ждут — сделать запас ходовых материалов (не ждать впустую)
 	if prim != nil && waiting(prim) {
-		if p, err := r.Saved.Planner.Next(s, plan.Stock{}); err == nil && p != nil && !waiting(p) {
+		if p, err := r.Saved.Planner.Next(s, plan.Stock{Keep: prim.Item}); err == nil && p != nil && !waiting(p) {
 			if w := prim.String(); w != r.deferred {
 				r.deferred = w
 				r.journal("ожидание: %s | почему: %s — пока запас", w, prim.Reason())
@@ -908,11 +942,15 @@ func GoalsString(gs []GoalSpec) string {
 // build — расчистить места и поставить группу; поставленное — в реестр (даже при сбое
 // посередине).
 func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
+	if p.Item == "*" {
+		return r.buildAll(ctx, p)
+	}
 	h := r.H
 	entity := h.Protos.Items[p.Item].PlaceResult
 	// уже стоит своя такая же (поставил прерванный запуск) — взять в реестр, не ставить
 	var spots []bridge.Pos
 	var roles []string
+	var dirs []int // свои направления мест (лента с поворотами) — не потерять при отборе
 	for i, pos := range p.Spots {
 		if e, err := r.B.EntityAt(entity, pos); err == nil && e != nil {
 			if st, _ := r.B.GetEntity(e.Name, e.Position); st != nil && st.Own {
@@ -933,14 +971,21 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 			}
 		}
 		spots, roles = append(spots, pos), append(roles, p.Roles[i])
+		if p.Dirs != nil {
+			dirs = append(dirs, p.Dirs[i])
+		}
 	}
 	if len(spots) == 0 {
 		return nil
 	}
-	p = &plan.Primitive{Kind: p.Kind, Item: p.Item, Dir: p.Dir, Spots: spots, Roles: roles, Area: p.Area}
+	p = &plan.Primitive{Kind: p.Kind, Item: p.Item, Dir: p.Dir, Spots: spots, Roles: roles, Dirs: dirs, Area: p.Area}
 	var tiles []world.Tile
-	for _, pos := range p.Spots {
-		tiles = append(tiles, layout.Tiles(h.Protos, layout.Placement{Name: entity, Pos: pos, Dir: p.Dir})...)
+	for i, pos := range p.Spots {
+		d := p.Dir
+		if p.Dirs != nil {
+			d = p.Dirs[i]
+		}
+		tiles = append(tiles, layout.Tiles(h.Protos, layout.Placement{Name: entity, Pos: pos, Dir: d})...)
 	}
 	if _, err := h.World.Sync(r.B, false); err != nil {
 		return err
@@ -948,6 +993,26 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 	obs := h.World.Obstacles(tiles)
 	if len(obs) > 0 {
 		r.journal("  расчистка: %d (деревья, камни) под %d тайлами", len(obs), len(tiles))
+	}
+	// свои постройки на месте (точки нулевого этапа под кластером) — снять
+	for _, o := range h.World.OwnIn(tiles) {
+		if o.Name == entity {
+			continue // такая же — выше (взять в реестр / поднять кривую)
+		}
+		e, err := r.B.EntityAt(o.Name, o.Pos)
+		if err != nil || e == nil {
+			continue
+		}
+		h.Say("снимаю %s с места стройки", o.Name)
+		if err := h.Pickup(ctx, *e); err != nil {
+			return err
+		}
+		for _, ow := range r.Saved.Owned {
+			if ow.Pos == o.Pos && ow.Name == o.Name {
+				r.forget(ow.Role)
+				break
+			}
+		}
 	}
 	for _, o := range obs {
 		e, err := r.B.EntityAt(o.Name, o.Pos)
@@ -972,7 +1037,7 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 			return err
 		}
 	}
-	dirs := p.Dirs
+	dirs = p.Dirs
 	if dirs == nil {
 		dirs = make([]int, len(p.Spots))
 		for i := range dirs {
@@ -988,10 +1053,88 @@ func (r *Runner) build(ctx context.Context, p *plan.Primitive) error {
 	return err
 }
 
+// buildAll — кластер разом: с места стояния поставить всё, что достаётся (по порядку
+// списка: машины → инсертеры → ленты → столбы), потом к следующему месту — откуда достаётся
+// больше всего; без обхода кластера на каждый предмет.
+func (r *Runner) buildAll(ctx context.Context, p *plan.Primitive) error {
+	h := r.H
+	ents := make([]string, len(p.Spots))
+	for i := range p.Spots {
+		ents[i] = h.Protos.Items[p.Items[i]].PlaceResult
+	}
+	left := make([]int, len(p.Spots))
+	for i := range left {
+		left[i] = i
+	}
+	var last error
+	walks := 0
+	for len(left) > 0 {
+		var spots []bridge.Pos
+		var es []string
+		var ds []int
+		for _, i := range left {
+			spots, es, ds = append(spots, p.Spots[i]), append(es, ents[i]), append(ds, p.Dirs[i])
+		}
+		here, stand, err := h.StandFor(ctx, es, spots, ds)
+		if err != nil {
+			return err
+		}
+		if len(here) == 0 {
+			if walks++; walks > 3*len(p.Spots)+10 {
+				break
+			}
+			if err := h.WalkTo(ctx, stand, 0.5); err != nil && !errors.Is(err, act.ErrNotReached) {
+				return err
+			}
+			if here, _, err = h.StandFor(ctx, es, spots, ds); err != nil {
+				return err
+			}
+			if len(here) == 0 { // не достаётся и отсюда — первое обычной стройкой (сама дойдёт)
+				here = []int{0}
+			}
+		}
+		// достающееся — по предметам в порядке списка
+		var order []string
+		byItem := map[string][]int{}
+		for _, k := range here {
+			it := p.Items[left[k]]
+			if byItem[it] == nil {
+				order = append(order, it)
+			}
+			byItem[it] = append(byItem[it], left[k])
+		}
+		done := map[int]bool{}
+		for _, it := range order {
+			sub := &plan.Primitive{Kind: "build", Item: it}
+			for _, i := range byItem[it] {
+				sub.Spots = append(sub.Spots, p.Spots[i])
+				sub.Roles = append(sub.Roles, p.Roles[i])
+				sub.Dirs = append(sub.Dirs, p.Dirs[i])
+				done[i] = true
+			}
+			sub.Dir = sub.Dirs[0]
+			if err := r.build(ctx, sub); err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
+				last = err // место занято и т.п. — дальше; планировщик повторит
+			}
+		}
+		kept := left[:0]
+		for _, i := range left {
+			if !done[i] {
+				kept = append(kept, i)
+			}
+		}
+		left = kept
+	}
+	return last
+}
+
 // design — раскладка под задачу kind (см. plan.State.Design), спроектированная один раз.
 func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	if l, ok := r.Saved.Designs[kind]; ok {
-		return plan.Built{Tag: kind, List: l}, true
+		return plan.Built{Tag: kind, List: l, Order: r.stageOrder(kind, l)}, true
 	}
 	// не вышло недавно — не пересчитывать каждый шаг (карта меняется медленно)
 	if t, ok := r.designFailed[kind]; ok && time.Since(t) < 2*time.Minute {
@@ -1203,6 +1346,11 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 			l.Poles("small-electric-pole", kind)
 		}
 	default:
+		var n int
+		if _, e := fmt.Sscanf(kind, "stage-%d", &n); e == nil {
+			l, err = r.clusterStage(s, n)
+			break
+		}
 		ore, ok := plan.ModuleOre(kind)
 		if !ok {
 			err = fmt.Errorf("неизвестная задача")
@@ -1223,7 +1371,7 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	}
 	r.Saved.Designs[kind] = l.List
 	r.journal("раскладка %s: %s", kind, l.Summary())
-	return plan.Built{Tag: kind, List: l.List}, true
+	return plan.Built{Tag: kind, List: l.List, Order: r.stageOrder(kind, l.List)}, true
 }
 
 // alias — постройка из раскладки уже стоит под ролью другой раскладки (насосы oil-jacks
@@ -1346,6 +1494,14 @@ func stepLimit(p *plan.Primitive) time.Duration {
 // встал на трассу ленты пластика).
 func (r *Runner) newLayout(kind string) *layout.Layout {
 	l := layout.New(r.H.Protos, r.H.World)
+	// площадь кластеров (с запасом роста) — не трогать
+	for _, c := range r.Saved.Clusters {
+		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
+			for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+				l.Reserved[world.Tile{X: x, Y: y}] = true
+			}
+		}
+	}
 	for k, list := range r.Saved.Designs {
 		if k == kind {
 			continue

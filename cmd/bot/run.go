@@ -4,8 +4,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"runtime/pprof"
 	"strconv"
 
 	"factorio-bot/internal/act"
@@ -123,4 +127,32 @@ func isGoalWord(w string) bool {
 		return true
 	}
 	return false
+}
+
+// runStage — план этапа кластерами без стройки: bot stage N [-state F] → кластеры и
+// run/clusters.png (состояние не сохраняется).
+func runStage(h *act.Hands, args []string) {
+	fs := flag.NewFlagSet("stage", flag.ExitOnError)
+	state := fs.String("state", statePath, "состояние бота")
+	prof := fs.String("cpuprofile", "", "профиль CPU проектирования")
+	fs.Parse(args)
+	if fs.NArg() < 1 {
+		log.Fatal("bot stage N [-state F]")
+	}
+	saved, err := exec.Load(*state)
+	check(err)
+	saved.Goals = []exec.GoalSpec{{Kind: "site", Item: "stage-" + fs.Arg(0)}}
+	r := &exec.Runner{H: h, B: h.B, Saved: saved, StatePath: *state}
+	if *prof != "" {
+		f, err := os.Create(*prof)
+		check(err)
+		check(pprof.StartCPUProfile(f))
+		defer pprof.StopCPUProfile()
+	}
+	b, err := r.DryDesign("stage-" + fs.Arg(0))
+	check(err)
+	for _, c := range saved.Clusters {
+		fmt.Println(" ", c)
+	}
+	fmt.Printf("  построек %d; картинка %s\n", len(b.List), filepath.Join(filepath.Dir(*state), "clusters.png"))
 }

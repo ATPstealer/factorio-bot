@@ -638,3 +638,44 @@ func TestBeltOnePass(t *testing.T) {
 		}
 	}
 }
+
+// Готовое в нескольких точках — забрать одним обходом, а не по печи за шаг.
+func TestCollectOutputsInOneRound(t *testing.T) {
+	s := newState(t)
+	for i := 1; i <= 3; i++ {
+		s.Owned = append(s.Owned, &Owned{Name: "stone-furnace", Role: fmt.Sprintf("iron-ore-%d-2", i),
+			Inv: map[string]map[string]int{"crafter_output": {"iron-plate": 12}}})
+	}
+	_, steps := run(t, s, HaveItem{"iron-plate", 30})
+	if len(steps) == 0 || steps[0].Kind != "collect" || len(steps[0].Roles) != 3 {
+		t.Errorf("шаги: %s", kinds(steps))
+	}
+}
+
+// Этап кластерами строится по группам: сначала первая (материалы — только на неё).
+func TestBuiltByGroups(t *testing.T) {
+	s := newState(t)
+	var list []layout.Placement
+	for i := 0; i < 3; i++ {
+		list = append(list, layout.Placement{Name: "stone-furnace", Pos: bridge.Pos{X: float64(10 + 3*i), Y: 10}, Tag: "c/a"})
+		list = append(list, layout.Placement{Name: "wooden-chest", Pos: bridge.Pos{X: float64(10 + 3*i), Y: 20}, Tag: "c/b"})
+	}
+	s.Inventory["stone-furnace"], s.Inventory["wooden-chest"] = 3, 3
+	s.Av.Researched["logistics"] = true // этапу кластеров нужна до проектирования
+	s.Design = func(s *State, kind string) (Built, bool) {
+		return Built{Tag: kind, List: list, Order: [][]string{{"c/b"}, {"c/a"}}}, true
+	}
+	_, steps := run(t, s, Site{"stage-9"})
+	first := -1
+	for i, p := range steps {
+		if p.Kind == "build" && first < 0 {
+			first = i
+			if p.Roles[0] != "stage-9-2" { // группа b — чётные места
+				t.Errorf("первой строится не группа b: %s", kinds(steps))
+			}
+		}
+	}
+	if first < 0 {
+		t.Errorf("не строил: %s", kinds(steps))
+	}
+}

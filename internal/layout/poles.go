@@ -17,7 +17,7 @@ func (l *Layout) Poles(pole, tag string) int {
 		poles := l.poleList()
 		for i, p := range l.List {
 			e := l.P.Entities[p.Name]
-			if e.Electric && !isPole(p.Name) && !l.powered(p, poles) {
+			if e.Electric && !isPole(p.Name) && (l.PoleTag == "" || p.Tag == l.PoleTag) && !l.powered(p, poles) {
 				res = append(res, i)
 			}
 		}

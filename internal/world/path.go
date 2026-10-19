@@ -40,6 +40,7 @@ func (c Cell) tile() Tile { return TileOf(c.Center()) }
 type cellInfo struct {
 	hard, core bool
 	trees      []int // индексы в Chunk.Objects
+	belt       bool  // на ленте: пройти можно, но лента сносит (идти вдоль — дорого)
 }
 
 // cellSet — ячейки, занятые объектами чанка (рамки, раздутые на полуширину персонажа).
@@ -49,7 +50,20 @@ func (w *World) cellSet(c *Chunk) map[Cell]*cellInfo {
 	}
 	c.cells = map[Cell]*cellInfo{}
 	for i, o := range c.Objects {
-		if noCollision[o.Type] || o.Type == "transport-belt" { // по лентам персонаж ходит
+		if o.Type == "transport-belt" { // по лентам персонаж ходит — с надбавкой
+			t := TileOf(o.Pos)
+			for dy := 0; dy < 2; dy++ {
+				for dx := 0; dx < 2; dx++ {
+					cl := Cell{2*t.X + dx, 2*t.Y + dy}
+					if c.cells[cl] == nil {
+						c.cells[cl] = &cellInfo{}
+					}
+					c.cells[cl].belt = true
+				}
+			}
+			continue
+		}
+		if noCollision[o.Type] {
 			continue
 		}
 		b := w.CollisionBox(o)
@@ -237,7 +251,11 @@ func (w *World) Route(from, to bridge.Pos, near float64, maxNodes int, treeCost 
 	pass := func(c Cell) (bool, float64) {
 		free, hard, core, _ := w.cellState(c)
 		switch {
-		case c == start, free, nearStart(c) && !core:
+		case c == start, nearStart(c) && !core:
+			return true, 0
+		case free && w.onBelt(c):
+			return true, beltCost
+		case free:
 			return true, 0
 		case nearStart(c) && c.tile() == startTile && w.TileAt(startTile) == Water:
 			return true, 0
@@ -403,10 +421,20 @@ func (w *World) smooth(from bridge.Pos, cells []Cell, cut map[bridge.Pos]Object,
 	}
 	see := func(a, b bridge.Pos) bool {
 		n := int(dist(a, b)/0.1) + 1
+		step, run := dist(a, b)/float64(n), 0.0
 		for i := 0; i <= n; i++ {
 			f := float64(i) / float64(n)
-			if !ok(CellOf(bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f})) {
+			c := CellOf(bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f})
+			if !ok(c) {
 				return false
+			}
+			// поперёк ленты — можно, вдоль (дольше 1.5 тайла подряд) — нет: снесёт
+			if w.onBelt(c) {
+				if run += step; run > 1.5 {
+					return false
+				}
+			} else {
+				run = 0
 			}
 		}
 		return true
@@ -493,7 +521,14 @@ func (w *World) OnBelt(p bridge.Pos) bool {
 // (раздутой на полуширину персонажа) и не на воде. Точная проверка, без сетки.
 func (w *World) clearSegment(a, b bridge.Pos) bool {
 	objs := w.ObjectsNear(a, dist(a, b)+4)
+	belts := map[Tile]bool{}
+	for _, o := range objs {
+		if o.Type == "transport-belt" {
+			belts[TileOf(o.Pos)] = true
+		}
+	}
 	n := int(dist(a, b)/0.05) + 1
+	step, run := dist(a, b)/float64(n), 0.0
 	for i := 0; i <= n; i++ {
 		f := float64(i) / float64(n)
 		p := bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f}
@@ -501,6 +536,14 @@ func (w *World) clearSegment(a, b bridge.Pos) bool {
 		case Land, Shallow:
 		default:
 			return false
+		}
+		// поперёк ленты — можно, вдоль (дольше 1.5 тайла по лентам подряд) — нет: снесёт
+		if belts[TileOf(p)] {
+			if run += step; run > 1.5 {
+				return false
+			}
+		} else {
+			run = 0
 		}
 		for _, o := range objs {
 			if noCollision[o.Type] || o.Type == "transport-belt" {
@@ -622,4 +665,54 @@ func (w *World) Enclosed(p bridge.Pos) bool {
 		}
 	}
 	return true
+}
+
+// Hide — убрать объекты из модели (стройка их снимет); restore — вернуть.
+func (w *World) Hide(objs []Object) (restore func()) {
+	type saved struct {
+		c    *Chunk
+		objs []Object
+	}
+	var undo []saved
+	byChunk := map[*Chunk][]Object{}
+	for _, o := range objs {
+		if c := w.Chunks[ChunkOf(TileOf(o.Pos))]; c != nil {
+			byChunk[c] = append(byChunk[c], o)
+		}
+	}
+	for c, os := range byChunk {
+		undo = append(undo, saved{c, c.Objects})
+		var keep []Object
+		for _, x := range c.Objects {
+			hide := false
+			for _, o := range os {
+				hide = hide || x.Name == o.Name && x.Pos == o.Pos
+			}
+			if !hide {
+				keep = append(keep, x)
+			}
+		}
+		c.Objects = keep
+		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+	}
+	return func() {
+		for _, u := range undo {
+			u.c.Objects = u.objs
+			u.c.blocked, u.c.hard, u.c.solid, u.c.cells = nil, nil, nil, nil
+		}
+	}
+}
+
+// beltCost — надбавка за ячейку ленты: поперёк перейти — пустяк, вдоль идти — лента сносит,
+// из коридора между бурами не выйти (бот застревал).
+const beltCost = 2.0
+
+// onBelt — ячейка на ленте.
+func (w *World) onBelt(cl Cell) bool {
+	ch := w.Chunks[ChunkOf(cl.tile())]
+	if ch == nil {
+		return false
+	}
+	in := w.cellSet(ch)[cl]
+	return in != nil && in.belt
 }

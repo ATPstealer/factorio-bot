@@ -108,7 +108,7 @@ func TestFurnaceAndDrill(t *testing.T) {
 
 // Паровая станция: 1 помпа : 20 бойлеров : 40 двигателей (36 МВт).
 func TestSteamRatio(t *testing.T) {
-	s := steamFor(pt(t), 36e6)
+	s := SteamFor(pt(t), 36e6)
 	approx(t, "двигатели", s.Engines, 40)
 	approx(t, "бойлеры", s.Boilers, 20)
 	approx(t, "помпы", s.Pumps, 1)
@@ -219,5 +219,25 @@ func TestLockedRecipeNeedsTech(t *testing.T) {
 	}
 	if !slices.Contains(pl.Techs, "automation-science-pack") {
 		t.Errorf("техи %v", pl.Techs)
+	}
+}
+
+// Уже производимое (Have) берётся первым: шестерни из готовых пластин — без добычи и плавки;
+// чего не хватает — добирается.
+func TestHave(t *testing.T) {
+	p := pt(t)
+	plan, err := Solve(p, map[string]float64{"iron-gear-wheel": 1}, Options{All: true, Have: map[string]float64{"iron-plate": 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Given["iron-plate"] < 2-1e-6 || plan.Raw["iron-ore"] > 1e-6 {
+		t.Errorf("готовое: %v, сырьё: %v", plan.Given, plan.Raw)
+	}
+	plan, err = Solve(p, map[string]float64{"iron-gear-wheel": 1}, Options{All: true, Have: map[string]float64{"iron-plate": 0.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Given["iron-plate"] > 0.5+1e-6 || plan.Raw["iron-ore"] < 1.5-1e-6 {
+		t.Errorf("не хватает готового: %v, сырьё: %v", plan.Given, plan.Raw)
 	}
 }
