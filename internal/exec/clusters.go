@@ -776,3 +776,14 @@ func (r *Runner) migrateFilters(s *plan.State) {
 	r.journal("фильтры инсертеров в старых раскладках: %d", n)
 	r.Saved.Done["filters"] = true
 }
+
+// currentStage — задача этапа, который сейчас строится ("stage-N" наибольшего N целей).
+func (r *Runner) currentStage() string {
+	n := 0
+	for _, g := range r.Saved.Goals {
+		if g.Kind == "stage" {
+			n = max(n, g.N)
+		}
+	}
+	return fmt.Sprintf("stage-%d", n)
+}

@@ -467,6 +467,13 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		if g := (plan.Built{Tag: kind, List: list, Groups: []string{"-"}}); !g.Satisfied(s) {
 			removed = append(removed, g)
 		}
+		// прошлые этапы — досматривать: пропавшее (столб, снятый вместе с соседом) —
+		// поставить заново, иначе кластер без сети/входа
+		if strings.HasPrefix(kind, "stage-") && kind != r.currentStage() {
+			if g := (plan.Built{Tag: kind, List: list}); !g.Satisfied(s) {
+				removed = append(removed, g)
+			}
+		}
 	}
 	if len(r.Saved.Clusters) > 0 && time.Since(r.monitored) >= time.Minute {
 		r.monitored = time.Now()
