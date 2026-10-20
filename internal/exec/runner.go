@@ -79,6 +79,8 @@ type Saved struct {
 	Done map[string]bool `json:"done,omitempty"`
 	// Clusters — кластеры базы (стадия 9): места, потоки, порты
 	Clusters []*cluster.Cluster `json:"clusters,omitempty"`
+	// Grow — задачи роста кластеров ("grow-<имя>") по нехватке входа у потребителя
+	Grow []string `json:"grow,omitempty"`
 }
 
 func Load(path string) (*Saved, error) {
@@ -124,6 +126,7 @@ type Runner struct {
 	exploreRing     int                      // текущий квадрат разведки (полуширина)
 	exploreSkip     map[bridge.ChunkPos]bool // чанки периметра, к которым не пройти
 	monitored       time.Time                // последний замер кластеров
+	short           map[string]int           // кластер → замеров подряд с нехваткой входа
 	clusterProblems map[string]string        // кластер → проблемы последнего замера
 }
 
@@ -452,7 +455,9 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		r.monitored = time.Now()
 		// в журнал — только перемены
 		now := map[string]string{}
-		for _, c := range r.Monitor(s) {
+		st := r.Monitor(s)
+		r.growShort(st)
+		for _, c := range st {
 			now[c.Name] = strings.Join(c.Problems, "; ")
 			if now[c.Name] != r.clusterProblems[c.Name] {
 				if now[c.Name] == "" {
@@ -479,6 +484,15 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	if all && !maintain {
 		return true, nil // цели выполнены: ремонт — забота следующих целей или режима «следить»
 	}
+	// рост кластеров по нехватке входа — до целей этапа
+	var grow []string
+	for _, k := range r.Saved.Grow {
+		if g := (plan.Site{Kind: k}); !g.Satisfied(s) {
+			goals = append([]plan.Goal{g}, goals...)
+			grow = append(grow, k)
+		}
+	}
+	r.Saved.Grow = grow
 	if repair {
 		goals = append([]plan.Goal{plan.Repair{}}, goals...) // есть что чинить — первым делом
 	}
@@ -1179,6 +1193,10 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 			}
 		}
 	default:
+		if name, ok := strings.CutPrefix(kind, "grow-"); ok {
+			l, err = r.growDesign(s, name)
+			break
+		}
 		var n int
 		if _, e := fmt.Sscanf(kind, "stage-%d", &n); e == nil {
 			l, err = r.clusterStage(s, n)

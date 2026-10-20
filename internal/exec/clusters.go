@@ -337,6 +337,7 @@ type ClusterStatus struct {
 	OutReal  []cluster.Flow `json:"out_real"` // оценка: план × доля работающих
 	Buffer   map[string]int `json:"buffer,omitempty"`
 	Problems []string       `json:"problems,omitempty"`
+	Short    []string       `json:"short,omitempty"` // каких входов не хватает
 }
 
 // machineTypes — машины кластера, по которым мерим работу.
@@ -396,6 +397,12 @@ func (r *Runner) Monitor(s *plan.State) []ClusterStatus {
 			st.Problems = append(st.Problems, fmt.Sprintf("руда кончилась у %d буров", st.Status["no_minable_resources"]))
 		case starve*2 > st.Machines:
 			st.Problems = append(st.Problems, fmt.Sprintf("нехватка входа (%s): %d из %d машин ждут", flowNames(c.In), starve, st.Machines))
+			// без топлива — уголь; без ингредиентов — прочие входы
+			for _, f := range c.In {
+				if f.Item == "coal" && st.Status["no_fuel"] > 0 || f.Item != "coal" && st.Status["no_ingredients"] > 0 {
+					st.Short = append(st.Short, f.Item)
+				}
+			}
 		}
 		if len(st.Buffer) == 0 {
 			st.Buffer = nil
@@ -565,4 +572,87 @@ func (r *Runner) growInterior(l *layout.Layout, c *cluster.Cluster, s *plan.Stat
 	}
 	r.journal("кластер %s: +%d построек роста", c.Name, n)
 	return nil
+}
+
+// growShort — нехватка входа второй замер подряд: кластер-поставщик этого входа растёт в своём
+// запасе (задача "grow-<имя>": машины роста рядом с его стоящими) — правило «сначала in».
+func (r *Runner) growShort(st []ClusterStatus) {
+	if r.short == nil {
+		r.short = map[string]int{}
+	}
+	for _, c := range st {
+		if len(c.Short) == 0 {
+			delete(r.short, c.Name)
+			continue
+		}
+		if r.short[c.Name]++; r.short[c.Name] < 2 {
+			continue
+		}
+		for _, item := range c.Short {
+			for _, src := range r.Saved.Clusters {
+				if src.Name == c.Name || src.Count >= src.Room || !hasOut(src, item) {
+					continue
+				}
+				kind := "grow-" + src.Name
+				if slices.Contains(r.Saved.Grow, kind) {
+					break
+				}
+				r.Saved.Grow = append(r.Saved.Grow, kind)
+				r.journal("кластер %s: не хватает %s — растёт %s (%d → %d из %d)", c.Name, item, src.Name, src.Count, src.Count+1, src.Room)
+				break
+			}
+		}
+		r.short[c.Name] = 0
+	}
+}
+
+func hasOut(c *cluster.Cluster, item string) bool {
+	for _, f := range c.Out {
+		if f.Item == item {
+			return true
+		}
+	}
+	return false
+}
+
+// growDesign — раскладка роста кластера name на одно место (задача "grow-<имя>"): потоки и
+// машины — пропорционально; в раскладке — только новые постройки.
+func (r *Runner) growDesign(s *plan.State, name string) (*layout.Layout, error) {
+	var c *cluster.Cluster
+	for _, x := range r.Saved.Clusters {
+		if x.Name == name {
+			c = x
+		}
+	}
+	if c == nil || c.Count >= c.Room {
+		return nil, fmt.Errorf("кластер %s: расти некуда", name)
+	}
+	cp := *c
+	k := float64(c.Count+1) / float64(c.Count)
+	scale := func(fs []cluster.Flow) []cluster.Flow {
+		var res []cluster.Flow
+		for _, f := range fs {
+			res = append(res, cluster.Flow{Item: f.Item, Rate: f.Rate * k})
+		}
+		return res
+	}
+	cp.In, cp.Out, cp.Internal, cp.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
+	cp.Units = nil
+	for _, u := range c.Units {
+		u.Machines *= k
+		cp.Units = append(cp.Units, u)
+	}
+	cp.Count++
+	l := r.newLayout("grow-" + name)
+	for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
+		for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+			delete(l.Reserved, world.Tile{X: x, Y: y})
+		}
+	}
+	l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
+	if err := r.growInterior(l, &cp, s); err != nil {
+		return nil, err
+	}
+	*c = cp
+	return l, nil
 }
