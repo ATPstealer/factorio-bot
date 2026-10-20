@@ -100,9 +100,10 @@ func newBus(clients []*Cluster) *Cluster {
 		length += c.Cross + BusGap
 		depth = max(depth, c.Head+c.Count*c.Pitch)
 	}
-	length = max(length*6/5, 100) // с запасом на следующие этапы
+	need := length + 1
+	length = max(length*6/5, 150) // с запасом на следующие этапы (клиентов к этапу 3 — ~10 × 14)
 	w := busWidth(BusCap)
-	c := &Cluster{Kind: Bus, Product: "bus", Reserve: 1, Pitch: 1, Head: BusHead, Room: length,
+	c := &Cluster{Kind: Bus, Product: "bus", Reserve: 1, Pitch: 1, Head: BusHead, Room: length, Count: need,
 		Cross: w + BusStrip + depth, Bus: &BusInfo{Next: BusHead + 1, Width: w, Depth: depth}}
 	return c
 }
