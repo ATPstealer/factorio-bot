@@ -301,3 +301,57 @@ func TestLongPoleChain(t *testing.T) {
 		t.Errorf("столбов в цепочке %d", n)
 	}
 }
+
+// Точки начала игры: пара буров друг в друга, бур → печь, 4 бура → сундук; без ошибок.
+func TestOutposts(t *testing.T) {
+	w := synth(t, 2, 2, func(x, y int) byte {
+		switch {
+		case x >= 4 && x < 14 && y >= 4 && y < 14:
+			return 'k'
+		case x >= 30 && x < 40 && y >= 4 && y < 14:
+			return 'i'
+		case x >= 4 && x < 14 && y >= 30 && y < 40:
+			return 's'
+		}
+		return '.'
+	})
+	var coal, iron, stone []world.Tile
+	for _, p := range w.Patches() {
+		switch p.Name {
+		case "coal":
+			coal = p.Tiles
+		case "iron-ore":
+			iron = p.Tiles
+		case "stone":
+			stone = p.Tiles
+		}
+	}
+	l := New(pt(t), w)
+	d := "burner-mining-drill"
+	for i := 0; i < 5; i++ {
+		if err := l.CoalPair(coal, "coal", d, world.Tile{X: 8, Y: 8}, "coal"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 5; i++ {
+		if err := l.DrillFurnace(iron, "iron-ore", d, "stone-furnace", world.Tile{X: 35, Y: 8}, "iron"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.StoneChest(stone, "stone", d, "wooden-chest", 4, world.Tile{X: 8, Y: 35}, "stone"); err != nil {
+		t.Fatal(err)
+	}
+	noErrors(t, l)
+	if c := l.Count(); c[d] != 19 || c["stone-furnace"] != 5 || c["wooden-chest"] != 1 {
+		t.Errorf("состав: %v", c)
+	}
+	// выходы: каждый бур выдаёт в постройку раскладки (бур пары, печь, сундук)
+	for _, p := range l.List {
+		if p.Name != d {
+			continue
+		}
+		if l.At(DrillOutput(pt(t), p)) == nil {
+			t.Errorf("%s выдаёт в пустоту", p)
+		}
+	}
+}
