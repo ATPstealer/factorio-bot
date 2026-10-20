@@ -146,36 +146,45 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 	}
 	// сначала — запас роста кластеров прошлых этапов (тот же продукт): больше машин в их
 	// площади, а не новый кластер где-то ещё
-	// (на копиях: раскладка может не выйти — тогда прошлые кластеры не тронуты)
+	// (на копиях: раскладка может не выйти — тогда прошлые кластеры не тронуты; рост не
+	// встал — добавка новым кластером в другом месте, noGrow)
+	all := cs
+	noGrow := map[*cluster.Cluster]bool{}
 	var grown []*cluster.Cluster
-	copyOf := map[*cluster.Cluster]*cluster.Cluster{}
-	kept := cs[:0]
-	for _, c := range cs {
-		g := false
-		for _, ex := range r.Saved.Clusters {
-			cp := copyOf[ex]
-			if cp == nil {
-				x := *ex
-				x.In = append([]cluster.Flow(nil), ex.In...)
-				x.Out = append([]cluster.Flow(nil), ex.Out...)
-				x.Internal = append([]cluster.Flow(nil), ex.Internal...)
-				x.Units = append([]cluster.Unit(nil), ex.Units...)
-				cp = &x
-			}
-			if cluster.Grow(cp, c) {
-				if copyOf[ex] == nil {
-					grown = append(grown, cp)
+	var copyOf map[*cluster.Cluster]*cluster.Cluster
+	regrow := func() {
+		grown, copyOf = nil, map[*cluster.Cluster]*cluster.Cluster{}
+		cs = nil
+		for _, c := range all {
+			g := false
+			for _, ex := range r.Saved.Clusters {
+				if noGrow[ex] {
+					continue
 				}
-				copyOf[ex], g = cp, true
-				r.journal("кластер %s растёт: %d мест из %d", cp.Name, cp.Count, cp.Room)
-				break
+				cp := copyOf[ex]
+				if cp == nil {
+					x := *ex
+					x.In = append([]cluster.Flow(nil), ex.In...)
+					x.Out = append([]cluster.Flow(nil), ex.Out...)
+					x.Internal = append([]cluster.Flow(nil), ex.Internal...)
+					x.Units = append([]cluster.Unit(nil), ex.Units...)
+					cp = &x
+				}
+				if cluster.Grow(cp, c) {
+					if copyOf[ex] == nil {
+						grown = append(grown, cp)
+					}
+					copyOf[ex], g = cp, true
+					r.journal("кластер %s растёт: %d мест из %d", cp.Name, cp.Count, cp.Room)
+					break
+				}
 			}
-		}
-		if !g {
-			kept = append(kept, c)
+			if !g {
+				cs = append(cs, c)
+			}
 		}
 	}
-	cs = kept
+	regrow()
 	// точки нулевого этапа — не помеха: кластер займёт их место, стройка их снимет
 	var startObjs []world.Object
 	startTag := map[bridge.Pos]string{}
@@ -251,10 +260,17 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 		if l, err = base.Layout(fresh...); err != nil {
 			return nil, err
 		}
-		for _, c := range grown {
+		failed := false
+		for ex, c := range copyOf {
 			if err := r.growInterior(l, c, s); err != nil {
-				return nil, err
+				r.journal("кластер %s: %v — добавка новым кластером", c.Name, err)
+				noGrow[ex] = true
+				failed = true
 			}
+		}
+		if failed && try < 5 {
+			regrow()
+			continue
 		}
 		var names []string
 		for _, c := range fresh {
