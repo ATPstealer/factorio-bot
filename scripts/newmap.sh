@@ -2,7 +2,7 @@
 # Новая карта и запуск игры в фоне: остановить текущую, создать карту (SEED=… или случайную),
 # поднять сервер + Xephyr + клиент и дождаться, пока клиент зайдёт.
 #   scripts/newmap.sh            — случайная карта
-#   SEED=123 scripts/newmap.sh   — конкретная
+#   SEED=123 scripts/newmap.sh   — конкретная; SEED=seed-1 — по имени из scripts/seeds.txt
 #   NEW_MAP=0 scripts/newmap.sh  — перезапуск на той же карте (например, после правки мода)
 set -euo pipefail
 cd "$(dirname "$0")/.."

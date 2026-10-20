@@ -23,7 +23,7 @@
 scripts/run.sh                      # сервер → Xephyr :1 → клиент; Ctrl+C — остановить всё
 scripts/stop.sh                     # остановить извне (сервер по SIGTERM, с сохранением)
 scripts/newmap.sh                   # новая СЛУЧАЙНАЯ карта, игра в фоне, ждёт персонажа
-SEED=123 scripts/newmap.sh          # конкретная карта
+SEED=123 scripts/newmap.sh          # конкретная карта (SEED=seed-1 — по имени из scripts/seeds.txt)
 RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 ```
 

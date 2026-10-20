@@ -13,6 +13,12 @@ RES=${RES:-1920x1080}
 # новая карта: SEED не задан — случайный; сид пишется в run/map.json, состояние бота
 # (run/state.json — реестр построек и цели) относится к карте и сбрасывается
 if [[ ! -f $SAVE || ${NEW_MAP:-0} == 1 ]]; then
+  # SEED=имя — из scripts/seeds.txt
+  if [[ -n "${SEED:-}" && ! "$SEED" =~ ^[0-9]+$ ]]; then
+    named=$(awk -v n="$SEED" '$1 == n {print $2}' "$ROOT/scripts/seeds.txt")
+    [[ -z "$named" ]] && { echo "нет сида $SEED в scripts/seeds.txt" >&2; exit 2; }
+    SEED=$named
+  fi
   SEED=${SEED:-$(( (RANDOM << 15 | RANDOM) % 4000000000 ))}
   "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \
     --create "$SAVE" --map-gen-settings "$ROOT/scripts/map-gen-settings.json" --map-gen-seed "$SEED"
