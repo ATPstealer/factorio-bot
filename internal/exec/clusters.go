@@ -828,10 +828,21 @@ func (r *Runner) mainNet(s *plan.State) int {
 // этапам. Возвращает проблемы (для журнала) и исправления (цели первыми).
 func (r *Runner) Verify(s *plan.State) (problems []string, fixes []plan.Goal) {
 	tagOf := map[string]string{}
+	building := map[string]bool{} // роли этапа, который ещё строится (сеть ещё не вся)
+	cur := r.currentStage()
+	missing := false
 	for kind, list := range r.Saved.Designs {
 		for i, pl := range list {
-			tagOf[plan.BuildRole(kind, i)] = pl.Tag
+			role := plan.BuildRole(kind, i)
+			tagOf[role] = pl.Tag
+			if kind == cur {
+				building[role] = true
+				missing = missing || pl.Name != "" && s.Role(role) == nil
+			}
 		}
+	}
+	if !missing {
+		building = nil
 	}
 	byName := map[string]*cluster.Cluster{}
 	for _, c := range r.Saved.Clusters {
@@ -851,7 +862,7 @@ func (r *Runner) Verify(s *plan.State) (problems []string, fixes []plan.Goal) {
 		var mainPoles []*plan.Owned
 		for _, o := range s.Owned {
 			e := r.H.Protos.Entities[o.Name]
-			if !e.Electric && e.Type != "electric-pole" || !strings.HasPrefix(tagOf[o.Role], "c/") {
+			if !e.Electric && e.Type != "electric-pole" || !strings.HasPrefix(tagOf[o.Role], "c/") || building[o.Role] {
 				continue
 			}
 			switch {
