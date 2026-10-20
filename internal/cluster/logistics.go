@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -169,8 +170,12 @@ func (b *Base) Connect(l *layout.Layout, anchors, existing []layout.Placement, f
 			}
 		}
 		err = nil
+		t0 := time.Now()
 		for k, src := range srcs {
 			if err = route(src); err != nil {
+				if b.Log != nil {
+					b.Log("логистика: попытка %d — %v (%.1f с)", try+1, err, time.Since(t0).Seconds())
+				}
 				// откат и заново — с неудавшейся
 				l.Rollback(mark)
 				l.Reserved = map[world.Tile]bool{}
@@ -189,7 +194,11 @@ func (b *Base) Connect(l *layout.Layout, anchors, existing []layout.Placement, f
 		return err
 	}
 	l.Anchors = append(l.Anchors, anchors...)
+	t0 := time.Now()
 	l.Poles("small-electric-pole", LogisticsTag)
+	if b.Log != nil {
+		b.Log("логистика: столбы %.1f с", time.Since(t0).Seconds())
+	}
 	return nil
 }
 

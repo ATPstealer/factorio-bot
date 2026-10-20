@@ -189,6 +189,7 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 	defer restore()
 	base := cluster.NewBase(p, r.H.World, world.TileOf(s.PlayerPos))
 	base.Usable = func(e string) bool { return p.EntityAvailable(e, s.Av) }
+	base.Log = r.journal
 	base.Avoid = map[world.Tile]bool{}
 	for k, list := range r.Saved.Designs {
 		if _, start := plan.ModuleOre(k); k == fmt.Sprintf("stage-%d", n) || start {

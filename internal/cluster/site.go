@@ -51,6 +51,8 @@ type Base struct {
 	Avoid map[world.Tile]bool
 	// Usable — доступна ли постройка (изучено); nil — всё (подземки — после logistics)
 	Usable func(entity string) bool
+	// Log — журнал прокладки (попытки, время); nil — молча
+	Log func(format string, args ...any)
 
 	g        *grid
 	oreShare int // добыча: доля руды под Area, %
