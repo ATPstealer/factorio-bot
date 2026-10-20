@@ -36,7 +36,7 @@ func (b *Base) Connect(l *layout.Layout, anchors, existing []layout.Placement, f
 	}
 	lines := map[world.Tile]layout.Placement{}
 	for _, p := range existing {
-		if p.Name == "transport-belt" {
+		if p.Name == "transport-belt" || p.Name == "underground-belt" {
 			lines[world.TileOf(p.Pos)] = p
 		}
 	}
@@ -193,7 +193,8 @@ func (b *Base) Connect(l *layout.Layout, anchors, existing []layout.Placement, f
 	return nil
 }
 
-// follow — лента от тайла t по направлениям (до конца или петли).
+// follow — лента от тайла t по направлениям (до конца или петли), сквозь подземки: со входа —
+// на его выход (ближайший по ходу); в списке — только обычные ленты (на них — отводы).
 func follow(lines map[world.Tile]layout.Placement, t world.Tile) []layout.Placement {
 	var res []layout.Placement
 	seen := map[world.Tile]bool{}
@@ -203,7 +204,25 @@ func follow(lines map[world.Tile]layout.Placement, t world.Tile) []layout.Placem
 			return res
 		}
 		seen[t] = true
-		res = append(res, p)
+		if p.Name == "underground-belt" && p.Recipe == "input" {
+			out := t
+			found := false
+			for k := 1; k <= 10 && !found; k++ {
+				out = layout.Step(out, p.Dir)
+				if q, ok := lines[out]; ok && q.Name == "underground-belt" && q.Recipe == "output" && q.Dir == p.Dir {
+					found = true
+				}
+			}
+			if !found {
+				return res
+			}
+			seen[out] = true
+			t = layout.Step(out, p.Dir)
+			continue
+		}
+		if p.Name == "transport-belt" {
+			res = append(res, p)
+		}
 		t = layout.Step(t, p.Dir)
 	}
 }
