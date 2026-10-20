@@ -40,6 +40,8 @@ func geometry(k Kind) (cross, pitch, head int) {
 		return 9, 4, 1
 	case Lab:
 		return 7, 3, 1
+	case Supply:
+		return 5, 2, 1
 	case Power:
 		return 17, 4, 1
 	}
@@ -150,12 +152,15 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 		l.AllowEnd(f.tile(-1, 3)) // выход: дальше — лента к потребителю (или её ещё нет)
 		c.Ports = append(c.Ports, Port{T: f.tile(-1, 3), Dir: f.dir(layout.W), Item: c.Product})
-	case Smelt, Make, Lab:
+	case Smelt, Make, Lab, Supply:
 		mach, mh := "stone-furnace", 2
 		ins := "inserter"
 		belts := 2
-		if c.Kind != Smelt {
+		switch c.Kind {
+		case Make, Lab:
 			mach, mh = c.machine(), 3
+		case Supply:
+			mach, mh = "iron-chest", 1
 		}
 		for i := 0; i < c.Count && c.Sub != ""; i++ {
 			if err := pair(l, f, c, c.Head+i*c.Pitch, belts, mach, ins, tag, add); err != nil {
@@ -164,7 +169,11 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 		for i := 0; i < c.Count && c.Sub == ""; i++ {
 			u := c.Head + i*c.Pitch
-			m := f.at(l, mach, u, belts+2, layout.N, tag)
+			mu := u
+			if c.Kind == Supply {
+				mu++ // ящик 1×1 — в столбце инсертера (у машин 3×3 инсертер — по центру, u+1)
+			}
+			m := f.at(l, mach, mu, belts+2, layout.N, tag)
 			if c.Kind == Make {
 				m.Recipe = c.Units[0].Recipe
 			}
@@ -174,7 +183,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			if err := add(f.inserter(l, ins, u+1, belts+1, belts, tag)); err != nil {
 				return err
 			}
-			if c.Kind != Lab {
+			if c.Kind != Lab && c.Kind != Supply {
 				ov := belts + 2 + mh
 				if err := add(f.inserter(l, ins, u+1, ov, ov-1, tag)); err != nil {
 					return err
@@ -198,7 +207,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 				return err
 			}
 		}
-		if c.Kind != Lab {
+		if c.Kind != Lab && c.Kind != Supply {
 			// выход — к началу ряда (←) и вниз в коридор у столбца портов: рост его не двигает
 			ov := belts + 3 + mh
 			if err := row(ov, 2, cur, layout.W); err != nil {

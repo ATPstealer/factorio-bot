@@ -349,7 +349,7 @@ func stage1Base(t *testing.T) *Base {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs = append(cs, StorageCluster())
+	cs = append(cs, StorageCluster(), SupplyCluster(pt(t), map[string]float64{"iron-plate": 0.3, "copper-plate": 0.1}))
 	if cs, err = AddPower(pt(t), cs, 5, nil); err != nil {
 		t.Fatal(err)
 	}

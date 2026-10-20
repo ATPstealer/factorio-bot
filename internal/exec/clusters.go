@@ -90,6 +90,24 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 			delete(have, it)
 		}
 	}
+	// снабжение стройки — с первого этапа кластеров (один на базу): его пластины — в расчёт
+	var supply *cluster.Cluster
+	hasSupply := false
+	for _, c := range r.Saved.Clusters {
+		hasSupply = hasSupply || c.Kind == cluster.Supply
+	}
+	if !hasSupply {
+		in := map[string]float64{"iron-plate": 0.3, "copper-plate": 0.1}
+		t := map[string]float64{}
+		for it, v := range targets {
+			t[it] = v
+		}
+		for it, v := range in {
+			t[it] += v
+		}
+		targets = t
+		supply = cluster.SupplyCluster(p, in)
+	}
 	cp, err := calc.Solve(p, targets, calc.Options{All: true, Have: have,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
@@ -113,6 +131,9 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 	}
 	if n == 1 {
 		cs = append(cs, cluster.StorageCluster())
+	}
+	if supply != nil {
+		cs = append(cs, supply)
 	}
 	need := 0.0
 	for _, c := range cs {
@@ -469,7 +490,7 @@ func (r *Runner) stageOrder(kind string, list []layout.Placement) [][]string {
 	}
 	// цепочками: кластер — сразу после своих поставщиков (уголь → станция, руда → плавка),
 	// начиная со станции, потом по видам потребителей
-	rank := map[cluster.Kind]int{cluster.Power: 0, cluster.Smelt: 1, cluster.Make: 2, cluster.Lab: 3, cluster.Mine: 4, cluster.Storage: 5}
+	rank := map[cluster.Kind]int{cluster.Power: 0, cluster.Smelt: 1, cluster.Supply: 2, cluster.Make: 3, cluster.Lab: 4, cluster.Mine: 5, cluster.Storage: 6}
 	var cs []*cluster.Cluster
 	for _, c := range r.Saved.Clusters {
 		if tags[cluster.Tag(c.Name)] {

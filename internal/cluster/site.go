@@ -366,7 +366,7 @@ func ringOffsets(r int) []world.Tile {
 // PlaceAll — имена (<продукт>-N) и места всем кластерам по порядку.
 func (b *Base) PlaceAll(cs []*Cluster) error {
 	// по зависимостям: добыча → плавка → сборка → лаборатории → станция (к потребителям)
-	order := map[Kind]int{Mine: 0, Smelt: 1, Make: 2, Lab: 3, Power: 4, Storage: 5}
+	order := map[Kind]int{Mine: 0, Smelt: 1, Make: 2, Lab: 3, Supply: 4, Power: 5, Storage: 6}
 	cs = append([]*Cluster(nil), cs...)
 	sort.SliceStable(cs, func(i, j int) bool { return order[cs[i].Kind] < order[cs[j].Kind] })
 	for _, c := range cs {

@@ -24,6 +24,7 @@ const (
 	Power   Kind = "power"   // паровая станция: in — уголь, out — Вт
 	Lab     Kind = "lab"     // лаборатории: только in
 	Storage Kind = "storage" // мусор бота
+	Supply  Kind = "supply"  // снабжение стройки: пластины с линий в ящики, бот берёт на крафт
 )
 
 // Margin — запас расчёта: лучше перепроизвести.
@@ -407,6 +408,16 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 		Units: []Unit{{Recipe: "research", Machine: "lab", Machines: total * sec / speed * Margin}}}
 	c.PowerW = math.Ceil(c.Units[0].Machines) * lab.EnergyUsage * 60
 	shape(p, c)
+	return c
+}
+
+// SupplyCluster — снабжение стройки: доля пластин (шт/с) с линий плавки — инсертерами в
+// ящики; бот берёт оттуда на крафт (стройка не ждёт точек нулевого этапа).
+func SupplyCluster(p *knowledge.Prototypes, in map[string]float64) *Cluster {
+	c := &Cluster{Kind: Supply, Product: "supply", Reserve: 1, In: toFlows(in),
+		Units: []Unit{{Recipe: "store", Machine: "iron-chest", Machines: 6}}}
+	shape(p, c)
+	c.Count, c.Room = 6, 6
 	return c
 }
 
