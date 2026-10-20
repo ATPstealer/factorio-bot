@@ -297,6 +297,20 @@ func (h *Hands) guard(ctx context.Context) error {
 		}
 		h.altChecked = on && visible
 	}
+	// стоит на ленте (снимок, прошлое действие) — лента несёт: сойти, пока действие не началось
+	if h.World != nil {
+		if p, err := h.B.Player(); err == nil && p.ControllerName == "character" {
+			if _, err := h.World.Sync(h.B, false); err != nil {
+				return err
+			}
+			if h.World.OnBelt(p.Position) {
+				h.Say("стою на ленте — схожу")
+				if err := h.stepOffBelt(ctx, p.Position); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	open, err := h.MenuOpen()
 	if err != nil || !open {
 		return err
