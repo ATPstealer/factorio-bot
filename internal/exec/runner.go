@@ -1294,6 +1294,10 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		}
 		var n int
 		if _, e := fmt.Sscanf(kind, "stage-%d", &n); e == nil {
+			// без подземок и делителей шину не развести — после logistics (Site изучит)
+			if _, ok := r.H.Protos.Technologies["logistics"]; ok && !s.Av.All && !s.Av.Researched["logistics"] {
+				return plan.Built{}, false
+			}
 			l, err = r.clusterStage(s, n)
 			break
 		}
