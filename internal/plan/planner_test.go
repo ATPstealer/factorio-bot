@@ -681,10 +681,10 @@ func TestUnloadFullInventory(t *testing.T) {
 		&Owned{Name: "wooden-chest", Role: "stage-1-5", Inv: map[string]map[string]int{"chest": {"stone": 40}}},
 		&Owned{Name: "wooden-chest", Role: "stage-1-6", Inv: map[string]map[string]int{}})
 	s.StorageRoles = []string{"stage-1-5", "stage-1-6"}
-	s.Inventory = map[string]int{"coal": 1367, "stone": 859, "transport-belt": 400}
+	s.Inventory = map[string]int{"coal": 1367, "stone": 459, "transport-belt": 400}
 	s.SlotsFree = 0
 	p, err := NewPlanner().Next(s, Unload{})
-	if err != nil || p == nil || p.Kind != "insert" || p.Item != "coal" || p.Role != "stage-1-6" || p.N != 800 {
+	if err != nil || p == nil || p.Kind != "insert" || p.Item != "coal" || p.Role != "stage-1-6" || p.N != 767 {
 		t.Fatalf("шаг: %+v %v", p, err)
 	}
 	s.SlotsFree = unloadFree

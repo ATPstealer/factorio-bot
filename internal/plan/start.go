@@ -388,7 +388,7 @@ func (g Dismantled) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 
 // unloadKeep — что бот носит навалом и сколько оставить себе; лишнее при полном
 // инвентаре — в склад (крафт с полным инвентарём встаёт).
-var unloadKeep = map[string]int{"coal": 50, "stone": 50, "iron-ore": 0, "copper-ore": 0,
+var unloadKeep = map[string]int{"coal": 600, "stone": 50, "iron-ore": 0, "copper-ore": 0,
 	"iron-plate": 800, "copper-plate": 600, "stone-brick": 100, "burner-mining-drill": 0,
 	"stone-furnace": 10, "wooden-chest": 10}
 

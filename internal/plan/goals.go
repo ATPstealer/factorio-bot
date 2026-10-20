@@ -3,6 +3,7 @@ package plan
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -212,6 +213,10 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		// кормушки и машины кластеров (их выход забирают инсертеры) — не трогать; ящики буферов
 		// кластеров — запас для крафта (содержимое кластера), когда набралось хотя бы 50
 		if feeding[o.Role] || strings.HasPrefix(o.Role, "stage-") && (s.Protos.Entities[o.Name].Type != "container" || o.Output(g.Item) < 50) {
+			continue
+		}
+		// уголь буферов — топливо станции и печей кластеров: не уносить (кроме склада)
+		if g.Item == "coal" && strings.HasPrefix(o.Role, "stage-") && !slices.Contains(s.StorageRoles, o.Role) {
 			continue
 		}
 		out := o.Output(g.Item)
