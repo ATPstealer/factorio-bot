@@ -487,6 +487,10 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	// рост кластеров по нехватке входа — до целей этапа
 	var grow []string
 	for _, k := range r.Saved.Grow {
+		if _, ok := r.design(s, k); !ok {
+			r.journal("рост %s не вышел — снят", k)
+			continue
+		}
 		if g := (plan.Site{Kind: k}); !g.Satisfied(s) {
 			goals = append([]plan.Goal{g}, goals...)
 			grow = append(grow, k)
