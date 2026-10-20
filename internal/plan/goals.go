@@ -209,8 +209,9 @@ func (g HaveItem) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	round := c.prim(Primitive{Kind: "collect", Item: g.Item})
 	got := 0
 	for _, o := range s.Owned {
-		// кормушки, печи и сундуки фабрик и кластеров (их выход забирают инсертеры) — не трогать
-		if feeding[o.Role] || strings.HasPrefix(o.Role, "science-") || strings.HasPrefix(o.Role, "green-") || strings.HasPrefix(o.Role, "blue-") || strings.HasPrefix(o.Role, "stage-") {
+		// кормушки и машины кластеров (их выход забирают инсертеры) — не трогать; ящики буферов
+		// кластеров — запас для крафта (содержимое кластера), когда набралось хотя бы 50
+		if feeding[o.Role] || strings.HasPrefix(o.Role, "stage-") && (s.Protos.Entities[o.Name].Type != "container" || o.Output(g.Item) < 50) {
 			continue
 		}
 		out := o.Output(g.Item)
