@@ -992,7 +992,31 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 			return err
 		}
 	}
+	// вбок не сойти (коридор между бурами, щель в тайл) — по ходу ленты до её конца: лента
+	// сама выводит из коридора
+	if d, ok := h.beltDir(from); ok {
+		v := map[int][2]float64{0: {0, -1}, 4: {1, 0}, 8: {0, 1}, 12: {-1, 0}}[d]
+		goal := bridge.Pos{X: from.X + 40*v[0], Y: from.Y + 40*v[1]}
+		h.Log("на ленте — вбок не сойти, иду по ходу ленты")
+		err := h.drive(ctx, 2, func(pos bridge.Pos) (map[string]bool, bool) {
+			return walkKeys(pos, goal), !h.World.OnBelt(pos)
+		})
+		if err == nil || !errors.Is(err, ErrStuck) {
+			return err
+		}
+	}
 	return errors.New("act: персонажа несёт лента, сойти некуда")
+}
+
+// beltDir — направление ленты под точкой p.
+func (h *Hands) beltDir(p bridge.Pos) (int, bool) {
+	t := world.TileOf(p)
+	for _, o := range h.World.ObjectsNear(p, 1.5) {
+		if (o.Type == "transport-belt" || o.Type == "underground-belt") && world.TileOf(o.Pos) == t {
+			return o.Direction, true
+		}
+	}
+	return 0, false
 }
 
 // dirOf — направление сущности (нет — север).
