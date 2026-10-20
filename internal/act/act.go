@@ -959,11 +959,15 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		d float64
 	}
 	var cs []cand
-	for dy := -2.0; dy <= 2; dy += 0.5 {
-		for dx := -2.0; dx <= 2; dx += 0.5 {
+	for dy := -4.0; dy <= 4; dy += 0.5 {
+		for dx := -4.0; dx <= 4; dx += 0.5 {
 			q := bridge.Pos{X: from.X + dx, Y: from.Y + dy}
 			if h.World.Standable(q) {
-				cs = append(cs, cand{q, dist(from, q)})
+				d := dist(from, q)
+				if h.nearBelt(q) {
+					d += 3 // щель у ленты (коридор между бурами) — снова снесёт
+				}
+				cs = append(cs, cand{q, d})
 			}
 		}
 	}
