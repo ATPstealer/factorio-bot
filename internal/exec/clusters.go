@@ -915,3 +915,89 @@ func (r *Runner) Verify(s *plan.State) (problems []string, fixes []plan.Goal) {
 	}
 	return problems, fixes
 }
+
+// migrateTaps — отводы инсертером с ленты на ленту (раскладки до делителей; решение
+// пользователя: инсертер не тянет поток) → делитель: на месте ленты линии t и инсертера s,
+// со второго выхода (s+d) лента вбок и обратно — боком в начало ответвления q (= s+сторона,
+// направление — та же сторона). Только прямой участок и свободные s+d, q+d; инсертер и
+// лента t снимаются из своих раскладок, новое — раскладка "retap". Один раз.
+func (r *Runner) migrateTaps(s *plan.State) {
+	if r.Saved.Done == nil || r.Saved.Done["retap"] {
+		return
+	}
+	type ref struct {
+		kind string
+		i    int
+	}
+	at := map[world.Tile]ref{}
+	for kind, list := range r.Saved.Designs {
+		for i, pl := range list {
+			if pl.Name == "" {
+				continue
+			}
+			for _, t := range layout.Tiles(r.H.Protos, pl) {
+				at[t] = ref{kind, i}
+			}
+		}
+	}
+	get := func(t world.Tile) *layout.Placement {
+		if x, ok := at[t]; ok {
+			return &r.Saved.Designs[x.kind][x.i]
+		}
+		return nil
+	}
+	taken := map[world.Tile]bool{} // занято новыми лентами отводов
+	free := func(t world.Tile) bool {
+		ok, _ := r.H.World.Buildable(t)
+		return get(t) == nil && !taken[t] && ok
+	}
+	var list []layout.Placement
+	n := 0
+	for kind, ds := range r.Saved.Designs {
+		for i := range ds {
+			ins := &ds[i]
+			if ins.Name != "inserter" || !strings.HasPrefix(ins.Tag, cluster.LogisticsTag+"/") {
+				continue
+			}
+			pick, drop := layout.InserterEnds(r.H.Protos, *ins)
+			line, br := get(pick), get(drop)
+			if line == nil || br == nil || line.Name != "transport-belt" || br.Name != "transport-belt" {
+				continue // не отвод (буфер: ящик)
+			}
+			t, sTile, q := pick, world.TileOf(ins.Pos), drop
+			d := line.Dir
+			side := -1
+			for _, sd := range []int{(d + 4) % 16, (d + 12) % 16} {
+				if layout.Step(t, sd) == sTile && layout.Step(sTile, sd) == q {
+					side = sd
+				}
+			}
+			if side < 0 || br.Dir != side {
+				continue
+			}
+			prev, next := get(layout.Step(t, (d+8)%16)), get(layout.Step(t, d))
+			if prev == nil || next == nil || prev.Dir != d || next.Dir != d {
+				continue // не прямой участок
+			}
+			a, b := layout.Step(sTile, d), layout.Step(q, d)
+			if !free(a) || !free(b) {
+				continue
+			}
+			tc, sc := t.Center(), sTile.Center()
+			list = append(list,
+				layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (tc.X + sc.X) / 2, Y: (tc.Y + sc.Y) / 2}, Dir: d, Tag: ins.Tag},
+				layout.Placement{Name: "transport-belt", Pos: a.Center(), Dir: side, Tag: ins.Tag},
+				layout.Placement{Name: "transport-belt", Pos: b.Center(), Dir: (d + 8) % 16, Tag: ins.Tag})
+			ins.Name = ""
+			line.Name = ""
+			taken[a], taken[b] = true, true
+			n++
+			r.journal("отвод %s у (%.1f, %.1f) — делителем", kind, tc.X, tc.Y)
+		}
+	}
+	if len(list) > 0 {
+		r.Saved.Designs["retap"] = list
+	}
+	r.journal("отводы инсертером → делитель: %d", n)
+	r.Saved.Done["retap"] = true
+}

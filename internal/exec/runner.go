@@ -463,6 +463,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		return false, err
 	}
 	r.migrateFilters(s)
+	r.migrateTaps(s)
 	s.MainNet = r.mainNet(s)
 	var removed []plan.Goal
 	for kind, list := range r.Saved.Designs {
@@ -473,7 +474,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		}
 		// прошлые этапы — досматривать: пропавшее (столб, снятый вместе с соседом) —
 		// поставить заново, иначе кластер без сети/входа
-		if strings.HasPrefix(kind, "stage-") && kind != r.currentStage() {
+		if (strings.HasPrefix(kind, "stage-") || kind == "retap") && kind != r.currentStage() {
 			if g := (plan.Built{Tag: kind, List: list}); !g.Satisfied(s) {
 				removed = append(removed, g)
 			}
