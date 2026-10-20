@@ -10,6 +10,9 @@ import (
 	"factorio-bot/internal/world"
 	"fmt"
 	"math"
+	"math/rand"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -270,5 +273,92 @@ func TestExtra_FurnaceScenario(t *testing.T) {
 		t.Errorf("iron-plate +%d", d)
 	}
 	t.Logf("печь в %v, забрано %v", spot, got)
+	clean(t, h)
+}
+
+// Поставить рядом с собой: сундук — на клетку, где стоит персонаж (отойти и поставить),
+// печь 2×2 — вплотную к нему.
+func TestBase_PlaceNextToSelf(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "wooden-chest", 1)
+	have(t, h, "stone-furnace", 1)
+	c := freeArea(t, h, 6)
+	ctx := ctxT(t, 2*time.Minute)
+	if err := h.WalkTo(ctx, c, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	here := world.TileOf(p.Position).Center()
+	chest, err := h.Place(ctx, "wooden-chest", here, act.North)
+	if err != nil {
+		t.Fatalf("сундук под собой: %v", err)
+	}
+	p, _ = h.B.Player()
+	next := bridge.Pos{X: math.Floor(p.Position.X) + 2, Y: math.Floor(p.Position.Y)} // центр 2×2 — на стыке тайлов
+	furnace, err := h.Place(ctx, "stone-furnace", next, act.North)
+	if err != nil {
+		t.Fatalf("печь рядом: %v", err)
+	}
+	for _, e := range []bridge.Entity{chest, furnace} {
+		if got, err := h.B.EntityAt(e.Name, e.Position); err != nil || got == nil {
+			t.Errorf("%s не стоит (%v)", e.Name, err)
+		}
+	}
+	clean(t, h)
+}
+
+// Поставить среди лент: в квадрате 12×12 ленты на случайной половине клеток со случайными
+// направлениями (место печи 2×2 в середине свободно); персонаж выходит из зоны, потом —
+// команда поставить печь. Зерно — в логе (SEED_BELTS=… — повторить).
+func TestBase_PlaceAmongBelts(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "transport-belt", 72)
+	have(t, h, "stone-furnace", 1)
+	c := freeArea(t, h, 16)
+	ctx := ctxT(t, 6*time.Minute)
+	seed := time.Now().UnixNano()
+	if v := os.Getenv("SEED_BELTS"); v != "" {
+		seed, _ = strconv.ParseInt(v, 10, 64)
+	}
+	t.Logf("SEED_BELTS=%d", seed)
+	rnd := rand.New(rand.NewSource(seed))
+	x0, y0 := math.Floor(c.X)-6, math.Floor(c.Y)-6
+	// печь — в середине (центр на стыке тайлов 5–6 × 5–6), её клетки свободны
+	target := bridge.Pos{X: x0 + 6, Y: y0 + 6}
+	keep := func(col, row int) bool { return (col == 5 || col == 6) && (row == 5 || row == 6) }
+	var cells [][2]int
+	for row := 0; row < 12; row++ {
+		for col := 0; col < 12; col++ {
+			if !keep(col, row) {
+				cells = append(cells, [2]int{col, row})
+			}
+		}
+	}
+	rnd.Shuffle(len(cells), func(i, j int) { cells[i], cells[j] = cells[j], cells[i] })
+	byDir := map[int][]bridge.Pos{}
+	dirs := []int{act.North, act.East, act.South, act.West}
+	for _, cl := range cells[:72] {
+		d := dirs[rnd.Intn(4)]
+		byDir[d] = append(byDir[d], bridge.Pos{X: x0 + float64(cl[0]) + 0.5, Y: y0 + float64(cl[1]) + 0.5})
+	}
+	for _, d := range dirs {
+		if len(byDir[d]) == 0 {
+			continue
+		}
+		if _, err := h.PlaceAll(ctx, "transport-belt", byDir[d], d); err != nil {
+			t.Fatalf("ленты: %v", err)
+		}
+	}
+	// выйти из зоны
+	if err := h.WalkTo(ctx, bridge.Pos{X: x0 - 5, Y: y0 + 6}, 1); err != nil {
+		t.Fatalf("выйти из зоны: %v", err)
+	}
+	f, err := h.Place(ctx, "stone-furnace", target, act.North)
+	if err != nil {
+		t.Fatalf("печь среди лент: %v", err)
+	}
+	if got, err := h.B.EntityAt(f.Name, f.Position); err != nil || got == nil {
+		t.Errorf("печь не стоит (%v)", err)
+	}
 	clean(t, h)
 }

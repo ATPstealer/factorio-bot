@@ -17,10 +17,10 @@
 | Файл | Тесты | Что проверяют |
 |---|---|---|
 | `env_test.go` | `Config`, `Game` | окружение: настройки, мод, сервер, карта, клиент |
-| `interface_test.go` | `Guards` | меню и карта не мешают действиям |
+| `interface_test.go` | `Guards`, `InventoryWindow`, `PickFromInventory`, `StartResearch`, `SetRecipe`, `SetFilter` | меню и карта не мешают; окно инвентаря; взять предмет из инвентаря в руку; запустить исследование; сборщик: поставить, задать и сменить рецепт; фильтр инсертера |
 | `world_test.go` | `OnlyCharted`, `WorldMatchesGame` | бот видит только открытое; модель карты совпадает с игрой |
-| `walk_test.go` | `Walk`, `PathAroundLake`, `Unstuck` | до точки; в обход воды; из кольца своих построек |
-| `hands_test.go` | `Mine`, `Craft`, `DrillOneOreTile`, `FurnaceHugsTree` | срубить дерево; крафт; поставить, повернуть, поднять; поставить у дерева, срубить, не задев |
+| `walk_test.go` | `Walk`, `PathAroundLake`, `Unstuck`, `Explore` | до точки; в обход воды; из кольца своих построек; разведка (открыть ещё 10 чанков) |
+| `hands_test.go` | `Mine`, `Craft`, `DrillOneOreTile`, `FurnaceHugsTree`, `PlaceNextToSelf`, `PlaceAmongBelts` | срубить дерево; крафт; поставить, повернуть, поднять; поставить у дерева, срубить, не задев; поставить на свою клетку и вплотную; поставить в квадрат 12×12, наполовину в случайных лентах (`SEED_BELTS=…` — повторить) |
 | `knowledge_test.go` | `SnapshotMatchesGame`, `AvailabilityMatchesForce`, `RocketPartPlan` | справочник прототипов; калькулятор |
 
 Общие помощники — `helpers_test.go`.

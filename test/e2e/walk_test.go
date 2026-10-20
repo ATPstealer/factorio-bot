@@ -127,3 +127,18 @@ func TestBase_PathAroundLake(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// Разведка: идти к краю открытой карты, пока не откроется ещё 10 чанков.
+func TestBase_Explore(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	start := len(h.World.Chunks)
+	err := h.Explore(ctxT(t, 5*time.Minute), func() bool { return len(h.World.Chunks) >= start+10 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("открыто чанков: %d → %d", start, len(h.World.Chunks))
+	clean(t, h)
+}
