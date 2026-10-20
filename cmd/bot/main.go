@@ -20,6 +20,7 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/input"
 	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/stage"
 	"factorio-bot/internal/world"
 )
 
@@ -47,6 +48,7 @@ const usage = `bot — бот Factorio: действует только мышь
   rotate X Y n|e|s|w    повернуть постройку в точке (X, Y) (R)
   filter X Y ПРЕДМЕТ    фильтр инсертера в точке (X, Y): брать только ПРЕДМЕТ (окно инсертера)
   research ТЕХНОЛОГИЯ   запустить исследование (окно технологий, T)
+  stage N               выполнить стадию N (stages.md) на текущей карте и проверить её критерии
   pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
@@ -341,6 +343,12 @@ func main() {
 			check(h.Rotate(ctx, *target, d))
 			log.Printf("%s повёрнут", target.Name)
 		}
+	case "stage":
+		if len(args) < 2 {
+			log.Fatal("bot stage N")
+		}
+		check(stage.Do(ctx, hands(), atoi(args[1])))
+		log.Printf("стадия %s выполнена", args[1])
 	case "research":
 		if len(args) < 2 {
 			log.Fatal("bot research ТЕХНОЛОГИЯ")
