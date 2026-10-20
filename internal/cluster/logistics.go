@@ -313,6 +313,13 @@ func tap(l *layout.Layout, line []layout.Placement, p Port, tag string) error {
 // раскладки заменяется на месте; уже стоящая (прошлых этапов) — делитель ставится поверх
 // (игра заменяет ленту), раскладка прошлого этапа снимает её (Runner.supersede).
 func splitTap(l *layout.Layout, line []layout.Placement, p Port, tag string) error {
+	return SplitTap(l, line, p, tag, 60)
+}
+
+// SplitTap — splitTap для уже стоящей линии (переделка старых отводов): ленты line могут
+// быть чужими (в Reserved), тогда и второй вход делителя не должен быть занят.
+// tries — сколько мест делителя пробовать (ближайшие к p).
+func SplitTap(l *layout.Layout, line []layout.Placement, p Port, tag string, tries int) error {
 	dir := map[world.Tile]int{}
 	for _, b := range line {
 		if b.Name == "transport-belt" {
@@ -344,7 +351,7 @@ func splitTap(l *layout.Layout, line []layout.Placement, p Port, tag string) err
 			if !l.Free(s, layout.AnyLand) || !l.Free(start, layout.AnyLand) {
 				continue
 			}
-			if q := l.At(behind); q != nil && (q.Name == "transport-belt" || q.Name == "underground-belt" || q.Name == "splitter") {
+			if q := l.At(behind); q != nil && (q.Name == "transport-belt" || q.Name == "underground-belt" || q.Name == "splitter") || q == nil && l.Reserved[behind] {
 				continue // во второй вход делителя что-то въедет
 			}
 			cs = append(cs, cand{t, s, d, abs(start.X-p.T.X) + abs(start.Y-p.T.Y)})
@@ -353,7 +360,7 @@ func splitTap(l *layout.Layout, line []layout.Placement, p Port, tag string) err
 	sort.Slice(cs, func(i, j int) bool { return cs[i].at < cs[j].at })
 	var err error = layout.ErrNoRoute
 	for i, c := range cs {
-		if i >= 60 {
+		if i >= tries {
 			break
 		}
 		tc, sc := c.t.Center(), c.s.Center()
