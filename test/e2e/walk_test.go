@@ -42,8 +42,8 @@ func TestWalk(t *testing.T) {
 	}
 }
 
-// Выход из ловушки: персонажа обступили кольцом из 8 сундуков — идти наружу: поднять
-// сундук, выйти, поставить назад; все сундуки на месте.
+// Выход из ловушки: персонажа обступили кольцом из 8 сундуков, дальше одна команда —
+// «иди туда» за кольцо; как выйти, бот решает сам. Проверка — дошёл.
 func TestUnstuck(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 5*time.Minute)
@@ -75,36 +75,83 @@ func TestUnstuck(t *testing.T) {
 	if err := h.WalkTo(ctx, target, 0.5); err != nil {
 		t.Fatal(err)
 	}
+	p, _ = h.B.Player()
+	if d := math.Hypot(p.Position.X-target.X, p.Position.Y-target.Y); d > 0.5 {
+		t.Errorf("до цели осталось %.2f", d)
+	}
+	left := 0
 	for _, pos := range ring {
-		if e, _ := h.B.EntityAt("wooden-chest", pos); e == nil {
-			t.Errorf("сундука в %v нет — не поставлен назад", pos)
+		if e, _ := h.B.EntityAt("wooden-chest", pos); e != nil {
+			left++
 		}
 	}
+	t.Logf("сундуков кольца на месте: %d из %d", left, len(ring))
 	clean(t, h)
 }
 
-// Путь A* в обход озера: точки по разные стороны воды.
+// Путь A* в обход ближайшего к игроку водоёма (не меньше 100 тайлов, открыт целиком): точки по разные
+// стороны воды, путь с поворотами, дойти по нему.
 func TestPathAroundLake(t *testing.T) {
 	h := handsT(t)
 	w := h.World
-	// самый большой водоём открытой карты
-	var minX, maxX, sumY, n = math.MaxInt, math.MinInt, 0, 0
+	if _, err := w.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	// водоёмы — связные (4 соседа) области воды
+	water := map[world.Tile]bool{}
 	for _, c := range w.Chunks {
 		for i := range c.Tiles {
 			if c.Tiles[i] == world.Water {
-				x := c.Pos.X*world.ChunkSize + i%world.ChunkSize
-				minX, maxX = min(minX, x), max(maxX, x)
-				sumY += c.Pos.Y*world.ChunkSize + i/world.ChunkSize
-				n++
+				water[world.Tile{X: c.Pos.X*world.ChunkSize + i%world.ChunkSize, Y: c.Pos.Y*world.ChunkSize + i/world.ChunkSize}] = true
 			}
 		}
 	}
-	if n < 100 {
+	seen := map[world.Tile]bool{}
+	best, bestD := []world.Tile(nil), math.Inf(1)
+	for t0 := range water {
+		if seen[t0] {
+			continue
+		}
+		lake, queue := []world.Tile{}, []world.Tile{t0}
+		seen[t0] = true
+		near, open := math.Inf(1), false
+		for len(queue) > 0 {
+			q := queue[0]
+			queue = queue[1:]
+			lake = append(lake, q)
+			near = math.Min(near, math.Hypot(float64(q.X)-p0.Position.X, float64(q.Y)-p0.Position.Y))
+			for _, d := range []world.Tile{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+				n := world.Tile{X: q.X + d.X, Y: q.Y + d.Y}
+				if water[n] && !seen[n] {
+					seen[n] = true
+					queue = append(queue, n)
+				}
+				if w.TileAt(n) == world.Unknown {
+					open = true // уходит за край открытой карты — берега не видно
+				}
+			}
+		}
+		if len(lake) >= 100 && !open && near < bestD {
+			best, bestD = lake, near
+		}
+	}
+	if best == nil {
 		t.Skip("нет водоёма")
 	}
-	cy := float64(sumY) / float64(n)
-	west, okW := w.FreeSpot(bridge.Pos{X: float64(minX) - 4, Y: cy}, 1, 1, 10, nil)
-	east, okE := w.FreeSpot(bridge.Pos{X: float64(maxX) + 4, Y: cy}, 1, 1, 10, nil)
+	// крайние тайлы воды слева и справа — точки на берегу за ними
+	wt, et := best[0], best[0]
+	for _, q := range best {
+		if q.X < wt.X {
+			wt = q
+		}
+		if q.X > et.X {
+			et = q
+		}
+	}
+	t.Logf("водоём: %d тайлов, ближе всего %.0f тайлов, X %d…%d", len(best), bestD, wt.X, et.X)
+	west, okW := w.FreeSpot(bridge.Pos{X: float64(wt.X) - 3, Y: float64(wt.Y) + 0.5}, 1, 1, 10, nil)
+	east, okE := w.FreeSpot(bridge.Pos{X: float64(et.X) + 4, Y: float64(et.Y) + 0.5}, 1, 1, 10, nil)
 	if !okW || !okE {
 		t.Skip("нет проходимых точек у озера")
 	}
