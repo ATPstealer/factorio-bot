@@ -95,10 +95,10 @@ func (bi *BusInfo) lane(item string) *Lane {
 
 // newBus — шина под клиентов: длина — с тройным запасом на следующие этапы.
 func newBus(clients []*Cluster) *Cluster {
-	length, depth := 0, 0
+	length, depth := 0, busDepth // глубина — сразу под клиентов следующих этапов
 	for _, c := range clients {
 		length += c.Cross + BusGap
-		depth = max(depth, min(c.Len(), busDepth), c.Head+c.Count*c.Pitch)
+		depth = max(depth, c.Head+c.Count*c.Pitch)
 	}
 	length = max(length*6/5, 40)
 	w := busWidth(BusCap)
@@ -166,8 +166,10 @@ func (b *Base) placeOnBus(clients []*Cluster) error {
 	bi := bus.Bus
 	f := bus.frame()
 	for _, c := range busOrder(clients) {
-		if c.Head+c.Count*c.Pitch > bi.Depth {
-			return fmt.Errorf("cluster: %s длиннее шины (%d > %d)", c.Name, c.Head+c.Count*c.Pitch, bi.Depth)
+		if need := max(c.Head+c.Count*c.Pitch, min(c.Len(), busDepth)); need > bi.Depth {
+			if err := b.deepenBus(bus, need); err != nil && c.Head+c.Count*c.Pitch > bi.Depth {
+				return fmt.Errorf("cluster: %s длиннее шины (%d > %d): %w", c.Name, c.Head+c.Count*c.Pitch, bi.Depth, err)
+			}
 		}
 		c.Room = max(c.Count, min(c.Room, (bi.Depth-c.Head)/c.Pitch))
 		u0 := bi.Next
@@ -360,4 +362,29 @@ func inWindow(bus *Cluster, line []layout.Placement, lo, hi int) []layout.Placem
 		}
 	}
 	return res
+}
+
+// deepenBus — глубже под клиентов (до depth): полоса за клиентами свободна.
+func (b *Base) deepenBus(bus *Cluster, depth int) error {
+	bi := bus.Bus
+	f := bus.frame()
+	add := depth - bi.Depth
+	L := bus.Head + bus.Room
+	a, z := f.tile(0, bus.Cross), f.tile(L-1, bus.Cross+add-1)
+	ext := Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
+	g := b.grid()
+	if k, out := g.count(g.bad, ext); k > 0 || out > 0 {
+		return fmt.Errorf("за шиной занято")
+	}
+	for _, o := range b.Clusters {
+		if o != bus && !b.onBusArea(bus, o) && o.Area.Grow(Corridor).Overlaps(ext.Grow(Corridor)) {
+			return fmt.Errorf("за шиной %s", o.Name)
+		}
+	}
+	bi.Depth, bus.Cross = depth, bus.Cross+add
+	z = f.tile(L-1, bus.Cross-1)
+	a = f.tile(0, 0)
+	bus.Area = Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
+	g.mark(bus.Area.Grow(Corridor))
+	return nil
 }
