@@ -389,7 +389,8 @@ func (r *Runner) Monitor(s *plan.State) []ClusterStatus {
 					st.Buffer[it] += n
 				}
 			}
-			if !machineTypes[e.Type] {
+			// у склада и снабжения машины — ящики
+			if !machineTypes[e.Type] && !(e.Type == "container" && (c.Kind == cluster.Supply || c.Kind == cluster.Storage)) {
 				continue
 			}
 			st.Machines++
