@@ -74,6 +74,10 @@ type State struct {
 	// Clusters — база кластерами (стадия 9): станция, уголь и ленты — в кластерах; старые
 	// исправления (блоки power-N, шахта угля, лента угля к кормушкам) не строятся
 	Clusters bool
+	// StartRemovable — снабжение стройки работает: точки нулевого этапа можно разобрать;
+	// StorageRoles — ящики склада (куда класть разобранное)
+	StartRemovable bool
+	StorageRoles   []string
 	// Designs — все уже спроектированные раскладки (для расчёта мощности); nil — нет
 	Designs func() [][]layout.Placement
 	// Done — выполненные разовые этапы (Primitive.Mark): сохраняются между запусками
@@ -216,7 +220,7 @@ func (p *Primitive) Key() string {
 		return "craft:" + p.Recipe
 	case "build", "rebuild":
 		return fmt.Sprintf("%s:%s:%d@%.1f,%.1f", p.Kind, p.Item, p.Dir, p.Spots[0].X, p.Spots[0].Y)
-	case "collect", "refuel":
+	case "collect", "refuel", "pickup":
 		return p.Kind + ":" + p.Item + ":" + strings.Join(p.Roles, ",")
 	}
 	return p.Kind + ":" + p.Role + ":" + p.Item
@@ -248,6 +252,8 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("разнести %s ×%d по %d постройкам (%s…)", p.Item, total, len(p.Roles), p.Roles[0])
 	case "rebuild":
 		s = fmt.Sprintf("пересобрать %s (%s): поднять и поставить заново", p.Item, p.Roles[0])
+	case "pickup":
+		s = fmt.Sprintf("разобрать %s: %d построек (%s…)", p.Item, len(p.Roles), p.Roles[0])
 	case "build":
 		s = fmt.Sprintf("построить %s ×%d (%s…)", p.Item, len(p.Spots), p.Roles[0])
 		if p.Item == "*" {

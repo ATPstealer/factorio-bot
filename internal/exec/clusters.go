@@ -668,3 +668,25 @@ func (r *Runner) growDesign(s *plan.State, spec string) (*layout.Layout, error) 
 	*c = cp
 	return l, nil
 }
+
+// stageZero — для разбора нулевого этапа: снабжение стройки уже даёт пластины (в его ящиках
+// ≥ 100 железа) — точки нулевого этапа можно снимать; ящики склада storage-N — куда класть.
+func (r *Runner) stageZero(s *plan.State) {
+	tagOf := map[string]string{}
+	for kind, list := range r.Saved.Designs {
+		for i, pl := range list {
+			tagOf[plan.BuildRole(kind, i)] = pl.Tag
+		}
+	}
+	plates := 0
+	for _, o := range s.Owned {
+		t := tagOf[o.Role]
+		switch {
+		case strings.HasPrefix(t, "c/supply-"):
+			plates += o.In("chest", "iron-plate")
+		case strings.HasPrefix(t, "c/storage-") && r.H.Protos.Entities[o.Name].Type == "container":
+			s.StorageRoles = append(s.StorageRoles, o.Role)
+		}
+	}
+	s.StartRemovable = plates >= 100
+}

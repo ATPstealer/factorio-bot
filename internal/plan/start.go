@@ -74,7 +74,7 @@ func (g Start) Satisfied(s *State) bool {
 		return false
 	}
 	for _, tag := range StartModules {
-		if s.exhausted(tag) || s.Done["evicted:"+tag] {
+		if s.exhausted(tag) || s.Done["evicted:"+tag] || s.Done["dismantled"] {
 			continue
 		}
 		if site, ok := s.Design(s, tag); ok && !site.Satisfied(s) {
@@ -101,8 +101,8 @@ func (g Start) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		return p, err
 	}
 	for _, tag := range StartModules {
-		if s.exhausted(tag) || s.Done["evicted:"+tag] {
-			continue // руда под буром кончилась / место занял кластер — точка закрыта
+		if s.exhausted(tag) || s.Done["evicted:"+tag] || s.Done["dismantled"] {
+			continue // руда под буром кончилась / место занял кластер / нулевой этап разобран
 		}
 		site, ok := s.Design(s, tag)
 		if !ok {
@@ -325,4 +325,58 @@ func (g FeedRound) Satisfied(s *State) bool {
 }
 func (g FeedRound) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	return refuelRound(pl, s, c)
+}
+
+// startJunk — что остаётся от точек нулевого этапа после разбора (в склад).
+var startJunk = []string{"burner-mining-drill", "stone-furnace", "wooden-chest"}
+
+// startRole — постройка нулевого этапа: точки старта, ручная плавильня, площадки бурами.
+func startRole(role string) bool {
+	if _, _, ok := moduleOf(role); ok {
+		return true
+	}
+	return role == "smelter" || strings.HasPrefix(role, "mine-") || strings.HasPrefix(role, "smelt-")
+}
+
+// Dismantled — нулевой этап разобран (решение пользователя: как только есть электричество,
+// электробуры и плавильные кластеры — угольные буры и печи на руде не нужны): постройки
+// подняты и сложены в склад storage-N.
+type Dismantled struct{}
+
+func (g Dismantled) Key() string    { return "dismantled" }
+func (g Dismantled) String() string { return "разобрать нулевой этап" }
+func (g Dismantled) Satisfied(s *State) bool {
+	for _, o := range s.Owned {
+		if startRole(o.Role) {
+			return false
+		}
+	}
+	if len(s.StorageRoles) == 0 {
+		return true
+	}
+	for _, it := range startJunk {
+		if s.Inventory[it] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (g Dismantled) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	p := c.prim(Primitive{Kind: "pickup", Item: "нулевой этап", Mark: "dismantled"})
+	for _, o := range s.Owned {
+		if startRole(o.Role) {
+			p.Roles = append(p.Roles, o.Role)
+		}
+	}
+	if len(p.Roles) > 0 {
+		return p, nil
+	}
+	// в склад — по ящику на вид
+	for i, it := range startJunk {
+		if n := s.Inventory[it]; n > 0 && len(s.StorageRoles) > 0 {
+			return sub(pl, s, c, Supplied{s.StorageRoles[i%len(s.StorageRoles)], it, n})
+		}
+	}
+	return nil, nil
 }

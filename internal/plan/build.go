@@ -570,6 +570,12 @@ func (g Site) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if r := siteResource[g.Kind]; r != "" && s.Minable != nil && !s.Minable(r) {
 		return c.prim(Primitive{Kind: "explore", Item: r}), nil
 	}
+	// снабжение стройки работает — нулевой этап разобрать (точки на руде больше не нужны)
+	if strings.HasPrefix(g.Kind, "stage-") && s.StartRemovable && !(Dismantled{}).Satisfied(s) {
+		if p, err := sub(pl, s, c, Dismantled{}); p != nil || err != nil {
+			return p, err
+		}
+	}
 	// этап кластерами: без подземных лент ленты не пересекаются — кольцо из лент запирает
 	// выход кластера; logistics — до проектирования (наукой руками, как электробуры)
 	if strings.HasPrefix(g.Kind, "stage-") && !s.Av.All && !s.Av.Researched["logistics"] {

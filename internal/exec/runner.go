@@ -243,6 +243,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 	if err := r.findStores(s); err != nil {
 		return nil, err
 	}
+	r.stageZero(s)
 	return s, nil
 }
 
@@ -735,6 +736,17 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 		return nil
 	case "await":
 		return r.await(ctx, p.Item, p.Role)
+	case "pickup":
+		// поднять постройки ролей разом (ближайшая досягаемая — без отпускания ПКМ)
+		var es []bridge.Entity
+		for _, role := range p.Roles {
+			if _, e, err := r.owned(role); err == nil {
+				es = append(es, e)
+			}
+			r.forget(role)
+		}
+		h.Say("разбираю %s: %d построек", p.Item, len(es))
+		return h.PickupAll(ctx, es)
 	case "insert":
 		_, e, err := r.owned(p.Role)
 		if err != nil {

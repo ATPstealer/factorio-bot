@@ -168,6 +168,16 @@ func apply(s *State, p *Primitive) error {
 				}
 			}
 		}
+	case "pickup":
+		for _, r := range p.Roles {
+			for i, o := range s.Owned {
+				if o.Role == r {
+					inv[s.Protos.ItemFor(o.Name)]++
+					s.Owned = append(s.Owned[:i], s.Owned[i+1:]...)
+					break
+				}
+			}
+		}
 	case "collect":
 		for _, r := range p.Roles {
 			o := s.Role(r)

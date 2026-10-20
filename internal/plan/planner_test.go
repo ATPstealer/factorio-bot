@@ -654,3 +654,22 @@ func TestBuiltByGroups(t *testing.T) {
 		t.Errorf("не строил: %s", kinds(steps))
 	}
 }
+
+// Нулевой этап разбирается (снабжение работает): точки поднимаются разом, буры и печи — в
+// склад.
+func TestDismantleStageZero(t *testing.T) {
+	s := newState(t)
+	s.Owned = append(s.Owned,
+		&Owned{Name: "burner-mining-drill", Role: "iron-ore-1-1", Inv: map[string]map[string]int{}},
+		&Owned{Name: "stone-furnace", Role: "iron-ore-1-2", Inv: map[string]map[string]int{}},
+		&Owned{Name: "wooden-chest", Role: "stage-1-5", Inv: map[string]map[string]int{}})
+	s.StorageRoles = []string{"stage-1-5"}
+	end, steps := run(t, s, Dismantled{})
+	k := kinds(steps)
+	if !strings.Contains(k, "разобрать нулевой этап: 2 построек") || !strings.Contains(k, "в stage-1-5") {
+		t.Errorf("шаги: %s", k)
+	}
+	if end.Inventory["burner-mining-drill"] > 0 || end.Inventory["stone-furnace"] > 0 {
+		t.Errorf("не в складе: %v", end.Inventory)
+	}
+}
