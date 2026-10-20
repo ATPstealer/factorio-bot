@@ -390,8 +390,10 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 // Ёмкость — на 10 минут входа кластера.
 func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 	insV, chestV := v-1, v-2
+	ins := "inserter"
 	if c.Kind == Power {
-		insV, chestV = v+1, v+2
+		// станция без электричества стоит — буфер угля должен отдавать его и тогда
+		insV, chestV, ins = v+1, v+2, "burner-inserter"
 	}
 	// ящики на нечётных u (1, 3, …, Head-1), между ними перекладывающие инсертеры
 	n := c.Head / 2
@@ -404,11 +406,11 @@ func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 		l.Add(ch)
 		if i+1 < n {
 			a := f.tile(u+1, chestV)
-			l.Add(layout.Placement{Name: "inserter", Pos: a.Center(), Dir: layout.InserterDir(l.P, "inserter", a, f.tile(u, chestV)), Tag: tag})
+			l.Add(layout.Placement{Name: ins, Pos: a.Center(), Dir: layout.InserterDir(l.P, ins, a, f.tile(u, chestV)), Tag: tag})
 		}
 	}
-	l.Add(f.inserter(l, "inserter", 1, insV, v, tag))          // с ленты в ящик 1
-	l.Add(f.inserter(l, "inserter", 2*n-1, insV, chestV, tag)) // из последнего — на ленту
+	l.Add(f.inserter(l, ins, 1, insV, v, tag))          // с ленты в ящик 1
+	l.Add(f.inserter(l, ins, 2*n-1, insV, chestV, tag)) // из последнего — на ленту
 	return nil
 }
 

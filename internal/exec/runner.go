@@ -498,6 +498,8 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		if g := (plan.Site{Kind: k}); !g.Satisfied(s) {
 			goals = append([]plan.Goal{g}, goals...)
 			grow = append(grow, k)
+		} else {
+			r.growSettled(k)
 		}
 	}
 	r.Saved.Grow = grow

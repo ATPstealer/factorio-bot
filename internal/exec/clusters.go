@@ -621,6 +621,44 @@ func hasOut(c *cluster.Cluster, item string) bool {
 	return false
 }
 
+// grown — кластер c на одно место больше: потоки и машины — пропорционально.
+func grown(c *cluster.Cluster) cluster.Cluster {
+	cp := *c
+	k := float64(c.Count+1) / float64(c.Count)
+	scale := func(fs []cluster.Flow) []cluster.Flow {
+		var res []cluster.Flow
+		for _, f := range fs {
+			res = append(res, cluster.Flow{Item: f.Item, Rate: f.Rate * k})
+		}
+		return res
+	}
+	cp.In, cp.Out, cp.Internal, cp.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
+	cp.Units = nil
+	for _, u := range c.Units {
+		u.Machines *= k
+		cp.Units = append(cp.Units, u)
+	}
+	cp.Count++
+	return cp
+}
+
+// growSettled — рост spec ("<имя>@N") построен: кластер считается выросшим до N (раскладка
+// роста могла быть сохранена до перезапуска, когда счётчик кластера ещё не вырос — иначе
+// тот же рост ставился бы каждую минуту вхолостую).
+func (r *Runner) growSettled(spec string) {
+	i := strings.LastIndex(spec, "@")
+	if i < 0 {
+		return
+	}
+	name, n := strings.TrimPrefix(spec[:i], "grow-"), 0
+	fmt.Sscanf(spec[i+1:], "%d", &n)
+	for _, c := range r.Saved.Clusters {
+		for c.Name == name && c.Count < n && c.Count > 0 {
+			*c = grown(c)
+		}
+	}
+}
+
 // growDesign — раскладка роста кластера name на одно место (задача "grow-<имя>"): потоки и
 // машины — пропорционально; в раскладке — только новые постройки.
 func (r *Runner) growDesign(s *plan.State, spec string) (*layout.Layout, error) {
@@ -638,22 +676,7 @@ func (r *Runner) growDesign(s *plan.State, spec string) (*layout.Layout, error) 
 	if c == nil || c.Count >= c.Room || n > 0 && c.Count >= n {
 		return nil, fmt.Errorf("кластер %s: расти некуда (%s)", name, spec)
 	}
-	cp := *c
-	k := float64(c.Count+1) / float64(c.Count)
-	scale := func(fs []cluster.Flow) []cluster.Flow {
-		var res []cluster.Flow
-		for _, f := range fs {
-			res = append(res, cluster.Flow{Item: f.Item, Rate: f.Rate * k})
-		}
-		return res
-	}
-	cp.In, cp.Out, cp.Internal, cp.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
-	cp.Units = nil
-	for _, u := range c.Units {
-		u.Machines *= k
-		cp.Units = append(cp.Units, u)
-	}
-	cp.Count++
+	cp := grown(c)
 	l := r.newLayout("grow-" + spec)
 	for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
 		for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
