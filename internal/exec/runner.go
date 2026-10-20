@@ -128,6 +128,8 @@ type Runner struct {
 	monitored       time.Time                // последний замер кластеров
 	short           map[string]int           // кластер → замеров подряд с нехваткой входа
 	clusterProblems map[string]string        // кластер → проблемы последнего замера
+	verified        string                   // проблемы последней проверки (Verify)
+	fixes           []plan.Goal              // исправления по ней
 }
 
 func (r *Runner) Save() error {
@@ -233,6 +235,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 			o.Filter = st.Filters[0]
 		}
 		o.Network = st.Network
+		o.Belt = st.Belt
 		if o.Inv == nil {
 			o.Inv = map[string]map[string]int{}
 		}
@@ -460,6 +463,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		return false, err
 	}
 	r.migrateFilters(s)
+	s.MainNet = r.mainNet(s)
 	var removed []plan.Goal
 	for kind, list := range r.Saved.Designs {
 		r.dropMixedDrills(list)
@@ -492,6 +496,18 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 			}
 		}
 		r.clusterProblems = now
+		probs, fixes := r.Verify(s)
+		r.fixes = fixes
+		cur := strings.Join(probs, "; ")
+		if cur != r.verified {
+			for _, p := range probs {
+				r.journal("проверка: %s", p)
+			}
+			if cur == "" && r.verified != "" {
+				r.journal("проверка: всё как задумано")
+			}
+			r.verified = cur
+		}
 	}
 	var goals []plan.Goal
 	repair := r.watch(s)
@@ -527,6 +543,11 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		goals = append([]plan.Goal{plan.Repair{}}, goals...) // есть что чинить — первым делом
 	}
 	goals = append(removed, goals...) // бур на смеси ресурсов — снять сразу
+	for _, g := range r.fixes {       // расхождения проверки (Verify) — первыми
+		if !g.Satisfied(s) {
+			goals = append([]plan.Goal{g}, goals...)
+		}
+	}
 	if u := (plan.Unload{}); !u.Satisfied(s) {
 		goals = append([]plan.Goal{u}, goals...) // инвентарь полон — крафт встанет
 	}

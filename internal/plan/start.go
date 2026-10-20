@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"factorio-bot/internal/bridge"
 	"fmt"
 	"sort"
 	"strconv"
@@ -455,3 +456,21 @@ func storageRoom(s *State) (role string, room int) {
 
 // chestSlots — ячеек в сундуке.
 var chestSlots = map[string]int{"wooden-chest": 16, "iron-chest": 32, "steel-chest": 48}
+
+// Rewire — столб Role в сети с генераторами (Verify: столб стоит, а провода к основной сети
+// нет — переставить: игра сама протянет провода к соседям в досягаемости).
+type Rewire struct {
+	Role, Name string
+	Pos        bridge.Pos
+}
+
+func (g Rewire) Key() string    { return "rewire:" + g.Role }
+func (g Rewire) String() string { return "подключить столб " + g.Role + " к сети" }
+func (g Rewire) Satisfied(s *State) bool {
+	o := s.Role(g.Role)
+	return o == nil || s.MainNet == 0 || o.Network == s.MainNet
+}
+
+func (g Rewire) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	return c.prim(Primitive{Kind: "rebuild", Item: s.Protos.ItemFor(g.Name), Spots: []bridge.Pos{g.Pos}, Roles: []string{g.Role}}), nil
+}

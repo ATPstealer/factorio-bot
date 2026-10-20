@@ -28,6 +28,7 @@ type Owned struct {
 	Recipe string                    `json:"-"` // рецепт сборщика в игре
 	UGType string                    `json:"-"` // подземка в игре: input/output
 	Filter string                    `json:"-"` // фильтр инсертера в игре (первый)
+	Belt   map[string]int            `json:"-"` // что лежит на ленте
 	// Network — электросеть в игре (0 — не подключена к столбам; в симуляции -1 — неизвестно)
 	Network int `json:"-"`
 }
@@ -52,6 +53,8 @@ type State struct {
 	Protos    *knowledge.Prototypes
 	Av        *knowledge.Availability
 	Inventory map[string]int
+	// MainNet — электросеть с генераторами (0 — неизвестно)
+	MainNet int
 	// SlotsFree — свободных ячеек инвентаря (-1 — неизвестно)
 	SlotsFree int
 	PlayerPos bridge.Pos

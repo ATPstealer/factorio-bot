@@ -787,3 +787,131 @@ func (r *Runner) currentStage() string {
 	}
 	return fmt.Sprintf("stage-%d", n)
 }
+
+// mainNet — электросеть с наибольшим числом своих генераторов (0 — нет).
+func (r *Runner) mainNet(s *plan.State) int {
+	gen := map[int]int{}
+	best := 0
+	for _, o := range s.Owned {
+		if r.H.Protos.Entities[o.Name].Type == "generator" && o.Network > 0 {
+			if gen[o.Network]++; gen[o.Network] > gen[best] {
+				best = o.Network
+			}
+		}
+	}
+	return best
+}
+
+// Verify — всё ли работает так, как задумано (просьба пользователя): постройки кластеров —
+// в сети с генераторами (оторванная сеть: столб основной сети в досягаемости провода —
+// переставить столб, игра протянет провод; дальше — ошибка раскладки), на лентах — только
+// предметы своего потока. Недостающее, направления, фильтры, буры на смеси — Built по всем
+// этапам. Возвращает проблемы (для журнала) и исправления (цели первыми).
+func (r *Runner) Verify(s *plan.State) (problems []string, fixes []plan.Goal) {
+	tagOf := map[string]string{}
+	for kind, list := range r.Saved.Designs {
+		for i, pl := range list {
+			tagOf[plan.BuildRole(kind, i)] = pl.Tag
+		}
+	}
+	byName := map[string]*cluster.Cluster{}
+	for _, c := range r.Saved.Clusters {
+		byName[c.Name] = c
+	}
+	// кластер и поток по тегу: c/<имя> — свой, c/logistics/<имя> — входящие ленты потребителя
+	clusterOf := func(tag string) (*cluster.Cluster, bool) {
+		if name, ok := strings.CutPrefix(tag, cluster.LogisticsTag+"/"); ok {
+			return byName[name], true
+		}
+		name, _ := strings.CutPrefix(tag, "c/")
+		return byName[name], false
+	}
+	main := s.MainNet
+	if main != 0 {
+		orphan := map[int][]*plan.Owned{}
+		var mainPoles []*plan.Owned
+		for _, o := range s.Owned {
+			e := r.H.Protos.Entities[o.Name]
+			if !e.Electric && e.Type != "electric-pole" || !strings.HasPrefix(tagOf[o.Role], "c/") {
+				continue
+			}
+			switch {
+			case o.Network == main && e.Type == "electric-pole":
+				mainPoles = append(mainPoles, o)
+			case o.Network != main:
+				orphan[o.Network] = append(orphan[o.Network], o)
+			}
+		}
+		nets := make([]int, 0, len(orphan))
+		for n := range orphan {
+			nets = append(nets, n)
+		}
+		sort.Ints(nets)
+		for _, n := range nets {
+			list := orphan[n]
+			what := fmt.Sprintf("нет связи с электростанцией: %d построек (%s в (%.1f, %.1f)…)", len(list), list[0].Role, list[0].Pos.X, list[0].Pos.Y)
+			if n == 0 {
+				what = fmt.Sprintf("вне зоны столбов: %d построек (%s в (%.1f, %.1f)…)", len(list), list[0].Role, list[0].Pos.X, list[0].Pos.Y)
+			}
+			fixed := false
+			for _, p := range list {
+				pe := r.H.Protos.Entities[p.Name]
+				if pe.Type != "electric-pole" {
+					continue
+				}
+				for _, q := range mainPoles {
+					wire := math.Min(pe.MaxWireDistance, r.H.Protos.Entities[q.Name].MaxWireDistance)
+					if math.Hypot(p.Pos.X-q.Pos.X, p.Pos.Y-q.Pos.Y) <= wire {
+						fixes = append(fixes, plan.Rewire{Role: p.Role, Name: p.Name, Pos: p.Pos})
+						what += fmt.Sprintf(" — столб %s в досягаемости %s без провода: переставить", p.Role, q.Role)
+						fixed = true
+						break
+					}
+				}
+				if fixed {
+					break
+				}
+			}
+			if !fixed && n != 0 {
+				what += " — столбы основной сети дальше провода (ошибка раскладки или нет столба)"
+			}
+			problems = append(problems, what)
+		}
+	}
+	// ленты: чужой предмет
+	foreign := 0
+	var first string
+	for _, o := range s.Owned {
+		if len(o.Belt) == 0 {
+			continue
+		}
+		c, logistics := clusterOf(tagOf[o.Role])
+		if c == nil {
+			continue
+		}
+		ok := map[string]bool{}
+		for _, f := range c.In {
+			ok[f.Item] = true
+		}
+		if !logistics {
+			for _, f := range append(append([]cluster.Flow(nil), c.Out...), c.Internal...) {
+				ok[f.Item] = true
+			}
+			if c.Kind == cluster.Mine {
+				ok[c.Product] = true
+			}
+		}
+		for it := range o.Belt {
+			if !ok[it] {
+				foreign++
+				if first == "" {
+					first = fmt.Sprintf("%s в (%.1f, %.1f) (%s)", it, o.Pos.X, o.Pos.Y, c.Name)
+				}
+			}
+		}
+	}
+	if foreign > 0 {
+		problems = append(problems, fmt.Sprintf("чужое на лентах: %d (%s…)", foreign, first))
+	}
+	return problems, fixes
+}
