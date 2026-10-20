@@ -114,6 +114,11 @@ func (g Built) unfueled(s *State) []string {
 		if s.Protos.Entities[p.Name].Burner == nil {
 			continue
 		}
+		// кластер: печи и бойлеры — уголь лентой (руками не носить); burner-инсертеру —
+		// начальный уголь (без топлива не возьмёт и с ленты)
+		if strings.HasPrefix(p.Tag, "c/") && s.Protos.Entities[p.Name].Type != "inserter" {
+			continue
+		}
 		if o := s.Role(role); o != nil && len(o.Inv["fuel"]) == 0 && o.Status != "working" && !g.selfFed(s, o) {
 			if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") > 0 {
 				continue // кормится из сундука
