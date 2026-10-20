@@ -661,6 +661,7 @@ func (r *Runner) growDesign(s *plan.State, spec string) (*layout.Layout, error) 
 	}
 	l.Usable = func(e string) bool { return r.H.Protos.EntityAvailable(e, s.Av) }
 	if err := r.growInterior(l, &cp, s); err != nil {
+		c.Room = c.Count // расти некуда (руды/места нет) — больше не пробовать; дальше — новый кластер
 		return nil, err
 	}
 	*c = cp
