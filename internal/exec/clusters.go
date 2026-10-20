@@ -225,8 +225,23 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 	old := len(base.Clusters)
 	var fresh []*cluster.Cluster
 	var l *layout.Layout
+	// шина прошлых этапов меняется разметкой (клиенты, ленты) — на каждую попытку и при
+	// неудаче вернуть как было
+	var bus, busBak *cluster.Cluster
+	if bus = base.Bus(); bus != nil {
+		busBak = bus.Clone()
+	}
+	ok := false
+	defer func() {
+		if !ok && bus != nil {
+			*bus = *busBak.Clone()
+		}
+	}()
 	for try := 0; ; try++ {
 		base.Clusters = base.Clusters[:old]
+		if bus != nil {
+			*bus = *busBak.Clone()
+		}
 		base.Reset()
 		if err := base.PlaceAll(cs); err != nil {
 			return nil, err
@@ -293,6 +308,7 @@ func (r *Runner) clusterStage(s *plan.State, n int) (*layout.Layout, error) {
 			}
 		}
 	}
+	ok = true
 	for ex, cp := range copyOf { // рост вышел — в кластеры
 		*ex = *cp
 	}
@@ -362,6 +378,9 @@ func (r *Runner) Monitor(s *plan.State) []ClusterStatus {
 	}
 	var res []ClusterStatus
 	for _, c := range r.Saved.Clusters {
+		if c.Kind == cluster.Bus {
+			continue // машин нет; ленты — в Verify
+		}
 		st := ClusterStatus{Name: c.Name, Planned: c.Count, Status: map[string]int{}, Out: c.Out, Buffer: map[string]int{}}
 		for _, o := range byTag[cluster.Tag(c.Name)] {
 			e := r.H.Protos.Entities[o.Name]
@@ -498,7 +517,7 @@ func (r *Runner) stageOrder(kind string, list []layout.Placement) [][]string {
 	}
 	// цепочками: кластер — сразу после своих поставщиков (уголь → станция, руда → плавка),
 	// начиная со станции, потом по видам потребителей
-	rank := map[cluster.Kind]int{cluster.Power: 0, cluster.Smelt: 1, cluster.Supply: 2, cluster.Make: 3, cluster.Lab: 4, cluster.Mine: 5, cluster.Storage: 6}
+	rank := map[cluster.Kind]int{cluster.Bus: -1, cluster.Power: 0, cluster.Smelt: 1, cluster.Supply: 2, cluster.Make: 3, cluster.Lab: 4, cluster.Mine: 5, cluster.Storage: 6}
 	var cs []*cluster.Cluster
 	for _, c := range r.Saved.Clusters {
 		if tags[cluster.Tag(c.Name)] {
@@ -892,6 +911,11 @@ func (r *Runner) Verify(s *plan.State) (problems []string, fixes []plan.Goal) {
 		ok := map[string]bool{}
 		for _, f := range c.In {
 			ok[f.Item] = true
+		}
+		if c.Bus != nil {
+			for _, ln := range c.Bus.Lanes {
+				ok[ln.Item] = true
+			}
 		}
 		if !logistics {
 			for _, f := range append(append([]cluster.Flow(nil), c.Out...), c.Internal...) {

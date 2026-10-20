@@ -59,9 +59,11 @@ func (b *Base) Connect(l *layout.Layout, anchors, existing []layout.Placement, f
 			}
 		}
 	}
+	bus := b.Bus()
+	onLane := func(item string) bool { return bus != nil && bus.Bus.lane(item) != nil }
 	for _, c := range fresh {
 		for _, p := range c.Ports {
-			if !p.In {
+			if !p.In || onLane(p.Item) { // с шины — отводом (connectBus)
 				continue
 			}
 			src := b.supplier(c, p.Item, outPort)
@@ -121,6 +123,16 @@ func (b *Base) Connect(l *layout.Layout, anchors, existing []layout.Placement, f
 			} else if !on {
 				delete(l.Reserved, t)
 			}
+		}
+	}
+	if bus != nil {
+		for _, c := range b.Clusters {
+			for _, p := range c.Ports {
+				reserve(p, true)
+			}
+		}
+		if err := b.connectBus(l, bus, fresh, outPort, lines, reserve); err != nil {
+			return err
 		}
 	}
 	route := func(src *Cluster) error {
@@ -447,4 +459,113 @@ func lineBuffer(l *layout.Layout, line []layout.Placement, c *Cluster, item stri
 			return
 		}
 	}
+}
+
+// connectBus — логистика шины: ленты дотянуть до последнего потребителя; поставщиков — в
+// голову ленты (второго — боком у головы); входы потребителей — делителем с ленты шины.
+func (b *Base) connectBus(l *layout.Layout, bus *Cluster, fresh []*Cluster, outPort map[*Cluster]map[string]Port,
+	lines map[world.Tile]layout.Placement, reserve func(Port, bool)) error {
+	bi := bus.Bus
+	t0 := time.Now()
+	// длина лент: до подъёма выхода последнего клиента-потребителя
+	end := map[string]int{}
+	for _, c := range b.Clusters {
+		for _, in := range c.In {
+			ln := bi.lane(in.Item)
+			if ln == nil {
+				continue
+			}
+			e := ln.Start + 1
+			if OnBus(c) && c.Area != (Rect{}) {
+				e = b.busU(bus, c) + c.Cross + 1
+			}
+			end[in.Item] = max(end[in.Item], e)
+		}
+	}
+	f := bus.frame()
+	for i := range bi.Lanes {
+		ln := &bi.Lanes[i]
+		b.laneBelts(l, bus, ln, end[ln.Item])
+		l.AllowEnd(f.tile(ln.End, ln.V)) // хвост: дальше лента дорастёт со следующим этапом
+	}
+	// поставщики: клиенты шины и плавка — чей выход ещё никуда не идёт
+	tag := LogisticsTag + "/" + bus.Name
+	var srcs []*Cluster
+	for _, c := range b.Clusters {
+		for item, op := range outPort[c] {
+			if bi.lane(item) != nil && len(follow(lines, op.T)) == 0 {
+				srcs = append(srcs, c)
+			}
+		}
+	}
+	sort.SliceStable(srcs, func(i, j int) bool { return srcs[i].Name < srcs[j].Name })
+	for _, src := range srcs {
+		for item, op := range outPort[src] {
+			ln := bi.lane(item)
+			if ln == nil || len(follow(lines, op.T)) > 0 {
+				continue
+			}
+			reserve(op, false)
+			var targets []Port
+			lo, hi := 0, ln.Start+8 // плавка — в голову или боком у головы
+			switch {
+			case OnBus(src): // клиент шины — боком у своего подъёма выхода
+				u0 := b.busU(bus, src)
+				lo, hi = u0, u0+src.Cross+BusGap+8
+				targets = sidePorts(bus, ln, u0+src.Cross+1)
+			case !ln.Fed:
+				targets = []Port{headPort(bus, ln)}
+			default:
+				targets = sidePorts(bus, ln, ln.Start)
+			}
+			open := b.window(l, bus, lo, hi)
+			var err error = layout.ErrNoRoute
+			for _, p := range targets {
+				if _, err = l.RouteBelt(op.T, op.Dir, p.T, p.Dir, tag); err == nil {
+					ln.Fed = true
+					break
+				}
+			}
+			open()
+			if err != nil {
+				return fmt.Errorf("шина: %s (%s) → лента %s (мест подвода %d, окно %d–%d, лента %d–%d): %w", src.Name, item, ln.Item, len(targets), lo, hi, ln.Start, ln.End, err)
+			}
+		}
+	}
+	// входы: делитель с ленты шины
+	for _, c := range fresh {
+		for _, p := range c.Ports {
+			ln := bi.lane(p.Item)
+			if !p.In || ln == nil {
+				continue
+			}
+			reserve(p, false)
+			mark := len(l.List)
+			line := b.laneBelts(l, bus, ln, ln.End)
+			ctag := LogisticsTag + "/" + c.Name
+			// у своего клиента: делитель и спуск — в его столбцах (с зазорами по бокам)
+			lo, hi := 0, ln.End
+			if OnBus(c) {
+				u0 := b.busU(bus, c)
+				lo, hi = u0-BusGap, u0+c.Cross+BusGap
+			}
+			open := b.window(l, bus, lo, hi)
+			err := SplitTap(l, inWindow(bus, line, lo, hi), p, ctag, 40)
+			open()
+			if err != nil {
+				return &ConnectError{c, fmt.Errorf("шина → %s (%s): %w", c.Name, p.Item, err)}
+			}
+			var branch []layout.Placement
+			for _, pl := range l.List[mark:] {
+				if pl.Name == "transport-belt" {
+					branch = append(branch, pl)
+				}
+			}
+			lineBuffer(l, branch, c, p.Item, rateOf(c.In, p.Item), ctag)
+		}
+	}
+	if b.Log != nil {
+		b.Log("логистика: шина %s — %d лент, %.1f с", bus.Name, len(bi.Lanes), time.Since(t0).Seconds())
+	}
+	return nil
 }

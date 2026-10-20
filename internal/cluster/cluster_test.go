@@ -156,6 +156,10 @@ func TestPlaceRed(t *testing.T) {
 	for i, a := range b.Clusters {
 		t.Log(a)
 		for _, o := range b.Clusters[i+1:] {
+			// клиенты шины стоят на ней вплотную — у них общий коридор (полоса шины)
+			if a.Kind == Bus || o.Kind == Bus || OnBus(a) && OnBus(o) {
+				continue
+			}
 			if a.Area.Grow(Corridor).Overlaps(o.Area.Grow(Corridor)) {
 				t.Errorf("коридоры %s и %s пересекаются", a.Name, o.Name)
 			}
@@ -243,7 +247,7 @@ func TestInteriors(t *testing.T) {
 			}
 		}
 		t.Logf("%s: %d построек, порты %v", c.Name, n, c.Ports)
-		if n == 0 {
+		if n == 0 && c.Kind != Bus { // ленты шины — в Connect
 			t.Errorf("%s пуст", c.Name)
 		}
 		for _, p := range l.List {
@@ -300,6 +304,9 @@ func TestConnectStage1(t *testing.T) {
 			continue
 		}
 		for _, c := range b.Clusters {
+			if c.Kind == Bus {
+				continue // подводы шины — в её площади
+			}
 			for _, tt := range layout.Tiles(b.P, p) {
 				if tt.X >= c.Area.Min.X && tt.X < c.Area.Max.X && tt.Y >= c.Area.Min.Y && tt.Y < c.Area.Max.Y {
 					t.Errorf("%s внутри %s", p, c.Name)
@@ -441,6 +448,33 @@ func TestConnectGreen(t *testing.T) {
 		t.Error(e)
 	}
 	t.Log(l.Summary())
+	// шина: сборка, наука, лаборатории — на ней; все ленты шины текут в одну сторону,
+	// входы — делителями
+	bus := b.Bus()
+	if bus == nil {
+		t.Fatal("нет шины")
+	}
+	dirs := map[int]bool{}
+	splitters := 0
+	for _, p := range l.List {
+		if p.Tag == Tag(bus.Name) && p.Name == "transport-belt" {
+			dirs[p.Dir] = true
+		}
+		if p.Name == "splitter" {
+			splitters++
+		}
+	}
+	if len(dirs) != 1 {
+		t.Errorf("ленты шины в разные стороны: %v", dirs)
+	}
+	for _, c := range b.Clusters {
+		if OnBus(c) && !bus.Area.Overlaps(c.Area) {
+			t.Errorf("%s не на шине", c.Name)
+		}
+	}
+	if splitters == 0 {
+		t.Error("входы не делителями")
+	}
 }
 
 // Полный ряд (все места запаса заняты): ленты кластера не смотрят в коридор — только внутрь

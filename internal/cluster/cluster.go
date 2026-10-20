@@ -73,6 +73,8 @@ type Cluster struct {
 	Rect     Rect `json:"rect"`
 	Area     Rect `json:"area"`
 	Vertical bool `json:"vertical,omitempty"` // ряд вдоль Y
+	// Bus — у шины: ленты и разметка клиентов
+	Bus *BusInfo `json:"bus,omitempty"`
 }
 
 func (c *Cluster) String() string {

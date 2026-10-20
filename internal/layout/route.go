@@ -13,6 +13,10 @@ var ErrNoRoute = errors.New("layout: ленту не провести")
 type rstate struct {
 	T world.Tile
 	D int // направление, в котором пришли (лента предыдущего тайла смотрит сюда)
+	// UG — пришли сразу из выхода подземки: новую подземку отсюда не начать (игра спарит
+	// как попало). В состоянии — иначе равноценный приход обычной лентой отбрасывался бы,
+	// и подземка под следующей парой лент не находилась
+	UG bool
 }
 
 type rnode struct {
@@ -112,7 +116,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 	h := func(t world.Tile) float64 {
 		return w * float64(abs(t.X-to.X)+abs(t.Y-to.Y))
 	}
-	start := rstate{from, inDir}
+	start := rstate{from, inDir, false}
 	if _, ok := cost(from); !ok {
 		return nil, ErrNoRoute
 	}
@@ -145,7 +149,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 				if d != cur.s.D {
 					g += 0.5 // поворот
 				}
-				ns := rstate{nt, d}
+				ns := rstate{nt, d, false}
 				if old, ok := best[ns]; !ok || g < old {
 					best[ns] = g
 					came[ns] = redge{from: cur.s, dir: d}
@@ -156,7 +160,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 			if d != cur.s.D || !l.usable(ug) {
 				continue // вход подземки — без поворота
 			}
-			if came[cur.s].ug > 0 {
+			if cur.s.UG {
 				continue // вход сразу за выходом другой — игра спаривает их как попало
 			}
 			for k := 2; k <= maxUG; k++ { // выход не дальше дальности прототипа
@@ -174,7 +178,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 				// подземка — пара ≈ 17 железа против 1.5 за тайл ленты: только где обход
 				// заметно длиннее (вода, постройки, густой лес)
 				g := cur.g + float64(k) + 8
-				ns := rstate{after, d}
+				ns := rstate{after, d, true}
 				if old, ok := best[ns]; !ok || g < old {
 					best[ns] = g
 					came[ns] = redge{from: cur.s, ug: k, dir: d}

@@ -109,7 +109,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		}
 		return float64(m)
 	}
-	s0 := rstate{start, plain}
+	s0 := rstate{T: start, D: plain}
 	best := map[rstate]float64{s0: 0}
 	came := map[rstate]edge{}
 	open := &rheap{}
@@ -152,7 +152,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		for _, d := range dirs {
 			n := Step(t, d)
 			if pipeOK(n) && !used(cur.s, n) {
-				push(rstate{n, plain}, edge{from: cur.s}, cur.g+1)
+				push(rstate{T: n, D: plain}, edge{from: cur.s}, cur.g+1)
 			}
 			if !l.usable(ptg) || !l.Free(n, AnyLand) || used(cur.s, n) {
 				continue
@@ -163,7 +163,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 				if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || !ugClear(n, d, k) || used(cur.s, out) {
 					continue
 				}
-				push(rstate{out, d}, edge{from: cur.s}, cur.g+7+0.1*float64(k))
+				push(rstate{T: out, D: d}, edge{from: cur.s}, cur.g+7+0.1*float64(k))
 			}
 		}
 	}

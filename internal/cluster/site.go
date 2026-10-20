@@ -371,13 +371,22 @@ func (b *Base) PlaceAll(cs []*Cluster) error {
 	order := map[Kind]int{Mine: 0, Smelt: 1, Make: 2, Lab: 3, Supply: 4, Power: 5, Storage: 6}
 	cs = append([]*Cluster(nil), cs...)
 	sort.SliceStable(cs, func(i, j int) bool { return order[cs[i].Kind] < order[cs[j].Kind] })
+	// клиенты шины — на шину (после плавки: шина — у неё)
+	var clients []*Cluster
 	for _, c := range cs {
 		if c.Name == "" {
 			c.Name = b.name(c.Product)
 		}
+		if OnBus(c) {
+			clients = append(clients, c)
+			continue
+		}
 		if err := b.Place(c); err != nil {
 			return err
 		}
+	}
+	if len(clients) > 0 {
+		return b.placeOnBus(clients)
 	}
 	return nil
 }
@@ -448,9 +457,16 @@ func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
 		}
 	}
 	for _, c := range b.Clusters {
+		if c.Kind == Bus {
+			b.reserveBus(l, c) // свободны голова, зазоры, полоса — для подводов
+			continue
+		}
 		area(c, true)
 	}
 	for _, c := range fresh {
+		if c.Kind == Bus {
+			continue // ленты шины — в Connect (по потребителям)
+		}
 		area(c, false)
 		if err := Interior(l, c, Tag(c.Name)); err != nil {
 			return l, err
