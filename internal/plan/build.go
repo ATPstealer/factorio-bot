@@ -461,10 +461,7 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		// подземку после непарного входа в пределах дальности — чужой вход рядом спутает
 		chunks := [][]int{idx}
 		if k.name == "underground-belt" {
-			chunks = nil
-			for a := 0; a < len(idx); a += 2 {
-				chunks = append(chunks, idx[a:min(a+2, len(idx))])
-			}
+			chunks = g.ugPairs(groups[k], s)
 		}
 		for _, ch := range chunks {
 			p := c.prim(Primitive{Kind: "build", Item: s.Protos.ItemFor(k.name), Dir: max(k.dir, 0), Area: g.area(s)})
@@ -509,6 +506,58 @@ func (g Built) fuel(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	}
 	spreadExtra(ns, caps, s.Inventory["coal"]-need)
 	return sub(pl, s, c, Supplied{roles[0], "coal", ns[0]})
+}
+
+// ugPairs — недостающие подземки шагами: «вход, его выход» (пара по геометрии: ближайший
+// выход впереди по направлению входа), одиночный вход, одиночный выход — только если его
+// вход уже стоит. Выход, поставленный раньше своего входа, игра делает входом — пары
+// путаются (две подземки-входа подряд).
+func (g Built) ugPairs(idx []int, s *State) [][]int {
+	inputFor := func(j int) int { // вход раскладки для выхода j (ближайший позади)
+		o := g.List[j]
+		best, bd := -1, math.Inf(1)
+		for i, in := range g.List {
+			if in.Name != o.Name || in.Recipe != "input" || in.Dir != o.Dir {
+				continue
+			}
+			dx, dy := o.Pos.X-in.Pos.X, o.Pos.Y-in.Pos.Y
+			if ahead(in.Dir, dx, dy) && math.Hypot(dx, dy) < bd {
+				best, bd = i, math.Hypot(dx, dy)
+			}
+		}
+		return best
+	}
+	missing := map[int]bool{}
+	for _, i := range idx {
+		missing[i] = true
+	}
+	var res [][]int
+	done := map[int]bool{}
+	// order у подземок — входы со своими выходами; выходы без входа в группе — следом
+	for _, i := range append(g.order(idx, s.PlayerPos), idx...) {
+		if done[i] {
+			continue
+		}
+		if g.List[i].Recipe == "input" {
+			ch := []int{i}
+			for _, j := range idx {
+				if g.List[j].Recipe == "output" && !done[j] && inputFor(j) == i {
+					ch = append(ch, j)
+					done[j] = true
+					break
+				}
+			}
+			done[i] = true
+			res = append(res, ch)
+			continue
+		}
+		// выход: его вход стоит — можно; вход ещё не поставлен — подождёт его
+		if in := inputFor(i); in >= 0 && !missing[in] && s.Role(BuildRole(g.Tag, in)) != nil {
+			done[i] = true
+			res = append(res, []int{i})
+		}
+	}
+	return res
 }
 
 // order — порядок постройки в группе: обход ближайшего соседа от бота (меньше ходьбы); подземки —
