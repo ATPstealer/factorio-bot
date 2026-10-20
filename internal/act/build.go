@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/bridge"
@@ -38,6 +39,47 @@ func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
 		LeftTop:     bridge.Pos{X: pos.X + b.LeftTop.X, Y: pos.Y + b.LeftTop.Y},
 		RightBottom: bridge.Pos{X: pos.X + b.RightBottom.X, Y: pos.Y + b.RightBottom.Y},
 	}
+}
+
+// clearSpots — срубить деревья и разбить камни, чья рамка коллизии задевает место постройки.
+func (h *Hands) clearSpots(ctx context.Context, fps []bridge.Box) error {
+	if h.World == nil {
+		return nil
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
+	seen := map[bridge.Pos]bool{}
+	for _, fp := range fps {
+		c := bridge.Pos{X: (fp.LeftTop.X + fp.RightBottom.X) / 2, Y: (fp.LeftTop.Y + fp.RightBottom.Y) / 2}
+		r := math.Max(fp.RightBottom.X-fp.LeftTop.X, fp.RightBottom.Y-fp.LeftTop.Y)/2 + 2
+		for _, o := range h.World.ObjectsNear(c, r) {
+			rock := o.Type == "simple-entity" && strings.Contains(o.Name, "rock")
+			if o.Type != "tree" && !rock || seen[o.Pos] {
+				continue
+			}
+			b := h.World.CollisionBox(o)
+			if b.LeftTop.X >= fp.RightBottom.X || b.RightBottom.X <= fp.LeftTop.X || b.LeftTop.Y >= fp.RightBottom.Y || b.RightBottom.Y <= fp.LeftTop.Y {
+				continue
+			}
+			seen[o.Pos] = true
+			e, err := h.B.EntityAt(o.Name, o.Pos)
+			if err != nil {
+				return err
+			}
+			if e == nil {
+				continue
+			}
+			h.Say("%s мешает постройке — убираю", o.Name)
+			if err := h.WalkToMine(ctx, *e); err != nil && !errors.Is(err, ErrNotReached) {
+				return err
+			}
+			if err := h.Mine(ctx, *e, 20*time.Second); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
@@ -153,6 +195,10 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 	left := make([]int, len(positions))
 	for i, pos := range positions {
 		fps[i], left[i] = h.footprint(it.PlaceResult, pos, dirs[i]), i
+	}
+	// место задевают дерево или камень — сначала убрать (игра иначе: «… is in the way»)
+	if err := h.clearSpots(ctx, fps); err != nil {
+		return nil, err
 	}
 	stalls := 0
 	for len(left) > 0 {
