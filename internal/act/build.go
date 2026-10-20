@@ -25,6 +25,9 @@ const (
 // ErrPlace — постройка не встала (место занято, далеко, не та клетка).
 var ErrPlace = errors.New("act: не удалось поставить")
 
+// ErrOccupied — место постройки занято своей постройкой (её не трогаем: может быть нужной).
+var ErrOccupied = errors.New("act: место занято своей постройкой")
+
 // footprint — рамка коллизии постройки item в точке pos с направлением dir (восток/запад —
 // поперёк: двигатель 3×5 → 5×3).
 func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
@@ -41,8 +44,10 @@ func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
 	}
 }
 
-// clearSpots — срубить деревья и разбить камни, чья рамка коллизии задевает место постройки.
-func (h *Hands) clearSpots(ctx context.Context, fps []bridge.Box) error {
+// clearSpots — убрать, что мешает постройке entity: деревья и камни под рамкой — срубить и
+// разбить. Своя постройка на месте — ErrOccupied (может быть нужной — не трогать; ленты,
+// подземки и делители друг друга заменяют сами).
+func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box) error {
 	if h.World == nil {
 		return nil
 	}
@@ -55,7 +60,8 @@ func (h *Hands) clearSpots(ctx context.Context, fps []bridge.Box) error {
 		r := math.Max(fp.RightBottom.X-fp.LeftTop.X, fp.RightBottom.Y-fp.LeftTop.Y)/2 + 2
 		for _, o := range h.World.ObjectsNear(c, r) {
 			rock := o.Type == "simple-entity" && strings.Contains(o.Name, "rock")
-			if o.Type != "tree" && !rock || seen[o.Pos] {
+			own := o.Own && o.Type != "character" && !(beltLike(o.Type) && beltLike(h.Protos.Entities[entity].Type))
+			if o.Type != "tree" && !rock && !own || seen[o.Pos] {
 				continue
 			}
 			b := h.World.CollisionBox(o)
@@ -70,6 +76,9 @@ func (h *Hands) clearSpots(ctx context.Context, fps []bridge.Box) error {
 			if e == nil {
 				continue
 			}
+			if own {
+				return fmt.Errorf("%w: %s в (%.1f, %.1f)", ErrOccupied, o.Name, o.Pos.X, o.Pos.Y)
+			}
 			h.Say("%s мешает постройке — убираю", o.Name)
 			if err := h.WalkToMine(ctx, *e); err != nil && !errors.Is(err, ErrNotReached) {
 				return err
@@ -80,6 +89,10 @@ func (h *Hands) clearSpots(ctx context.Context, fps []bridge.Box) error {
 		}
 	}
 	return nil
+}
+
+func beltLike(typ string) bool {
+	return typ == "transport-belt" || typ == "underground-belt" || typ == "splitter"
 }
 
 func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
@@ -197,7 +210,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 		fps[i], left[i] = h.footprint(it.PlaceResult, pos, dirs[i]), i
 	}
 	// место задевают дерево или камень — сначала убрать (игра иначе: «… is in the way»)
-	if err := h.clearSpots(ctx, fps); err != nil {
+	if err := h.clearSpots(ctx, it.PlaceResult, fps); err != nil {
 		return nil, err
 	}
 	stalls := 0

@@ -37,7 +37,8 @@ type Hands struct {
 	// Console — дублировать Say в консоль игры (видно в окне клиента).
 	Console bool
 
-	altChecked bool // Alt-режим проверен и включён
+	altChecked bool        // Alt-режим проверен и включён
+	goal       *bridge.Pos // куда идёт WalkTo: сходить с ленты — в её сторону
 }
 
 // Say — что бот собирается сделать: в лог и (Console) в консоль игры с префиксом [bot].
@@ -156,6 +157,8 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	if err := h.guard(ctx); err != nil {
 		return err
 	}
+	h.goal = &target
+	defer func() { h.goal = nil }()
 	// конечная точка на ленте — нельзя (унесёт): ближайшая, где можно стоять
 	if h.World != nil && h.World.OnBelt(target) {
 		best := math.Inf(1)
@@ -964,6 +967,9 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 			q := bridge.Pos{X: from.X + dx, Y: from.Y + dy}
 			if h.World.Standable(q) {
 				d := dist(from, q)
+				if h.goal != nil { // идём к цели — сходить в её сторону, а не куда ближе
+					d += dist(q, *h.goal)
+				}
 				if h.nearBelt(q) {
 					d += 3 // щель у ленты (коридор между бурами) — снова снесёт
 				}
