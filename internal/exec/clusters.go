@@ -593,8 +593,13 @@ func (r *Runner) growShort(st []ClusterStatus) {
 				if src.Name == c.Name || src.Count >= src.Room || !hasOut(src, item) {
 					continue
 				}
-				kind := "grow-" + src.Name
-				if slices.Contains(r.Saved.Grow, kind) {
+				// с номером места: раскладка роста запоминается — следующий рост — новая задача
+				kind := fmt.Sprintf("grow-%s@%d", src.Name, src.Count+1)
+				pending := false
+				for _, g := range r.Saved.Grow {
+					pending = pending || strings.HasPrefix(g, "grow-"+src.Name+"@")
+				}
+				if pending {
 					break
 				}
 				r.Saved.Grow = append(r.Saved.Grow, kind)
@@ -617,15 +622,20 @@ func hasOut(c *cluster.Cluster, item string) bool {
 
 // growDesign — раскладка роста кластера name на одно место (задача "grow-<имя>"): потоки и
 // машины — пропорционально; в раскладке — только новые постройки.
-func (r *Runner) growDesign(s *plan.State, name string) (*layout.Layout, error) {
+func (r *Runner) growDesign(s *plan.State, spec string) (*layout.Layout, error) {
+	name, n := spec, 0
+	if i := strings.LastIndex(spec, "@"); i > 0 {
+		name = spec[:i]
+		fmt.Sscanf(spec[i+1:], "%d", &n)
+	}
 	var c *cluster.Cluster
 	for _, x := range r.Saved.Clusters {
 		if x.Name == name {
 			c = x
 		}
 	}
-	if c == nil || c.Count >= c.Room {
-		return nil, fmt.Errorf("кластер %s: расти некуда", name)
+	if c == nil || c.Count >= c.Room || n > 0 && c.Count >= n {
+		return nil, fmt.Errorf("кластер %s: расти некуда (%s)", name, spec)
 	}
 	cp := *c
 	k := float64(c.Count+1) / float64(c.Count)
@@ -643,7 +653,7 @@ func (r *Runner) growDesign(s *plan.State, name string) (*layout.Layout, error) 
 		cp.Units = append(cp.Units, u)
 	}
 	cp.Count++
-	l := r.newLayout("grow-" + name)
+	l := r.newLayout("grow-" + spec)
 	for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
 		for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
 			delete(l.Reserved, world.Tile{X: x, Y: y})
