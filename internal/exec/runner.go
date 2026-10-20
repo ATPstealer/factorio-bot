@@ -191,7 +191,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 	}
 	s := &plan.State{Protos: r.H.Protos, Av: r.H.Protos.NewAvailability(f.Researched, false),
 		ExploreNeed: func(kind string) string { return r.exploreFor[kind] },
-		Inventory: inv, SlotsFree: -1, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
+		Inventory:   inv, SlotsFree: -1, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
 		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done, Clusters: r.clusterMode(),
 		Designs: func() [][]layout.Placement {
 			var res [][]layout.Placement

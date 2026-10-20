@@ -21,7 +21,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// StageTargets — цели этапов кластерной базы (game-stages.md), шт/с.
+// StageTargets — цели этапов кластерной базы, шт/с.
 var StageTargets = map[int]map[string]float64{
 	1: {"iron-plate": 1, "copper-plate": 0.5},
 	2: {"automation-science-pack": 0.1},
