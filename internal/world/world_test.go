@@ -170,19 +170,6 @@ func TestCliffBox(t *testing.T) {
 	}
 }
 
-// Квадраты разведки: открыто ±3 чанка — идти по кольцу 3+3, вглубь неизвестного.
-func TestExploreRing(t *testing.T) {
-	w := New(nil)
-	for x := -3; x <= 3; x++ {
-		for y := -3; y <= 3; y++ {
-			w.Chunks[bridge.ChunkPos{X: x, Y: y}] = &Chunk{}
-		}
-	}
-	if r, pts := w.ExploreRing(3, 100, nil); r != 7 || len(pts) != 8*7 {
-		t.Errorf("кольцо %d, точек %d; ждали 7 и 56", r, len(pts))
-	}
-}
-
 // Кольцо своих труб: изнутри наружу пути нет; без одной трубы — есть.
 func TestWithoutOpensRing(t *testing.T) {
 	w := New(nil)
@@ -208,23 +195,6 @@ func TestWithoutOpensRing(t *testing.T) {
 	}
 	if _, err := w.Route(in, out, 0.5, 0, 0); err == nil {
 		t.Error("труба не вернулась")
-	}
-}
-
-// Все точки кольца недоступны — разведка берёт следующее кольцо, а не пустой список.
-func TestExploreRingSkipped(t *testing.T) {
-	w := New(nil)
-	for x := -3; x <= 3; x++ {
-		for y := -3; y <= 3; y++ {
-			w.Chunks[bridge.ChunkPos{X: x, Y: y}] = &Chunk{}
-		}
-	}
-	skip := map[bridge.ChunkPos]bool{}
-	for _, c := range ringChunks(7) {
-		skip[c] = true
-	}
-	if r, pts := w.ExploreRing(3, 100, skip); r == 0 || len(pts) == 0 {
-		t.Errorf("кольцо %d, точек %d", r, len(pts))
 	}
 }
 

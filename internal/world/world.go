@@ -326,45 +326,34 @@ func (w *World) FreeSpotWhere(near bridge.Pos, width, height, radius int, avoid 
 	return best, !math.IsInf(bestD, 1)
 }
 
-// ExploreRing — маршрут разведки концентрическими квадратами вокруг (0,0) в чанках:
-// k — ближайшее к центру кольцо (по Чебышёву) с неоткрытыми чанками; идти надо по кольцу
-// k+sight (персонаж открывает карту на sight чанков вокруг) — вглубь неизвестного, а не по
-// краю. Возвращает k+sight и центры чанков этого кольца, около которых (≤ sight) ещё есть
-// неоткрытое (skip — чанки, к которым не пройти: не цели и не «неоткрытое»). 0 — всё открыто.
-func (w *World) ExploreRing(sight, max int, skip map[bridge.ChunkPos]bool) (int, []bridge.Pos) {
-	unknown := func(c bridge.ChunkPos) bool { return w.Chunks[c] == nil && !skip[c] }
-	for k := 0; k <= max; k++ {
-		has := false
-		for _, c := range ringChunks(k) {
-			if unknown(c) {
-				has = true
-				break
-			}
-		}
-		if !has {
-			continue
-		}
-		m := k + sight
-		var pts []bridge.Pos
-		for _, c := range ringChunks(m) {
-			if skip[c] {
+// NearestUnknown — ближайший к from неоткрытый чанк на краю открытой карты (рядом с открытым),
+// кольцами вокруг чанка from до max чанков; skip — недоступные. Центр чанка, ok.
+func (w *World) NearestUnknown(from bridge.Pos, max int, skip map[bridge.ChunkPos]bool) (bridge.Pos, bool) {
+	c0 := ChunkOf(TileOf(from))
+	for r := 1; r <= max; r++ {
+		best, bd := bridge.ChunkPos{}, math.Inf(1)
+		for _, d := range ringChunks(r) {
+			c := bridge.ChunkPos{X: c0.X + d.X, Y: c0.Y + d.Y}
+			if w.Chunks[c] != nil || skip[c] {
 				continue
 			}
-			useful := false
-			for dy := -sight; dy <= sight && !useful; dy++ {
-				for dx := -sight; dx <= sight && !useful; dx++ {
-					useful = unknown(bridge.ChunkPos{X: c.X + dx, Y: c.Y + dy})
-				}
+			edge := false // рядом открытый — дойти можно по открытой земле
+			for _, n := range []bridge.ChunkPos{{X: c.X + 1, Y: c.Y}, {X: c.X - 1, Y: c.Y}, {X: c.X, Y: c.Y + 1}, {X: c.X, Y: c.Y - 1}} {
+				edge = edge || w.Chunks[n] != nil
 			}
-			if useful {
-				pts = append(pts, bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)})
+			if !edge {
+				continue
+			}
+			p := bridge.Pos{X: float64(c.X*ChunkSize + ChunkSize/2), Y: float64(c.Y*ChunkSize + ChunkSize/2)}
+			if d := math.Hypot(p.X-from.X, p.Y-from.Y); d < bd {
+				best, bd = c, d
 			}
 		}
-		if len(pts) > 0 { // все точки кольца недоступны — следующее кольцо
-			return m, pts
+		if !math.IsInf(bd, 1) {
+			return bridge.Pos{X: float64(best.X*ChunkSize + ChunkSize/2), Y: float64(best.Y*ChunkSize + ChunkSize/2)}, true
 		}
 	}
-	return 0, nil
+	return bridge.Pos{}, false
 }
 
 // ringChunks — чанки квадратного кольца r вокруг чанка (0,0).
