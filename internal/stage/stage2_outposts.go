@@ -201,6 +201,11 @@ func (s *s2) fuel(ctx context.Context, e bridge.Entity) error {
 	if have >= s2Low {
 		return nil
 	}
+	// угля много — Ctrl+клик (весь слот разом), а не по штуке
+	if s.inv("coal") > 200 {
+		_, err := s.h.InsertAll(ctx, e, "coal")
+		return err
+	}
 	if err := s.have(ctx, "coal", s2Fuel-have); err != nil {
 		return err
 	}
