@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -157,12 +158,12 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			mach, mh = c.machine(), 3
 		}
 		for i := 0; i < c.Count && c.Sub != ""; i++ {
-			if err := pair(l, f, c, 1+i*c.Pitch, belts, mach, ins, tag, add); err != nil {
+			if err := pair(l, f, c, c.Head+i*c.Pitch, belts, mach, ins, tag, add); err != nil {
 				return err
 			}
 		}
 		for i := 0; i < c.Count && c.Sub == ""; i++ {
-			u := 1 + i*c.Pitch
+			u := c.Head + i*c.Pitch
 			m := f.at(l, mach, u, belts+2, layout.N, tag)
 			if c.Kind == Make {
 				m.Recipe = c.Units[0].Recipe
@@ -186,17 +187,14 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		// лента входа — до последней машины (и вдоль буфера), не на весь запас
 		cur := c.Head + c.Count*c.Pitch
 		blen := cur
-		if len(c.In) == 1 {
-			blen = min(max(cur, 2*bufferChests(l, c)), L)
-		}
 		if err := row(belts, 1, blen, layout.E); err != nil {
 			return err
 		}
 		deadEnd(belts, blen)
 		// буфер на общей ленте — только для одного входа; два (руда + уголь) — смешаются,
 		// у каждого свой буфер на его входящей ленте (Connect)
-		if len(c.In) == 1 {
-			if err := buffer(l, f, c, blen, belts, tag); err != nil {
+		if len(c.In) == 1 && c.Head > 1 {
+			if err := buffer(l, f, c, belts, tag); err != nil {
 				return err
 			}
 		}
@@ -330,8 +328,15 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 		l.Add(p)
 		return nil
 	}
+	// вход воды — трубы по ряду 12 от края до первого бойлера (столбец портов и буфер угля)
+	for u := 0; u < c.Head; u++ {
+		if err := add(f.at(l, "pipe", u, 12, layout.N, tag)); err != nil {
+			return err
+		}
+	}
+	c.Water = &layout.Conn{At: f.tile(0, 12), To: f.tile(-1, 12), Dir: f.dir(layout.W), Filter: "water"}
 	for i := 0; i < c.Count; i++ {
-		u := 1 + i*c.Pitch
+		u := c.Head + i*c.Pitch
 		b := f.at(l, "boiler", u, 11, layout.N, tag)
 		for _, p := range []layout.Placement{
 			b,
@@ -345,21 +350,14 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 				return err
 			}
 		}
-		if i == 0 {
-			// вход воды — труба в столбце портов слева от первого бойлера, к ней — из коридора
-			if err := add(f.at(l, "pipe", u-1, 12, layout.N, tag)); err != nil {
-				return err
-			}
-			c.Water = &layout.Conn{At: f.tile(u-1, 12), To: f.tile(u-2, 12), Dir: f.dir(layout.W), Filter: "water"}
-		}
 		if i+1 < c.Count {
 			if err := add(f.at(l, "pipe", u+3, 12, layout.N, tag)); err != nil {
 				return err
 			}
 		}
 	}
-	// лента угля — до последнего бойлера (и вдоль буфера), не на весь запас
-	blen := min(max(c.Head+c.Count*c.Pitch, 2*bufferChests(l, c)), L)
+	// лента угля — до последнего бойлера, не на весь запас
+	blen := c.Head + c.Count*c.Pitch
 	for u := 0; u < blen; u++ {
 		if err := add(f.at(l, "transport-belt", u, 14, layout.E, tag)); err != nil {
 			return err
@@ -369,22 +367,23 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 	l.AllowEnd(end)
 	l.Reserved[end] = true
 	c.Ports = append(c.Ports, Port{T: f.tile(-1, 14), Dir: f.dir(layout.E), Item: "coal", In: true})
-	return buffer(l, f, c, blen, 14, tag)
+	if c.Head > 1 {
+		return buffer(l, f, c, 14, tag)
+	}
+	return nil
 }
 
-// buffer — буфер входа вдоль ленты ряда v (ящики — с дальней от машин стороны): инсертер
-// с ленты в ящик 1 → инсертеры по ящикам → из последнего обратно на ленту ниже по ходу.
-// Ёмкость — на 10 минут входа кластера (деревянный ящик — 16 стопок самого мелкого предмета).
-func buffer(l *layout.Layout, f frame, c *Cluster, L, v int, tag string) error {
+// buffer — буфер входа вдоль ленты ряда v в начале ряда (до первой машины: Head), ящики — с
+// дальней от машин стороны: инсертер с ленты в ящик 1 → инсертеры по ящикам → из последнего
+// обратно на ленту ниже по ходу, но выше всех машин (иначе предмет обходит машины в ящики).
+// Ёмкость — на 10 минут входа кластера.
+func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 	insV, chestV := v-1, v-2
 	if c.Kind == Power {
 		insV, chestV = v+1, v+2
 	}
-	// ящики на нечётных u (1, 3, …), между ними перекладывающие инсертеры
-	n := min(bufferChests(l, c), L/2)
-	if n < 2 {
-		return nil // ряд короткий — без буфера
-	}
+	// ящики на нечётных u (1, 3, …, Head-1), между ними перекладывающие инсертеры
+	n := c.Head / 2
 	for i := 0; i < n; i++ {
 		u := 1 + 2*i
 		ch := f.at(l, "wooden-chest", u, chestV, layout.N, tag)
@@ -404,11 +403,11 @@ func buffer(l *layout.Layout, f frame, c *Cluster, L, v int, tag string) error {
 
 // bufferChests — ящиков в буфере входа: на BufferSeconds входа (деревянный ящик — 16 стопок
 // самого мелкого предмета), не меньше 2.
-func bufferChests(l *layout.Layout, c *Cluster) int {
+func bufferChests(p *knowledge.Prototypes, c *Cluster) int {
 	need, stack := 0.0, 100
 	for _, in := range c.In {
 		need += in.Rate * BufferSeconds
-		if s := l.P.Items[in.Item].StackSize; s > 0 && s < stack {
+		if s := p.Items[in.Item].StackSize; s > 0 && s < stack {
 			stack = s
 		}
 	}

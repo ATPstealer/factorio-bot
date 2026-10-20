@@ -487,6 +487,10 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Storage {
 		return
 	}
+	// один вход — буфер в начале ряда, до первой машины: ящики на u = 1, 3, …, 2n−1
+	if len(c.In) == 1 && c.Kind != Mine {
+		c.Head = 2 * bufferChests(p, c)
+	}
 	m := c.machine()
 	n := 0.0
 	for _, u := range c.Units {
