@@ -380,3 +380,64 @@ func (g Dismantled) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	}
 	return nil, nil
 }
+
+// unloadKeep — что бот носит навалом и сколько оставить себе; лишнее при полном
+// инвентаре — в склад (крафт с полным инвентарём встаёт).
+var unloadKeep = map[string]int{"coal": 50, "stone": 50, "iron-ore": 0, "copper-ore": 0,
+	"iron-plate": 200, "copper-plate": 200, "stone-brick": 100, "burner-mining-drill": 0,
+	"stone-furnace": 10, "wooden-chest": 10}
+
+// unloadFree — сколько ячеек держать свободными.
+const unloadFree = 4
+
+// Unload — в инвентаре есть свободные ячейки: лишнее навалом сложено в склад storage-N.
+type Unload struct{}
+
+func (g Unload) Key() string    { return "unload" }
+func (g Unload) String() string { return "разгрузить инвентарь в склад" }
+func (g Unload) Satisfied(s *State) bool {
+	return s.SlotsFree < 0 || s.SlotsFree >= unloadFree || len(s.StorageRoles) == 0 || g.pick(s) == ""
+}
+
+// pick — что выгружать: больше всего лишних ячеек.
+func (g Unload) pick(s *State) string {
+	best, slots := "", 0
+	for it, keep := range unloadKeep {
+		stack := max(1, s.Protos.Items[it].StackSize)
+		if n := (s.Inventory[it] - keep) / stack; n > slots || n == slots && n > 0 && it < best {
+			best, slots = it, n
+		}
+	}
+	return best
+}
+
+func (g Unload) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	it := g.pick(s)
+	if it == "" {
+		return nil, nil
+	}
+	// в ящик склада, где больше места; весь вид разом или сколько влезет (Ctrl+клик —
+	// быстро; нужное потом заберётся со склада)
+	stack := max(1, s.Protos.Items[it].StackSize)
+	role, room := "", 0
+	for _, r := range s.StorageRoles {
+		o := s.Role(r)
+		if o == nil {
+			continue
+		}
+		free := chestSlots[o.Name]
+		for name, v := range o.Inv["chest"] {
+			free -= (v + max(1, s.Protos.Items[name].StackSize) - 1) / max(1, s.Protos.Items[name].StackSize)
+		}
+		if free > room {
+			role, room = r, free
+		}
+	}
+	if role == "" {
+		return nil, nil
+	}
+	return c.prim(Primitive{Kind: "insert", Role: role, Item: it, N: min(s.Inventory[it], room*stack)}), nil
+}
+
+// chestSlots — ячеек в сундуке.
+var chestSlots = map[string]int{"wooden-chest": 16, "iron-chest": 32, "steel-chest": 48}

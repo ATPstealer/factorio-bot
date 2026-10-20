@@ -187,7 +187,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 		inv[p.Cursor.Name] += p.Cursor.Count
 	}
 	s := &plan.State{Protos: r.H.Protos, Av: r.H.Protos.NewAvailability(f.Researched, false),
-		Inventory: inv, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
+		Inventory: inv, SlotsFree: -1, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
 		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done, Clusters: r.clusterMode(),
 		Designs: func() [][]layout.Placement {
 			var res [][]layout.Placement
@@ -196,6 +196,9 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 			}
 			return res
 		}}
+	if p.InventorySize > 0 {
+		s.SlotsFree = p.InventorySize - len(p.InventorySlots)
+	}
 	if f.Current != "" {
 		s.Researching[f.Current] = true
 	}
@@ -500,6 +503,9 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	r.Saved.Grow = grow
 	if repair {
 		goals = append([]plan.Goal{plan.Repair{}}, goals...) // есть что чинить — первым делом
+	}
+	if u := (plan.Unload{}); !u.Satisfied(s) {
+		goals = append([]plan.Goal{u}, goals...) // инвентарь полон — крафт встанет
 	}
 	// ожидание «мягкое» (наблюдение пользователя: пока идёт исследование, минуты уходят
 	// впустую): цель хочет ждать — взять полезный шаг у следующих целей, ждать — только

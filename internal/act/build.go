@@ -498,6 +498,14 @@ func held(p bridge.Player, item string) int {
 
 var zInterval = 120 * time.Millisecond
 
+// stack — размер пачки предмета.
+func (h *Hands) stack(item string) int {
+	if h.Protos != nil && h.Protos.Items[item].StackSize > 0 {
+		return h.Protos.Items[item].StackSize
+	}
+	return 50
+}
+
 // Insert кладёт n предметов в сущность: предмет в руку → навести → Z n раз
 // (каждое нажатие — ровно один предмет); почти всё, что есть, — Ctrl+клик (может лечь
 // чуть больше n). Проверка — у игрока стало на n меньше.
@@ -506,15 +514,16 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err != nil {
 		return err
 	}
-	if n*5 >= held(p0, item)*4 {
-		// положить всё или почти всё (≥ 80%) — Ctrl+клик: кладётся максимум возможного одним
-		// действием; удержание Z кладёт по одному — 200 угля ≈ 2 минуты
+	if n*5 >= held(p0, item)*4 || n >= 4*h.stack(item) {
+		// положить всё или почти всё (≥ 80%) или много (≥ 4 пачек; лишняя пачка не беда) —
+		// Ctrl+клик: кладётся максимум возможного одним действием; удержание Z кладёт по
+		// одному — 200 угля ≈ 2 минуты
 		got, err := h.InsertAll(ctx, e, item)
 		if err != nil {
 			return err
 		}
-		// Ctrl+клик бывает кладёт одну пачку (рука) — ещё, пока кладётся
-		for k := 0; k < 4 && got < n; k++ {
+		// Ctrl+клик бывает кладёт одну пачку (рука) — ещё, пока кладётся (до полного ящика)
+		for k := 0; k < 40 && got < n; k++ {
 			if q, err := h.B.Player(); err != nil || held(q, item) == 0 {
 				break
 			}

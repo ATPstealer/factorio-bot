@@ -748,9 +748,18 @@ func (h *Hands) CraftWait(ctx context.Context, recipe string, n int) error {
 		wait += time.Duration(r.Energy*float64(n)*1.5) * time.Second
 	}
 	deadline, hard := time.Now().Add(wait), time.Now().Add(10*time.Minute)
+	var full time.Time
 	for time.Now().Before(deadline) && time.Now().Before(hard) {
 		// очередь ещё крафтит (полуфабрикаты: шестерни, схемы) — ждём дальше
 		if p, err := h.B.Player(); err == nil && len(p.CraftingQueue) > 0 {
+			// инвентарь полон — готовое некуда положить, крафт стоит
+			if p.InventorySize == 0 || len(p.InventorySlots) < p.InventorySize {
+				full = time.Time{}
+			} else if full.IsZero() {
+				full = time.Now()
+			} else if time.Since(full) > 20*time.Second {
+				return fmt.Errorf("act: крафт %s ×%d стоит — инвентарь полон", recipe, n)
+			}
 			deadline = time.Now().Add(wait)
 		}
 		evs, _, err := h.B.PollEvents(seq0)

@@ -51,6 +51,8 @@ type State struct {
 	Protos    *knowledge.Prototypes
 	Av        *knowledge.Availability
 	Inventory map[string]int
+	// SlotsFree — свободных ячеек инвентаря (-1 — неизвестно)
+	SlotsFree int
 	PlayerPos bridge.Pos
 	Owned     []*Owned
 	// Stores — сундуки рядом вне реестра (поставленные руками, обломки) с содержимым: из них

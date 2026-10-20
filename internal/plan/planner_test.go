@@ -673,3 +673,22 @@ func TestDismantleStageZero(t *testing.T) {
 		t.Errorf("не в складе: %v", end.Inventory)
 	}
 }
+
+// Инвентарь полон — лишнее навалом (больше всего ячеек) в самый пустой ящик склада.
+func TestUnloadFullInventory(t *testing.T) {
+	s := newState(t)
+	s.Owned = append(s.Owned,
+		&Owned{Name: "wooden-chest", Role: "stage-1-5", Inv: map[string]map[string]int{"chest": {"stone": 40}}},
+		&Owned{Name: "wooden-chest", Role: "stage-1-6", Inv: map[string]map[string]int{}})
+	s.StorageRoles = []string{"stage-1-5", "stage-1-6"}
+	s.Inventory = map[string]int{"coal": 1367, "stone": 859, "transport-belt": 400}
+	s.SlotsFree = 0
+	p, err := NewPlanner().Next(s, Unload{})
+	if err != nil || p == nil || p.Kind != "insert" || p.Item != "coal" || p.Role != "stage-1-6" || p.N != 800 {
+		t.Fatalf("шаг: %+v %v", p, err)
+	}
+	s.SlotsFree = unloadFree
+	if !(Unload{}).Satisfied(s) {
+		t.Error("место есть — разгружать не нужно")
+	}
+}

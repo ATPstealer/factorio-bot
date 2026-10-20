@@ -68,6 +68,7 @@ function methods.get_player()
         r.inventory_slots[#r.inventory_slots + 1] = { slot = i, name = st.name, count = st.count }
       end
     end
+    r.inventory_size = #inv
   end
   for i = 1, 10 do
     local ok, v = pcall(p.get_quick_bar_slot, i)

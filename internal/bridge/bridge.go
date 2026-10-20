@@ -203,6 +203,7 @@ type Player struct {
 	Inventory         map[string]int `json:"inventory"`
 	Quickbar          List[string]   `json:"quickbar"`
 	InventorySlots    List[Slot]     `json:"inventory_slots"`
+	InventorySize     int            `json:"inventory_size"`
 	CraftingQueue     List[Craft]    `json:"crafting_queue"`
 	CraftingQueueSize int            `json:"crafting_queue_size"`
 	Character         *Character     `json:"character"`
