@@ -11,8 +11,11 @@ import (
 // Добывающие точки начала игры на burner-бурах (стадия 7.0): без лент и инсертеров —
 // бур выдаёт прямо в соседа.
 
-// onOre — все тайлы размещения на руде ore и свободны.
+// onOre — все тайлы размещения на руде ore и свободны, в зоне добычи — только ore.
 func (l *Layout) onOre(pl Placement, ore string) bool {
+	if _, mixed := l.OreUnder(pl, ore); mixed {
+		return false
+	}
 	for _, t := range Tiles(l.P, pl) {
 		if !l.Free(t, AnyLand) {
 			return false

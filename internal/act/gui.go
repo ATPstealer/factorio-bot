@@ -45,6 +45,9 @@ type Layout struct {
 	RecipeChange      point
 	RecipeFirstChange point
 	TechStart         point // кнопка «Start research» карточки выбранной технологии
+	// окно инсертера (обычного): флажок «Use filters», первая ячейка фильтра, первая
+	// найденная в окне «Set the filter» (после поиска)
+	UseFilters, FilterSlot, FilterFirst point
 	// AltButton — кнопка ALT на панели быстрого доступа: оранжевая — Alt-режим включён
 	AltButton point
 	AltOn     color.RGBA
@@ -73,6 +76,9 @@ var Layout1856 = Layout{
 	RecipeChange:      point{1325, 506},
 	RecipeFirstChange: point{747, 429},
 	TechStart:         point{477, 422},
+	UseFilters:        point{953, 556},
+	FilterSlot:        point{1165, 568},
+	FilterFirst:       point{1189, 730},
 	AltButton:         point{1160, 948},
 	AltOn:             color.RGBA{229, 181, 96, 255},
 	Panels:            []rect{{0, 915, 192, 101}, {668, 918, 540, 98}, {1600, 0, 256, 592}},
@@ -903,6 +909,103 @@ func (h *Hands) closeTech(ctx context.Context) {
 // задан другой — кнопка смены рецепта в окне сборщика) → Ctrl+F → название → ячейка
 // рецепта среди найденных (порядок как в игре: группа, подгруппа, order — craftSlot);
 // подтверждение — рецепт из мода.
+// SetFilter — фильтр инсертера e «брать только item»: клик по инсертеру → флажок «Use
+// filters» → ячейка фильтра → поиск по названию → найденная. Найдено несколько (inserter:
+// burner-inserter первым) — следующая ячейка. Подтверждение — filters из мода.
+func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) error {
+	cur := func() (*bridge.EntityState, error) {
+		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err == nil && st == nil {
+			err = fmt.Errorf("act: %s пропал", e.Name)
+		}
+		return st, err
+	}
+	st, err := cur()
+	if err != nil {
+		return err
+	}
+	if len(st.Filters) > 0 && st.Filters[0] == item {
+		return nil
+	}
+	h.Say("фильтр %s у %s", item, e.Name)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
+	if err := h.Hover(ctx, e); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
+	if _, err := h.waitFor(ctx, time.Second, opened); err != nil {
+		h.debugShot("filter-open")
+		return fmt.Errorf("act: окно %s не открылось: %w", e.Name, err)
+	}
+	click := func(p point, pause time.Duration) error {
+		if err := h.at(p); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 100*time.Millisecond); err != nil {
+			return err
+		}
+		if err := h.In.Click(input.Left); err != nil {
+			return err
+		}
+		return sleep(ctx, pause)
+	}
+	if len(st.Filters) == 0 { // фильтр выключен — включить (ячейки заданы — значит включён)
+		if err := click(h.Layout.UseFilters, 300*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	text := strings.ReplaceAll(item, "-", " ")
+	for k := 0; k < 5; k++ {
+		if err := click(h.Layout.FilterSlot, 400*time.Millisecond); err != nil {
+			return err
+		}
+		// буквы — только при открытом окне (иначе уйдут в игру хоткеями)
+		if p, err := h.B.Player(); err != nil || !opened(p) {
+			return fmt.Errorf("act: окно %s закрылось", e.Name)
+		}
+		if err := h.In.Tap("f", "ctrl"); err != nil {
+			return err
+		}
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if err := h.In.Tap("a", "ctrl"); err != nil {
+			return err
+		}
+		if err := h.In.Type(text); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 400*time.Millisecond); err != nil {
+			return err
+		}
+		f := h.Layout.FilterFirst
+		if err := click(point{f.X + k*h.Layout.SlotStep, f.Y}, 300*time.Millisecond); err != nil {
+			return err
+		}
+		if st, err = cur(); err != nil {
+			return err
+		}
+		if len(st.Filters) > 0 && st.Filters[0] == item {
+			return nil
+		}
+		h.Log("фильтр: ячейка %d дала %v", k, st.Filters)
+	}
+	h.debugShot("filter")
+	return fmt.Errorf("act: фильтр %s у %s не встал (%v)", item, e.Name, st.Filters)
+}
+
 func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) error {
 	cur := func() (string, error) {
 		st, err := h.B.GetEntity(e.Name, e.Position)

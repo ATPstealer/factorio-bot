@@ -180,7 +180,13 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			if err := add(m); err != nil {
 				return err
 			}
-			if err := add(f.inserter(l, ins, iu, belts+1, belts, tag)); err != nil {
+			in := f.inserter(l, ins, iu, belts+1, belts, tag)
+			if c.Kind == Supply && len(c.In) > 0 {
+				// ящики по очереди под каждый вход; инсертер берёт только своё (на общей ленте
+				// обе пластины — иначе в ящике смесь)
+				in.Recipe = c.In[i%len(c.In)].Item
+			}
+			if err := add(in); err != nil {
 				return err
 			}
 			if c.Kind != Lab && c.Kind != Supply {
@@ -294,7 +300,7 @@ func pair(l *layout.Layout, f frame, c *Cluster, u, belts int, mach, ins, tag st
 }
 
 // mineRow — буры по обе стороны ленты ряда 3 (сверху смотрят S, снизу N), только где под
-// зоной добычи не меньше половины — руда; сколько нужно (Units) или сколько встанет.
+// зоной добычи не меньше половины — руда и нет другого ресурса; сколько нужно (Units) или сколько встанет.
 // last — u последнего поставленного бура.
 func mineRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) (last int, err error) {
 	drill := c.Units[0].Machine
@@ -306,14 +312,8 @@ func mineRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) (last int
 				break
 			}
 			p := f.at(l, drill, u, s.v, s.d, tag)
-			area := layout.MiningArea(l.P, p)
-			n := 0
-			for _, t := range area {
-				if r, ok := l.W.ResourceAt(t); ok && r.Name == c.Product {
-					n++
-				}
-			}
-			if n*2 < len(area) || !l.CanPlace(p, layout.AnyLand) {
+			n, mixed := l.OreUnder(p, c.Product)
+			if mixed || n*2 < len(layout.MiningArea(l.P, p)) || !l.CanPlace(p, layout.AnyLand) {
 				continue
 			}
 			l.Add(p)
@@ -397,6 +397,11 @@ func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 	}
 	// ящики на нечётных u (1, 3, …, Head-1), между ними перекладывающие инсертеры
 	n := c.Head / 2
+	// что брать — вход кластера (буфер только у одного входа): по ленте может приехать чужое
+	item := ""
+	if len(c.In) > 0 {
+		item = c.In[0].Item
+	}
 	for i := 0; i < n; i++ {
 		u := 1 + 2*i
 		ch := f.at(l, "wooden-chest", u, chestV, layout.N, tag)
@@ -406,11 +411,13 @@ func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 		l.Add(ch)
 		if i+1 < n {
 			a := f.tile(u+1, chestV)
-			l.Add(layout.Placement{Name: ins, Pos: a.Center(), Dir: layout.InserterDir(l.P, ins, a, f.tile(u, chestV)), Tag: tag})
+			l.Add(layout.Placement{Name: ins, Pos: a.Center(), Dir: layout.InserterDir(l.P, ins, a, f.tile(u, chestV)), Recipe: item, Tag: tag})
 		}
 	}
-	l.Add(f.inserter(l, ins, 1, insV, v, tag))          // с ленты в ящик 1
-	l.Add(f.inserter(l, ins, 2*n-1, insV, chestV, tag)) // из последнего — на ленту
+	first, last := f.inserter(l, ins, 1, insV, v, tag), f.inserter(l, ins, 2*n-1, insV, chestV, tag)
+	first.Recipe, last.Recipe = item, item
+	l.Add(first) // с ленты в ящик 1
+	l.Add(last)  // из последнего — на ленту
 	return nil
 }
 

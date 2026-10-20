@@ -86,7 +86,7 @@ func (l *Layout) mineAt(patch []world.Tile, ore, drill string, maxDrills int, ta
 						n++
 					}
 				}
-				if n < half || !l.CanPlace(pl, AnyLand) {
+				if _, mixed := l.OreUnder(pl, ore); mixed || n < half || !l.CanPlace(pl, AnyLand) {
 					continue
 				}
 				l.Add(pl)

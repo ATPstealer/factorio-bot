@@ -222,6 +222,10 @@ func apply(s *State, p *Primitive) error {
 		if o := s.Role(p.Role); o != nil {
 			o.Recipe = p.Recipe
 		}
+	case "filter":
+		if o := s.Role(p.Role); o != nil {
+			o.Filter = p.Item
+		}
 	case "idle":
 		return fmt.Errorf("sim: %s", p)
 	case "rotate":

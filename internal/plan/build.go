@@ -28,6 +28,9 @@ type Built struct {
 
 // in — размещение i входит в строимое.
 func (g Built) in(i int) bool {
+	if g.List[i].Name == "" {
+		return false // снято из раскладки (бур на смеси ресурсов) — см. removed
+	}
 	if len(g.Groups) == 0 {
 		return true
 	}
@@ -59,7 +62,7 @@ func (g Built) String() string {
 	return fmt.Sprintf("построить %s (%d построек)", g.Tag, len(g.List))
 }
 func (g Built) Satisfied(s *State) bool {
-	if len(g.missing(s)) > 0 || len(g.unfueled(s)) > 0 || len(g.empty(s)) > 0 {
+	if len(g.missing(s)) > 0 || len(g.removed(s)) > 0 || len(g.unfueled(s)) > 0 || len(g.empty(s)) > 0 {
 		return false
 	}
 	for i, p := range g.List {
@@ -71,6 +74,9 @@ func (g Built) Satisfied(s *State) bool {
 			return false
 		}
 		if p.Recipe != "" && o.Recipe != p.Recipe && s.Protos.Entities[p.Name].Type == "assembling-machine" {
+			return false
+		}
+		if filtered(p) && o.Filter != p.Recipe {
 			return false
 		}
 		if p.Name == "underground-belt" && (o.UGType != "" && o.UGType != p.Recipe || o.Dir != nil && *o.Dir != p.Dir) {
@@ -103,7 +109,7 @@ func (g Built) unfueled(s *State) []string {
 		}
 		role := BuildRole(g.Tag, i)
 		// уголь — сырьё рецепта (пластик): пустой сундук-кормушка — наполнить
-		if eatsCoal(s, p.Recipe) {
+		if s.Protos.Entities[p.Name].Type == "assembling-machine" && eatsCoal(s, p.Recipe) {
 			if o := s.Role(role); o != nil && o.Status != "working" {
 				if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") == 0 {
 					res = append(res, ch.Role)
@@ -123,6 +129,21 @@ func (g Built) unfueled(s *State) []string {
 			if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") > 0 {
 				continue // кормится из сундука
 			}
+			res = append(res, role)
+		}
+	}
+	return res
+}
+
+// filtered — у инсертера раскладки задан фильтр (Recipe — что брать). Только у обычного:
+// окно burner-инсертера другое (у него и ленты одного угля).
+func filtered(p layout.Placement) bool { return p.Name == "inserter" && p.Recipe != "" }
+
+// removed — роли снятых из раскладки размещений (Name ""), которые ещё стоят: поднять.
+func (g Built) removed(s *State) []string {
+	var res []string
+	for i, p := range g.List {
+		if role := BuildRole(g.Tag, i); p.Name == "" && s.Role(role) != nil {
 			res = append(res, role)
 		}
 	}
@@ -277,6 +298,9 @@ func (g Built) selfFed(s *State, o *Owned) bool {
 }
 
 func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
+	if rm := g.removed(s); len(rm) > 0 {
+		return c.prim(Primitive{Kind: "pickup", Item: "снятое из раскладки", Roles: rm}), nil
+	}
 	miss := g.missing(s)
 	if len(miss) == 0 {
 		// стоит, но повёрнуто не так (поворот мог не дойти) — довернуть
@@ -308,6 +332,20 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 					if !pl.banned(pr.Key()) {
 						return pr, nil
 					}
+				}
+			}
+		}
+		// инсертер буфера/снабжения без фильтра — задать (что брать: иначе в ящик ляжет всё,
+		// что едет по ленте)
+		for i, p := range g.List {
+			if !g.in(i) || !filtered(p) {
+				continue
+			}
+			role := BuildRole(g.Tag, i)
+			if o := s.Role(role); o != nil && o.Filter != p.Recipe {
+				pr := c.prim(Primitive{Kind: "filter", Role: role, Item: p.Recipe})
+				if !pl.banned(pr.Key()) {
+					return pr, nil
 				}
 			}
 		}

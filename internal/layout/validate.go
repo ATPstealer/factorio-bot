@@ -51,13 +51,17 @@ func (l *Layout) Validate() []string {
 		switch {
 		case e.Type == "mining-drill":
 			if l.W != nil {
-				ore := false
+				kinds := map[string]bool{}
 				for _, t := range MiningArea(l.P, pl) {
-					_, ok := l.W.ResourceAt(t)
-					ore = ore || ok
+					if r, ok := l.W.ResourceAt(t); ok {
+						kinds[r.Name] = true
+					}
 				}
-				if !ore {
+				switch {
+				case len(kinds) == 0:
 					add("%s: в зоне добычи нет руды", pl)
+				case len(kinds) > 1:
+					add("%s: в зоне добычи несколько ресурсов %v", pl, kinds)
 				}
 			}
 			if out := DrillOutput(l.P, pl); l.At(out) == nil && !l.ends[out] {
@@ -72,8 +76,8 @@ func (l *Layout) Validate() []string {
 				if !l.ends[next] {
 					add("лента %v %s обрывается", t, DirName(pl.Dir))
 				}
-			case isBelt(n.Name) || isUnderground(n.Name):
-				if (n.Dir+8)%16 == pl.Dir {
+			case isBelt(n.Name) || isUnderground(n.Name) || l.P.Entities[n.Name].Type == "splitter":
+				if (n.Dir+8)%16 == pl.Dir || l.P.Entities[n.Name].Type == "splitter" && n.Dir != pl.Dir {
 					add("лента %v %s упирается во встречную", t, DirName(pl.Dir))
 				}
 			default:

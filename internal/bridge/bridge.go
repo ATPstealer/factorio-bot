@@ -357,6 +357,7 @@ type EntityState struct {
 	Belt             map[string]int            `json:"belt,omitempty"`      // что лежит на ленте
 	UGType           string                    `json:"ug_type,omitempty"`   // подземка: input/output
 	UGPaired         bool                      `json:"ug_paired,omitempty"` // у подземки есть пара
+	Filters          List[string]              `json:"filters,omitempty"`   // фильтр инсертера (включён)
 	Fluids           map[string]float64        `json:"fluids,omitempty"`    // жидкости в ящиках
 	I                int                       `json:"i,omitempty"`         // номер в запросе GetEntities (с 1)
 }

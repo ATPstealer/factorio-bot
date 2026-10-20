@@ -27,6 +27,7 @@ type Owned struct {
 	Dir    *int                      `json:"-"` // направление в игре (nil — без направления)
 	Recipe string                    `json:"-"` // рецепт сборщика в игре
 	UGType string                    `json:"-"` // подземка в игре: input/output
+	Filter string                    `json:"-"` // фильтр инсертера в игре (первый)
 	// Network — электросеть в игре (0 — не подключена к столбам; в симуляции -1 — неизвестно)
 	Network int `json:"-"`
 }
@@ -244,6 +245,8 @@ func (p *Primitive) String() string {
 		s = fmt.Sprintf("повернуть %s направлением %d", p.Role, p.Dir)
 	case "recipe":
 		s = fmt.Sprintf("рецепт %s в %s", p.Recipe, p.Role)
+	case "filter":
+		s = fmt.Sprintf("фильтр %s у %s", p.Item, p.Role)
 	case "collect":
 		s = fmt.Sprintf("собрать %s с %d построек (%s…)", p.Item, len(p.Roles), p.Roles[0])
 	case "refuel":

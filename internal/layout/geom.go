@@ -108,6 +108,25 @@ func MiningArea(p *knowledge.Prototypes, pl Placement) []world.Tile {
 	return world.BoxTiles(b)
 }
 
+// OreUnder — сколько тайлов зоны добычи бура pl на руде ore; mixed — в зоне есть другой
+// ресурс (бур добывал бы оба — на выходе смесь; правило пользователя: бур — только на
+// одном ресурсе).
+func (l *Layout) OreUnder(pl Placement, ore string) (n int, mixed bool) {
+	if l.W == nil {
+		return 0, false
+	}
+	for _, t := range MiningArea(l.P, pl) {
+		if r, ok := l.W.ResourceAt(t); ok {
+			if r.Name == ore {
+				n++
+			} else {
+				mixed = true
+			}
+		}
+	}
+	return n, mixed
+}
+
 // InserterEnds — откуда инсертер берёт и куда кладёт (тайлы).
 func InserterEnds(p *knowledge.Prototypes, pl Placement) (pick, drop world.Tile) {
 	e := p.Entities[pl.Name]

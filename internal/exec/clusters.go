@@ -713,3 +713,66 @@ func (r *Runner) stageZero(s *plan.State) {
 	}
 	s.StartRemovable = plates >= 100
 }
+
+// migrateFilters — раскладки, сделанные до фильтров инсертеров: буферам и снабжению
+// проставить «что брать». Инсертеры кластеров — по повторной раскладке внутренности (та же
+// геометрия — те же места); буферы на входящих лентах (логистика) — по тому, чего больше в
+// их ящике. Один раз.
+func (r *Runner) migrateFilters(s *plan.State) {
+	if r.Saved.Done == nil || r.Saved.Done["filters"] {
+		return
+	}
+	want := map[string]string{} // тег@позиция → предмет
+	key := func(tag string, p bridge.Pos) string { return fmt.Sprintf("%s@%.1f,%.1f", tag, p.X, p.Y) }
+	for _, c := range r.Saved.Clusters {
+		if c.Kind == cluster.Mine {
+			continue
+		}
+		cp := *c
+		cp.Ports, cp.Water = nil, nil
+		l := layout.New(r.H.Protos, nil)
+		tag := "c/" + c.Name
+		if err := cluster.Interior(l, &cp, tag); err != nil {
+			continue
+		}
+		for _, pl := range l.List {
+			if pl.Name == "inserter" && pl.Recipe != "" {
+				want[key(tag, pl.Pos)] = pl.Recipe
+			}
+		}
+	}
+	chestAt := map[world.Tile]*plan.Owned{}
+	for _, o := range s.Owned {
+		if r.H.Protos.Entities[o.Name].Type == "container" {
+			chestAt[world.TileOf(o.Pos)] = o
+		}
+	}
+	n := 0
+	for _, list := range r.Saved.Designs {
+		for i, pl := range list {
+			if pl.Name != "inserter" || pl.Recipe != "" {
+				continue
+			}
+			item := want[key(pl.Tag, pl.Pos)]
+			if item == "" && strings.HasPrefix(pl.Tag, cluster.LogisticsTag+"/") {
+				pick, drop := layout.InserterEnds(r.H.Protos, pl)
+				for _, t := range []world.Tile{pick, drop} {
+					if ch := chestAt[t]; ch != nil {
+						best := 0
+						for it, v := range ch.Inv["chest"] {
+							if v > best {
+								item, best = it, v
+							}
+						}
+					}
+				}
+			}
+			if item != "" {
+				list[i].Recipe = item
+				n++
+			}
+		}
+	}
+	r.journal("фильтры инсертеров в старых раскладках: %d", n)
+	r.Saved.Done["filters"] = true
+}

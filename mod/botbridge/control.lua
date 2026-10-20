@@ -208,6 +208,14 @@ local function entity_state(p, name, position)
     r.crafting_progress = e.crafting_progress
   end
   r.network = util.try(function() return e.electric_network_id end)
+  if e.type == "inserter" and e.use_filters then -- фильтр «что брать»
+    local f = {}
+    for i = 1, e.filter_slot_count do
+      local x = e.get_filter(i)
+      if x then f[#f + 1] = x.name end
+    end
+    if #f > 0 then r.filters = f end
+  end
   if e.type == "underground-belt" then -- input/output, есть ли пара
     r.ug_type = e.belt_to_ground_type
     r.ug_paired = e.neighbours ~= nil or nil

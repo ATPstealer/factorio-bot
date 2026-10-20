@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -262,9 +263,15 @@ func rateOf(fs []Flow, item string) float64 {
 	return 0
 }
 
-// tap — отвод с ленты line к порту p: инсертер сбоку прямого участка берёт с ленты и кладёт
-// на начало новой ленты, она идёт к p. Пробуются места ближе к p.
+// tap — отвод с ленты line к порту p: делитель (splitter) на прямом участке — второй его
+// выход начинает новую ленту к p (решение пользователя: инсертер с ленты на ленту не тянет
+// поток). Делитель недоступен — инсертер сбоку. Пробуются места ближе к p.
 func tap(l *layout.Layout, line []layout.Placement, p Port, tag string) error {
+	if l.Usable == nil || l.Usable("splitter") {
+		if err := splitTap(l, line, p, tag); err == nil {
+			return nil
+		}
+	}
 	type cand struct {
 		at, ins, start world.Tile
 		side           int
@@ -292,9 +299,79 @@ func tap(l *layout.Layout, line []layout.Placement, p Port, tag string) error {
 			break
 		}
 		mark := l.Mark()
-		l.Add(layout.Placement{Name: "inserter", Pos: c.ins.Center(), Dir: layout.InserterDir(l.P, "inserter", c.ins, c.at), Tag: tag})
+		l.Add(layout.Placement{Name: "inserter", Pos: c.ins.Center(), Dir: layout.InserterDir(l.P, "inserter", c.ins, c.at), Recipe: p.Item, Tag: tag})
 		if _, err = l.RouteBelt(c.start, c.side, p.T, p.Dir, tag); err == nil {
 			return nil
+		}
+		l.Rollback(mark)
+	}
+	return err
+}
+
+// splitTap — делитель вместо ленты t прямого участка line (лента до и после — того же
+// направления), рядом с ней — тайл s; с выхода s — новая лента к порту p. Лента t из этой
+// раскладки заменяется на месте; уже стоящая (прошлых этапов) — делитель ставится поверх
+// (игра заменяет ленту), раскладка прошлого этапа снимает её (Runner.supersede).
+func splitTap(l *layout.Layout, line []layout.Placement, p Port, tag string) error {
+	dir := map[world.Tile]int{}
+	for _, b := range line {
+		if b.Name == "transport-belt" {
+			dir[world.TileOf(b.Pos)] = b.Dir
+		}
+	}
+	type cand struct {
+		t, s  world.Tile
+		d, at int
+	}
+	var cs []cand
+	for _, b := range line {
+		if b.Name != "transport-belt" {
+			continue
+		}
+		t, d := world.TileOf(b.Pos), b.Dir
+		if q := l.At(t); q != nil && q.Name != "transport-belt" {
+			continue // уже делитель (прошлый отвод)
+		}
+		if pd, ok := dir[layout.Step(t, (d+8)%16)]; !ok || pd != d {
+			continue
+		}
+		if nd, ok := dir[layout.Step(t, d)]; !ok || nd != d {
+			continue
+		}
+		for _, side := range []int{(d + 4) % 16, (d + 12) % 16} {
+			s := layout.Step(t, side)
+			start, behind := layout.Step(s, d), layout.Step(s, (d+8)%16)
+			if !l.Free(s, layout.AnyLand) || !l.Free(start, layout.AnyLand) {
+				continue
+			}
+			if q := l.At(behind); q != nil && (q.Name == "transport-belt" || q.Name == "underground-belt" || q.Name == "splitter") {
+				continue // во второй вход делителя что-то въедет
+			}
+			cs = append(cs, cand{t, s, d, abs(start.X-p.T.X) + abs(start.Y-p.T.Y)})
+		}
+	}
+	sort.Slice(cs, func(i, j int) bool { return cs[i].at < cs[j].at })
+	var err error = layout.ErrNoRoute
+	for i, c := range cs {
+		if i >= 60 {
+			break
+		}
+		tc, sc := c.t.Center(), c.s.Center()
+		sp := layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (tc.X + sc.X) / 2, Y: (tc.Y + sc.Y) / 2}, Dir: c.d, Tag: tag}
+		mark := l.Mark()
+		idx, own := l.Index(c.t)
+		var old layout.Placement
+		if own {
+			old = l.List[idx]
+			l.Replace(idx, sp)
+		} else {
+			l.Add(sp)
+		}
+		if _, err = l.RouteBelt(layout.Step(c.s, c.d), c.d, p.T, p.Dir, tag); err == nil {
+			return nil
+		}
+		if own {
+			l.Replace(idx, old)
 		}
 		l.Rollback(mark)
 	}
@@ -354,12 +431,12 @@ func lineBuffer(l *layout.Layout, line []layout.Placement, c *Cluster, item stri
 				l.Add(layout.Placement{Name: "wooden-chest", Pos: box[j].Center(), Tag: tag})
 				if j-2 >= down {
 					m := box[j-1]
-					l.Add(layout.Placement{Name: "inserter", Pos: m.Center(), Dir: layout.InserterDir(l.P, "inserter", m, box[j]), Tag: tag})
+					l.Add(layout.Placement{Name: "inserter", Pos: m.Center(), Dir: layout.InserterDir(l.P, "inserter", m, box[j]), Recipe: item, Tag: tag})
 				}
 			}
 			bt := func(j int) world.Tile { return world.TileOf(run[j].Pos) }
-			l.Add(layout.Placement{Name: "inserter", Pos: ins[up].Center(), Dir: layout.InserterDir(l.P, "inserter", ins[up], bt(up)), Tag: tag})
-			l.Add(layout.Placement{Name: "inserter", Pos: ins[down].Center(), Dir: layout.InserterDir(l.P, "inserter", ins[down], box[down]), Tag: tag})
+			l.Add(layout.Placement{Name: "inserter", Pos: ins[up].Center(), Dir: layout.InserterDir(l.P, "inserter", ins[up], bt(up)), Recipe: item, Tag: tag})
+			l.Add(layout.Placement{Name: "inserter", Pos: ins[down].Center(), Dir: layout.InserterDir(l.P, "inserter", ins[down], box[down]), Recipe: item, Tag: tag})
 			return
 		}
 	}

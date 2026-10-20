@@ -228,6 +228,10 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 			continue
 		}
 		o.Inv, o.Status, o.Dir, o.Recipe, o.UGType = st.Inventories, st.Status, st.Direction, st.Recipe, st.UGType
+		o.Filter = ""
+		if len(st.Filters) > 0 {
+			o.Filter = st.Filters[0]
+		}
 		o.Network = st.Network
 		if o.Inv == nil {
 			o.Inv = map[string]map[string]int{}
@@ -455,6 +459,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	r.migrateFilters(s)
 	if len(r.Saved.Clusters) > 0 && time.Since(r.monitored) >= time.Minute {
 		r.monitored = time.Now()
 		// в журнал — только перемены
@@ -724,6 +729,12 @@ func (r *Runner) exec(ctx context.Context, s *plan.State, p *plan.Primitive) err
 			return err
 		}
 		return h.SetRecipe(ctx, e, p.Recipe)
+	case "filter":
+		_, e, err := r.owned(p.Role)
+		if err != nil {
+			return err
+		}
+		return h.SetFilter(ctx, e, p.Item)
 	case "rotate":
 		o, e, err := r.owned(p.Role)
 		if err != nil {
@@ -1166,8 +1177,30 @@ func (r *Runner) buildAll(ctx context.Context, p *plan.Primitive) error {
 }
 
 // design — раскладка под задачу kind (см. plan.State.Design), спроектированная один раз.
+// dropMixedDrills — буры раскладки, чья зона добычи захватывает несколько ресурсов (на
+// выходе смесь; правило пользователя: бур — только на одном ресурсе), снимаются из неё:
+// Name "" — Built поднимет уже стоящий.
+func (r *Runner) dropMixedDrills(l []layout.Placement) {
+	for i, pl := range l {
+		if pl.Name == "" || r.H.Protos.Entities[pl.Name].Type != "mining-drill" {
+			continue
+		}
+		kinds := map[string]bool{}
+		for _, t := range layout.MiningArea(r.H.Protos, pl) {
+			if res, ok := r.H.World.ResourceAt(t); ok {
+				kinds[res.Name] = true
+			}
+		}
+		if len(kinds) > 1 {
+			r.journal("бур %s (%.1f, %.1f) захватывает %d ресурса — снят из раскладки", pl.Name, pl.Pos.X, pl.Pos.Y, len(kinds))
+			l[i].Name = ""
+		}
+	}
+}
+
 func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	if l, ok := r.Saved.Designs[kind]; ok {
+		r.dropMixedDrills(l)
 		return plan.Built{Tag: kind, List: l, Order: r.stageOrder(kind, l)}, true
 	}
 	// не вышло недавно — не пересчитывать каждый шаг (карта меняется медленно)
@@ -1245,8 +1278,36 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		r.Saved.Designs = map[string][]layout.Placement{}
 	}
 	r.Saved.Designs[kind] = l.List
+	r.supersede(kind)
 	r.journal("раскладка %s: %s", kind, l.Summary())
 	return plan.Built{Tag: kind, List: l.List, Order: r.stageOrder(kind, l.List)}, true
+}
+
+// supersede — делители раскладки kind, поставленные поверх лент прошлых раскладок (отвод с
+// уже стоящей линии): те ленты из прошлых раскладок сняты (Name ""), игра заменит их
+// делителем.
+func (r *Runner) supersede(kind string) {
+	under := map[world.Tile]bool{}
+	for _, pl := range r.Saved.Designs[kind] {
+		if pl.Name == "splitter" {
+			for _, t := range layout.Tiles(r.H.Protos, pl) {
+				under[t] = true
+			}
+		}
+	}
+	if len(under) == 0 {
+		return
+	}
+	for k, list := range r.Saved.Designs {
+		if k == kind {
+			continue
+		}
+		for i, pl := range list {
+			if pl.Name == "transport-belt" && under[world.TileOf(pl.Pos)] {
+				list[i].Name = ""
+			}
+		}
+	}
 }
 
 // alias — постройка из раскладки уже стоит под ролью другой раскладки (насосы oil-jacks
