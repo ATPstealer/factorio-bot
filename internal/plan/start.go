@@ -409,16 +409,20 @@ func (g Unload) Satisfied(s *State) bool {
 	return room == 0
 }
 
-// pick — что выгружать: больше всего лишних ячеек.
+// unloadOrder — что выгружать первым: мусор (руда, камень, уголь, старые постройки), пластины
+// — последними (их собирают под крафт: выгрузишь — пойдёт собирать снова).
+var unloadOrder = []string{"iron-ore", "copper-ore", "stone", "burner-mining-drill", "coal",
+	"stone-brick", "stone-furnace", "wooden-chest", "copper-plate", "iron-plate"}
+
+// pick — что выгружать: первое по порядку, чего сверх запаса хоть на ячейку.
 func (g Unload) pick(s *State) string {
-	best, slots := "", 0
-	for it, keep := range unloadKeep {
+	for _, it := range unloadOrder {
 		stack := max(1, s.Protos.Items[it].StackSize)
-		if n := (s.Inventory[it] - keep) / stack; n > slots || n == slots && n > 0 && it < best {
-			best, slots = it, n
+		if s.Inventory[it]-unloadKeep[it] >= stack {
+			return it
 		}
 	}
-	return best
+	return ""
 }
 
 func (g Unload) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
