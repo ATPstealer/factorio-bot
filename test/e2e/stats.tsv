@@ -1,0 +1,24 @@
+test	runs	passed	failed	skipped	last	when	secs
+AvailabilityMatchesForce	1	1	0	0	PASS	2026-10-20 19:05	0.37
+Config	1	1	0	0	PASS	2026-10-20 19:05	0.00
+Craft	1	1	0	0	PASS	2026-10-20 19:05	2.45
+DrillOneOreTile	1	1	0	0	PASS	2026-10-20 19:05	14.86
+Explore	1	1	0	0	PASS	2026-10-20 20:13	63.50
+FurnaceHugsTree	1	1	0	0	PASS	2026-10-20 19:05	25.05
+Game	1	1	0	0	PASS	2026-10-20 19:05	0.74
+Guards	1	1	0	0	PASS	2026-10-20 19:05	7.28
+InventoryWindow	1	1	0	0	PASS	2026-10-20 20:13	0.62
+Mine	1	1	0	0	PASS	2026-10-20 19:05	7.27
+OnlyCharted	1	1	0	0	PASS	2026-10-20 19:05	22.73
+PathAroundLake	1	0	1	0	FAIL	2026-10-20 19:05	47.34
+PickFromInventory	1	1	0	0	PASS	2026-10-20 20:13	1.10
+PlaceAmongBelts	2	2	0	0	PASS	2026-10-20 20:15	73.87
+PlaceNextToSelf	1	1	0	0	PASS	2026-10-20 20:13	18.49
+RocketPartPlan	1	1	0	0	PASS	2026-10-20 19:05	0.72
+SetFilter	1	1	0	0	PASS	2026-10-20 20:13	8.70
+SetRecipe	2	2	0	0	PASS	2026-10-20 20:15	12.12
+SnapshotMatchesGame	1	1	0	0	PASS	2026-10-20 19:05	0.41
+StartResearch	1	1	0	0	PASS	2026-10-20 20:13	3.85
+Unstuck	1	1	0	0	PASS	2026-10-20 19:05	14.28
+Walk	1	1	0	0	PASS	2026-10-20 19:05	7.57
+WorldMatchesGame	1	1	0	0	PASS	2026-10-20 19:05	2.33
