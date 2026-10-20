@@ -26,7 +26,7 @@ e2e() {
   set +e
   go test -tags e2e -count=1 -timeout 150m -run "$1" -v ./test/e2e/ | tee run/e2e-last.log | grep --line-buffered -E '^(=== RUN|--- |    |PASS|FAIL|ok|panic|fatal|\[signal|\t/)' | grep --line-buffered -v '^=== RUN'
   local code=${PIPESTATUS[0]}
-  scripts/test_stats.py run/e2e-last.log # статистика — test/e2e/stats.tsv и таблица в README
+  scripts/test_stats.py run/e2e-last.log "$(date "+%F %R")${SNAP:+ ($SNAP)}" # статистика — test/e2e/stats.tsv и таблица в README
   set -e
   return "$code"
 }
