@@ -352,8 +352,8 @@ func (g Dismantled) Satisfied(s *State) bool {
 			return false
 		}
 	}
-	if len(s.StorageRoles) == 0 {
-		return true
+	if _, room := storageRoom(s); room == 0 {
+		return true // склада нет или он полон
 	}
 	for _, it := range startJunk {
 		if s.Inventory[it] > 0 {
@@ -373,10 +373,13 @@ func (g Dismantled) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if len(p.Roles) > 0 {
 		return p, nil
 	}
-	// в склад — по ящику на вид
-	for i, it := range startJunk {
-		if n := s.Inventory[it]; n > 0 && len(s.StorageRoles) > 0 {
-			return sub(pl, s, c, Supplied{s.StorageRoles[i%len(s.StorageRoles)], it, n})
+	// в склад — где есть место
+	for _, it := range startJunk {
+		if n := s.Inventory[it]; n > 0 {
+			if role, room := storageRoom(s); room > 0 {
+				stack := max(1, s.Protos.Items[it].StackSize)
+				return c.prim(Primitive{Kind: "insert", Role: role, Item: it, N: min(n, room*stack)}), nil
+			}
 		}
 	}
 	return nil, nil
@@ -397,7 +400,11 @@ type Unload struct{}
 func (g Unload) Key() string    { return "unload" }
 func (g Unload) String() string { return "разгрузить инвентарь в склад" }
 func (g Unload) Satisfied(s *State) bool {
-	return s.SlotsFree < 0 || s.SlotsFree >= unloadFree || len(s.StorageRoles) == 0 || g.pick(s) == ""
+	if s.SlotsFree < 0 || s.SlotsFree >= unloadFree || g.pick(s) == "" {
+		return true
+	}
+	_, room := storageRoom(s)
+	return room == 0
 }
 
 // pick — что выгружать: больше всего лишних ячеек.
@@ -419,8 +426,16 @@ func (g Unload) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	}
 	// в ящик склада, где больше места; весь вид разом или сколько влезет (Ctrl+клик —
 	// быстро; нужное потом заберётся со склада)
+	role, room := storageRoom(s)
+	if room == 0 {
+		return nil, nil
+	}
 	stack := max(1, s.Protos.Items[it].StackSize)
-	role, room := "", 0
+	return c.prim(Primitive{Kind: "insert", Role: role, Item: it, N: min(s.Inventory[it], room*stack)}), nil
+}
+
+// storageRoom — ящик склада, где больше свободных ячеек, и сколько их.
+func storageRoom(s *State) (role string, room int) {
 	for _, r := range s.StorageRoles {
 		o := s.Role(r)
 		if o == nil {
@@ -428,16 +443,14 @@ func (g Unload) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		}
 		free := chestSlots[o.Name]
 		for name, v := range o.Inv["chest"] {
-			free -= (v + max(1, s.Protos.Items[name].StackSize) - 1) / max(1, s.Protos.Items[name].StackSize)
+			stack := max(1, s.Protos.Items[name].StackSize)
+			free -= (v + stack - 1) / stack
 		}
 		if free > room {
 			role, room = r, free
 		}
 	}
-	if role == "" {
-		return nil, nil
-	}
-	return c.prim(Primitive{Kind: "insert", Role: role, Item: it, N: min(s.Inventory[it], room*stack)}), nil
+	return role, room
 }
 
 // chestSlots — ячеек в сундуке.
