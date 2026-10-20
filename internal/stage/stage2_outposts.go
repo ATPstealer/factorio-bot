@@ -237,8 +237,12 @@ func (s *s2) have(ctx context.Context, item string, n int) error {
 	return nil
 }
 
-// craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево).
+// craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в
+// очереди крафта — только дождаться.
 func (s *s2) craft(ctx context.Context, item string, n int) error {
+	if s.queued(item) >= n {
+		return s.waitInv(ctx, item, s.inv(item)+n, time.Duration(n*10+15)*time.Second)
+	}
 	need := map[string]int{}
 	switch item {
 	case drill: // 3 шестерни (6 железа) + 3 железа + печь (5 камня)
@@ -259,7 +263,72 @@ func (s *s2) craft(ctx context.Context, item string, n int) error {
 			}
 		}
 	}
-	return s.h.CraftWait(ctx, item, n)
+	// пачкой: в очередь — сколько ещё не хватает на точках и на сколько есть сырья; ждать
+	// только нужное сейчас, остальное крафтится, пока бот ставит и заправляет
+	total := n
+	if item == drill || item == furnace {
+		missing := s.missing(item) - s.inv(item) - s.queued(item)
+		afford := s.inv("stone") / 5
+		if item == drill {
+			afford = min(afford, s.inv("iron-plate")/9)
+		}
+		total = max(n, min(missing, afford))
+	}
+	if total > n {
+		s.h.Say("в очередь %s ×%d (нужно сейчас %d)", item, total, n)
+	}
+	before := s.inv(item)
+	if err := s.h.Craft(ctx, item, total); err != nil {
+		return err
+	}
+	return s.waitInv(ctx, item, before+n, time.Duration(n*10+15)*time.Second)
+}
+
+// waitInv — дождаться, пока item в инвентаре станет не меньше n.
+func (s *s2) waitInv(ctx context.Context, item string, n int, limit time.Duration) error {
+	deadline := time.Now().Add(limit)
+	for s.inv(item) < n {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("крафт %s не закончился (есть %d, ждали %d)", item, s.inv(item), n)
+		}
+		if err := sleepCtx(ctx, 500*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// missing — сколько item ещё не стоит на точках (и на буры: печь в рецепте бура).
+func (s *s2) missing(item string) int {
+	n := 0
+	for _, site := range s.sites {
+		for _, pl := range site.Items {
+			if e, err := s.entity(pl); err == nil && e == nil {
+				if pl.Name == item {
+					n++
+				}
+				if item == furnace && pl.Name == drill {
+					n++ // печь — в рецепте бура
+				}
+			}
+		}
+	}
+	return n
+}
+
+// queued — сколько item уже в очереди крафта.
+func (s *s2) queued(item string) int {
+	p, err := s.h.B.Player()
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, q := range p.CraftingQueue {
+		if q.Recipe == item {
+			n += q.Count
+		}
+	}
+	return n
 }
 
 // built — постройки name на точках руды ore, которые уже стоят.
