@@ -389,7 +389,7 @@ func (g Dismantled) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 // unloadKeep — что бот носит навалом и сколько оставить себе; лишнее при полном
 // инвентаре — в склад (крафт с полным инвентарём встаёт).
 var unloadKeep = map[string]int{"coal": 50, "stone": 50, "iron-ore": 0, "copper-ore": 0,
-	"iron-plate": 200, "copper-plate": 200, "stone-brick": 100, "burner-mining-drill": 0,
+	"iron-plate": 800, "copper-plate": 600, "stone-brick": 100, "burner-mining-drill": 0,
 	"stone-furnace": 10, "wooden-chest": 10}
 
 // unloadFree — сколько ячеек держать свободными.
@@ -425,14 +425,13 @@ func (g Unload) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	if it == "" {
 		return nil, nil
 	}
-	// в ящик склада, где больше места; весь вид разом или сколько влезет (Ctrl+клик —
-	// быстро; нужное потом заберётся со склада)
+	// в ящик склада, где больше места; лишнее сверх запаса (нужное стройке остаётся)
 	role, room := storageRoom(s)
 	if room == 0 {
 		return nil, nil
 	}
 	stack := max(1, s.Protos.Items[it].StackSize)
-	return c.prim(Primitive{Kind: "insert", Role: role, Item: it, N: min(s.Inventory[it], room*stack)}), nil
+	return c.prim(Primitive{Kind: "insert", Role: role, Item: it, N: min(s.Inventory[it]-unloadKeep[it], room*stack)}), nil
 }
 
 // storageRoom — ящик склада, где больше свободных ячеек, и сколько их.
