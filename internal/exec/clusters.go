@@ -972,7 +972,7 @@ func (r *Runner) migrateTaps(s *plan.State) {
 					side = sd
 				}
 			}
-			if side < 0 || br.Dir != side {
+			if side < 0 || br.Dir != side && br.Dir != d {
 				continue
 			}
 			prev, next := get(layout.Step(t, (d+8)%16)), get(layout.Step(t, d))
@@ -980,17 +980,26 @@ func (r *Runner) migrateTaps(s *plan.State) {
 				continue // не прямой участок
 			}
 			a, b := layout.Step(sTile, d), layout.Step(q, d)
-			if !free(a) || !free(b) {
-				continue
-			}
 			tc, sc := t.Center(), sTile.Center()
-			list = append(list,
-				layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (tc.X + sc.X) / 2, Y: (tc.Y + sc.Y) / 2}, Dir: d, Tag: ins.Tag},
-				layout.Placement{Name: "transport-belt", Pos: a.Center(), Dir: side, Tag: ins.Tag},
-				layout.Placement{Name: "transport-belt", Pos: b.Center(), Dir: (d + 8) % 16, Tag: ins.Tag})
+			sp := layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (tc.X + sc.X) / 2, Y: (tc.Y + sc.Y) / 2}, Dir: d, Tag: ins.Tag}
+			if br.Dir == d {
+				// ответвление сразу идёт вдоль линии: s+d → боком в его второй тайл q+d
+				if nb := get(b); !free(a) || nb == nil || nb.Name != "transport-belt" || nb.Tag != br.Tag {
+					continue
+				}
+				list = append(list, sp, layout.Placement{Name: "transport-belt", Pos: a.Center(), Dir: side, Tag: ins.Tag})
+				taken[a] = true
+			} else {
+				if !free(a) || !free(b) {
+					continue
+				}
+				list = append(list, sp,
+					layout.Placement{Name: "transport-belt", Pos: a.Center(), Dir: side, Tag: ins.Tag},
+					layout.Placement{Name: "transport-belt", Pos: b.Center(), Dir: (d + 8) % 16, Tag: ins.Tag})
+				taken[a], taken[b] = true, true
+			}
 			ins.Name = ""
 			line.Name = ""
-			taken[a], taken[b] = true, true
 			n++
 			r.journal("отвод %s у (%.1f, %.1f) — делителем", kind, tc.X, tc.Y)
 		}
