@@ -6,7 +6,7 @@ package e2e
 import "testing"
 
 // Окружение: файлы настроек и связи (без игры).
-func TestBase_Config(t *testing.T) {
+func TestConfig(t *testing.T) {
 	t.Run("map-gen", checkMapGenFile)
 	t.Run("server-settings", checkServerSettings)
 	t.Run("config.ini", checkConfigIni)
@@ -14,7 +14,7 @@ func TestBase_Config(t *testing.T) {
 }
 
 // Игра: сервер идёт, моды, мост отвечает, карта та, клиент бота в Xephyr.
-func TestBase_Game(t *testing.T) {
+func TestGame(t *testing.T) {
 	t.Run("server", checkServerRunning)
 	t.Run("mods", checkMods)
 	t.Run("botbridge", checkBotbridgePing)

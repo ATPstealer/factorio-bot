@@ -15,13 +15,13 @@ import (
 )
 
 // Защиты: меню игры и карта (мод/ввод не доходят до мира) — бот сам их закрывает.
-func TestBase_Guards(t *testing.T) {
+func TestGuards(t *testing.T) {
 	t.Run("menu", checkMenuGuard)
 	t.Run("map", checkMapGuard)
 }
 
 // Окно инвентаря: E открывает окно персонажа, Esc закрывает (меню игры не открывается).
-func TestBase_InventoryWindow(t *testing.T) {
+func TestInventoryWindow(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 30*time.Second)
 	if err := h.OpenInventory(ctx); err != nil {
@@ -38,7 +38,7 @@ func TestBase_InventoryWindow(t *testing.T) {
 
 // Рука: взять из инвентаря предмет, который там есть (хоткей панели или клик в окне
 // инвентаря с привязкой к панели) — он в руке; Q — рука пуста, в инвентаре столько же.
-func TestBase_PickFromInventory(t *testing.T) {
+func TestPickFromInventory(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 30*time.Second)
 	have(t, h, "wood", 1)
@@ -75,7 +75,7 @@ func TestBase_PickFromInventory(t *testing.T) {
 
 // Исследование: окно технологий → поиск → «Start research»; в игре оно текущее или в
 // очереди. Берётся доступная наукой технология (предпосылки изучены).
-func TestBase_StartResearch(t *testing.T) {
+func TestStartResearch(t *testing.T) {
 	h := handsT(t)
 	f, err := h.B.Force()
 	if err != nil {
@@ -131,7 +131,7 @@ func placeNear(t *testing.T, h *act.Hands, item string, size int) bridge.Entity 
 
 // Сборщик: поставить, задать рецепт (клик → окно выбора → поиск → рецепт), поменять на
 // другой (кнопка смены рецепта); подтверждение — мод; поднять.
-func TestBase_SetRecipe(t *testing.T) {
+func TestSetRecipe(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "assembling-machine-1", 1)
 	e := placeNear(t, h, "assembling-machine-1", 3)
@@ -152,7 +152,7 @@ func TestBase_SetRecipe(t *testing.T) {
 
 // Фильтр инсертера: окно инсертера → «Use filters» → ячейка → поиск → предмет;
 // подтверждение — мод.
-func TestBase_SetFilter(t *testing.T) {
+func TestSetFilter(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "inserter", 1)
 	e := placeNear(t, h, "inserter", 1)

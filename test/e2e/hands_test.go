@@ -18,7 +18,7 @@ import (
 )
 
 // Добыча: дойти до дерева, навести курсор, срубить; событие mined_entity в буфере.
-func TestBase_Mine(t *testing.T) {
+func TestMine(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 2*time.Minute)
 	_, seq0, err := h.B.PollEvents(1 << 30)
@@ -82,7 +82,7 @@ func TestBase_Mine(t *testing.T) {
 }
 
 // Печь как можно ближе к дереву, срубить дерево — печь цела.
-func TestBase_FurnaceHugsTree(t *testing.T) {
+func TestFurnaceHugsTree(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
 	have(t, h, "stone-furnace", 1)
@@ -145,7 +145,7 @@ func TestBase_FurnaceHugsTree(t *testing.T) {
 }
 
 // Бур 2×2 ровно на одной клетке руды (остальные три — пустая суша), повёрнут на восток; подобрать.
-func TestBase_DrillOneOreTile(t *testing.T) {
+func TestDrillOneOreTile(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
 	have(t, h, "burner-mining-drill", 1)
@@ -209,7 +209,7 @@ func TestBase_DrillOneOreTile(t *testing.T) {
 	clean(t, h)
 }
 
-func TestBase_Craft(t *testing.T) {
+func TestCraft(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "wood", 2)
 	p0, _ := h.B.Player()
@@ -227,7 +227,7 @@ func TestBase_Craft(t *testing.T) {
 }
 
 // Сценарий: добыть камень → скрафтить печь → поставить → уголь и руда → забрать пластины.
-func TestExtra_FurnaceScenario(t *testing.T) {
+func TestFurnaceScenario(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "stone", 5)
 	have(t, h, "coal", 3)
@@ -278,7 +278,7 @@ func TestExtra_FurnaceScenario(t *testing.T) {
 
 // Поставить рядом с собой: сундук — на клетку, где стоит персонаж (отойти и поставить),
 // печь 2×2 — вплотную к нему.
-func TestBase_PlaceNextToSelf(t *testing.T) {
+func TestPlaceNextToSelf(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "wooden-chest", 1)
 	have(t, h, "stone-furnace", 1)
@@ -310,7 +310,7 @@ func TestBase_PlaceNextToSelf(t *testing.T) {
 // Поставить среди лент: в квадрате 12×12 ленты на случайной половине клеток со случайными
 // направлениями (место печи 2×2 в середине свободно); персонаж выходит из зоны, потом —
 // команда поставить печь. Зерно — в логе (SEED_BELTS=… — повторить).
-func TestBase_PlaceAmongBelts(t *testing.T) {
+func TestPlaceAmongBelts(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "transport-belt", 72)
 	have(t, h, "stone-furnace", 1)

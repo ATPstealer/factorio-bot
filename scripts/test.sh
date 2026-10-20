@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Тесты: юнит + e2e (e2e требуют запущенной игры — scripts/run.sh/newmap.sh). Наборы:
-#   scripts/test.sh              — база (SET=base): функции, без которых ничего не работает
+# Тесты: юнит + e2e (e2e требуют запущенной игры — scripts/run.sh/newmap.sh).
+#   scripts/test.sh              — все e2e
 #   scripts/test.sh Walk         — один тест/шаблон (-run), на текущей карте
-#   SET=extra scripts/test.sh    — прочие сценарии (печь → пластины)
-#   SET=all scripts/test.sh      — всё
 # Карта: по умолчанию текущая (игра перезапускается, только если не запущена или изменился
 # мод); NEW_MAP=1 — новая случайная, SEED=… — конкретная, SNAP=имя — со снимка;
 # SAVE_AS=имя — снимок после зелёного прогона.
@@ -13,7 +11,6 @@ go vet ./... && go vet -tags e2e ./test/e2e/
 go test ./...
 go build -o bin/bot ./cmd/bot
 
-SET=${SET:-base}
 mod=$(find mod/botbridge -type f | sort | xargs cat | md5sum)
 if [[ -n "${SNAP:-}" ]]; then
   scripts/snapshot.sh load "$SNAP"
@@ -34,19 +31,7 @@ e2e() {
 }
 
 code=0
-if [[ -n "${1:-}" ]]; then
-  e2e "$1" || code=$?
-else
-  case $SET in
-  base) e2e '^TestBase_' || code=$? ;;
-  extra) e2e '^TestExtra_' || code=$? ;;
-  all)
-    e2e '^TestBase_' || code=$?
-    e2e '^TestExtra_' || code=$?
-    ;;
-  *) echo "SET: base | extra | all" >&2; exit 2 ;;
-  esac
-fi
+e2e "${1:-.}" || code=$?
 if [[ $code == 0 && -n "${SAVE_AS:-}" ]]; then
   scripts/snapshot.sh save "$SAVE_AS"
 fi

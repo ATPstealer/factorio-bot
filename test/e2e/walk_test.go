@@ -13,7 +13,7 @@ import (
 )
 
 // Ходьба туда и обратно с точностью 0.5 тайла.
-func TestBase_Walk(t *testing.T) {
+func TestWalk(t *testing.T) {
 	h := handsT(t)
 	start, err := h.B.Player()
 	if err != nil {
@@ -44,7 +44,7 @@ func TestBase_Walk(t *testing.T) {
 
 // Выход из ловушки: персонажа обступили кольцом из 8 сундуков — идти наружу: поднять
 // сундук, выйти, поставить назад; все сундуки на месте.
-func TestBase_Unstuck(t *testing.T) {
+func TestUnstuck(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 5*time.Minute)
 	have(t, h, "wooden-chest", 8)
@@ -84,7 +84,7 @@ func TestBase_Unstuck(t *testing.T) {
 }
 
 // Путь A* в обход озера: точки по разные стороны воды.
-func TestBase_PathAroundLake(t *testing.T) {
+func TestPathAroundLake(t *testing.T) {
 	h := handsT(t)
 	w := h.World
 	// самый большой водоём открытой карты
@@ -129,7 +129,7 @@ func TestBase_PathAroundLake(t *testing.T) {
 }
 
 // Разведка: идти к краю открытой карты, пока не откроется ещё 10 чанков.
-func TestBase_Explore(t *testing.T) {
+func TestExplore(t *testing.T) {
 	h := handsT(t)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)

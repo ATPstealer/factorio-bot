@@ -12,7 +12,7 @@ import (
 )
 
 // Честность: поиск сущностей не видит неоткрытые (не charted) чанки.
-func TestBase_OnlyCharted(t *testing.T) {
+func TestOnlyCharted(t *testing.T) {
 	b := bridgeT(t)
 	for _, find := range []func() ([]bridge.Entity, error){
 		func() ([]bridge.Entity, error) {
@@ -74,7 +74,7 @@ func TestBase_OnlyCharted(t *testing.T) {
 }
 
 // Модель совпадает с игрой: запасы руды по видам, вода, деревья — на всей открытой карте.
-func TestBase_WorldMatchesGame(t *testing.T) {
+func TestWorldMatchesGame(t *testing.T) {
 	w := worldT(t)
 	type counts struct {
 		Ore   map[string]int
