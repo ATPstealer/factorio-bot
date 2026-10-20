@@ -132,7 +132,7 @@ func TestFurnaceHugsTree(t *testing.T) {
 	if err := h.WalkToMine(ctx, tree); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.MineCovered(ctx, tree, 10*time.Second); err != nil {
+	if err := h.Mine(ctx, tree, 10*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if e, _ := h.B.EntityAt(tree.Name, tree.Position); e != nil {
