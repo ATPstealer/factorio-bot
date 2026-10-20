@@ -74,7 +74,7 @@ func (g Start) Satisfied(s *State) bool {
 		return false
 	}
 	for _, tag := range StartModules {
-		if s.exhausted(tag) || s.Done["evicted:"+tag] || s.Done["dismantled"] {
+		if s.exhausted(tag) || s.Done["evicted:"+tag] || s.Done["dismantled"] || s.StartRemovable {
 			continue
 		}
 		if site, ok := s.Design(s, tag); ok && !site.Satisfied(s) {
@@ -101,7 +101,7 @@ func (g Start) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 		return p, err
 	}
 	for _, tag := range StartModules {
-		if s.exhausted(tag) || s.Done["evicted:"+tag] || s.Done["dismantled"] {
+		if s.exhausted(tag) || s.Done["evicted:"+tag] || s.Done["dismantled"] || s.StartRemovable {
 			continue // руда под буром кончилась / место занял кластер / нулевой этап разобран
 		}
 		site, ok := s.Design(s, tag)
@@ -263,8 +263,9 @@ func refuelPlan(s *State) (p Primitive, caps []int, need int, low bool) {
 		if _, ore, ok := moduleOf(o.Role); ok && ore == "coal" || s.Protos.Entities[o.Name].Burner == nil {
 			continue
 		}
-		// ручная плавильня и площадки/линии старых целей — у них своя заправка
-		if o.Role == "smelter" || strings.HasPrefix(o.Role, "mine-") || strings.HasPrefix(o.Role, "smelt-") {
+		// ручная плавильня и площадки/линии старых целей — у них своя заправка; нулевой
+		// этап разбирается — его точки не заправлять
+		if s.StartRemovable && startRole(o.Role) || o.Role == "smelter" || strings.HasPrefix(o.Role, "mine-") || strings.HasPrefix(o.Role, "smelt-") {
 			continue
 		}
 		// кластеры (этапы "stage-N") — уголь лентой; бот только заправляет при стройке
