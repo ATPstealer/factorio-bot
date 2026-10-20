@@ -201,37 +201,3 @@ func Attach(p *knowledge.Prototypes, from Conn, name, fluid, tag string) []Place
 	}
 	return res
 }
-
-// FluidConn — трубное соединение машины с рецептом для жидкости fluid: входы — для
-// ингредиентов, выходы — для продуктов; номер — fluidbox_index рецепта, иначе по порядку
-// жидкостей в рецепте (basic-oil-processing: нефть — во второй вход, газ — из третьего выхода).
-func FluidConn(p *knowledge.Prototypes, pl Placement, fluid string) (Conn, bool) {
-	rec := p.Recipes[pl.Recipe]
-	for _, side := range []struct {
-		list knowledge.List[knowledge.Amount]
-		flow string
-	}{{rec.Ingredients, "input"}, {rec.Products, "output"}} {
-		k := 0
-		for _, a := range side.list {
-			if a.Type != "fluid" {
-				continue
-			}
-			k++
-			if a.Name != fluid {
-				continue
-			}
-			if a.FluidboxIndex > 0 {
-				k = a.FluidboxIndex
-			}
-			i := 0
-			for _, c := range Connections(p, pl) {
-				if c.Flow == side.flow {
-					if i++; i == k {
-						return c, true
-					}
-				}
-			}
-		}
-	}
-	return Conn{}, false
-}

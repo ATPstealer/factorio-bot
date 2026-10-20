@@ -140,18 +140,6 @@ func (l *Layout) Summary() string {
 	return s + fmt.Sprintf("убрать перед стройкой: %d тайлов", len(l.Clear))
 }
 
-// Index — номер размещения на тайле в List.
-func (l *Layout) Index(t world.Tile) (int, bool) {
-	i, ok := l.occ[t]
-	return i, ok
-}
-
-// Replace — заменить i-е размещение (номера ролей остаются).
-func (l *Layout) Replace(i int, pl Placement) {
-	l.List[i] = pl
-	l.Rollback(-1)
-}
-
 // Mark/Rollback — откат неудачной попытки раскладки.
 func (l *Layout) Mark() int { return len(l.List) }
 

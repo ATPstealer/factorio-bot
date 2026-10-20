@@ -401,9 +401,6 @@ func (h *Hands) search(ctx context.Context, text string) error {
 	return h.inInventory()
 }
 
-// SearchText — что набирать в поиске: английское название ≈ имя без дефисов.
-func SearchText(name string) string { return strings.ReplaceAll(name, "-", " ") }
-
 // searchWord — что набирать в поиске рецепта: слово имени, которое встречается в наименьшем
 // числе рецептов (при равенстве — длиннее), из тех, где рецепт окажется на первой вкладке
 // результатов (fits; «burner» — сначала burner-inserter из «логистики», а бур — в
@@ -1131,3 +1128,6 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	r, _ := cur()
 	return fmt.Errorf("act: рецепт %s не задался (стоит %q)", recipe, r)
 }
+
+// SearchText — что набирать в поиске: английское название ≈ имя без дефисов.
+func SearchText(name string) string { return strings.ReplaceAll(name, "-", " ") }

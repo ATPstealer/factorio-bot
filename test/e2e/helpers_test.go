@@ -9,6 +9,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"factorio-bot/internal/act"
+	"factorio-bot/internal/calc"
 	"factorio-bot/internal/rcon"
 )
 
@@ -153,4 +156,75 @@ func ini(t *testing.T, file string) map[string]string {
 		}
 	}
 	return m
+}
+
+// have — довести предмет в инвентаре до n руками: сырьё (дерево, камень, уголь, руда) —
+// добыть, остальное — скрафтить из него (ручной крафт). Нужна плавка (пластины) и их нет —
+// тест пропускается: плавить без планировщика тесты не умеют.
+func have(t *testing.T, h *act.Hands, item string, n int) {
+	t.Helper()
+	p, err := h.B.Player()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Inventory[item] >= n {
+		return
+	}
+	ctx := ctxT(t, 15*time.Minute)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	av := h.Protos.NewAvailability(f.Researched, false)
+	hc := calc.Handcraft(h.Protos, av, item, float64(n-p.Inventory[item]))
+	raw := map[string]bool{"wood": true, "stone": true, "coal": true, "iron-ore": true, "copper-ore": true}
+	for base, k := range hc.Base {
+		if base == item {
+			continue
+		}
+		need := int(math.Ceil(k))
+		if !raw[base] {
+			if p.Inventory[base] < need {
+				t.Skipf("для %s нужно %s ×%d — плавить тесты не умеют", item, base, need)
+			}
+			continue
+		}
+		for tries := 0; tries < 50; tries++ {
+			q, err := h.B.Player()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if q.Inventory[base] >= need {
+				break
+			}
+			if _, err := h.Gather(ctx, base, min(need-q.Inventory[base], 10), 64); err != nil {
+				t.Fatalf("добыть %s: %v", base, err)
+			}
+		}
+	}
+	if raw[item] {
+		for tries := 0; tries < 50; tries++ {
+			if q, _ := h.B.Player(); q.Inventory[item] >= n {
+				return
+			}
+			if _, err := h.Gather(ctx, item, n, 64); err != nil {
+				t.Fatalf("добыть %s: %v", item, err)
+			}
+		}
+		return
+	}
+	recipes := h.Protos.RecipesFor(item)
+	if len(recipes) == 0 {
+		t.Fatalf("нет рецепта %s", item)
+	}
+	rec := recipes[0]
+	per := 1.0
+	for _, pr := range h.Protos.Recipes[rec].Products {
+		if pr.Name == item && pr.Amount > 0 {
+			per = pr.Amount
+		}
+	}
+	if err := h.CraftWait(ctx, rec, int(math.Ceil(float64(n-p.Inventory[item])/per))); err != nil {
+		t.Fatalf("скрафтить %s: %v", item, err)
+	}
 }

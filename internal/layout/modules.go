@@ -23,35 +23,6 @@ type Module struct {
 	Electric bool
 }
 
-func (l *Layout) fits(lt world.Tile, w, h int, r Rule) bool {
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			if !l.Free(world.Tile{X: lt.X + x, Y: lt.Y + y}, r) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// FindArea — ближайший к near свободный прямоугольник w×h (с полем margin вокруг).
-func (l *Layout) FindArea(near world.Tile, w, h, margin, radius int, r Rule) (world.Tile, bool) {
-	best, bestD := world.Tile{}, math.Inf(1)
-	for dy := -radius; dy <= radius; dy++ {
-		for dx := -radius; dx <= radius; dx++ {
-			lt := world.Tile{X: near.X + dx, Y: near.Y + dy}
-			d := math.Hypot(float64(dx), float64(dy))
-			if d >= bestD {
-				continue
-			}
-			if l.fits(world.Tile{X: lt.X - margin, Y: lt.Y - margin}, w+2*margin, h+2*margin, r) {
-				best, bestD = lt, d
-			}
-		}
-	}
-	return best, !math.IsInf(bestD, 1)
-}
-
 // SteamPower — паровая станция у воды: помпа на кромке (суша, вода рядом с любой стороны),
 // бойлер стыкуется водяным входом с помпой, двигатели цепочкой от паровыхода бойлера —
 // по трубным соединениям прототипов.

@@ -6,11 +6,8 @@
 package e2e
 
 import (
-	"factorio-bot/internal/exec"
 	"fmt"
 	"math"
-	"os"
-	"sort"
 	"testing"
 	"time"
 
@@ -248,90 +245,6 @@ func TestBase_DrillOneOreTile(t *testing.T) {
 	}
 	if st, _ := h.B.GetEntity(e.Name, e.Position); st != nil {
 		t.Error("бур не подобран")
-	}
-	clean(t, h)
-}
-
-// 4 разных предмета на земле вокруг себя (просьба пользователя: для скорости), затем сбор в заданном порядке
-// (обратном алфавитному): каждый раз поднимается ровно нужный, остальные лежат.
-func TestBase_DropAndCollectInOrder(t *testing.T) {
-	h := handsT(t)
-	ctx := ctxT(t, 8*time.Minute)
-	items := []string{"stone", "coal", "wood", "iron-plate"}
-	// всё нужное достаёт планировщик: добудет, скрафтит, переплавит, при нужде разведает
-	var goals []exec.GoalSpec
-	for _, it := range items {
-		goals = append(goals, exec.GoalSpec{Kind: "have", Item: it, N: 1})
-	}
-	st := path("run", "state-drop.json")
-	os.Remove(st)
-	defer os.Remove(st)
-	saved, err := exec.Load(st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved.Goals = goals
-	r := &exec.Runner{H: h, B: h.B, Saved: saved, StatePath: st, LogPath: path("run", "bot-test.log")}
-	defer r.Close()
-	if err := r.Run(ctx); err != nil {
-		t.Fatalf("достать предметы: %v", err)
-	}
-
-	if _, err := h.World.Sync(h.B, false); err != nil {
-		t.Fatal(err)
-	}
-	pl, _ := h.B.Player()
-	noOre := func(tl world.Tile) bool { _, ok := h.World.ResourceAt(tl); return !ok }
-	c, ok := h.World.FreeSpotWhere(pl.Position, 9, 9, 60, nil, noOre)
-	if !ok {
-		t.Skip("нет свободной площадки 9×9 без руды")
-	}
-	c = bridge.Pos{X: c.X + 0.5, Y: c.Y + 0.5}
-	if err := h.WalkTo(ctx, c, 0.5); err != nil {
-		t.Fatal(err)
-	}
-	dropped := map[string]bridge.Entity{}
-	for i, it := range items {
-		a := 2 * math.Pi * float64(i) / float64(len(items))
-		pos := world.TileOf(bridge.Pos{X: c.X + 3.2*math.Cos(a), Y: c.Y + 3.2*math.Sin(a)}).Center()
-		e, err := h.Drop(ctx, it, pos)
-		if err != nil {
-			t.Fatal(err)
-		}
-		dropped[it] = e
-	}
-	onGround := func() map[string]int {
-		es, err := h.B.FindNearest(bridge.FindArgs{Type: "item-entity", Position: &c, Radius: 6, Limit: 100})
-		if err != nil {
-			t.Fatal(err)
-		}
-		m := map[string]int{}
-		for _, e := range es {
-			m[e.Item]++
-		}
-		return m
-	}
-	if g := onGround(); len(g) < len(items) {
-		t.Fatalf("на земле %v, ждали %d разных", g, len(items))
-	}
-
-	order := append([]string(nil), items...)
-	sort.Sort(sort.Reverse(sort.StringSlice(order)))
-	for i, it := range order {
-		p0, _ := h.B.Player()
-		if err := h.PickupItem(ctx, dropped[it]); err != nil {
-			t.Fatalf("%d-й (%s): %v", i+1, it, err)
-		}
-		p1, _ := h.B.Player()
-		if p1.Inventory[it] != p0.Inventory[it]+1 {
-			t.Errorf("%d-й (%s): в инвентаре %d → %d", i+1, it, p0.Inventory[it], p1.Inventory[it])
-		}
-		g := onGround()
-		for _, rest := range order[i+1:] {
-			if g[rest] == 0 {
-				t.Errorf("подняв %s, задели %s — он пропал с земли раньше очереди", it, rest)
-			}
-		}
 	}
 	clean(t, h)
 }

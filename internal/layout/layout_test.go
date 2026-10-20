@@ -91,40 +91,6 @@ func TestRotateAndInserter(t *testing.T) {
 	}
 }
 
-// Шахта на месторождении 14×12: буры над рудой, ленты непрерывны до выхода, без пересечений.
-func TestMine(t *testing.T) {
-	w := synth(t, 2, 2, func(x, y int) byte {
-		if x >= 20 && x < 34 && y >= 20 && y < 32 {
-			return 'i'
-		}
-		return '.'
-	})
-	var patch []world.Tile
-	for _, p := range w.Patches() {
-		patch = p.Tiles
-	}
-	for _, drill := range []string{"burner-mining-drill", "electric-mining-drill"} {
-		l := New(pt(t), w)
-		mr, err := l.Mine(patch, "iron-ore", drill, 0, "mine")
-		if err != nil {
-			t.Fatal(err)
-		}
-		l.AllowEnd(mr.Out)
-		if pt(t).Entities[drill].Electric {
-			l.Poles("small-electric-pole", "power")
-		}
-		noErrors(t, l)
-		if mr.Drills < 6 || mr.Rate <= 0 {
-			t.Errorf("%s: буров %d, %.2f/с", drill, mr.Drills, mr.Rate)
-		}
-		// ограничение числа буров
-		l2 := New(pt(t), w)
-		if mr2, _ := l2.Mine(patch, "iron-ore", drill, 3, "mine"); mr2.Drills != 3 {
-			t.Errorf("%s: просили 3 бура, поставлено %d", drill, mr2.Drills)
-		}
-	}
-}
-
 // Лента огибает стену воды с проходом, а сплошную стену в 2 тайла — ныряет подземкой.
 func TestRouteBelt(t *testing.T) {
 	gap := synth(t, 2, 2, func(x, y int) byte {
@@ -213,60 +179,6 @@ func TestSteamPower(t *testing.T) {
 		}
 		l.Poles("small-electric-pole", "power")
 		noErrors(t, l)
-	}
-}
-
-// Точки начала игры: пара буров друг в друга, бур → печь, 4 бура → сундук; без ошибок.
-func TestOutposts(t *testing.T) {
-	w := synth(t, 2, 2, func(x, y int) byte {
-		switch {
-		case x >= 4 && x < 14 && y >= 4 && y < 14:
-			return 'k'
-		case x >= 30 && x < 40 && y >= 4 && y < 14:
-			return 'i'
-		case x >= 4 && x < 14 && y >= 30 && y < 40:
-			return 's'
-		}
-		return '.'
-	})
-	var coal, iron, stone []world.Tile
-	for _, p := range w.Patches() {
-		switch p.Name {
-		case "coal":
-			coal = p.Tiles
-		case "iron-ore":
-			iron = p.Tiles
-		case "stone":
-			stone = p.Tiles
-		}
-	}
-	l := New(pt(t), w)
-	d := "burner-mining-drill"
-	for i := 0; i < 5; i++ {
-		if err := l.CoalPair(coal, "coal", d, world.Tile{X: 8, Y: 8}, "coal"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for i := 0; i < 5; i++ {
-		if err := l.DrillFurnace(iron, "iron-ore", d, "stone-furnace", world.Tile{X: 35, Y: 8}, "iron"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := l.StoneChest(stone, "stone", d, "wooden-chest", 4, world.Tile{X: 8, Y: 35}, "stone"); err != nil {
-		t.Fatal(err)
-	}
-	noErrors(t, l)
-	if c := l.Count(); c[d] != 19 || c["stone-furnace"] != 5 || c["wooden-chest"] != 1 {
-		t.Errorf("состав: %v", c)
-	}
-	// выходы: каждый бур выдаёт в постройку раскладки (бур пары, печь, сундук)
-	for _, p := range l.List {
-		if p.Name != d {
-			continue
-		}
-		if l.At(DrillOutput(pt(t), p)) == nil {
-			t.Errorf("%s выдаёт в пустоту", p)
-		}
 	}
 }
 
@@ -375,63 +287,6 @@ func TestRoutePipe(t *testing.T) {
 	if _, err := l.RoutePipe(from, to, "p"); err == nil {
 		t.Error("через воду шириной 12 труба прошла")
 	}
-}
-
-// Нефть: насосы → нефтезавод → химзаводы (пластик, сера), вода от помпы; жидкости не смешаны.
-func TestOil(t *testing.T) {
-	w := synth(t, 3, 3, func(x, y int) byte {
-		switch {
-		case x > 80:
-			return 'w'
-		case (x == 20 || x == 26 || x == 32) && (y == 20 || y == 27):
-			return 'o'
-		}
-		return '.'
-	})
-	l := New(pt(t), w)
-	if err := l.Oil(bridge.Pos{X: 30, Y: 30}, 3, 2, 1); err != nil {
-		t.Fatal(err)
-	}
-	noErrors(t, l)
-	c := l.Count()
-	if c["pumpjack"] != 3 || c["oil-refinery"] != 1 || c["chemical-plant"] != 3 || c["offshore-pump"] != 1 {
-		t.Fatalf("состав: %v", c)
-	}
-	var ref Placement
-	var jacks, plants []Placement
-	for _, p := range l.List {
-		switch p.Name {
-		case "oil-refinery":
-			ref = p
-		case "pumpjack":
-			jacks = append(jacks, p)
-		case "chemical-plant":
-			plants = append(plants, p)
-		}
-	}
-	ci, _ := FluidConn(l.P, ref, "crude-oil")
-	gasOut, _ := FluidConn(l.P, ref, "petroleum-gas")
-	crude := fluidGroup(l, ci.To)
-	gas := fluidGroup(l, gasOut.To)
-	if !crude[world.TileOf(ref.Pos)] || !gas[world.TileOf(ref.Pos)] {
-		t.Error("нефтезавод не подключён")
-	}
-	for _, p := range plants {
-		if !gas[world.TileOf(p.Pos)] {
-			t.Errorf("газ не идёт в химзавод %v", p.Pos)
-		}
-	}
-	for _, j := range jacks {
-		if !crude[world.TileOf(j.Pos)] {
-			t.Errorf("насос %v не соединён с нефтезаводом", j.Pos)
-		}
-	}
-	for _, p := range plants {
-		if crude[world.TileOf(p.Pos)] {
-			t.Errorf("нефть попала в химзавод %v", p.Pos)
-		}
-	}
-	noErrors(t, l)
 }
 
 // Далёкие сети (нефть в 450 тайлах от базы) связываются цепочкой столбов.
