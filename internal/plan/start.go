@@ -328,8 +328,9 @@ func (g FeedRound) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	return refuelRound(pl, s, c)
 }
 
-// startJunk — что остаётся от точек нулевого этапа после разбора (в склад).
-var startJunk = []string{"burner-mining-drill", "stone-furnace", "wooden-chest"}
+// startJunk — что остаётся от точек нулевого этапа после разбора и больше не нужно (в
+// склад); печи и сундуки идут в кластеры (лишнее — разгрузкой Unload).
+var startJunk = []string{"burner-mining-drill"}
 
 // startRole — постройка нулевого этапа: точки старта, ручная плавильня, площадки бурами.
 func startRole(role string) bool {

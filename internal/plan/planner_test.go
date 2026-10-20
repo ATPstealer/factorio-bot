@@ -655,7 +655,7 @@ func TestBuiltByGroups(t *testing.T) {
 	}
 }
 
-// Нулевой этап разбирается (снабжение работает): точки поднимаются разом, буры и печи — в
+// Нулевой этап разбирается (снабжение работает): точки поднимаются разом, буры — в
 // склад.
 func TestDismantleStageZero(t *testing.T) {
 	s := newState(t)
@@ -669,7 +669,7 @@ func TestDismantleStageZero(t *testing.T) {
 	if !strings.Contains(k, "разобрать нулевой этап: 2 построек") || !strings.Contains(k, "в stage-1-5") {
 		t.Errorf("шаги: %s", k)
 	}
-	if end.Inventory["burner-mining-drill"] > 0 || end.Inventory["stone-furnace"] > 0 {
+	if end.Inventory["burner-mining-drill"] > 0 {
 		t.Errorf("не в складе: %v", end.Inventory)
 	}
 }
