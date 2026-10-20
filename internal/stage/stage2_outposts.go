@@ -26,7 +26,8 @@ const (
 	furnace = "stone-furnace"
 	chest   = "wooden-chest"
 	s2Plan  = "run/state-stage2.json"
-	s2Fuel  = 5 // угля в новую постройку
+	s2Fuel  = 20 // угля в бур или печь: доливать до стольких
+	s2Low   = 3  // когда топлива меньше — доливать
 )
 
 // s2Site — точка: вид (coal, iron-ore, copper-ore, stone) и её постройки по порядку стройки.
@@ -190,19 +191,20 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 	return nil
 }
 
-// fuel — в бур или печь уголь, если его нет.
+// fuel — в бур или печь уголь: меньше s2Low — долить до s2Fuel.
 func (s *s2) fuel(ctx context.Context, e bridge.Entity) error {
 	st, err := s.h.B.GetEntity(e.Name, e.Position)
 	if err != nil || st == nil {
 		return err
 	}
-	if st.Inventories["fuel"]["coal"] > 0 {
+	have := st.Inventories["fuel"]["coal"]
+	if have >= s2Low {
 		return nil
 	}
-	if err := s.have(ctx, "coal", s2Fuel); err != nil {
+	if err := s.have(ctx, "coal", s2Fuel-have); err != nil {
 		return err
 	}
-	return s.h.Insert(ctx, e, "coal", s2Fuel)
+	return s.h.Insert(ctx, e, "coal", s2Fuel-have)
 }
 
 // have — довести предмет в инвентаре до n: сырьё — добыть (уголь и камень — с точек, если
@@ -339,6 +341,12 @@ func (s *s2) plates(ctx context.Context, plate string, lack int) error {
 			return err
 		}
 	}
+	// буры точки — тоже с топливом (без него печам нечего плавить)
+	for _, d := range s.built(ore, drill) {
+		if err := s.fuel(ctx, d); err != nil {
+			return err
+		}
+	}
 	for _, f := range fs {
 		if err := s.fuel(ctx, f); err != nil {
 			return err
@@ -350,6 +358,7 @@ func (s *s2) plates(ctx context.Context, plate string, lack int) error {
 		}
 	}
 	wait := time.Duration(float64(max(per, 5))*3.3) * time.Second
+	s.h.Say("жду плавки %s %.0f с (нужно ещё %d)", plate, wait.Seconds(), lack)
 	if err := sleepCtx(ctx, wait); err != nil {
 		return err
 	}
