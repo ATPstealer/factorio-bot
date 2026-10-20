@@ -49,7 +49,7 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 		}
 		*held = true
 	}
-	var idleSince time.Time
+	var idleSince, fullSince time.Time
 	repressed := false
 	for {
 		if err := sleep(ctx, pollEvery); err != nil {
@@ -94,6 +94,14 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 		}
 		if p.Character != nil && p.Character.Mining {
 			idleSince = time.Time{}
+			// инвентарь полон — сундук с содержимым/постройку не поднять, копает вечно
+			if p.InventorySize == 0 || len(p.InventorySlots) < p.InventorySize {
+				fullSince = time.Time{}
+			} else if fullSince.IsZero() {
+				fullSince = time.Now()
+			} else if time.Since(fullSince) > 8*time.Second {
+				return fmt.Errorf("act: %s не поднять — инвентарь полон", e.Name)
+			}
 			continue
 		}
 		if idleSince.IsZero() {
