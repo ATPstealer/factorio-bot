@@ -1330,6 +1330,7 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 		}
 		r.designFailed[kind] = time.Now()
 		var ns *cluster.NoSiteError
+		delete(r.exploreFor, kind)
 		if errors.As(err, &ns) && ns.Cluster.Kind == cluster.Mine {
 			if r.exploreFor == nil {
 				r.exploreFor = map[string]string{}

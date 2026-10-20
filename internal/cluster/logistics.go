@@ -476,7 +476,7 @@ func (b *Base) connectBus(l *layout.Layout, bus *Cluster, fresh []*Cluster, outP
 				continue
 			}
 			e := ln.Start + 1
-			if OnBus(c) && c.Area != (Rect{}) {
+			if b.onBusArea(bus, c) {
 				e = b.busU(bus, c) + c.Cross + 1
 			}
 			end[in.Item] = max(end[in.Item], e)
@@ -509,7 +509,7 @@ func (b *Base) connectBus(l *layout.Layout, bus *Cluster, fresh []*Cluster, outP
 			var targets []Port
 			lo, hi := 0, ln.Start+8 // плавка — в голову или боком у головы
 			switch {
-			case OnBus(src): // клиент шины — боком у своего подъёма выхода
+			case b.onBusArea(bus, src): // клиент шины — боком у своего подъёма выхода
 				u0 := b.busU(bus, src)
 				lo, hi = u0, u0+src.Cross+BusGap+8
 				targets = sidePorts(bus, ln, u0+src.Cross+1)
@@ -545,7 +545,7 @@ func (b *Base) connectBus(l *layout.Layout, bus *Cluster, fresh []*Cluster, outP
 			ctag := LogisticsTag + "/" + c.Name
 			// у своего клиента: делитель и спуск — в его столбцах (с зазорами по бокам)
 			lo, hi := 0, ln.End
-			if OnBus(c) {
+			if b.onBusArea(bus, c) {
 				u0 := b.busU(bus, c)
 				lo, hi = u0-BusGap, u0+c.Cross+BusGap
 			}

@@ -100,7 +100,7 @@ func newBus(clients []*Cluster) *Cluster {
 		length += c.Cross + BusGap
 		depth = max(depth, c.Head+c.Count*c.Pitch)
 	}
-	length = max(length*6/5, 40)
+	length = max(length*6/5, 100) // с запасом на следующие этапы
 	w := busWidth(BusCap)
 	c := &Cluster{Kind: Bus, Product: "bus", Reserve: 1, Pitch: 1, Head: BusHead, Room: length,
 		Cross: w + BusStrip + depth, Bus: &BusInfo{Next: BusHead + 1, Width: w, Depth: depth}}
@@ -175,7 +175,17 @@ func (b *Base) placeOnBus(clients []*Cluster) error {
 		u0 := bi.Next
 		if u0+c.Cross > bus.Head+bus.Room {
 			if err := b.extendBus(bus, u0+c.Cross+BusGap-bus.Head-bus.Room); err != nil {
-				return fmt.Errorf("cluster: шина %s кончилась (%s): %w", bus.Name, c.Name, err)
+				// шина кончилась — клиент рядом, вход — делителем с ленты шины
+				if b.Log != nil {
+					b.Log("шина %s кончилась (%v): %s — рядом", bus.Name, err, c.Name)
+				}
+				if err := b.Place(c); err != nil {
+					return err
+				}
+				if err := b.addLanes(bus, c); err != nil {
+					return err
+				}
+				continue
 			}
 		}
 		v0 := bi.Width + BusStrip
@@ -190,15 +200,8 @@ func (b *Base) placeOnBus(clients []*Cluster) error {
 			c.Rect.Max.X = c.Rect.Min.X + l
 		}
 		bi.Next = u0 + c.Cross + BusGap
-		for _, in := range c.In { // лента под каждый вход
-			if bi.lane(in.Item) != nil {
-				continue
-			}
-			if len(bi.Lanes) >= BusCap {
-				return fmt.Errorf("cluster: в шине %s нет места под ленту %s", bus.Name, in.Item)
-			}
-			ln := Lane{Item: in.Item, V: laneV(len(bi.Lanes)), Start: BusHead, End: BusHead}
-			bi.Lanes = append(bi.Lanes, ln)
+		if err := b.addLanes(bus, c); err != nil {
+			return err
 		}
 		b.Clusters = append(b.Clusters, c)
 	}
@@ -241,7 +244,7 @@ func (b *Base) reserveBus(l *layout.Layout, bus *Cluster) {
 	f := bus.frame()
 	in := map[int]bool{}
 	for _, c := range b.Clusters {
-		if OnBus(c) && c.Area != (Rect{}) {
+		if b.onBusArea(bus, c) {
 			u0 := b.busU(bus, c)
 			for u := u0; u < u0+c.Cross; u++ {
 				in[u] = true
@@ -386,5 +389,20 @@ func (b *Base) deepenBus(bus *Cluster, depth int) error {
 	a = f.tile(0, 0)
 	bus.Area = Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
 	g.mark(bus.Area.Grow(Corridor))
+	return nil
+}
+
+// addLanes — ленты шины под входы клиента c.
+func (b *Base) addLanes(bus, c *Cluster) error {
+	bi := bus.Bus
+	for _, in := range c.In {
+		if bi.lane(in.Item) != nil {
+			continue
+		}
+		if len(bi.Lanes) >= BusCap {
+			return fmt.Errorf("cluster: в шине %s нет места под ленту %s", bus.Name, in.Item)
+		}
+		bi.Lanes = append(bi.Lanes, Lane{Item: in.Item, V: laneV(len(bi.Lanes)), Start: BusHead, End: BusHead})
+	}
 	return nil
 }
