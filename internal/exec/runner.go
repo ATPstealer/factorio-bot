@@ -123,6 +123,7 @@ type Runner struct {
 	fails           int
 	deferred        string                   // отложенное ожидание (в журнал — при смене)
 	designFailed    map[string]time.Time     // раскладки, которые не вышли (когда)
+	exploreFor      map[string]string        // раскладка → ресурс: добыче нет места, разведать
 	exploreRing     int                      // текущий квадрат разведки (полуширина)
 	exploreSkip     map[bridge.ChunkPos]bool // чанки периметра, к которым не пройти
 	monitored       time.Time                // последний замер кластеров
@@ -189,6 +190,7 @@ func (r *Runner) Snapshot() (*plan.State, error) {
 		inv[p.Cursor.Name] += p.Cursor.Count
 	}
 	s := &plan.State{Protos: r.H.Protos, Av: r.H.Protos.NewAvailability(f.Researched, false),
+		ExploreNeed: func(kind string) string { return r.exploreFor[kind] },
 		Inventory: inv, SlotsFree: -1, PlayerPos: p.Position, FindSpot: r.findSpot, Minable: r.minable, Exhausted: r.exhausted, Produced: f.Produced,
 		Researching: map[string]bool{}, Design: r.design, Done: r.Saved.Done, Clusters: r.clusterMode(),
 		Designs: func() [][]layout.Placement {
@@ -891,14 +893,27 @@ func (r *Runner) explore(ctx context.Context, item string) error {
 	}
 	w := r.H.World
 	start := len(w.Chunks)
+	// "new:<ресурс>" — новое месторождение (на открытых места под добычу нет)
+	res, fresh := strings.CutPrefix(item, "new:")
+	patches := func() int {
+		n := 0
+		for _, p := range w.Patches() {
+			if p.Name == res && len(p.Tiles) >= 100 {
+				n++
+			}
+		}
+		return n
+	}
+	known := patches()
 	deadline := time.Now().Add(15 * time.Minute)
 	for time.Now().Before(deadline) {
 		if _, err := w.Sync(r.B, false); err != nil {
 			return err
 		}
 		delete(r.minables, item)
-		if r.minable(item) {
+		if fresh && patches() > known || !fresh && r.minable(item) {
 			r.journal("  разведка: %s найден, открыто чанков %d → %d", item, start, len(w.Chunks))
+			r.designFailed = nil // раскладки — заново, с новым месторождением
 			return nil
 		}
 		ring, pts := w.ExploreRing(exploreSight, 128, r.exploreSkip)
@@ -1314,8 +1329,16 @@ func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 			r.designFailed = map[string]time.Time{}
 		}
 		r.designFailed[kind] = time.Now()
+		var ns *cluster.NoSiteError
+		if errors.As(err, &ns) && ns.Cluster.Kind == cluster.Mine {
+			if r.exploreFor == nil {
+				r.exploreFor = map[string]string{}
+			}
+			r.exploreFor[kind] = ns.Cluster.Product
+		}
 		return plan.Built{}, false
 	}
+	delete(r.exploreFor, kind)
 	if r.Saved.Designs == nil {
 		r.Saved.Designs = map[string][]layout.Placement{}
 	}

@@ -688,6 +688,11 @@ func (g Site) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 	}
 	b, ok := s.Design(s, g.Kind)
 	if !ok {
+		if s.ExploreNeed != nil {
+			if r := s.ExploreNeed(g.Kind); r != "" { // добыче нет места — новое месторождение
+				return c.prim(Primitive{Kind: "explore", Item: "new:" + r}), nil
+			}
+		}
 		return nil, fmt.Errorf("plan: %s: нет места", g.Kind)
 	}
 	// группа, где всё временно забанено (место занято), — не ждать: следующую

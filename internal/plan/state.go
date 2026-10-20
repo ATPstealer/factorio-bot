@@ -53,6 +53,8 @@ type State struct {
 	Protos    *knowledge.Prototypes
 	Av        *knowledge.Availability
 	Inventory map[string]int
+	// ExploreNeed — раскладка kind не вышла: нет нового месторождения ресурса (разведать его)
+	ExploreNeed func(kind string) string
 	// MainNet — электросеть с генераторами (0 — неизвестно)
 	MainNet int
 	// SlotsFree — свободных ячеек инвентаря (-1 — неизвестно)

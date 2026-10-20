@@ -225,7 +225,7 @@ func (b *Base) Place(c *Cluster) error {
 	}
 	if best == nil {
 		c.Room = room
-		return fmt.Errorf("cluster: нет места под %s (%d×%d в %d тайлах)", c.Name, c.Cross, c.Len(), b.MaxR)
+		return &NoSiteError{c, fmt.Errorf("cluster: нет места под %s (%d×%d в %d тайлах)", c.Name, c.Cross, c.Len(), b.MaxR)}
 	}
 	c.Room = bestRoom
 	c.Area, c.Rect, c.Vertical = best.r, best.r, best.v
@@ -240,6 +240,15 @@ func (b *Base) Place(c *Cluster) error {
 	b.Clusters = append(b.Clusters, c)
 	return nil
 }
+
+// NoSiteError — кластеру нет места на открытой карте (добыче — нет свободного
+// месторождения: разведать новое).
+type NoSiteError struct {
+	Cluster *Cluster
+	Err     error
+}
+
+func (e *NoSiteError) Error() string { return e.Err.Error() }
 
 // shrinkCost — «цена» укорочения ряда добычи вдвое, тайлов расстояния.
 const shrinkCost = 15
