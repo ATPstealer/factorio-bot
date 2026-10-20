@@ -460,6 +460,14 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 		return false, err
 	}
 	r.migrateFilters(s)
+	var removed []plan.Goal
+	for kind, list := range r.Saved.Designs {
+		r.dropMixedDrills(list)
+		// только снятое из раскладки (группа, которой нет: строить нечего, поднять — снятое)
+		if g := (plan.Built{Tag: kind, List: list, Groups: []string{"-"}}); !g.Satisfied(s) {
+			removed = append(removed, g)
+		}
+	}
 	if len(r.Saved.Clusters) > 0 && time.Since(r.monitored) >= time.Minute {
 		r.monitored = time.Now()
 		// в журнал — только перемены
@@ -511,6 +519,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	if repair {
 		goals = append([]plan.Goal{plan.Repair{}}, goals...) // есть что чинить — первым делом
 	}
+	goals = append(removed, goals...) // бур на смеси ресурсов — снять сразу
 	if u := (plan.Unload{}); !u.Satisfied(s) {
 		goals = append([]plan.Goal{u}, goals...) // инвентарь полон — крафт встанет
 	}
@@ -1200,7 +1209,6 @@ func (r *Runner) dropMixedDrills(l []layout.Placement) {
 
 func (r *Runner) design(s *plan.State, kind string) (plan.Built, bool) {
 	if l, ok := r.Saved.Designs[kind]; ok {
-		r.dropMixedDrills(l)
 		return plan.Built{Tag: kind, List: l, Order: r.stageOrder(kind, l)}, true
 	}
 	// не вышло недавно — не пересчитывать каждый шаг (карта меняется медленно)
