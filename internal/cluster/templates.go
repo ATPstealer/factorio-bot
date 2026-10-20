@@ -169,18 +169,18 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 		for i := 0; i < c.Count && c.Sub == ""; i++ {
 			u := c.Head + i*c.Pitch
-			mu := u
+			iu := u + 1 // столбец инсертера: у машин 3×3 — по центру; ящик 1×1 — сам в нём
 			if c.Kind == Supply {
-				mu++ // ящик 1×1 — в столбце инсертера (у машин 3×3 инсертер — по центру, u+1)
+				iu = u
 			}
-			m := f.at(l, mach, mu, belts+2, layout.N, tag)
+			m := f.at(l, mach, u, belts+2, layout.N, tag)
 			if c.Kind == Make {
 				m.Recipe = c.Units[0].Recipe
 			}
 			if err := add(m); err != nil {
 				return err
 			}
-			if err := add(f.inserter(l, ins, u+1, belts+1, belts, tag)); err != nil {
+			if err := add(f.inserter(l, ins, iu, belts+1, belts, tag)); err != nil {
 				return err
 			}
 			if c.Kind != Lab && c.Kind != Supply {
@@ -193,9 +193,11 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		if err := sideIn(belts); err != nil {
 			return err
 		}
-		// лента входа — до последней машины (и вдоль буфера), не на весь запас
+		// лента входа — до последней машины, не на весь запас; конец — внутри площади (в
+		// последний столбец шага, без машины): у полного ряда в коридор не смотрит — там
+		// чужие ленты (медь сливалась в линию угля)
 		cur := c.Head + c.Count*c.Pitch
-		blen := cur
+		blen := cur - 1
 		if err := row(belts, 1, blen, layout.E); err != nil {
 			return err
 		}
@@ -365,8 +367,8 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 			}
 		}
 	}
-	// лента угля — до последнего бойлера, не на весь запас
-	blen := c.Head + c.Count*c.Pitch
+	// лента угля — до последнего бойлера, конец — внутри площади (промежуток за бойлером)
+	blen := c.Head + c.Count*c.Pitch - 1
 	for u := 0; u < blen; u++ {
 		if err := add(f.at(l, "transport-belt", u, 14, layout.E, tag)); err != nil {
 			return err

@@ -442,3 +442,48 @@ func TestConnectGreen(t *testing.T) {
 	}
 	t.Log(l.Summary())
 }
+
+// Полный ряд (все места запаса заняты): ленты кластера не смотрят в коридор — только внутрь
+// площади или в свой выходной порт (иначе чужая лента коридора примет его груз).
+func TestFullRowStaysInside(t *testing.T) {
+	cs, err := Split(pt(t), redPlan(t, 0.45), 5, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs = append(cs, Labs(pt(t), map[string]float64{"automation-science-pack": 0.45}, 7, 5), SupplyCluster(pt(t), map[string]float64{"iron-plate": 0.3, "copper-plate": 0.1}))
+	if cs, err = AddPower(pt(t), cs, 5, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cs {
+		if c.Kind != Mine {
+			c.Units[0].Machines *= float64(c.Room) / float64(c.Count)
+			c.Count = c.Room
+		}
+	}
+	b := NewBase(pt(t), testMap(t), world.Tile{X: 160, Y: 160})
+	if err := b.PlaceAll(cs); err != nil {
+		t.Fatal(err)
+	}
+	l, err := b.Layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range b.Clusters {
+		out := map[world.Tile]bool{}
+		for _, p := range c.Ports {
+			if !p.In {
+				out[p.T] = true
+			}
+		}
+		for _, p := range l.List {
+			if p.Tag != Tag(c.Name) || p.Name != "transport-belt" {
+				continue
+			}
+			n := layout.Step(world.TileOf(p.Pos), p.Dir)
+			inside := n.X >= c.Area.Min.X && n.X < c.Area.Max.X && n.Y >= c.Area.Min.Y && n.Y < c.Area.Max.Y
+			if !inside && !out[n] {
+				t.Errorf("%s: лента %v смотрит наружу в %v", c.Name, p, n)
+			}
+		}
+	}
+}
