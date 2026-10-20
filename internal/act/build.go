@@ -330,7 +330,7 @@ func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (brid
 			for k := 0; k < 8; k++ {
 				a := float64(k) * math.Pi / 4
 				q := bridge.Pos{X: c.X + r*math.Cos(a), Y: c.Y + r*math.Sin(a)}
-				if !h.World.Standable(q) {
+				if !h.World.Standable(q) || h.nearBelt(q) {
 					continue
 				}
 				n, blocked := 0, false
@@ -1072,4 +1072,15 @@ func (h *Hands) StandFor(ctx context.Context, entities []string, places []bridge
 		return nil, fps[0].Center(), nil
 	}
 	return nil, stand, nil
+}
+
+// nearBelt — рядом с точкой (соседние тайлы) лента: стоять там — в щели между бурами у
+// ленты коридора добычи бота сносило и он застревал.
+func (h *Hands) nearBelt(q bridge.Pos) bool {
+	for _, d := range [][2]float64{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+		if h.World.OnBelt(bridge.Pos{X: q.X + d[0], Y: q.Y + d[1]}) {
+			return true
+		}
+	}
+	return false
 }
