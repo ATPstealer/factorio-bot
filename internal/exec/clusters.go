@@ -1001,3 +1001,55 @@ func (r *Runner) migrateTaps(s *plan.State) {
 	r.journal("отводы инсертером → делитель: %d", n)
 	r.Saved.Done["retap"] = true
 }
+
+// designAge — порядок раскладок: этапы по номеру, потом рост и прочее (раньше — старше).
+func designAge(kind string) (int, string) {
+	var n int
+	if _, err := fmt.Sscanf(kind, "stage-%d", &n); err == nil {
+		return n, ""
+	}
+	return 1 << 20, kind
+}
+
+// dropOverlaps — размещения разных раскладок на одних тайлах (рост кластера поверх столба
+// прошлого этапа): стройки сносили бы друг друга по кругу. Старшая раскладка остаётся,
+// у младшей размещение снимается (Name "").
+func (r *Runner) dropOverlaps() {
+	kinds := make([]string, 0, len(r.Saved.Designs))
+	for k := range r.Saved.Designs {
+		kinds = append(kinds, k)
+	}
+	sort.Slice(kinds, func(i, j int) bool {
+		ni, si := designAge(kinds[i])
+		nj, sj := designAge(kinds[j])
+		if ni != nj {
+			return ni < nj
+		}
+		return si < sj
+	})
+	owner := map[world.Tile]string{}
+	for _, k := range kinds {
+		list := r.Saved.Designs[k]
+		for i, pl := range list {
+			if pl.Name == "" {
+				continue
+			}
+			ts := layout.Tiles(r.H.Protos, pl)
+			clash := ""
+			for _, t := range ts {
+				if o, ok := owner[t]; ok && o != k {
+					clash = o
+				}
+			}
+			// делитель отвода ставится поверх ленты прошлого этапа — её сняли (supersede)
+			if clash != "" {
+				r.journal("раскладка %s: %s в (%.1f, %.1f) на месте постройки %s — снят", k, pl.Name, pl.Pos.X, pl.Pos.Y, clash)
+				list[i].Name = ""
+				continue
+			}
+			for _, t := range ts {
+				owner[t] = k
+			}
+		}
+	}
+}

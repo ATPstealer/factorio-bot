@@ -464,6 +464,7 @@ func (r *Runner) Step(ctx context.Context) (done bool, err error) {
 	}
 	r.migrateFilters(s)
 	r.migrateTaps(s)
+	r.dropOverlaps()
 	s.MainNet = r.mainNet(s)
 	var removed []plan.Goal
 	for kind, list := range r.Saved.Designs {
