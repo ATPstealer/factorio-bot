@@ -1,149 +1,142 @@
 # Factorio Bot
 
-Бот играет в Factorio 2.0.77 (base) до запуска ракеты. Дизайн кластерной базы — `cluster.md`.
+Бот играет в Factorio 2.0.77 (base) до запуска ракеты. Сейчас — фундамент (связь с игрой, ввод, ходьба, руки, знания, раскладки «на бумаге»); планировщик, кластерная база и прохождение пишутся заново мелкими задачами. Прежняя версия целиком — тег `v1`.
 
-Правила честности (утверждены пользователем; соблюдать ВСЕГДА, без исключений):
+Документы:
+- `capabilities.md` — что умеет бот (общими словами).
+- `cluster.md` — дизайн кластерной базы (что и зачем, без привязки к коду).
+- `test/e2e/README.md` — тесты, бенч, статистика прогонов.
+- Задачи, наблюдения во время прогонов и отчёты — в чате.
+
+## Правила честности
+
+Утверждены пользователем; соблюдать ВСЕГДА, без исключений:
 - Действия — только эмуляция ввода ОС (мышь/клавиатура через XTEST) в окно клиента.
 - Мод `botbridge` и RCON — только чтение состояния. Никаких команд, меняющих игру (в т.ч. генерации чанков).
-- Исключение (просьба пользователя): бот пишет в консоль игры, что делает (`Hands.Say` → `Bridge.Say`: обычный текст по RCON игра показывает как `<server>: [bot] ...`). Только отображение, без Lua, на игру не влияет.
+- Исключение (просьба пользователя): бот пишет в консоль игры, что делает (`Hands.Say` → `Bridge.Say`: обычный текст по RCON игра показывает как `<server>: [bot] ...`). Только отображение, без Lua.
 - Бот знает только то, что видит игрок: открытые (charted) чанки своей силы, свой инвентарь/исследования, справочник прототипов. Каждый поиск сущностей/тайлов — с фильтром `force.is_chunk_charted`. Новый сенсор — сначала вопрос «мог бы игрок это знать?».
 
-## Пути
+## Игра
 
-- Игра: `/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio`
-- `run/server/` — write-data сервера (`config.ini`, `mods/`, `saves/bot.zip`)
-- `run/client/` — write-data клиента (`config.ini`, `mods/`, `player-data.json` с именем `bot`, `steam_appid.txt`)
-- Логи: `run/server.log`, `run/client.log`, `run/xephyr.log`
-- Пользовательский `~/.factorio` не трогать.
-- Задачи, наблюдения во время прогонов и отчёты — в чате (файлы `user-*` упразднены). Данные по тестам — только `test/e2e/README.md`.
-
-## Запуск
+- Игра: `/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio`. Пользовательский `~/.factorio` не трогать.
+- `run/server/` — write-data сервера (`config.ini`, `mods/`, `saves/bot.zip`); `run/client/` — клиента (`config.ini`, `mods/`, `player-data.json`, `steam_appid.txt`, `home/`).
+- Логи: `run/server.log`, `run/client.log`, `run/xephyr.log`. Сид текущей карты — `run/map.json`.
 
 ```bash
 scripts/run.sh                      # сервер → Xephyr :1 → клиент; Ctrl+C — остановить всё
 scripts/stop.sh                     # остановить извне (сервер по SIGTERM, с сохранением)
 scripts/newmap.sh                   # новая СЛУЧАЙНАЯ карта, игра в фоне, ждёт персонажа
 SEED=123 scripts/newmap.sh          # конкретная карта
+NEW_MAP=0 scripts/newmap.sh         # перезапустить игру на текущей карте
 RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 ```
 
-- Бот должен работать на любой карте (решение пользователя): тесты — на случайных картах (новая — `NEW_MAP=1`, по умолчанию текущая), утёсы как в обычной игре, кусак нет. Сид — `run/map.json`; `run/state.json` (реестр построек) относится к карте и сбрасывается при новой. Тесты не опираются на конкретные места/ресурсы: нет нужного на открытой карте — тест пропускается или бот разведывает.
+- Бот должен работать на любой карте (решение пользователя): утёсы как в обычной игре, кусак нет. Нет нужного на открытой карте — разведка, а не опора на конкретные места.
 - Новая карта начинается с заставки крушения (персонажа нет, `controller_name` = "cutscene") — пропускается `Tab` (`guard`, `newmap.sh`).
-
-- Сервер грузит `run/server/saves/bot.zip`, по SIGINT и SIGTERM сохраняет в него же (проверено). Автосейвы — `_autosave1..5.zip` раз в 10 мин.
+- Сервер грузит `run/server/saves/bot.zip`, по SIGINT и SIGTERM сохраняет в него же. Автосейвы — `_autosave1..5.zip` раз в 10 мин.
 - Готовность сервера — строка `to(InGame)` в `run/server.log` (не `Hosting game at` — RCON тогда ещё отвечает пусто).
 - Клиент запускается из `run/client` с `steam_appid.txt` и `SteamAppId=427520`, иначе Steam перезапускает игру на основном дисплее `:0`.
-- Клиент изолирован от Steam: `HOME=run/client/home` — Steam API не инициализируется. Иначе Steam-версия читает/пишет `player-data.json` только через облако Steam (общее с основной игрой пользователя!), локальный файл не читает, и при сбое облака имя становится пустым → на сервер заходит новый игрок. Без Steam имя всегда "" — стабильно игрок №2. Игрок №1 `ATPstealer` (первые запуски) отключён, бросать.
+- Клиент изолирован от Steam: `HOME=run/client/home` — Steam API не инициализируется. Иначе Steam-версия читает/пишет `player-data.json` только через облако Steam (общее с основной игрой пользователя!), и при сбое облака на сервер заходит новый игрок. Без Steam имя всегда "" — стабильно игрок №2 (`game.connected_players[1]`). Игрок №1 `ATPstealer` (первые запуски) отключён.
 - `--disable-audio` + `[sound] master-muted=true` — без звука.
 - Перезапуск только клиента: `pkill -f "^<путь factorio> .*run/client/config.ini"`, затем та же команда, что в `run.sh` (с `setsid nohup`).
-- Окно Xephyr называется `factorio-bot`, дисплей `:1`. Ввод бота — только в `:1`.
-
-## Настройки
-
+- Окно Xephyr `factorio-bot`, дисплей `:1`. Ввод бота — только в `:1`.
 - `scripts/map-gen-settings.json` — без кусак (`enemy-base` frequency 0, `peaceful_mode`), утёсы обычные (`richness` 1). Огонь у места крушения (`crash-site-fire-flame`) — сила enemy, но не кусаки.
 - `scripts/server-settings.json` — `auto_pause: false`, `require_user_verification: false`, не публичный.
 
+## Снимки
+
+- `scripts/snapshot.sh save ИМЯ "описание" | load ИМЯ | list` — сервер штатно сохраняет `bot.zip`, копия с `map.json` (и `state*.json`, если есть) и `NOTE.txt` в `run/snapshots/ИМЯ/`; по RCON ничего не пишется.
+- Имя — `<сид карты>-<номер>` (решение пользователя): `-0` — карты для бенча e2e; `-1`, `-2`, … — после стадий (стадии распишет пользователь). Другие имена не заводить.
+- Мелкие проверки и продолжение — со снимка, не с нуля.
+
 ## Тесты
 
+- `scripts/test.sh` — go vet + юнит-тесты + все e2e; `scripts/test.sh Walk` — по шаблону `-run`. Карта по умолчанию текущая (перезапуск — если игра не запущена или изменился мод, хеш `run/mod.hash`); `NEW_MAP=1`, `SEED=…`, `SNAP=имя`, `SAVE_AS=имя`.
 - Бенч — `scripts/bench.sh`: все e2e на каждом снимке `<сид>-0` (итог — `run/bench/summary.txt`).
-- `scripts/test.sh` — go vet + юнит-тесты + e2e. Без наборов: e2e разложены по файлам групп (окружение, интерфейс, карта, ходьба, руки, знания), по умолчанию — все. Один тест — `scripts/test.sh Walk`. Карта по умолчанию текущая (перезапуск — если игра не запущена или изменился мод, хеш `run/mod.hash`); `NEW_MAP=1`, `SEED=…`, `SNAP=имя`. Подробно и статистика прогонов (ведётся сама: `scripts/test_stats.py` → `test/e2e/stats.tsv` и таблица в README) — `test/e2e/README.md`.
-- Правило (пользователь): снимки «на все случаи жизни» — после каждого типового этапа (`save ИМЯ "описание"`); мелкие проверки и продолжение — со снимка, не с нуля.
-- Снимки (просьба пользователя: не повторять долгий старт): `scripts/snapshot.sh save ИМЯ "описание" | load ИМЯ | list` (имя — `сид-номер`: `<сид>-0` — карты для прогона e2e, `-1`, `-2`, … — после стадий, стадии распишет пользователь) (описание — `NOTE.txt`, видно в `list`) — сервер штатно сохраняет `bot.zip`, копия с `state*.json` и `map.json` в `run/snapshots/ИМЯ/` (по RCON ничего не пишется). `SNAP=927139741-0 scripts/test.sh …` — со снимка; `SAVE_AS=имя` — снимок после зелёного прогона.
-- e2e: `test/e2e/`, build tag `e2e`, требуют запущенного `scripts/run.sh` (сервер + клиент в `:1`).
-- Правила (пользователь): по одному гранулярному тесту на способность, без перекрытий; тесты не убирают за собой; сначала гонять тест текущей задачи, зелёный — потом базу; после зелёных — рефакторинг (`~/go/bin/deadcode -test [-tags e2e] ./...`, дубли, устаревшее в доках).
-- Хелперы (`helpers_test.go`): `game(t)` — общее RCON, `lua(t, expr, &out)` — выражение → JSON (`s` = surface 1, `p` = игрок), `bot(t, method, args, &out)` — вызов мода, `xdo(t, ...)` — xdotool в `:1`, `readJSON`, `ini`; `handsT`, `worldT`, `protosT`, `ctxT`, `clean`, `freeArea`, `have(t, h, item, n)` (сырьё — добыть руками, остальное — скрафтить; нужны пластины, а их нет — тест пропускается).
-- Для правок Go: `~/go/bin/goimports -w` (импорты), `gofmt`.
+- Статистика прогонов ведётся сама: `scripts/test_stats.py` → `test/e2e/stats.tsv` и таблица в `test/e2e/README.md`.
+- e2e: `test/e2e/`, build tag `e2e`, разложены по файлам групп: `env`, `interface`, `world`, `walk`, `hands`, `knowledge`; помощники — `helpers_test.go`: `game(t)` (RCON), `lua(t, expr, &out)` (`s` = surface 1, `p` = игрок), `bot(t, method, args, &out)`, `xdo(t, ...)`, `readJSON`, `ini`, `handsT`, `worldT`, `protosT`, `ctxT`, `clean`, `freeArea`, `have(t, h, item, n)` (сырьё — руками, остальное — крафт; нужны пластины, а их нет — пропуск).
+- Правила (пользователь): по одному гранулярному тесту на способность, без перекрытий; тесты не убирают за собой; сначала тест текущей задачи, зелёный — потом все; после зелёных — рефакторинг (`~/go/bin/deadcode -test -tags e2e ./...`, дубли, устаревшее в доках).
 - Запросы в тестах — только чтение; действия — только ввод.
+- Любой запуск действий в игре — только с лимитом времени (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
 
 ## Мод botbridge
 
-- Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента.
-- Единая точка входа: `/sc remote.call("bot", "call", '{"method":"ping","args":{...}}')` → печатает одну строку JSON `{"ok":true,"result":...}` / `{"ok":false,"error":"..."}`.
+- Исходник `mod/botbridge/`, симлинки в `run/server/mods/` и `run/client/mods/` (версии у сервера и клиента обязаны совпадать). После правки мода — перезапуск сервера и клиента; поднимать `version` в `info.json` (тест сверяет версию в игре с файлом).
+- Единая точка входа: `/sc remote.call("bot", "call", '{"method":"ping","args":{...}}')` → одна строка JSON `{"ok":true,"result":...}` / `{"ok":false,"error":"..."}`.
 - Файлы: `control.lua` (точка входа, игрок, поиск, события), `util.lua` (общие функции, `visible`), `prototypes.lua` (`dump_prototypes`), `scan.lua` (`list_charted`, `scan_chunks`, `get_force`).
+- Методы (только чтение): `ping`, `get_player`, `get_entity`, `get_entities{list}` (пакетом), `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`, `list_charted`, `scan_chunks`, `get_force`, `dump_prototypes`.
+- `get_player`: позиция, зум, инвентарь и его ячейки, размер инвентаря, рука, выделение, быстрая панель, открытое окно, `render_mode`, очередь крафта.
+- `get_entity`: name, type, position, unit_number, selection_box, status, own, inventories, recipe, burning, network (электросеть), belt (что на ленте), fluids, filters (фильтр инсертера), ug_type/ug_paired (подземка). `get_force`: researched, current, queue, recipes, produced (статистика производства; добыча руками туда НЕ попадает). Прототипы: `pipe_connections` (при «север»).
+- Буфер событий `storage.events` (до 1000, номер `seq`): mined_entity, built_entity, crafted_item, research_finished, entity_died, resource_depleted, gui_opened/closed, chunk_charted. `poll_events` ничего не удаляет.
 - Поля прототипов, применимые не ко всем типам, читать через `try`/`g()` — иначе ошибка на чужом типе.
-- Методы — в таблице `methods`; только чтение: `ping`, `get_player`, `get_entities{list}` (пакетом, снимок состояния бота), `find_nearest{type,name,radius,limit,position}`, `find_minable{target,radius,limit,position}` (+products, mining_time, amount), `entity_at{name,position}`, `poll_events{after}`.
-- Буфер событий в `storage.events` (до 1000, номер `seq`): mined_entity, built_entity, crafted_item, research_finished, entity_died, resource_depleted, gui_opened/closed, chunk_charted. `poll_events` ничего не удаляет.
-- `entity_info` отдаёт name, type, position, unit_number, selection_box; `get_entity` — ещё status, own, inventories, recipe, burning, network (электросеть), belt (что лежит на ленте). `get_force` — researched, current, queue, recipes, produced (статистика производства; добыча руками туда НЕ попадает). Прототипы: `pipe_connections` (трубные соединения при «север»).
-- Меняя мод — поднимать `version` в `info.json` (тест сверяет версию в игре с файлом).
+- Утёсы: для `cliff` мод отдаёт настоящую рамку (`bb`, зависит от ориентации).
+- Добываемое руками (`find_minable`): minable, без `required_fluid` (уран нельзя), `last_user == nil` (не свои постройки). Обломки корабля — `container`/`simple-entity-with-owner` с префиксом `crash-site-`; `huge-rock` даёт stone+coal.
 - Проверка мода без остановки основного сервера: временный сервер с write-data в scratchpad, копией сейва, `--port 34198 --rcon-port 27016`.
 
 ## RCON
 
-- Go-клиент: `internal/rcon` (`Dial`, `Exec`), юнит-тест с фейковым сервером.
+- `127.0.0.1:27015`, пароль `botpass` (или `$RCON_PASSWORD`). Source RCON: auth (type 3) → ответ type 2; команда (type 2) → ответ type 0. Ответы до 2 МБ одним пакетом — пагинация не нужна.
+- Консоль: `scripts/rcon.py` (REPL) или `scripts/rcon.py "/sc rcon.print(game.tick)"`.
 
-- `127.0.0.1:27015`, пароль `botpass` (или `$RCON_PASSWORD`).
-- Протокол Source RCON: auth (type 3) → ответ type 2; команда (type 2) → ответ type 0.
-- Проверка: `/sc rcon.print(game.tick)`.
-- Консоль RCON: `scripts/rcon.py` (REPL) или `scripts/rcon.py "/sc rcon.print(game.tick)"`.
+## Код (Go)
 
-## Код бота (Go)
+- Go 1.26 (apt `golang-go`), модуль `factorio-bot`. Правки: `~/go/bin/goimports -w`, `gofmt`.
+- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | path X Y | walk X Y | mine ЦЕЛЬ [N] [R] | craft Р [N] | place П X Y [n|e|s|w] | insert П N X Y | take X Y | pickup X Y | recipe X Y Р | rotate X Y D | filter X Y П | research ТЕХ | map ... | patches [R] | protos [-refresh] | force | shot [-o F] | calc ... | tech ЦЕЛЬ | raw П [N]`. Справка — `bin/bot` без аргументов; новые команды — в `usage` (`cmd/bot/main.go`).
+  - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности; R — радиус (64).
+  - `calc/tech/raw` работают без игры по кэшу `data/`.
 
-- `go build -o bin/bot ./cmd/bot` (bin/ в .gitignore). Команды: `bin/bot [-t 5m] ping | player | events [after] | walk X Y | mine ЦЕЛЬ [N] [R] | craft Р [N] | place П X Y [n|e|s|w] | insert П N X Y | take X Y | pickup X Y | recipe X Y Р | rotate X Y D | filter X Y П | research ТЕХ | map ... | patches [R] | protos [-refresh] | force | shot [-o F] | calc ... | tech ЦЕЛЬ | raw П [N] | path X Y`. Полная справка — `bin/bot` без аргументов; новые команды добавлять в `usage` в `cmd/bot/main.go`.
-  - `mine`: ЦЕЛЬ — группа `tree|rock|wreck|ore|fish|any`, имя сущности или предмета (`coal`, `stone`, `wood`); N — для руды единицы, для остального сущности (по умолчанию 1); R — радиус поиска (64).
-  - `-t` — общий лимит времени (по умолчанию 5m). Любой запуск действий в игре — только с лимитом (`-t`, `timeout`): пользователь прерывал неограниченные прогоны.
-- `internal/rcon` — Source RCON; ответы до 2 МБ одним пакетом проверены — пагинация не нужна.
-- `internal/bridge` — `Call(method, args, &out)` + типизированные `Ping/Player/FindNearest/FindMinable/EntityAt/GetEntity/PollEvents/ListCharted/ScanChunks/Force/DumpPrototypes/Say`. JSON передаётся в Lua длинными скобками `[=[...]=]`.
-  - Пустая Lua-таблица приходит из `table_to_json` как `{}`, не `[]` — массивы декодировать в `bridge.List[T]`, словари — делать в моде `nil`, если пусты.
-- `internal/input` — XTEST на чистом Go (`github.com/jezek/xgb`): `KeyDown/KeyUp/Tap(key, mods...)/Type`, `Move/ButtonDown/ButtonUp/Click/Wheel`, `FindWindow(prefix)`. После каждого события round trip + `Delay` 20 мс.
-- `internal/camera` — мир ↔ пиксели дисплея: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
-- `internal/knowledge` — справочник `Prototypes` (рецепты, предметы, сущности, технологии, жидкости), `LoadOrFetch(b, "data")` — кэш `data/prototypes-<версия>.json` (data/ в .gitignore), `RecipesFor(item)`, `TechFor(recipe)`.
-- `internal/world` — модель открытой карты: `Sync(b, full)` (новые чанки + чанки из событий; остатки руды меняются без событий → `full`), `TileAt/ResourceAt/Blocked/Walkable`, `Patches()` (руда — 8-связность, нефть — радиус 12), `Render(opts)` → PNG.
-- `internal/act` — `Hands` (B, In, Win, Layout, Protos, World, DebugDir): `WalkTo/WalkNear` (A* при `World != nil`), `Hover`, `Mine/MineUntil/Gather`, `Clean` (меню/окна/рука), `CloseGUI`, `OpenInventory`, `Pick` (быстрая панель), `ClearCursor`, `Craft/CraftWait`, `Place`, `Rotate`, `Insert`, `Take`, `Pickup`, `MenuOpen`. Раскладка интерфейса — `Layout1856` в `gui.go` (окно 1856x1016, UI scale 1; при другом размере — перекалибровать по `bin/bot shot`).
-- `internal/calc` — калькулятор: `Solve(p, targets/с, Options{Researched, All, Machines})` → `Plan` (узлы-рецепты с машинами, сырьё, буры, МВт, пар, уголь, ленты, излишки, нужные техи по порядку + цена). Внутри — симплекс `Minimize` (min c·x, A·x ≥ b), веса сырья `rawCost` выбирают рецепт при альтернативах (нефть). `Handcraft` — ручной крафт.
-- `internal/knowledge`: `NewAvailability(researched, all)`, `Usable`, `Resource`, `BestCrafter/BestDrill/BestBelt`, `TechPath`, `Cost`, `TechsFor`. Снимок справочника для юнит-тестов — `internal/knowledge/testdata/prototypes.json` (в git; e2e `TestSnapshotMatchesGame` сверяет с игрой — при смене версии/полей обновить: `bin/bot protos -refresh` и пересохранить).
-- CLI `calc/tech/raw` работают без игры по последнему `data/prototypes-*.json`.
-- После правки Go-структур справочника — пересобрать `bin/bot` ДО `protos -refresh`, иначе старый бинарник выкинет новые поля при сохранении кэша.
-- `act.SetRecipe` — клик по сборщику → окно выбора рецепта → Ctrl+F → название → `Layout.RecipeFirst`; подтверждение — `recipe` из мода. `bin/bot shot` закрывает окна при старте — для снимка открытого окна: `DISPLAY=:1 import -window root -crop 1856x1016+32+32 F.png`.
-- Персонаж на ленте не останавливается (лента несёт): `Standable` исключает ленты, `waitStill` сводит с ленты (`stepOffBelt`).
-- `act.StartResearch`: T → Ctrl+F → название → первая в списке (доступные первыми) → «Start research» (`Layout.TechFirst/TechStart`); окно технологий мод не видит — по пикселям `TechProbe`. Координаты снимка `bin/bot shot` — относительно окна (+32+32 к экрану).
-- `act.InsertAll` (Ctrl+ЛКМ с предметом в руке — весь вид, сколько влезет), `Take` по сундуку забирает всё. Просьба пользователя: «положить всё» — Ctrl: `Insert(n ≥ всего в инвентаре)` — через `InsertAll`; много, но не всё — удержание Z.
-- Alt-режим (просьба пользователя): `guard` один раз проверяет по кнопке ALT на экране (`Layout.AltButton`, оранжевая — включён) и включает, если выключен. Не по `get_player.alt_mode`: после перезапуска сервера он может не совпадать с клиентом — нажатие выключило бы режим.
-- Ходьба: деревья на маршруте рубятся по дороге, если обход дольше (`treeCost` 6 за ячейку ≈ 18 тайлов за ствол; остановка за `cutAhead` 1.8 до дерева). Действия не ходят, если уже в досягаемости (`reach` ~8 для вложить/забрать, `reachMine` ~2.4 для добычи), и «не дошёл, но достаю» — не ошибка.
-- Утёсы: мод отдаёт для `cliff` настоящую рамку (`bb`, зависит от ориентации) → `Object.Box`, непроходимы, не рубятся.
-- `internal/layout` — раскладки «на бумаге»: `New(protos, world)`, `RouteBelt`, `RoutePipe`, `WaterPump`, `SteamPower`, `Poles`, `OreUnder`, `Validate`, `Draw`. Порты резервировать до прокладки своих лент (иначе чужие маршруты их займут). Координаты бывают отрицательными — не использовать -1 как «не найдено».
-- Трубы: `layout.RoutePipe(from, to Conn, tag)` — A* по 4 направлениям, обычная труба не касается чужих жидкостных соединений, под ними/препятствиями — пара `pipe-to-ground` (у конца одно наземное соединение: вход смотрит назад, выход — вперёд; между концами пары нет других подземок оси). `WaterPump(near, tag, fit)` — помпа на кромке воды. Мод отдаёт `fluids` (жидкость → количество) в `get_entity`.
-- Подземные ленты в 2.0: вторая, поставленная кликом по ходу, обычно сама становится выходом; нет — `act.ugExit` (поставить навстречу и R — переворачивает пару). Мод: `ug_paired`. Прокладка не ставит вход подземки сразу за выходом.
-- Разведка: `World.ExploreRing` — квадраты вокруг (0,0) в чанках, путь на 3 чанка глубже края открытого.
-- Ходьба: `World.MarkStuck` — где персонаж упёрся (щель уже, чем в модели), ячейки впереди непроходимы; `Hands.breach` — путь закрыт кольцом своих построек (у бота или у цели) — поднять трубу/инсертер/сундук/столб, пройти, поставить назад (`World.Without`). Утёсы-углы — повёрнутые рамки (`Box.Orientation`, `Contains`, `Bounds`).
-- Интерфейс: наведение пропускает точки под панелями (`Layout.Panels`); не навёлся — `closeStray` (Esc, если открылось меню — ещё Esc); Alt проверяется, только если кнопка ALT видна. Окно выбора рецепта меньше у машин с малым числом рецептов — первая ячейка по пикселям (`firstSlotY`). CLI `bin/bot recipe X Y РЕЦЕПТ`.
-- `world.Buildable(t)` — можно строить (суша, без неубираемого); деревья/камни/обломки — «убрать перед стройкой» (`Layout.Clear`).
-- `internal/world` также: `Path(from, to, near, max)` (A*), `FreeSpot/FreeSpotWhere` (место под постройку).
+Пакеты:
+- `internal/rcon` — Source RCON (`Dial`, `Exec`).
+- `internal/bridge` — `Call(method, args, &out)` + типизированные `Ping/Player/FindNearest/FindMinable/EntityAt/GetEntity/GetEntities/PollEvents/ListCharted/ScanChunks/Force/DumpPrototypes/Say`. JSON в Lua — длинными скобками `[=[...]=]`. Пустая Lua-таблица приходит как `{}`, не `[]` — массивы декодировать в `bridge.List[T]`, словари в моде делать `nil`, если пусты.
+- `internal/input` — XTEST на чистом Go (`github.com/jezek/xgb`): `KeyDown/KeyUp/Tap(key, mods...)/Type`, `Move/ButtonDown/ButtonUp/Click/Wheel`, `FindWindow(prefix)`, `Screenshot`. После каждого события round trip + `Delay` 20 мс.
+- `internal/camera` — мир ↔ пиксели: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
+- `internal/knowledge` — справочник `Prototypes` (рецепты, предметы, сущности, технологии, жидкости), `LoadOrFetch(b, "data")` — кэш `data/prototypes-<игра>-botbridge<мод>.json`; `RecipesFor`, `TechFor`, `NewAvailability`, `Usable`, `Resource`, `BestCrafter/BestDrill/BestBelt`, `TechPath`, `Cost`, `TechsFor`. Снимок для юнит-тестов — `internal/knowledge/testdata/prototypes.json` (в git; e2e `TestSnapshotMatchesGame` сверяет с игрой; при смене версии/полей — пересобрать `bin/bot`, ПОТОМ `bin/bot protos -refresh`, и пересохранить, иначе старый бинарник выкинет новые поля).
+- `internal/calc` — калькулятор: `Solve(p, targets/с, Options{Researched, All, Machines, Have})` → `Plan` (рецепты с машинами, сырьё, буры, МВт, пар, уголь, ленты, излишки, нужные техи по порядку + цена); симплекс `Minimize`, веса сырья `rawCost` выбирают рецепт при альтернативах (нефть); `Handcraft` — ручной крафт; `SteamFor`.
+- `internal/world` — модель открытой карты: `Sync(b, full)` (новые чанки + чанки из событий; остатки руды меняются без событий → `full`), `TileAt/ResourceAt/Blocked/Walkable/Buildable/Standable`, `Patches()` (руда — 8-связность, нефть — радиус 12), `Path/Route` (A*), `FreeSpot/FreeSpotWhere`, `ExploreRing`, `MarkStuck`, `Without`, `Enclosed`, `Render` → PNG.
+- `internal/act` — руки `Hands` (B, In, Win, Layout, Protos, World, Log, DebugDir, Console): `WalkTo/WalkNear/WalkToMine`, `Explore`, `Hover`, `Mine/MineUntil/Gather/MineCovered`, `Clean`, `CloseGUI`, `OpenInventory`, `Pick`, `ClearCursor`, `Craft/CraftWait`, `Place/PlaceAll/PlaceDirs`, `Rotate`, `Insert/InsertAll`, `Take`, `Pickup/PickupAll`, `Drop/PickupItem`, `SetRecipe`, `SetFilter`, `StartResearch`, `StandFor`, `LeaveArea`, `MenuOpen`, `Say`. Раскладка интерфейса — `Layout1856` в `gui.go` (окно 1856x1016, UI scale 1; при другом размере — перекалибровать по `bin/bot shot`).
+- `internal/layout` — раскладки «на бумаге»: `New(protos, world)`, `RouteBelt` (A*, подземки), `RoutePipe` (подземные трубы), `WaterPump`, `SteamPower`, `Poles`, `OreUnder` (бур на одном ресурсе), `Validate`, `Draw`. Координаты бывают отрицательными — не использовать -1 как «не найдено».
 
-## Ввод — что выяснено
+## Что выяснено
 
-- В Xephyr нет WM: фокус клавиатуры следует за указателем — `Hands.Focus()` перед клавишами.
-- Окно клиента 1856x1016 со смещением +32+32 (пользователя устраивает). UI scale зафиксирован в `run/client/config.ini`, звук выключен там же (`[sound] master-muted=true`).
-- Зум в конфиге не хранится — бот читает `zoom` из игры и не меняет его.
-- Ходьба ~8.9 тайл/с, инерция после отпускания 0.6–1.2 тайла. `WalkTo`: бег до `stop+1`, затем доводка нажатиями с адаптивной длительностью (короткое нажатие игра может не заметить). Точность ≤0.5 тайла.
-- Наведение: точки внутри `selection_box` от центра, подтверждение — `player.selected`. Сущность может быть целиком перекрыта рамкой соседа (dead-grey-trunk под tree-08) → `act.ErrHover`, брать другую цель.
-- `Hands.Say(...)` — перед каждым значимым действием (дальний путь, цель добычи, крафт, постройка, поворот, вложить/забрать/подобрать, привязка к панели, меню, перестройка пути): лог + консоль игры (`Hands.Console`, включено в CLI и тестах). Новые действия — тоже с `Say`.
-- Добыча руками (любой сущности, не только руды) — досягаемость ~2.7 тайла (`resource_reach`), до рамки **коллизии**: `WalkToMine` (рамка выделения у деревьев высокая — от неё не дотянуться, рамка выделения красная = недосягаемо). Reach 10 — только для взаимодействия (вложить/забрать/поставить).
-- Меню игры: кнопка Resume двух оттенков — (94,182,99) и под курсором (146,232,151); центр окна — кнопка «Save game», поэтому `Focus` ставит курсор в `Layout.Focus` (60,300). `guard` закрывает меню в начале действий и при «не идём». `CloseGUI` после Esc ждёт закрытия до 1 с — повторный Esc по закрытому окну открывает меню.
-- Карта / удалённый вид (Tab; Ctrl+F без окна открывает поиск по карте!): мод отдаёт `render_mode` ("game" | "chart" | "chart_zoomed_in"). `guard` закрывает её Esc по одному с проверкой. Текст печатать только после проверки `inInventory()` (до Ctrl+F, после него и после ввода) — иначе буквы уйдут в игру как хоткеи. Повторное `E` не жать (окно, открывшееся с опозданием, закроется).
-- Ходьба (`world.Route`): A* на сетке полутайлов по настоящим рамкам коллизий, раздутым на полуширину персонажа (0.2 + запас 0.08) — на тайловой сетке дерево 0.8×0.8 закрывало до 4 тайлов и лес был стеной; затем спрямление отрезками под любым углом (прямая видимость). Следование (`followPath`/`drive`): клавиши ближайшего из 8 направлений на точку маршрута впереди — 1.5 тайла в открытом месте (идём прямо, без виляния диагоналями), 0.5 в тесноте (`World.Tight`). Скорость ~7.5–8 тайл/с (максимум ~8.9). Пути нет — идём к ближайшей достижимой точке и возвращаем `ErrNotReached`. Лог: время маршрута/остановки/доводки.
-- `bin/bot path X Y` — показать путь без движения.
-- Пакетные действия: `PlaceAll` (предмет в руку один раз, без отхода, если в досягаемости ~8.5; направление руки доворачивается R, неверно поставленные — Rotate в конце), `PickupAll` (ближайшая досягаемая без отпускания ПКМ, иначе встать туда, откуда достаётся больше всего — `bestStand`). `Drop` / `PickupItem` — предметы на землю и с земли.
-- Интерфейс: где можно — хоткеи (пользователь просил); клики только в точки `Layout`, каждый шаг подтверждается модом (`opened_gui`, `cursor`, `quickbar`, очередь крафта, события).
-- `Tap` держит клавишу 50 мс (`Input.Hold`): нажатие короче ~30 мс игра теряет (Z, E).
-- `Z` с предметом в руке над сущностью — ровно 1 предмет; удержание — автоповтор (кладёт всё).
-- `Q` с пустой рукой — пипетка; `Esc` без окна — меню игры (мод не видит; `MenuOpen` по пикселю кнопки Resume (146,232,151) в (880,413)).
-- В 2.0 буры ставятся только на ресурсы (`can only be built on resources`).
-- Зум после перезапуска клиента может быть другим (был 1.5, стал 1.0) — всегда брать `zoom` из игры.
+Интерфейс:
+- В Xephyr нет WM: фокус клавиатуры следует за указателем — `Hands.Focus()` перед клавишами; курсор — в `Layout.Focus` (60,300), т.к. центр окна — кнопка «Save game» в меню.
+- Окно клиента 1856x1016 со смещением +32+32. UI scale и звук — в `run/client/config.ini`. Координаты `bin/bot shot` — относительно окна (+32+32 к экрану); `shot` закрывает окна при старте — для снимка открытого окна: `DISPLAY=:1 import -window root -crop 1856x1016+32+32 F.png`.
+- Где можно — хоткеи (пользователь просил); клики только в точки `Layout`, каждый шаг подтверждается модом (`opened_gui`, `cursor`, `quickbar`, очередь крафта, события, recipe, filters).
+- `Tap` держит клавишу 50 мс (`Input.Hold`): нажатие короче ~30 мс игра теряет (Z, E). Повторное `E` не жать (окно, открывшееся с опозданием, закроется).
+- `Esc` без окна — меню игры (мод не видит; `MenuOpen` по пикселю кнопки Resume (146,232,151) в (880,413); второй оттенок — (94,182,99)). `CloseGUI` жмёт Esc только при `opened_gui_type != 0` и ждёт закрытия до 1 с. `guard` закрывает меню и карту в начале действий.
+- Карта / удалённый вид (Tab; Ctrl+F без окна открывает поиск по карте!): мод отдаёт `render_mode` ("game" | "chart" | "chart_zoomed_in"). Текст печатать только после проверки `inInventory()` (до Ctrl+F, после него и после ввода) — иначе буквы уйдут в игру как хоткеи.
+- Открытое окно перехватывает ввод — ходьба/добыча не работают; после экспериментов с GUI — закрывать.
+- Alt-режим (просьба пользователя): `guard` один раз проверяет по кнопке ALT на экране (`Layout.AltButton`, оранжевая — включён) и включает. Не по `get_player.alt_mode`: после перезапуска сервера он может не совпадать с клиентом.
+- Наведение пропускает точки под панелями (`Layout.Panels`); не навёлся — `closeStray`. Наведение — точки внутри `selection_box` от центра, подтверждение — `player.selected`; сущность может быть целиком перекрыта рамкой соседа → `act.ErrHover`. Hover — только когда персонаж стоит (камера едет за игроком).
+- Рецепт (`SetRecipe`): клик по сборщику → окно выбора → Ctrl+F → название → первая ячейка (по пикселям `firstSlotY`: окно меньше у машин с малым числом рецептов); рецепт уже есть — кнопка смены `Layout.RecipeChange`.
+- Фильтр (`SetFilter`): окно инсертера → «Use filters» → ячейка → поиск → найденная (несколько — следующая ячейка); у burner-инсертера окно другое — не откалибровано.
+- Исследование (`StartResearch`): T → Ctrl+F → название → первая в списке (доступные первыми) → «Start research» (`Layout.TechFirst/TechStart`); окно технологий мод не видит — по пикселям `TechProbe`.
+- `Hands.Say(...)` — перед каждым значимым действием: лог + консоль игры. Новые действия — тоже с `Say`.
 - При сбое действия снимок экрана — в `Hands.DebugDir` (тесты: `run/debug/`).
-- Открытое окно (инвентарь и т.п.) перехватывает ввод — ходьба/добыча не работают. `Hands.CloseGUI` (Esc только при `opened_gui_type != 0`, иначе Esc откроет меню) — при старте бота и в тестах. После экспериментов с GUI — закрывать.
-- Hover только когда персонаж стоит (камера едет за игроком).
-- К сущностям подходить `WalkNear` — к ближайшей точке `selection_box`, а не к `position`: у больших (обломки, камни) центр внутри коллизии, персонаж упрётся в край.
-- Зажатый ввод переживает процесс: если бота убить во время добычи, X-сервер держит ПКМ — персонаж копает дальше. Поэтому: `Input.Close/ReleaseAll` на выходе (SIGINT/SIGTERM, `check`), `Input.Reset()` при старте. Вручную: `DISPLAY=:1 xdotool mouseup 3 keyup w keyup a keyup s keyup d`.
-- Руда: ПКМ добывает единицу за единицей, сущность остаётся — стоп по приросту продукта в инвентаре. Персонаж не копает >1.5 с при зажатой ПКМ → `ErrNotMining` (инвентарь полон / далеко).
-- Добываемое руками (`find_minable`): minable, без `required_fluid` (уран нельзя), `last_user == nil` (не свои постройки). Обломки корабля — `container`/`simple-entity-with-owner` с префиксом `crash-site-`; `huge-rock` даёт stone+coal.
-- Игрок — `game.connected_players[1]` (индекс 2, имя "").
+- Зажатый ввод переживает процесс: `Input.Close/ReleaseAll` на выходе (SIGINT/SIGTERM), `Input.Reset()` при старте. Вручную: `DISPLAY=:1 xdotool mouseup 3 keyup w keyup a keyup s keyup d`.
+
+Ходьба:
+- ~8.9 тайл/с, инерция 0.6–1.2 тайла. `WalkTo`: бег до `stop+1`, затем доводка нажатиями с адаптивной длительностью. Точность ≤0.5 тайла.
+- `world.Route`: A* на сетке полутайлов по настоящим рамкам коллизий, раздутым на полуширину персонажа (0.2 + 0.08) — на тайловой сетке лес был стеной; затем спрямление отрезками под любым углом. Следование: клавиши ближайшего из 8 направлений на точку впереди — 1.5 тайла в открытом месте, 0.5 в тесноте (`World.Tight`). Пути нет — к ближайшей достижимой точке, `ErrNotReached`.
+- Деревья на маршруте рубятся по дороге, если обход дольше (`treeCost` 6 за ячейку; остановка за `cutAhead` 1.8). `bin/bot path X Y` — путь без движения.
+- `World.MarkStuck` — где персонаж упёрся (щель уже, чем в модели); `Hands.breach` — путь закрыт кольцом своих построек — поднять, пройти, поставить назад (`World.Without`). Утёсы-углы — повёрнутые рамки (`Box.Orientation`, `Contains`, `Bounds`).
+- Персонаж на ленте не останавливается (лента несёт): `Standable` исключает ленты, `waitStill` сводит с ленты (`stepOffBelt`).
+- Разведка (`Hands.Explore`): `World.ExploreRing` — квадраты вокруг (0,0) в чанках, на 3 чанка глубже края открытого; непроходимую точку пропускает.
+- К сущностям подходить `WalkNear` — к ближайшей точке `selection_box` (у больших центр внутри коллизии). Действия не ходят, если уже в досягаемости (~8 для вложить/забрать, ~2.4 для добычи).
+
+Руки:
+- Добыча руками — досягаемость ~2.7 тайла до рамки **коллизии** (`WalkToMine`; рамка выделения у деревьев высокая). Reach 10 — только для взаимодействия.
+- Руда: ПКМ добывает единицу за единицей, сущность остаётся — стоп по приросту в инвентаре. Не копает >1.5 с при зажатой ПКМ → `ErrNotMining` (инвентарь полон / далеко).
+- `Z` с предметом в руке над сущностью — ровно 1 предмет; удержание — автоповтор. `Q` с пустой рукой — пипетка. `InsertAll` — Ctrl+ЛКМ с предметом в руке (весь вид; бывает по пачке — повторять до полного ящика). Просьба пользователя: «положить всё» — Ctrl; много, но не всё — Z.
+- `PlaceAll`: предмет в руку один раз, без отхода, если в досягаемости ~8.5; направление руки доворачивается R, неверно поставленные — Rotate в конце. `PickupAll`: ближайшая досягаемая без отпускания ПКМ, иначе встать туда, откуда достаётся больше всего (`bestStand`).
+- Подземные ленты в 2.0: вторая, поставленная по ходу, сама становится выходом; нет — `act.ugExit` (поставить навстречу и R). Выход ставить только после своего входа — иначе игра делает его входом. Мод: `ug_paired`.
+- В 2.0 буры ставятся только на ресурсы.
+- Крафт при полном инвентаре стоит — `CraftWait` возвращает ошибку.
+- Зум после перезапуска клиента может быть другим — всегда брать `zoom` из игры.
+- Трубы: обычная труба не касается чужих жидкостных соединений, под ними — пара `pipe-to-ground` (у конца одно наземное соединение: вход смотрит назад, выход — вперёд).
+
+## Shell и окружение
+
+- `pkill -f`/`pgrep -f` с шаблоном из командной строки матчат собственный bash-процесс инструмента и убивают его (exit 144). Игру останавливать `scripts/stop.sh`.
 - `xdotool` установлен — для ручной отладки (`DISPLAY=:1 xdotool ...`).
-
-## Shell
-
-- `pkill -f`/`pgrep -f` с шаблоном из командной строки матчат собственный bash-процесс инструмента и убивают его (exit 144). Бота убивать `pkill -x bot`; игру — `scripts/stop.sh` (шаблон с `^`).
-
-## Окружение
-
 - Сессия X11 (XFCE), основной экран 5120x1440.
-- Go 1.26 (apt `golang-go`), модуль `factorio-bot`.
