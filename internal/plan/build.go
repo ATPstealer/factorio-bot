@@ -70,6 +70,9 @@ func (g Built) Satisfied(s *State) bool {
 			continue
 		}
 		o := s.Role(BuildRole(g.Tag, i))
+		if o.Name != p.Name {
+			return false
+		}
 		if o.Dir != nil && !sameDir(s, p.Name, *o.Dir, p.Dir) && rotatable(s, p.Name) {
 			return false
 		}
@@ -125,7 +128,7 @@ func (g Built) unfueled(s *State) []string {
 		if strings.HasPrefix(p.Tag, "c/") && s.Protos.Entities[p.Name].Type != "inserter" {
 			continue
 		}
-		if o := s.Role(role); o != nil && len(o.Inv["fuel"]) == 0 && o.Status != "working" && !g.selfFed(s, o) {
+		if o := s.Role(role); o != nil && o.Name == p.Name && len(o.Inv["fuel"]) == 0 && o.Status != "working" && !g.selfFed(s, o) {
 			if ch := s.Role(feeders(s)[role]); ch != nil && ch.In("chest", "coal") > 0 {
 				continue // кормится из сундука
 			}
@@ -332,6 +335,19 @@ func (g Built) next(pl *Planner, s *State, c *ctx) (*Primitive, error) {
 					if !pl.banned(pr.Key()) {
 						return pr, nil
 					}
+				}
+			}
+		}
+		// стоит не та постройка (раскладка изменилась: инсертер → burner) — переставить
+		for i, p := range g.List {
+			if !g.in(i) {
+				continue
+			}
+			role := BuildRole(g.Tag, i)
+			if o := s.Role(role); o != nil && o.Name != p.Name {
+				pr := c.prim(Primitive{Kind: "rebuild", Item: s.Protos.ItemFor(p.Name), Dir: p.Dir, Spots: []bridge.Pos{p.Pos}, Roles: []string{role}})
+				if !pl.banned(pr.Key()) {
+					return pr, nil
 				}
 			}
 		}
