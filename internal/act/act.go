@@ -950,6 +950,10 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 
 // stepOffBelt — сойти с ленты на ближайшую точку, где можно стоять.
 func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
+	// только что поставленные ленты модель могла ещё не видеть — иначе «сойти» на ленту
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
 	type cand struct {
 		q bridge.Pos
 		d float64
