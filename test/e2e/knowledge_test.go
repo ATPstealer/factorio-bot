@@ -1,10 +1,11 @@
 //go:build e2e
 
-// Стадия 4 — знания и калькулятор: справочник из игры совпадает со снимком юнит-тестов,
-// доступность совпадает с игрой, калькулятор считает на живом справочнике.
+// Знания: справочник прототипов и калькулятор.
 package e2e
 
 import (
+	"factorio-bot/internal/calc"
+	"factorio-bot/internal/knowledge"
 	"os"
 	"os/exec"
 	"reflect"
@@ -12,9 +13,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"factorio-bot/internal/calc"
-	"factorio-bot/internal/knowledge"
 )
 
 // Снимок internal/knowledge/testdata/prototypes.json — тот же, что в игре: юнит-тесты
@@ -73,7 +71,7 @@ func TestBase_AvailabilityMatchesForce(t *testing.T) {
 	}
 }
 
-// Критерий стадии: ракетная часть 1/мин на живом справочнике и через CLI.
+// Проверка: ракетная часть 1/мин на живом справочнике и через CLI.
 func TestBase_RocketPartPlan(t *testing.T) {
 	p := protosT(t)
 	f, err := bridgeT(t).Force()
