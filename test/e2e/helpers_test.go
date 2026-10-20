@@ -125,13 +125,6 @@ func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
 	return c
 }
 
-// boxGap — расстояние между прямоугольниками (0 — касаются или пересекаются).
-func boxGap(a, b bridge.Box) float64 {
-	dx := math.Max(0, math.Max(a.LeftTop.X-b.RightBottom.X, b.LeftTop.X-a.RightBottom.X))
-	dy := math.Max(0, math.Max(a.LeftTop.Y-b.RightBottom.Y, b.LeftTop.Y-a.RightBottom.Y))
-	return math.Hypot(dx, dy)
-}
-
 const (
 	rconAddr    = "127.0.0.1:27015"
 	gameVersion = "2.0.77"
