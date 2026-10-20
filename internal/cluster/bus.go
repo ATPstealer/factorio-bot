@@ -166,7 +166,24 @@ func (b *Base) placeOnBus(clients []*Cluster) error {
 	}
 	bi := bus.Bus
 	f := bus.frame()
-	for _, c := range busOrder(clients) {
+	// длиннее шины — на несколько кластеров того же продукта (глубже не выйдет)
+	var fit []*Cluster
+	for _, c := range clients {
+		if need := c.Head + c.Count*c.Pitch; need > bi.Depth && b.deepenBus(bus, need) != nil {
+			parts := splitCount(c, (bi.Depth-c.Head)/c.Pitch)
+			for i, p := range parts {
+				if i > 0 {
+					p.Name = b.name(p.Product)
+				}
+				b.Clusters = append(b.Clusters, p) // имя занято — следующее другое
+			}
+			b.Clusters = b.Clusters[:len(b.Clusters)-len(parts)]
+			fit = append(fit, parts...)
+			continue
+		}
+		fit = append(fit, c)
+	}
+	for _, c := range busOrder(fit) {
 		if need := max(c.Head+c.Count*c.Pitch, min(c.Len(), busDepth)); need > bi.Depth {
 			if err := b.deepenBus(bus, need); err != nil && c.Head+c.Count*c.Pitch > bi.Depth {
 				return fmt.Errorf("cluster: %s длиннее шины (%d > %d): %w", c.Name, c.Head+c.Count*c.Pitch, bi.Depth, err)
@@ -406,4 +423,33 @@ func (b *Base) addLanes(bus, c *Cluster) error {
 		bi.Lanes = append(bi.Lanes, Lane{Item: in.Item, V: laneV(len(bi.Lanes)), Start: BusHead, End: BusHead})
 	}
 	return nil
+}
+
+// splitCount — кластер c на части не больше max машин (потоки и машины — пропорционально).
+func splitCount(c *Cluster, max int) []*Cluster {
+	if max < 1 || c.Count <= max {
+		return []*Cluster{c}
+	}
+	var res []*Cluster
+	for left := c.Count; left > 0; left -= max {
+		n := min(left, max)
+		k := float64(n) / float64(c.Count)
+		p := *c
+		scale := func(fs []Flow) []Flow {
+			var out []Flow
+			for _, f := range fs {
+				out = append(out, Flow{f.Item, f.Rate * k})
+			}
+			return out
+		}
+		p.In, p.Out, p.Internal, p.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
+		p.Units = nil
+		for _, u := range c.Units {
+			u.Machines *= k
+			p.Units = append(p.Units, u)
+		}
+		p.Count, p.Room = n, max
+		res = append(res, &p)
+	}
+	return res
 }
