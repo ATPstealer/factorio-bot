@@ -79,6 +79,8 @@ type Cluster struct {
 	Bus *BusInfo `json:"bus,omitempty"`
 	// Near — куда тянуть кластер при выборе места (nil — к поставщикам или центру базы)
 	Near *world.Tile `json:"-"`
+	// Zone — зона (zones.md), в которой кластер: место — только внутри неё, бордюр — ZoneBorder
+	Zone *Rect `json:"zone,omitempty"`
 }
 
 func (c *Cluster) String() string {

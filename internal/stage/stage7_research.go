@@ -48,11 +48,9 @@ func s7Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	var labName, powerName, busName string
+	var labName, powerName string
 	for _, c := range plan.Clusters {
 		switch c.Kind {
-		case cluster.Bus: // клиенты шины (лаборатории) — в её площади, столбы — по её полосе
-			busName = c.Name
 		case cluster.Lab:
 			labName = c.Name
 		case cluster.Power:
@@ -77,7 +75,7 @@ func s7Layout(h *act.Hands) ([]layout.Placement, error) {
 	// столбы — по коридорам до каждой лаборатории (следующей — от уже проведённых)
 	var list []layout.Placement
 	for _, lab := range labs {
-		path, err := corridorPoles(h, plan, list, start, []string{powerName, labName, busName}, func(p bridge.Pos) bool { return powers(h, p, lab) })
+		path, err := corridorPoles(h, plan, list, start, append([]string{powerName, labName}, busNames(plan)...), func(p bridge.Pos) bool { return powers(h, p, lab) })
 		if err != nil {
 			return nil, fmt.Errorf("лаборатория в (%.1f, %.1f): %w", lab.Pos.X, lab.Pos.Y, err)
 		}

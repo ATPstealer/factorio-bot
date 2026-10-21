@@ -281,9 +281,17 @@ func (b *Base) Place(c *Cluster) error {
 	} else {
 		c.Rect.Max.Y = c.Rect.Min.Y + l
 	}
-	b.g.mark(c.Area.Grow(Corridor))
+	b.g.mark(c.Area.Grow(b.border(c)))
 	b.Clusters = append(b.Clusters, c)
 	return nil
+}
+
+// border — коридор вокруг кластера: внутри зоны — бордюр ZoneBorder, иначе Corridor.
+func (b *Base) border(c *Cluster) int {
+	if c.Zone != nil {
+		return ZoneBorder
+	}
+	return Corridor
 }
 
 // NoSiteError — кластеру нет места на открытой карте (добыче — нет свободного
@@ -348,7 +356,10 @@ func (b *Base) find(c *Cluster) *cand {
 // fits — r годится кластеру c.
 func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 	g := b.g
-	ring := r.Grow(Corridor)
+	ring := r.Grow(b.border(c))
+	if z := c.Zone; z != nil && (r.Min.X < z.Min.X || r.Min.Y < z.Min.Y || r.Max.X > z.Max.X || r.Max.Y > z.Max.Y) {
+		return false // только внутри своей зоны
+	}
 	if n, out := g.count(g.ring, ring); n > 0 || out > 0 {
 		return false
 	}

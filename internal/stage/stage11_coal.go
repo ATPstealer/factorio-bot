@@ -40,9 +40,7 @@ func s11Layout(h *act.Hands) ([]layout.Placement, error) {
 	}
 	coal, power := clusterOf(plan, cluster.Mine, "coal"), clusterOf(plan, cluster.Power, "")
 	allow := []string{coal.Name, power.Name}
-	if bus := busOf(plan); bus != nil {
-		allow = append(allow, bus.Name)
-	}
+	allow = append(allow, busNames(plan)...)
 	// питание кластера — столбами по коридорам от сети
 	poles, err := connectPower(h, plan, res, allow)
 	if err != nil {

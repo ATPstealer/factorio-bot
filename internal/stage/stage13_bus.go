@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
@@ -85,11 +87,19 @@ func checkBusPlates(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	bus := busOf(plan)
 	for _, it := range []string{"iron-plate", "copper-plate"} {
+		// своя шина пластин — та, куда подводит плавка; конец её ленты
+		bus := ""
+		for _, pl := range plan.Layout {
+			for _, b := range busNames(plan) {
+				if strings.HasPrefix(pl.Tag, cluster.LogisticsTag+"/"+b+"/") && clusterOfName(plan, strings.TrimPrefix(pl.Tag, cluster.LogisticsTag+"/"+b+"/")).Product == it {
+					bus = b
+				}
+			}
+		}
 		var last *layout.Placement
 		for i, pl := range plan.Layout {
-			if bus != nil && pl.Tag == "c/"+bus.Name && pl.Recipe == it {
+			if bus != "" && pl.Tag == cluster.Tag(bus) && pl.Recipe == it {
 				last = &plan.Layout[i] // ленты шины — по ходу, последняя — конец
 			}
 		}

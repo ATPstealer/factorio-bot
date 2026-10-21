@@ -3,7 +3,6 @@ package stage
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"image/png"
 	"math"
@@ -12,22 +11,22 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/calc"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
 
-// Стадия 5 (stages.md): план первых 11 кластеров «на бумаге» (cluster.md) — добыча угля,
-// железа, меди; плавка железа и меди; станция; шина; шестерни; красная наука; лаборатории;
-// хранение. Цель — красная наука s5Rate/с. Картинка — план поверх открытой карты.
+// Стадия 5 (stages.md): план первых кластеров «на бумаге» (cluster.md) внутри зон стадии 4
+// (zones.md) — добыча угля, железа, меди; плавка железа и меди; станция; шины; шестерни;
+// красная наука; лаборатории; хранение. Цель — красная наука s5Rate/с, без запаса роста
+// (запасы — в зонах). Картинка — зоны и кластеры с раскладкой поверх карты.
 // Постройки точек стадии 2 при разметке не мешают: их разберут (стадия 10).
 
 const (
 	s5Plan    = "state-stage5.json"
 	s5Rate    = 0.5 // красная наука, шт/с
-	s5Reserve = 5   // запас роста ×5 по длине
+	s5Reserve = 1   // без запаса роста: запасы — в зонах (zones.md)
 	s5LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
 	// нет места — разведка: до s5Explore раз, каждый раз — пока не откроется s5ExploreChunks
 	s5Explore       = 20
@@ -63,28 +62,11 @@ func LoadPlan() (*ClusterPlan, error) {
 	return &s, nil
 }
 
-// runPlan — план; кластеру нет места на открытой карте — разведать (мир бесконечный: подошёл
-// к краю — игра открывает новые чанки) и спланировать заново.
 func runPlan(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {
 		return err
 	}
-	for try := 0; ; try++ {
-		err := planOnce(ctx, h)
-		var ns *cluster.NoSiteError
-		if !errors.As(err, &ns) || try >= s5Explore {
-			return err
-		}
-		n0 := len(h.World.Chunks)
-		h.Say("%v — разведываю", err)
-		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+s5ExploreChunks }); err != nil {
-			return err
-		}
-	}
-}
-
-func planOnce(ctx context.Context, h *act.Hands) error {
-	p, err := h.B.Player()
+	rough, err := LoadRough()
 	if err != nil {
 		return err
 	}
@@ -93,14 +75,6 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 	plan, err := calc.Solve(pr, targets, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
-		return err
-	}
-	cs, err := cluster.Split(pr, plan, s5Reserve, nil, "iron-gear-wheel")
-	if err != nil {
-		return err
-	}
-	cs = append(cs, cluster.Labs(pr, targets, s5LabSec, s5Reserve), cluster.StorageCluster())
-	if cs, err = cluster.AddPower(pr, cs, s5Reserve, nil); err != nil {
 		return err
 	}
 	// свои постройки (точки стадии 2) — не помеха
@@ -112,66 +86,68 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 	}
 	restore := h.World.Hide(own)
 	defer restore()
-	base := cluster.NewBase(pr, h.World, world.TileOf(p.Position))
-	base.Log = h.Log
-	base.Avoid = map[world.Tile]bool{}
-	// кластер, к которому ленту не провести, — в другое место (до 6 попыток)
-	var list []layout.Placement
+	avoid := map[world.Tile]bool{}
+	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток)
 	for try := 0; ; try++ {
-		base.Clusters = nil
-		base.Reset()
-		for _, c := range cs {
-			c.Name = ""
+		cs, err := cluster.Split(pr, plan, s5Reserve, nil, "iron-gear-wheel")
+		if err != nil {
+			return err
 		}
-		if err := base.PlaceAll(cs); err != nil {
+		cs = append(cs, cluster.Labs(pr, targets, s5LabSec, s5Reserve), cluster.StorageCluster())
+		if cs, err = cluster.AddPower(pr, cs, s5Reserve, nil); err != nil {
+			return err
+		}
+		base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта
+		base.Log = h.Log
+		base.Avoid = avoid
+		buses, err := base.PlaceZoned(cs, rough.Zones)
+		if err != nil {
 			return err
 		}
 		l, err := base.Layout()
 		if err != nil {
 			return err
 		}
-		err = base.Connect(l, nil, nil)
+		err = base.ConnectZoned(l, buses)
+		all := base.Sorted()
+		for _, bus := range buses { // шины — в план кластерами (теги лент c/<шина>)
+			all = append(all, &cluster.Cluster{Name: bus.Name, Kind: cluster.Bus, Product: "bus", Area: bus.Rect, Rect: bus.Rect})
+		}
 		if err == nil {
-			// связность столбов — не здесь: питание каждая стадия тянет сама по коридорам
-			// (connectPower), шина разделяет сети кластеров по сторонам
+			// связность столбов — не здесь: питание каждая стадия тянет сама (connectPower)
 			for _, e := range l.Validate() {
 				if !strings.Contains(e, "столбы не связаны") {
 					return fmt.Errorf("раскладка: %v", e)
 				}
 			}
-			list = l.List
-			if err := s5Draw(h, base, l, p.Position); err != nil {
+			for _, c := range all {
+				h.Say("кластер %v", c)
+			}
+			if err := s5Draw(h, rough.Zones, base, l); err != nil {
 				return err
 			}
-			break
+			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: s5Image()}, "", " ")
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(runPath(s5Plan), data, 0o644)
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			s5Draw(h, base, l, p.Position) // что вышло — на картинку
-			for _, c := range base.Sorted() {
-				h.Log("кластер %v", c)
-			}
+			s5Draw(h, rough.Zones, base, l) // что вышло — на картинку
 			return err
 		}
 		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
 		a := ce.Consumer.Area
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {
-				base.Avoid[world.Tile{X: x, Y: y}] = true
+				avoid[world.Tile{X: x, Y: y}] = true
 			}
 		}
 	}
-	for _, c := range base.Sorted() {
-		h.Say("кластер %v", c)
-	}
-	data, err := json.MarshalIndent(ClusterPlan{Clusters: base.Sorted(), Placed: len(list), Layout: list, Image: s5Image()}, "", " ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(runPath(s5Plan), data, 0o644)
 }
 
-// s5Image — картинка плана: run/stages/s3-<сид>.png.
+// s5Image — картинка плана: run/stages/s5-<сид>.png.
 func s5Image() string {
 	var m struct {
 		Seed int64 `json:"seed"`
@@ -182,19 +158,29 @@ func s5Image() string {
 	return filepath.Join("run/stages", fmt.Sprintf("s5-%d.png", m.Seed))
 }
 
-// s5Draw — картинка: открытая карта, кластеры с коридорами и раскладка.
-func s5Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos) error {
+// s5Draw — картинка: карта, зоны, кластеры с бордюрами и раскладка.
+func s5Draw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
 		r := c.Area.Grow(cluster.Corridor)
 		minX, minY = min(minX, r.Min.X), min(minY, r.Min.Y)
 		maxX, maxY = max(maxX, r.Max.X), max(maxY, r.Max.Y)
 	}
+	for _, z := range zones {
+		if z.Kind != cluster.ZoneMine {
+			minX, minY = min(minX, z.Rect.Min.X), min(minY, z.Rect.Min.Y)
+			maxX, maxY = max(maxX, z.Rect.Max.X), max(maxY, z.Rect.Max.Y)
+		}
+	}
+	radius := max(maxX-minX, maxY-minY)/2 + 20
 	ro := world.RenderOptions{Center: world.Tile{X: (minX + maxX) / 2, Y: (minY + maxY) / 2},
-		Radius: max(maxX-minX, maxY-minY)/2 + 20, Scale: 4, Player: &at, Labels: true}
+		Radius: radius, Scale: max(1, min(4, 2400/(2*radius))), Labels: true}
 	img := h.World.Render(ro)
+	cluster.DrawZones(img, ro, zones)
 	base.Draw(img, ro)
-	l.Draw(img, ro)
+	if l != nil {
+		l.Draw(img, ro)
+	}
 	f, err := os.Create(s5Image())
 	if err != nil {
 		return err
@@ -226,9 +212,6 @@ func checkPlan(h *act.Hands) error {
 		if have[k] == 0 {
 			return fmt.Errorf("в плане нет кластера %s", k)
 		}
-	}
-	if len(s.Clusters) != len(s5Kinds) {
-		return fmt.Errorf("кластеров %d, нужно %d", len(s.Clusters), len(s5Kinds))
 	}
 	if st, err := os.Stat(s.Image); err != nil || st.Size() == 0 {
 		return fmt.Errorf("нет картинки плана %s", s.Image)

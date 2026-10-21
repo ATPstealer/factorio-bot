@@ -23,8 +23,26 @@ func clusterOf(plan *ClusterPlan, kind cluster.Kind, product string) *cluster.Cl
 	return nil
 }
 
-// busOf — шина плана (nil — нет).
-func busOf(plan *ClusterPlan) *cluster.Cluster { return clusterOf(plan, cluster.Bus, "") }
+// clusterOfName — кластер плана по имени (пустой — нет).
+func clusterOfName(plan *ClusterPlan, name string) cluster.Cluster {
+	for _, c := range plan.Clusters {
+		if c.Name == name {
+			return *c
+		}
+	}
+	return cluster.Cluster{}
+}
+
+// busNames — шины плана (зоны шин: bus-1 … bus-4).
+func busNames(plan *ClusterPlan) []string {
+	var res []string
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Bus {
+			res = append(res, c.Name)
+		}
+	}
+	return res
+}
 
 // tagged — размещения плана с тегом из tags.
 func tagged(plan *ClusterPlan, tags ...string) []layout.Placement {
@@ -41,21 +59,20 @@ func tagged(plan *ClusterPlan, tags ...string) []layout.Placement {
 	return res
 }
 
-// busParts — ленты шины предметов items и подводы в шину от кластеров srcs.
+// busParts — ленты шин предметов items и подводы в шины от srcs (кластеры или шины снизу —
+// сквозные ленты).
 func busParts(plan *ClusterPlan, items []string, srcs []string) []layout.Placement {
-	bus := busOf(plan)
-	if bus == nil {
-		return nil
-	}
 	var res []layout.Placement
 	for _, pl := range plan.Layout {
-		switch {
-		case pl.Tag == cluster.Tag(bus.Name) && slices.Contains(items, pl.Recipe):
-		case strings.HasPrefix(pl.Tag, cluster.LogisticsTag+"/"+bus.Name+"/") && slices.Contains(srcs, strings.TrimPrefix(pl.Tag, cluster.LogisticsTag+"/"+bus.Name+"/")):
-		default:
-			continue
+		ok := false
+		for _, bus := range busNames(plan) {
+			prefix := cluster.LogisticsTag + "/" + bus + "/"
+			ok = ok || pl.Tag == cluster.Tag(bus) && slices.Contains(items, pl.Recipe) ||
+				strings.HasPrefix(pl.Tag, prefix) && slices.Contains(srcs, strings.TrimPrefix(pl.Tag, prefix))
 		}
-		res = append(res, pl)
+		if ok {
+			res = append(res, pl)
+		}
 	}
 	return res
 }
@@ -134,5 +151,7 @@ func s13Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 			srcs = append(srcs, c.Name)
 		}
 	}
+	// сквозные ленты пластин на шины выше — подводы с шины снизу
+	srcs = append(srcs, busNames(plan)...)
 	return withSplitters(h, plan, busParts(plan, []string{"iron-plate", "copper-plate"}, srcs))
 }
