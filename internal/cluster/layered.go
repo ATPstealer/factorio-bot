@@ -220,12 +220,18 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 			g.mark(r.Grow(ZoneBorder))
 		}
 	}
-	// станция — у воды ближе к базе; хранение — рядом с базой
+	// станция — у воды, где меньше сумма «добыча угля → водоём» + «водоём → край базы»;
+	// хранение — рядом с базой
 	cx, cy := lo.area.Center()
 	near := world.Tile{X: int(cx), Y: int(cy)}
 	sort.SliceStable(later, func(i, j int) bool { return later[i].Kind == Power })
 	for _, c := range later {
 		c.Near = &near
+		if c.Kind == Power {
+			if shore, ok := b.powerSpot(lo.area); ok {
+				c.Near = &shore
+			}
+		}
 		if err := b.Place(c); err != nil {
 			return nil, err
 		}
@@ -317,4 +323,48 @@ func (b *Base) fitLayered(zw []int, depth int, widths []int, width int) *layered
 		}
 	}
 	return best
+}
+
+// powerSpot — берег (вода рядом с сушей), где меньше всего сумма расстояний от ближайшей
+// добычи угля до него и от него до края базы area (zones.md, энергия).
+func (b *Base) powerSpot(area Rect) (world.Tile, bool) {
+	var coal []Rect
+	for _, c := range b.Clusters {
+		if c.Kind == Mine && c.Product == "coal" {
+			coal = append(coal, c.Area)
+		}
+	}
+	if len(coal) == 0 {
+		return world.Tile{}, false
+	}
+	toRect := func(t world.Tile, r Rect) float64 {
+		dx := math.Max(0, math.Max(float64(r.Min.X-t.X), float64(t.X-r.Max.X)))
+		dy := math.Max(0, math.Max(float64(r.Min.Y-t.Y), float64(t.Y-r.Max.Y)))
+		return math.Hypot(dx, dy)
+	}
+	g := b.g
+	best, bd := world.Tile{}, math.Inf(1)
+	for y := 0; y < g.h; y += 4 {
+		for x := 0; x < g.w; x += 4 {
+			t := world.Tile{X: g.x0 + x, Y: g.y0 + y}
+			if b.W.TileAt(t) != world.Water {
+				continue
+			}
+			shore := false
+			for _, d := range []world.Tile{{X: 4}, {X: -4}, {Y: 4}, {Y: -4}} {
+				shore = shore || b.W.TileAt(world.Tile{X: t.X + d.X, Y: t.Y + d.Y}) == world.Land
+			}
+			if !shore {
+				continue
+			}
+			dc := math.Inf(1)
+			for _, r := range coal {
+				dc = math.Min(dc, toRect(t, r))
+			}
+			if d := dc + toRect(t, area); d < bd {
+				best, bd = t, d
+			}
+		}
+	}
+	return best, !math.IsInf(bd, 1)
 }
