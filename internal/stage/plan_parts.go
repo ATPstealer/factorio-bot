@@ -10,11 +10,11 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Части плана стадии 3 для стадий стройки (cluster.md: всё через шину — добыча в головы лент,
+// Части плана стадии 4 для стадий стройки (cluster.md: всё через шину — добыча в головы лент,
 // потребители — отводами с шины).
 
 // clusterOf — первый кластер плана вида kind (и продукта product, если не пусто).
-func clusterOf(plan *S3, kind cluster.Kind, product string) *cluster.Cluster {
+func clusterOf(plan *ClusterPlan, kind cluster.Kind, product string) *cluster.Cluster {
 	for _, c := range plan.Clusters {
 		if c.Kind == kind && (product == "" || c.Product == product) {
 			return c
@@ -24,10 +24,10 @@ func clusterOf(plan *S3, kind cluster.Kind, product string) *cluster.Cluster {
 }
 
 // busOf — шина плана (nil — нет).
-func busOf(plan *S3) *cluster.Cluster { return clusterOf(plan, cluster.Bus, "") }
+func busOf(plan *ClusterPlan) *cluster.Cluster { return clusterOf(plan, cluster.Bus, "") }
 
 // tagged — размещения плана с тегом из tags.
-func tagged(plan *S3, tags ...string) []layout.Placement {
+func tagged(plan *ClusterPlan, tags ...string) []layout.Placement {
 	set := map[string]bool{}
 	for _, t := range tags {
 		set[t] = true
@@ -42,7 +42,7 @@ func tagged(plan *S3, tags ...string) []layout.Placement {
 }
 
 // busParts — ленты шины предметов items и подводы в шину от кластеров srcs.
-func busParts(plan *S3, items []string, srcs []string) []layout.Placement {
+func busParts(plan *ClusterPlan, items []string, srcs []string) []layout.Placement {
 	bus := busOf(plan)
 	if bus == nil {
 		return nil
@@ -62,7 +62,7 @@ func busParts(plan *S3, items []string, srcs []string) []layout.Placement {
 
 // withSplitters — res и делители плана в разрыве лент из res (отводы потребителей стоят на
 // месте ленты: без них лента не непрерывна).
-func withSplitters(h *act.Hands, plan *S3, res []layout.Placement) []layout.Placement {
+func withSplitters(h *act.Hands, plan *ClusterPlan, res []layout.Placement) []layout.Placement {
 	line := map[world.Tile]bool{}
 	have := map[layout.Placement]bool{}
 	for _, pl := range res {
@@ -86,9 +86,9 @@ func withSplitters(h *act.Hands, plan *S3, res []layout.Placement) []layout.Plac
 	return res
 }
 
-// s9Base — стадия 9 из плана: добыча угля, её подвод и лента угля шины, отвод угля на станцию
+// s10Base — стадия 10 из плана: добыча угля, её подвод и лента угля шины, отвод угля на станцию
 // (лента, буфер, burner-инсертер у бойлера), делители на этих лентах.
-func s9Base(h *act.Hands, plan *S3) []layout.Placement {
+func s10Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	coal, power := clusterOf(plan, cluster.Mine, "coal"), clusterOf(plan, cluster.Power, "")
 	if coal == nil || power == nil {
 		return nil
@@ -107,10 +107,10 @@ func s9Base(h *act.Hands, plan *S3) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// s10Base — стадия 10 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
+// s11Base — стадия 11 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
 // добычи, отводы руды и угля в плавку (с буферами входа), делители на этих лентах. Пластины на
-// шину — стадия 11.
-func s10Base(h *act.Hands, plan *S3) []layout.Placement {
+// шину — стадия 12.
+func s11Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var res []layout.Placement
 	var srcs []string
 	for _, it := range []string{"iron", "copper"} {
@@ -125,9 +125,9 @@ func s10Base(h *act.Hands, plan *S3) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// s11Base — стадия 11 из плана: ленты пластин шины, подводы в них от плавки, делители на них
+// s12Base — стадия 12 из плана: ленты пластин шины, подводы в них от плавки, делители на них
 // (отводы будущих потребителей стоят в разрыве ленты).
-func s11Base(h *act.Hands, plan *S3) []layout.Placement {
+func s12Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var srcs []string
 	for _, it := range []string{"iron-plate", "copper-plate"} {
 		if c := clusterOf(plan, cluster.Smelt, it); c != nil {

@@ -205,7 +205,7 @@ func (b *Base) Place(c *Cluster) error {
 		return fmt.Errorf("cluster: карта пуста")
 	}
 	rooms := []int{c.Room}
-	if c.Kind == Mine || c.Kind == Bus { // шина: Count — длина под нынешних клиентов
+	if c.Kind == Mine { // шина — с запасом ×5 всегда (не урезается)
 		for r := c.Room / 2; r > c.Count; r /= 2 {
 			rooms = append(rooms, r)
 		}

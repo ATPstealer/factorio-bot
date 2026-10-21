@@ -26,7 +26,8 @@ import (
 
 const (
 	Bus      Kind = "bus"
-	BusCap        = 10 // лент в шине не меньше (с запасом на следующие этапы)
+	BusCap        = 40 // лент в шине не меньше (запас ширины на следующие этапы; пары через зазоры 3)
+	BusReserve    = 5  // запас длины шины: ×5 к длине под нынешних клиентов
 	BusGap        = 5  // подводы у клиента: столбцы до и после него
 	BusHead       = 4  // голова: подход лент от плавки
 	beltRate      = 15 // пропускная способность ленты (жёлтая), шт/с
@@ -103,8 +104,8 @@ func (bi *BusInfo) lane(item string) *Lane {
 	return nil
 }
 
-// newBus — шина под клиентов: длина — клиенты с коридорами, с запасом на следующие этапы;
-// ширина — ленты под расход клиентов, не меньше BusCap.
+// newBus — шина под клиентов: длина — клиенты с коридорами, запас ×BusReserve; ширина — ленты
+// под расход клиентов, не меньше BusCap.
 func newBus(clients []*Cluster) *Cluster {
 	length, side := 0, 0
 	demand := map[string]float64{}
@@ -120,9 +121,9 @@ func newBus(clients []*Cluster) *Cluster {
 		lanes += max(1, int(math.Ceil(d/beltRate)))
 	}
 	need := BusHead + length + 1
-	length = max(length*6/5, 150)
+	room := need * BusReserve // запас роста ×5 по длине (cluster.md), не урезается
 	w := busWidth(max(BusCap, lanes))
-	return &Cluster{Kind: Bus, Product: "bus", Reserve: 1, Pitch: 1, Head: BusHead, Room: length, Count: need, Cross: w,
+	return &Cluster{Kind: Bus, Product: "bus", Reserve: BusReserve, Pitch: 1, Head: BusHead, Room: room, Count: need, Cross: w,
 		Bus: &BusInfo{Next: BusHead + 1, Width: w, Side: side, Clients: map[string]int{}, Demand: map[string]float64{}}}
 }
 

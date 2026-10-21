@@ -15,26 +15,26 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 5 (stages.md): 2 лаборатории на месте кластера лабораторий из плана (начало
+// Стадия 6 (stages.md): 2 лаборатории на месте кластера лабораторий из плана (начало
 // кластера), электричество — столбами от станции по коридорам (столбы логистики плана, не
-// через чужие кластеры), красная наука руками, изучить s5Techs.
+// через чужие кластеры), красная наука руками, изучить s6Techs.
 
 const (
-	s5Plan = "state-stage5.json"
-	s5Labs = 2
-	s5Pack = "automation-science-pack"
+	s6Plan = "state-stage6.json"
+	s6Labs = 2
+	s6Pack = "automation-science-pack"
 )
 
-var s5Techs = []string{"automation", "electric-mining-drill", "logistics"}
+var s6Techs = []string{"automation", "electric-mining-drill", "logistics"}
 
 func init() {
-	register(Stage{N: 5, Name: "первые исследования", Run: runResearch, Check: checkResearch})
+	register(Stage{N: 6, Name: "первые исследования", Run: runResearch, Check: checkResearch})
 }
 
-// s5Layout — лаборатории и столбы до них: кратчайшая цепочка столбов плана (логистика,
+// s6Layout — лаборатории и столбы до них: кратчайшая цепочка столбов плана (логистика,
 // станция, лаборатории) от столбов станции до столба, питающего каждую лабораторию.
-func s5Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s5Plan)); err == nil {
+func s6Layout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(s6Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -44,7 +44,7 @@ func s5Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	station, err := s4Layout(h)
+	station, err := s5Layout(h)
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +61,12 @@ func s5Layout(h *act.Hands) ([]layout.Placement, error) {
 	}
 	var labs []layout.Placement
 	for _, pl := range plan.Layout {
-		if pl.Tag == cluster.Tag(labName) && pl.Name == "lab" && len(labs) < s5Labs {
+		if pl.Tag == cluster.Tag(labName) && pl.Name == "lab" && len(labs) < s6Labs {
 			labs = append(labs, pl)
 		}
 	}
-	if len(labs) < s5Labs {
-		return nil, fmt.Errorf("в плане нет %d лабораторий", s5Labs)
+	if len(labs) < s6Labs {
+		return nil, fmt.Errorf("в плане нет %d лабораторий", s6Labs)
 	}
 	var start []bridge.Pos
 	for _, pl := range station {
@@ -91,11 +91,11 @@ func s5Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return list, os.WriteFile(runPath(s5Plan), data, 0o644)
+	return list, os.WriteFile(runPath(s6Plan), data, 0o644)
 }
 
 func runResearch(ctx context.Context, h *act.Hands) error {
-	list, err := s5Layout(h)
+	list, err := s6Layout(h)
 	if err != nil {
 		return err
 	}
@@ -108,10 +108,10 @@ func runResearch(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	// рецепт красной науки открывается крафтом лаборатории (trigger)
-	if err := s5WaitRecipe(ctx, h, s5Pack); err != nil {
+	if err := s6WaitRecipe(ctx, h, s6Pack); err != nil {
 		return err
 	}
-	for _, tech := range s5Techs {
+	for _, tech := range s6Techs {
 		f, err := h.B.Force()
 		if err != nil {
 			return err
@@ -121,18 +121,18 @@ func runResearch(ctx context.Context, h *act.Hands) error {
 		}
 		t := h.Protos.Technologies[tech]
 		n := int(t.UnitCount)
-		labs, err := s5Labs2(h, list)
+		labs, err := s6Labs2(h, list)
 		if err != nil {
 			return err
 		}
 		inLabs := 0
 		for _, l := range labs {
 			if st, err := h.B.GetEntity("lab", l.Pos); err == nil && st != nil {
-				inLabs += st.Count(s5Pack)
+				inLabs += st.Count(s6Pack)
 			}
 		}
 		if n > inLabs {
-			if err := s.have(ctx, s5Pack, n-inLabs); err != nil {
+			if err := s.have(ctx, s6Pack, n-inLabs); err != nil {
 				return err
 			}
 		}
@@ -140,7 +140,7 @@ func runResearch(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 		for i, l := range labs {
-			k := s.inv(s5Pack) / (len(labs) - i)
+			k := s.inv(s6Pack) / (len(labs) - i)
 			if k == 0 {
 				continue
 			}
@@ -148,7 +148,7 @@ func runResearch(ctx context.Context, h *act.Hands) error {
 			if err != nil || e == nil {
 				return fmt.Errorf("нет лаборатории в (%.1f, %.1f): %v", l.Pos.X, l.Pos.Y, err)
 			}
-			if err := h.Insert(ctx, *e, s5Pack, k); err != nil {
+			if err := h.Insert(ctx, *e, s6Pack, k); err != nil {
 				return err
 			}
 		}
@@ -174,7 +174,7 @@ func runResearch(ctx context.Context, h *act.Hands) error {
 	return nil
 }
 
-func s5Labs2(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) {
+func s6Labs2(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) {
 	var res []layout.Placement
 	for _, pl := range list {
 		if pl.Name == "lab" {
@@ -187,8 +187,8 @@ func s5Labs2(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) 
 	return res, nil
 }
 
-// s5WaitRecipe — дождаться открытия рецепта (trigger-технология после крафта).
-func s5WaitRecipe(ctx context.Context, h *act.Hands, recipe string) error {
+// s6WaitRecipe — дождаться открытия рецепта (trigger-технология после крафта).
+func s6WaitRecipe(ctx context.Context, h *act.Hands, recipe string) error {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		f, err := h.B.Force()
@@ -208,15 +208,15 @@ func s5WaitRecipe(ctx context.Context, h *act.Hands, recipe string) error {
 }
 
 func checkResearch(h *act.Hands) error {
-	list, err := s5Layout(h)
+	list, err := s6Layout(h)
 	if err != nil {
 		return err
 	}
-	station, err := s4Layout(h)
+	station, err := s5Layout(h)
 	if err != nil {
 		return err
 	}
-	eng, err := h.B.GetEntity("steam-engine", s4Find(station, "steam-engine").Pos)
+	eng, err := h.B.GetEntity("steam-engine", s5Find(station, "steam-engine").Pos)
 	if err != nil || eng == nil {
 		return fmt.Errorf("нет парового двигателя станции: %v", err)
 	}
@@ -236,14 +236,14 @@ func checkResearch(h *act.Hands) error {
 			}
 		}
 	}
-	if labs < s5Labs {
-		return fmt.Errorf("лабораторий %d, нужно %d", labs, s5Labs)
+	if labs < s6Labs {
+		return fmt.Errorf("лабораторий %d, нужно %d", labs, s6Labs)
 	}
 	f, err := h.B.Force()
 	if err != nil {
 		return err
 	}
-	for _, t := range s5Techs {
+	for _, t := range s6Techs {
 		if !slices.Contains(f.Researched, t) {
 			return fmt.Errorf("не изучено %s", t)
 		}

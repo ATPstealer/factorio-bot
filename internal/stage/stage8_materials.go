@@ -12,23 +12,23 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 7 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
-// меди по плану стадии 3 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
-// сверх расчёта — запас s7Extra; не влезает в инвентарь — в кластер хранения. Только
-// материалы: строят стадии 9–10.
+// Стадия 8 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
+// меди по плану стадии 4 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
+// сверх расчёта — запас s8Extra; не влезает в инвентарь — в кластер хранения. Только
+// материалы: строят стадии 11–11.
 
-// s7Extra — запас сверх расчёта.
-var s7Extra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 30, "wood": 50, "coal": 1000}
+// s8Extra — запас сверх расчёта.
+var s8Extra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 30, "wood": 50, "coal": 1000}
 
-// s7OutBuffer — буфер выхода плавки (стадия 10: пластины копятся в контейнерах).
-var s7OutBuffer = map[string]int{"inserter": 2, chest: 2}
+// s8OutBuffer — буфер выхода плавки (стадия 11: пластины копятся в контейнерах).
+var s8OutBuffer = map[string]int{"inserter": 2, chest: 2}
 
 func init() {
-	register(Stage{N: 7, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
+	register(Stage{N: 8, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
 }
 
-// s7Clusters — кластеры стадий 9–10: добыча угля, железа, меди; плавка железа и меди.
-func s7Clusters(plan *S3) []*cluster.Cluster {
+// s8Clusters — кластеры стадий 11–11: добыча угля, железа, меди; плавка железа и меди.
+func s8Clusters(plan *ClusterPlan) []*cluster.Cluster {
 	var res []*cluster.Cluster
 	for _, c := range plan.Clusters {
 		switch {
@@ -40,16 +40,16 @@ func s7Clusters(plan *S3) []*cluster.Cluster {
 	return res
 }
 
-// s7Layout — что построят стадии 9–10 (s9Base, s10Base) и столбы: по столбам логистики
+// s8Layout — что построят стадии 11–11 (s10Base, s11Base) и столбы: по столбам логистики
 // плана (цепочки по коридорам выйдут не длиннее).
-func s7Layout(h *act.Hands) ([]layout.Placement, error) {
+func s8Layout(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
 	seen := map[layout.Placement]bool{}
 	var res []layout.Placement
-	for _, pl := range append(append(s9Base(h, plan), s10Base(h, plan)...), tagged(plan, cluster.LogisticsTag)...) {
+	for _, pl := range append(append(s10Base(h, plan), s11Base(h, plan)...), tagged(plan, cluster.LogisticsTag)...) {
 		if !seen[pl] {
 			seen[pl] = true
 			res = append(res, pl)
@@ -58,9 +58,9 @@ func s7Layout(h *act.Hands) ([]layout.Placement, error) {
 	return res, nil
 }
 
-// s7Need — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
-func s7Need(h *act.Hands) (map[string]int, error) {
-	list, err := s7Layout(h)
+// s8Need — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
+func s8Need(h *act.Hands) (map[string]int, error) {
+	list, err := s8Layout(h)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +75,9 @@ func s7Need(h *act.Hands) (map[string]int, error) {
 		}
 	}
 	plan, _ := LoadPlan()
-	for _, c := range s7Clusters(plan) {
+	for _, c := range s8Clusters(plan) {
 		if c.Kind == cluster.Smelt {
-			for it, n := range s7OutBuffer {
+			for it, n := range s8OutBuffer {
 				need[it] += n
 			}
 		}
@@ -85,8 +85,8 @@ func s7Need(h *act.Hands) (map[string]int, error) {
 	return need, nil
 }
 
-// s7Stock — что есть: инвентарь и сундуки хранения.
-func s7Stock(h *act.Hands) (map[string]int, error) {
+// s8Stock — что есть: инвентарь и сундуки хранения.
+func s8Stock(h *act.Hands) (map[string]int, error) {
 	p, err := h.B.Player()
 	if err != nil {
 		return nil, err
@@ -95,7 +95,7 @@ func s7Stock(h *act.Hands) (map[string]int, error) {
 	for it, n := range p.Inventory {
 		res[it] += n
 	}
-	list, err := s6Layout()
+	list, err := s7Layout()
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func s7Stock(h *act.Hands) (map[string]int, error) {
 }
 
 func runMaterials(ctx context.Context, h *act.Hands) error {
-	need, err := s7Need(h)
+	need, err := s8Need(h)
 	if err != nil {
 		return err
 	}
@@ -145,7 +145,7 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 	for pass := 0; pass < 3; pass++ {
 		short := false
 		for _, it := range names {
-			stock, err := s7Stock(h)
+			stock, err := s8Stock(h)
 			if err != nil {
 				return err
 			}
@@ -164,12 +164,12 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	for _, it := range []string{"wood", "stone", "copper-plate", "iron-plate", "coal"} {
-		stock, err := s7Stock(h)
+		stock, err := s8Stock(h)
 		if err != nil {
 			return err
 		}
 		// сверх расчёта: сырьё — тоже из запаса (на крафт уже ушло своё)
-		for lack := s7Extra[it] - stock[it]; lack > 0; lack = s7Extra[it] - stock[it] {
+		for lack := s8Extra[it] - stock[it]; lack > 0; lack = s8Extra[it] - stock[it] {
 			if err := s.store(ctx, 8); err != nil {
 				return err
 			}
@@ -177,7 +177,7 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 			if err := s.have(ctx, it, s.inv(it)+step); err != nil {
 				return fmt.Errorf("%s: %w", it, err)
 			}
-			if stock, err = s7Stock(h); err != nil {
+			if stock, err = s8Stock(h); err != nil {
 				return err
 			}
 		}
@@ -195,7 +195,7 @@ func (s *s2) store(ctx context.Context, free int) error {
 	if p.InventorySize-len(p.InventorySlots) >= free {
 		return nil
 	}
-	list, err := s6Layout()
+	list, err := s7Layout()
 	if err != nil {
 		return err
 	}
@@ -241,11 +241,11 @@ func (s *s2) store(ctx context.Context, free int) error {
 }
 
 func checkMaterials(h *act.Hands) error {
-	need, err := s7Need(h)
+	need, err := s8Need(h)
 	if err != nil {
 		return err
 	}
-	stock, err := s7Stock(h)
+	stock, err := s8Stock(h)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func checkMaterials(h *act.Hands) error {
 			return fmt.Errorf("%s: есть %d, нужно %d", it, stock[it], n)
 		}
 	}
-	for it, n := range s7Extra {
+	for it, n := range s8Extra {
 		if stock[it] < n {
 			return fmt.Errorf("запас %s: есть %d, нужно %d", it, stock[it], n)
 		}

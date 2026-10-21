@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -14,20 +15,20 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 10 (stages.md): кластеры добычи и плавки железа и меди по плану стадии 3 с буферами
+// Стадия 11 (stages.md): кластеры добычи и плавки железа и меди по плану стадии 4 с буферами
 // входа; руда — в ленты шины, плавка берёт руду и уголь с шины, пластины — в ленты шины.
 // Буферы выхода (cluster.md 6а) — инсертер с фильтром на продукт берёт с выходной ленты
 // плавки в сундук: пластины для крафта и стройки бота.
 
-const s10Plan = "state-stage10.json"
+const s11Plan = "state-stage11.json"
 
 func init() {
-	register(Stage{N: 10, Name: "добыча и плавка железа и меди", Run: runSmelting, Check: checkSmelting})
+	register(Stage{N: 11, Name: "добыча и плавка железа и меди", Run: runSmelting, Check: checkSmelting})
 }
 
-// s10Layout — кластеры и подводы к плавке из плана, буферы выхода плавки (один раз на карту).
-func s10Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s10Plan)); err == nil {
+// s11Layout — кластеры и подводы к плавке из плана, буферы выхода плавки (один раз на карту).
+func s11Layout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(s11Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -37,7 +38,7 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := s10Base(h, plan)
+	res := s11Base(h, plan)
 	var smelt []*cluster.Cluster
 	var allow []string
 	for _, c := range plan.Clusters {
@@ -55,7 +56,7 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 		all.Add(pl)
 	}
 	for _, c := range smelt {
-		buf, err := s10OutBuffer(h, all, c)
+		buf, err := s11OutBuffer(h, all, c)
 		if err != nil {
 			return nil, err
 		}
@@ -71,12 +72,12 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s10Plan), data, 0o644)
+	return res, os.WriteFile(runPath(s11Plan), data, 0o644)
 }
 
-// s10OutBuffer — буфер выхода плавки c: сбоку от выходной ленты (от порта назад) инсертер с
+// s11OutBuffer — буфер выхода плавки c: сбоку от выходной ленты (от порта назад) инсертер с
 // фильтром на продукт и сундук за ним; места — свободные от плана.
-func s10OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster) ([]layout.Placement, error) {
+func s11OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster) ([]layout.Placement, error) {
 	var out *cluster.Port
 	for i := range c.Ports {
 		if !c.Ports[i].In {
@@ -86,17 +87,17 @@ func s10OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster) ([]layou
 	if out == nil {
 		return nil, fmt.Errorf("у %s нет порта выхода", c.Name)
 	}
-	tag := "s10/" + c.Name
+	tag := "outbuf/" + c.Name
 	var res []layout.Placement
 	t := layout.Step(out.T, (out.Dir+8)%16)
-	for k := 0; k < 12 && len(res) < 2*s7OutBuffer[chest]; k++ {
+	for k := 0; k < 12 && len(res) < 2*s8OutBuffer[chest]; k++ {
 		b := all.At(t)
 		if b == nil || b.Name != "transport-belt" {
 			break
 		}
 		for _, side := range []int{(b.Dir + 4) % 16, (b.Dir + 12) % 16} {
 			ins, box := layout.Step(t, side), layout.Step(layout.Step(t, side), side)
-			if len(res) >= 2*s7OutBuffer[chest] || !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
+			if len(res) >= 2*s8OutBuffer[chest] || !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
 				continue
 			}
 			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: out.Item, Tag: tag}
@@ -127,7 +128,7 @@ func s10OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster) ([]layou
 }
 
 func runSmelting(ctx context.Context, h *act.Hands) error {
-	list, err := s10Layout(h)
+	list, err := s11Layout(h)
 	if err != nil {
 		return err
 	}
@@ -173,7 +174,7 @@ func runSmelting(ctx context.Context, h *act.Hands) error {
 }
 
 func checkSmelting(h *act.Hands) error {
-	list, err := s10Layout(h)
+	list, err := s11Layout(h)
 	if err != nil {
 		return err
 	}
@@ -182,7 +183,7 @@ func checkSmelting(h *act.Hands) error {
 	}
 	got := map[string]int{}
 	for _, pl := range list {
-		if pl.Name != chest || len(pl.Tag) < 4 || pl.Tag[:4] != "s10/" {
+		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "outbuf/") {
 			continue
 		}
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)

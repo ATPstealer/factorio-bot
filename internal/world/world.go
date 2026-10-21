@@ -339,12 +339,17 @@ func (w *World) FreeSpotWhere(near bridge.Pos, width, height, radius int, avoid 
 // NearestUnknown — ближайший к from неоткрытый чанк на краю открытой карты (рядом с открытым),
 // кольцами вокруг чанка from до max чанков; skip — недоступные. Центр чанка, ok.
 func (w *World) NearestUnknown(from bridge.Pos, max int, skip map[bridge.ChunkPos]bool) (bridge.Pos, bool) {
+	return w.NearestUnknownWhere(from, max, skip, nil)
+}
+
+// NearestUnknownWhere — NearestUnknown только среди чанков, для которых ok (nil — любые).
+func (w *World) NearestUnknownWhere(from bridge.Pos, max int, skip map[bridge.ChunkPos]bool, ok func(bridge.ChunkPos) bool) (bridge.Pos, bool) {
 	c0 := ChunkOf(TileOf(from))
 	for r := 1; r <= max; r++ {
 		best, bd := bridge.ChunkPos{}, math.Inf(1)
 		for _, d := range ringChunks(r) {
 			c := bridge.ChunkPos{X: c0.X + d.X, Y: c0.Y + d.Y}
-			if w.Chunks[c] != nil || skip[c] {
+			if w.Chunks[c] != nil || skip[c] || ok != nil && !ok(c) {
 				continue
 			}
 			edge := false // рядом открытый — дойти можно по открытой земле

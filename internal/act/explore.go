@@ -13,10 +13,19 @@ import (
 // exploreHop — длина перехода (путь строится только по открытой карте).
 const exploreHop = 48
 
+// ErrNothingToExplore — неоткрытого, куда можно дойти, рядом нет (в пределах 64 чанков или
+// области ExploreWhere; недоступное — вода, утёсы — пропущено).
+var ErrNothingToExplore = errors.New("act: разведка: неоткрытого, куда дойти, нет")
+
 // Explore — разведка: идти к ближайшему неоткрытому чанку на краю открытой карты
 // (World.NearestUnknown), пока done не вернёт true. Дошёл, а чанк не открылся, или не пройти
 // (вода, утёсы) — этот чанк пропускается. Неоткрытого рядом нет — ошибка.
 func (h *Hands) Explore(ctx context.Context, done func() bool) error {
+	return h.ExploreWhere(ctx, nil, done)
+}
+
+// ExploreWhere — Explore только к чанкам, для которых inside (nil — любые): обойти область.
+func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) bool, done func() bool) error {
 	if h.World == nil {
 		return fmt.Errorf("act: разведка без модели карты")
 	}
@@ -38,9 +47,9 @@ func (h *Hands) Explore(ctx context.Context, done func() bool) error {
 		if err != nil {
 			return err
 		}
-		target, ok := w.NearestUnknown(p.Position, 64, skip)
+		target, ok := w.NearestUnknownWhere(p.Position, 64, skip, inside)
 		if !ok {
-			return fmt.Errorf("act: разведка: неоткрытого в пределах 64 чанков нет")
+			return ErrNothingToExplore
 		}
 		tc := world.ChunkOf(world.TileOf(target))
 		h.Say("разведка: к неоткрытому чанку (%.0f, %.0f)", target.X, target.Y)

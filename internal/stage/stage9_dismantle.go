@@ -8,15 +8,15 @@ import (
 	"factorio-bot/internal/bridge"
 )
 
-// Стадия 8 (stages.md): разобрать точки стадии 2 (печи, буры, угольные пары, сундук) и
+// Стадия 9 (stages.md): разобрать точки стадии 2 (печи, буры, угольные пары, сундук) и
 // сложить в кластер хранения; содержимое точек забрать (подбор отдаёт его в инвентарь),
 // не помещается — в хранение (сначала ненужное).
 
 func init() {
-	register(Stage{N: 8, Name: "разбор временных точек", Run: runDismantle, Check: checkDismantle})
+	register(Stage{N: 9, Name: "разбор временных точек", Run: runDismantle, Check: checkDismantle})
 }
 
-// s8Standing — постройки точек стадии 2, которые ещё стоят.
+// s9Standing — постройки точек стадии 2, которые ещё стоят.
 func (s *s2) standing() ([]bridge.Entity, error) {
 	var res []bridge.Entity
 	for _, site := range s.sites {
@@ -70,8 +70,8 @@ func runDismantle(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	// разобранное — в хранение; печи — кроме нужных кластерам плавки (стадия 10)
-	need, err := s7Need(h)
+	// разобранное — в хранение; печи — кроме нужных кластерам плавки (стадия 11)
+	need, err := s8Need(h)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func runDismantle(ctx context.Context, h *act.Hands) error {
 
 // stash — из инвентаря в сундуки хранения: предмет → сколько.
 func (s *s2) stash(ctx context.Context, items map[string]int) error {
-	list, err := s6Layout()
+	list, err := s7Layout()
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func checkDismantle(h *act.Hands) error {
 	if len(es) > 0 {
 		return fmt.Errorf("точки стадии 2 не разобраны: %d построек (%s в (%.1f, %.1f) …)", len(es), es[0].Name, es[0].Position.X, es[0].Position.Y)
 	}
-	stock, err := s7Stock(h)
+	stock, err := s8Stock(h)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func checkDismantle(h *act.Hands) error {
 // fromStorage — item лежит в сундуке хранения: забрать содержимое этого сундука (Ctrl+клик
 // берёт всё, что влезет). false — в хранении нет.
 func (s *s2) fromStorage(ctx context.Context, item string) (bool, error) {
-	list, err := s6Layout()
+	list, err := s7Layout()
 	if err != nil {
 		return false, err
 	}

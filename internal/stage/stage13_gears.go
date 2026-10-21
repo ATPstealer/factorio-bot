@@ -14,14 +14,14 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 12 (stages.md): кластер шестерён по плану стадии 3, сразу как положено — отвод железа
+// Стадия 13 (stages.md): кластер шестерён по плану стадии 4, сразу как положено — отвод железа
 // с шины делителем, буфер входа, сборщики с рецептом, выход — в ленту шестерён шины, буфер
 // выхода, питание по коридорам. Общая часть (завод с шины) — makeLayout/runMake/checkMake.
 
 func init() {
-	register(Stage{N: 12, Name: "кластер шестерён",
-		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel", 12) },
-		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel", 12) }})
+	register(Stage{N: 13, Name: "кластер шестерён",
+		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel", 13) },
+		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel", 13) }})
 }
 
 // makeLayout — завод продукта product с шины (стадия n): внутренность кластера, отводы с
@@ -49,7 +49,7 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 	for _, pl := range plan.Layout {
 		all.Add(pl)
 	}
-	buf, err := s10OutBuffer(h, all, c)
+	buf, err := s11OutBuffer(h, all, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,7 +142,7 @@ func checkMake(h *act.Hands, product string, n int) error {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		case pl.Recipe == product && pl.Name == "transport-belt" && st.Belt[product] > 0:
 			onBus = true
-		case pl.Name == chest && strings.HasPrefix(pl.Tag, "s10/") && st.Inventories["chest"][product] > 0:
+		case pl.Name == chest && strings.HasPrefix(pl.Tag, "outbuf/") && st.Inventories["chest"][product] > 0:
 			inBuf = true
 		}
 	}

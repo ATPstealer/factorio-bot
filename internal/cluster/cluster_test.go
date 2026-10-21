@@ -63,7 +63,7 @@ func synth(t *testing.T, cw, ch int, fill func(x, y int) byte) *world.World {
 
 // карта 320×320: озеро, железо, медь, уголь, камень вокруг центра (160,160)
 func testMap(t *testing.T) *world.World {
-	return synth(t, 20, 20, func(x, y int) byte { // карта в игре бесконечна — места с запасом
+	return synth(t, 40, 40, func(x, y int) byte { // карта в игре бесконечна — места с запасом (шина ×5)
 		switch {
 		case (x-60)*(x-60)+(y-60)*(y-60) < 30*30:
 			return 'w'

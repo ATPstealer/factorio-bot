@@ -594,12 +594,12 @@ func checkOutposts(h *act.Hands) error {
 	return nil
 }
 
-// fromBuffers — пластины из буферов выхода плавки (стадия 10): забрать со всех, где есть;
+// fromBuffers — пластины из буферов выхода плавки (стадия 11): забрать со всех, где есть;
 // нигде нет — подождать.
 func (s *s2) fromBuffers(ctx context.Context, plate string) error {
-	data, err := os.ReadFile(runPath(s10Plan))
+	data, err := os.ReadFile(runPath(s11Plan))
 	if err != nil {
-		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 10): %w", plate, err)
+		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 11): %w", plate, err)
 	}
 	var list []layout.Placement
 	if err := json.Unmarshal(data, &list); err != nil {
@@ -607,7 +607,7 @@ func (s *s2) fromBuffers(ctx context.Context, plate string) error {
 	}
 	var es []bridge.Entity
 	for _, pl := range list {
-		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "s10/") {
+		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "outbuf/") {
 			continue
 		}
 		if st, err := s.h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Inventories["chest"][plate] > 0 {

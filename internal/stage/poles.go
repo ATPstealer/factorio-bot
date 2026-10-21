@@ -17,7 +17,7 @@ import (
 // запитает цель (target), только по коридорам: не в площадях кластеров плана, кроме allow
 // (станция, сам кластер-цель); столбы — ровными линиями (по горизонтали и вертикали); extra — что ещё будет стоять (своё стадии вне плана). Места столбов плана с тегом логистики — дешевле (их всё равно
 // ставить); прочие занятые планом тайлы — нельзя. Кратчайшее по числу столбов (Дейкстра).
-func corridorPoles(h *act.Hands, plan *S3, extra []layout.Placement, start []bridge.Pos, allow []string, target func(pole bridge.Pos) bool) ([]layout.Placement, error) {
+func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, start []bridge.Pos, allow []string, target func(pole bridge.Pos) bool) ([]layout.Placement, error) {
 	const pole = "small-electric-pole"
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func powers(p *act.Hands, pole bridge.Pos, pl layout.Placement) bool {
 // сеть; группы столбов list, не достающие до сети, — цепочкой по коридорам к ней; что
 // после этого не запитано — своим столбом по коридорам. allow — кластеры, через площадь
 // которых можно идти (свои и станция).
-func connectPower(h *act.Hands, plan *S3, list []layout.Placement, allow []string) ([]layout.Placement, error) {
+func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow []string) ([]layout.Placement, error) {
 	const pole = "small-electric-pole"
 	reach := h.Protos.Entities[pole].MaxWireDistance
 	p, err := h.B.Player()

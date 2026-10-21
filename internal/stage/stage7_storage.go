@@ -13,14 +13,14 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 6 (stages.md): кластер хранения (склад бота) из плана стадии 3.
+// Стадия 7 (stages.md): кластер хранения (склад бота) из плана стадии 4.
 
 func init() {
-	register(Stage{N: 6, Name: "хранение", Run: runStorage, Check: checkStorage})
+	register(Stage{N: 7, Name: "хранение", Run: runStorage, Check: checkStorage})
 }
 
-// s6Layout — постройки кластера хранения из плана.
-func s6Layout() ([]layout.Placement, error) {
+// s7Layout — постройки кластера хранения из плана.
+func s7Layout() ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func s6Layout() ([]layout.Placement, error) {
 }
 
 func runStorage(ctx context.Context, h *act.Hands) error {
-	list, err := s6Layout()
+	list, err := s7Layout()
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 }
 
 func checkStorage(h *act.Hands) error {
-	list, err := s6Layout()
+	list, err := s7Layout()
 	if err != nil {
 		return err
 	}
