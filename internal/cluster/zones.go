@@ -117,43 +117,52 @@ func (b *Base) Zones(lay *Layered) []Zone {
 		in, out, ms, pw := bundle(byFloor[f])
 		res = append(res, Zone{Name: fmt.Sprintf("%s-%d", k, n[k]), Kind: k, Rect: lay.Floors[f], In: in, Out: out, Machines: ms, PowerW: pw})
 	}
-	// добыча: пятна под кластерами добычи и соседние с ними (до patchNear тайлов, любых
-	// ресурсов) — одной зоной, целиком (zones.md)
+	// добыча: зона на пятно под кластерами добычи (пятно целиком); соседние (до patchNear) —
+	// в одну, только если прямоугольник плотный (без ресурсов не больше 30%); пересекающиеся —
+	// в одну всегда (zones.md)
 	type mz struct {
 		r  Rect
 		cs []*Cluster
 	}
-	pts := b.W.Patches()
-	box := func(pt world.Patch) Rect { return Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}} }
-	var mines []mz
-	for _, c := range b.Clusters {
-		if c.Kind != Mine {
-			continue
+	g := b.grid()
+	ore := func(r Rect) int {
+		n := 0
+		for _, o := range g.ore {
+			k, _ := g.count(o, r)
+			n += k
 		}
-		r := c.Area
-		for grew := true; grew; {
-			grew = false
-			for _, pt := range pts {
-				pr := box(pt)
-				if pr.Overlaps(r.Grow(patchNear)) && !(pr.Min.X >= r.Min.X && pr.Min.Y >= r.Min.Y && pr.Max.X <= r.Max.X && pr.Max.Y <= r.Max.Y) {
-					r, grew = union(r, pr), true
-				}
+		return n
+	}
+	var mines []mz
+	for _, pt := range b.W.Patches() {
+		pr := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}
+		var cs []*Cluster
+		for _, c := range b.Clusters {
+			if c.Kind == Mine && c.Product == pt.Name && pr.Overlaps(c.Area) {
+				cs = append(cs, c)
 			}
 		}
-		mines = append(mines, mz{r.Grow(ZoneBorder), []*Cluster{c}})
+		if len(cs) > 0 {
+			mines = append(mines, mz{pr, cs})
+		}
 	}
-	for merged := true; merged; { // пересекающиеся — в одну
+	for merged := true; merged; {
 		merged = false
 		for i := 0; i < len(mines) && !merged; i++ {
 			for j := i + 1; j < len(mines); j++ {
-				if mines[i].r.Overlaps(mines[j].r) {
-					mines[i] = mz{union(mines[i].r, mines[j].r), append(mines[i].cs, mines[j].cs...)}
+				u := union(mines[i].r, mines[j].r)
+				dense := mines[i].r.Grow(patchNear).Overlaps(mines[j].r) && float64(ore(u)) >= minOre*float64(u.W()*u.H())
+				if mines[i].r.Overlaps(mines[j].r) || dense {
+					mines[i] = mz{u, append(mines[i].cs, mines[j].cs...)}
 					mines = append(mines[:j], mines[j+1:]...)
 					merged = true
 					break
 				}
 			}
 		}
+	}
+	for i := range mines {
+		mines[i].r = mines[i].r.Grow(ZoneBorder)
 	}
 	for i, m := range mines {
 		in, out, ms, pw := bundle(m.cs)
@@ -177,8 +186,13 @@ func (b *Base) Zones(lay *Layered) []Zone {
 	return res
 }
 
-// patchNear — соседние пятна (до стольких тайлов) — одна зона добычи.
-const patchNear = 30
+// patchNear — соседние пятна (до стольких тайлов) — кандидаты в одну зону добычи; minOre —
+// доля тайлов с ресурсом в прямоугольнике объединённой зоны, не меньше (zones.md: без ресурсов
+// не больше 30%).
+const (
+	patchNear = 30
+	minOre    = 0.7
+)
 
 func union(a, b Rect) Rect {
 	return Rect{world.Tile{X: min(a.Min.X, b.Min.X), Y: min(a.Min.Y, b.Min.Y)}, world.Tile{X: max(a.Max.X, b.Max.X), Y: max(a.Max.Y, b.Max.Y)}}
