@@ -75,6 +75,9 @@ type Cluster struct {
 	Rect     Rect `json:"rect"`
 	Area     Rect `json:"area"`
 	Vertical bool `json:"vertical,omitempty"` // ряд вдоль Y
+	// Upright — ряд только вдоль Y, головой вниз (в зоне производства — поперёк шин, входы — к
+	// шине снизу, выход — к шине сверху; zones.md)
+	Upright bool `json:"upright,omitempty"`
 	// Bus — у шины: ленты и разметка клиентов
 	Bus *BusInfo `json:"bus,omitempty"`
 	// Near — куда тянуть кластер при выборе места (nil — к поставщикам или центру базы)

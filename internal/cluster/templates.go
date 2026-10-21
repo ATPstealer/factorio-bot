@@ -54,9 +54,13 @@ func (c *Cluster) Len() int { return c.Head + c.Room*c.Pitch }
 type frame struct {
 	r        Rect
 	vertical bool
+	up       bool // вертикальный ряд головой вниз (Upright: входы — к шине снизу)
 }
 
 func (f frame) tile(u, v int) world.Tile {
+	if f.up {
+		return world.Tile{X: f.r.Min.X + v, Y: f.r.Max.Y - 1 - u}
+	}
 	if f.vertical {
 		return world.Tile{X: f.r.Min.X + v, Y: f.r.Min.Y + u}
 	}
@@ -65,6 +69,9 @@ func (f frame) tile(u, v int) world.Tile {
 
 // dir — направление из системы ряда в мир (транспонирование: N↔W, E↔S).
 func (f frame) dir(d int) int {
+	if f.up { // поворот: вдоль ряда — вверх
+		return map[int]int{layout.E: layout.N, layout.S: layout.E, layout.W: layout.S, layout.N: layout.W}[d]
+	}
 	if !f.vertical {
 		return d
 	}
@@ -75,6 +82,10 @@ func (f frame) dir(d int) int {
 func (f frame) at(l *layout.Layout, name string, u, v, d int, tag string) layout.Placement {
 	wd := f.dir(d)
 	lt := f.tile(u, v) // у транспонированного прямоугольника левый верхний угол тот же
+	if f.up {          // вдоль ряда (u) — высота в мире, растёт вверх
+		_, h := layout.Size(l.P, name, wd)
+		lt = world.Tile{X: f.r.Min.X + v, Y: f.r.Max.Y - u - h}
+	}
 	return layout.Placement{Name: name, Pos: layout.CenterAt(l.P, name, wd, lt), Dir: wd, Tag: tag}
 }
 
@@ -88,7 +99,7 @@ func (f frame) inserter(l *layout.Layout, name string, u, v, fromV int, tag stri
 // на Count мест, ленты на всю длину, буфер входа, столбы внутри; заполняет c.Ports (и c.Water
 // у станции). Тайлы коридора вокруг на время столбов закрыты — столбы только внутри.
 func Interior(l *layout.Layout, c *Cluster, tag string) error {
-	f := frame{r: c.Area, vertical: c.Vertical}
+	f := c.frame()
 	L := c.Len()
 	c.Ports = nil
 	add := func(p layout.Placement) error {

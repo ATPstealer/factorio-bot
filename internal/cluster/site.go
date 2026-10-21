@@ -60,7 +60,13 @@ type Base struct {
 	// Rough — прикидка базы целиком (шина — с запасом +10%)
 	Rough bool
 
+	// StorageNear — куда тянуть хранение (стартовые буры); nil — к середине шин
+	StorageNear *world.Tile
+	// Keep — что кластерам без зоны не задевать (стартовые точки до разборки)
+	Keep []Rect
+
 	mineZones []Zone // прикидка: зоны добычи (MineZones)
+	zoneRects []Rect // зоны (PlaceZoned): кластеры без зоны — вне их
 
 	g        *grid
 	oreShare int // добыча: доля руды под Area, %
@@ -278,6 +284,8 @@ func (b *Base) Place(c *Cluster) error {
 	l := c.Head + c.Count*c.Pitch
 	if !c.Vertical {
 		c.Rect.Max.X = c.Rect.Min.X + l
+	} else if c.Upright { // головой вниз
+		c.Rect.Min.Y = c.Rect.Max.Y - l
 	} else {
 		c.Rect.Max.Y = c.Rect.Min.Y + l
 	}
@@ -340,6 +348,9 @@ func (b *Base) find(c *Cluster) *cand {
 			break
 		}
 		for _, horizontal := range []bool{true, false} {
+			if horizontal && c.Upright {
+				continue
+			}
 			w, h := size(c, horizontal)
 			cx, cy := int(math.Round(ax))-w/2, int(math.Round(ay))-h/2
 			if c.Kind == Bus {
@@ -359,6 +370,13 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 	ring := r.Grow(b.border(c))
 	if z := c.Zone; z != nil && (r.Min.X < z.Min.X || r.Min.Y < z.Min.Y || r.Max.X > z.Max.X || r.Max.Y > z.Max.Y) {
 		return false // только внутри своей зоны
+	}
+	if c.Zone == nil {
+		for _, z := range append(b.zoneRects, b.Keep...) {
+			if ring.Overlaps(z) {
+				return false // вне зон и стартовых точек
+			}
+		}
 	}
 	if n, out := g.count(g.ring, ring); n > 0 || out > 0 {
 		return false

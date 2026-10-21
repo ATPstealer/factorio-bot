@@ -94,7 +94,9 @@ func (c *Cluster) Clone() *Cluster {
 	return &x
 }
 
-func (c *Cluster) frame() frame { return frame{r: c.Area, vertical: c.Vertical} }
+func (c *Cluster) frame() frame {
+	return frame{r: c.Area, vertical: c.Vertical, up: c.Upright && c.Vertical}
+}
 
 // lane — лента предмета (nil — нет).
 func (bi *BusInfo) lane(item string) *Lane {

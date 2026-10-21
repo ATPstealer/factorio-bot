@@ -56,7 +56,7 @@ func floorOfZone(z Zone) int {
 
 // PlaceZoned — места кластерам cs внутри зон zones: добыча — в зонах добычи своего ресурса
 // (ближе к шине ресурсов), производство — в зоне своего этажа, станция — в зоне энергии,
-// хранение — рядом с базой. Возвращает шины (ленты — потом, ConnectZoned).
+// хранение — вне зон, у стартовых буров (StorageNear). Возвращает шины (ленты — потом, ConnectZoned).
 func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 	b.grid()
 	var buses []*ZBus
@@ -77,6 +77,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 		default:
 			floor[floorOfZone(z)] = z.Rect
 		}
+		b.zoneRects = append(b.zoneRects, z.Rect)
 	}
 	sort.Slice(buses, func(i, j int) bool { return buses[i].Name < buses[j].Name })
 	if len(buses) == 0 {
@@ -130,12 +131,16 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			if !ok {
 				return nil, fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
 			}
-			c.Zone = &r
-			left := world.Tile{X: r.Min.X, Y: (r.Min.Y + r.Max.Y) / 2} // ближе к головам шин
-			c.Near = &left
-		default: // хранение — рядом с базой
+			c.Zone, c.Upright = &r, true                               // ряд — поперёк шин
+			// к середине зоны: у левого края (головы шин) тесно от лент добычи
+			mid := world.Tile{X: (r.Min.X + r.Max.X) / 2, Y: (r.Min.Y + r.Max.Y) / 2}
+			c.Near = &mid
+		default: // хранение — вне зон, у стартовых буров
 			cx, cy := base.Center()
 			near := world.Tile{X: int(cx), Y: int(cy)}
+			if b.StorageNear != nil {
+				near = *b.StorageNear
+			}
 			c.Near = &near
 		}
 		if err := b.Place(c); err != nil {
@@ -252,7 +257,22 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		}
 		return Port{}, false
 	}
-	// вода станции — первой (потом ленты не замуруют вход)
+	// вода станции — первой (потом ленты не замуруют вход); подход ко входу угля (4 тайла) —
+	// свободным, иначе его займут трубы
+	var keep []world.Tile
+	for _, c := range b.Clusters {
+		for _, p := range c.Ports {
+			if c.Kind != Power || !p.In {
+				continue
+			}
+			for k, t := 0, p.T; k < 4; k, t = k+1, layout.Step(t, (p.Dir+8)%16) {
+				if !l.Reserved[t] {
+					l.Reserved[t] = true
+					keep = append(keep, t)
+				}
+			}
+		}
+	}
 	for _, c := range b.Clusters {
 		if c.Water == nil {
 			continue
@@ -269,15 +289,19 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			return fmt.Errorf("вода к %s: %w", c.Name, err)
 		}
 	}
-	// добыча → головы лент шины ресурсов (второй поставщик — боком у головы)
-	for _, c := range b.Clusters {
+	for _, t := range keep {
+		delete(l.Reserved, t)
+	}
+	// добыча → головы лент шины ресурсов (второй поставщик — боком у головы); сначала уголь и
+	// сразу отвод угля на станцию — иначе ленты другой добычи замуруют вход станции
+	feedMine := func(c *Cluster) error {
 		op, ok := outPort(c)
-		if c.Kind != Mine || !ok {
-			continue
+		if !ok {
+			return nil
 		}
 		ln := buses[0].lane(c.Product)
 		if ln == nil {
-			continue
+			return nil
 		}
 		bus := buses[0]
 		var to []Port
@@ -289,6 +313,64 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			return fmt.Errorf("добыча %s → %s (%s): %w", c.Name, bus.Name, c.Product, err)
 		}
 		ln.Fed = true
+		return nil
+	}
+	// уголь: лента с добычи прямо на станцию (мимо шин), с неё делителем — в голову ленты шины
+	// ресурсов; станции нет или уже питается — добыча угля сразу на шину
+	powered := false
+	for _, m := range b.Clusters {
+		if m.Kind != Mine || m.Product != "coal" {
+			continue
+		}
+		op, ok := outPort(m)
+		var pw *Cluster
+		var pp Port
+		for _, c := range b.Clusters {
+			for _, p := range c.Ports {
+				if c.Kind == Power && p.In && p.Item == "coal" {
+					pw, pp = c, p
+				}
+			}
+		}
+		if !ok || pw == nil || powered {
+			if err := feedMine(m); err != nil {
+				return err
+			}
+			continue
+		}
+		mark := l.Mark()
+		if err := route(op, []Port{pp}, LogisticsTag+"/"+pw.Name); err != nil {
+			return &ConnectError{pw, fmt.Errorf("уголь %s → %s: %w", m.Name, pw.Name, err)}
+		}
+		powered = true
+		line := append([]layout.Placement(nil), l.List[mark:]...)
+		bus := buses[0]
+		ln := bus.lane(m.Product)
+		if ln == nil {
+			continue
+		}
+		var to []Port
+		if !ln.Fed {
+			to = append(to, Port{T: world.Tile{X: bus.Rect.Min.X - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true})
+		}
+		to = append(to, sidePorts(bus, ln, bus.Rect.Min.X, bus.Rect.Min.X+12)...)
+		err := layout.ErrNoRoute
+		for _, p := range to {
+			if err = SplitTap(l, line, p, LogisticsTag+"/"+bus.Name+"/"+m.Name, 60); err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("уголь %s → %s (отвод со станции): %w", m.Name, bus.Name, err)
+		}
+		ln.Fed = true
+	}
+	for _, c := range b.Clusters {
+		if c.Kind == Mine && c.Product != "coal" {
+			if err := feedMine(c); err != nil {
+				return err
+			}
+		}
 	}
 	// выходы этажей — боком в ленты шины над собой, у своих столбцов
 	for _, c := range b.Clusters {
@@ -357,30 +439,6 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 			if err := SplitTap(l, line, p, LogisticsTag+"/"+c.Name, 40); err != nil {
 				return &ConnectError{c, fmt.Errorf("шина → %s (%s): %w", c.Name, p.Item, err)}
-			}
-		}
-	}
-	// уголь на станцию — отводом с ленты добычи угля (мимо шин)
-	for _, c := range b.Clusters {
-		if c.Kind != Power {
-			continue
-		}
-		for _, p := range c.Ports {
-			if !p.In || p.Item != "coal" {
-				continue
-			}
-			var feed []layout.Placement
-			for _, m := range b.Clusters {
-				if m.Kind == Mine && m.Product == "coal" {
-					for _, q := range l.List {
-						if q.Tag == LogisticsTag+"/"+buses[0].Name+"/"+m.Name && q.Name == "transport-belt" {
-							feed = append(feed, q)
-						}
-					}
-				}
-			}
-			if err := SplitTap(l, feed, p, LogisticsTag+"/"+c.Name, 60); err != nil {
-				return fmt.Errorf("уголь на %s: %w", c.Name, err)
 			}
 		}
 	}
