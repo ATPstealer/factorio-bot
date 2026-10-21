@@ -48,7 +48,9 @@ func TestUnstuck(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 5*time.Minute)
 	have(t, h, "wooden-chest", 8)
-	c := freeArea(t, h, 7)
+	// свободно и до цели (+8 по X) с запасом 2 тайла: чужие ленты прошлых тестов (PlaceAmongBelts)
+	// на цели — встать нельзя (просьба пользователя)
+	c := freeArea(t, h, 2*(8+2)+1)
 	if err := h.WalkTo(ctx, c, 0.2); err != nil {
 		t.Fatal(err)
 	}
