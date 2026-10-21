@@ -10,7 +10,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Части плана стадии 4 для стадий стройки (cluster.md: всё через шину — добыча в головы лент,
+// Части плана стадии 5 для стадий стройки (cluster.md: всё через шину — добыча в головы лент,
 // потребители — отводами с шины).
 
 // clusterOf — первый кластер плана вида kind (и продукта product, если не пусто).
@@ -86,9 +86,9 @@ func withSplitters(h *act.Hands, plan *ClusterPlan, res []layout.Placement) []la
 	return res
 }
 
-// s10Base — стадия 10 из плана: добыча угля, её подвод и лента угля шины, отвод угля на станцию
+// s11Base — стадия 11 из плана: добыча угля, её подвод и лента угля шины, отвод угля на станцию
 // (лента, буфер, burner-инсертер у бойлера), делители на этих лентах.
-func s10Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+func s11Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	coal, power := clusterOf(plan, cluster.Mine, "coal"), clusterOf(plan, cluster.Power, "")
 	if coal == nil || power == nil {
 		return nil
@@ -107,10 +107,10 @@ func s10Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// s11Base — стадия 11 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
+// s12Base — стадия 12 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
 // добычи, отводы руды и угля в плавку (с буферами входа), делители на этих лентах. Пластины на
-// шину — стадия 12.
-func s11Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+// шину — стадия 13.
+func s12Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var res []layout.Placement
 	var srcs []string
 	for _, it := range []string{"iron", "copper"} {
@@ -125,9 +125,9 @@ func s11Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// s12Base — стадия 12 из плана: ленты пластин шины, подводы в них от плавки, делители на них
+// s13Base — стадия 13 из плана: ленты пластин шины, подводы в них от плавки, делители на них
 // (отводы будущих потребителей стоят в разрыве ленты).
-func s12Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+func s13Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var srcs []string
 	for _, it := range []string{"iron-plate", "copper-plate"} {
 		if c := clusterOf(plan, cluster.Smelt, it); c != nil {

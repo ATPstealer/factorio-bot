@@ -14,20 +14,20 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 15 (stages.md): кластер лабораторий по плану стадии 4 полностью — пакеты красной
+// Стадия 16 (stages.md): кластер лабораторий по плану стадии 5 полностью — пакеты красной
 // науки отводом с шины, буфер входа, инсертеры в лаборатории, питание по коридорам. Бот
 // только запускает исследование; критерий — оно идёт само (пакеты приходят лентой).
 
-const s15Plan = "state-stage15.json"
+const s16Plan = "state-stage16.json"
 
 func init() {
-	register(Stage{N: 15, Name: "кластер лабораторий", Run: runLabs, Check: checkLabs})
+	register(Stage{N: 16, Name: "кластер лабораторий", Run: runLabs, Check: checkLabs})
 }
 
-// s15Layout — внутренность кластера лабораторий, отводы к нему, делители, столбы; один раз
+// s16Layout — внутренность кластера лабораторий, отводы к нему, делители, столбы; один раз
 // на карту (файл).
-func s15Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s15Plan)); err == nil {
+func s16Layout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(s16Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -57,12 +57,12 @@ func s15Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s15Plan), data, 0o644)
+	return res, os.WriteFile(runPath(s16Plan), data, 0o644)
 }
 
-// s15Tech — исследование на одной красной науке, доступное (предпосылки изучены), не
+// s16Tech — исследование на одной красной науке, доступное (предпосылки изучены), не
 // изученное; самое дешёвое.
-func s15Tech(h *act.Hands) (string, error) {
+func s16Tech(h *act.Hands) (string, error) {
 	f, err := h.B.Force()
 	if err != nil {
 		return "", err
@@ -73,7 +73,7 @@ func s15Tech(h *act.Hands) (string, error) {
 	var cands []string
 	for name, t := range h.Protos.Technologies {
 		if t.Hidden || !t.Enabled || t.Trigger != nil || slices.Contains(f.Researched, name) || len(t.UnitIngredients) != 1 ||
-			t.UnitIngredients[0].Name != s6Pack {
+			t.UnitIngredients[0].Name != s7Pack {
 			continue
 		}
 		ok := true
@@ -98,7 +98,7 @@ func s15Tech(h *act.Hands) (string, error) {
 }
 
 func runLabs(ctx context.Context, h *act.Hands) error {
-	list, err := s15Layout(h)
+	list, err := s16Layout(h)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	tech, err := s15Tech(h)
+	tech, err := s16Tech(h)
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 // checkLabs — всё стоит, фильтры заданы; исследование идёт само: за 30 с без бота прогресс
 // растёт (или изучено новое), в лабораториях — пакеты с ленты.
 func checkLabs(h *act.Hands) error {
-	list, err := s15Layout(h)
+	list, err := s16Layout(h)
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func checkLabs(h *act.Hands) error {
 		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		}
-		if pl.Name == "lab" && st.Count(s6Pack) > 0 {
+		if pl.Name == "lab" && st.Count(s7Pack) > 0 {
 			fed++
 		}
 	}

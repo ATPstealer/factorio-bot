@@ -4,6 +4,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,4 +68,15 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	}
 	h.Say("стадия %d выполнена", n)
 	return nil
+}
+
+// seedOf — сид текущей карты (map.json экземпляра).
+func seedOf() string {
+	var m struct {
+		Seed int64 `json:"seed"`
+	}
+	if data, err := os.ReadFile(runPath("map.json")); err == nil {
+		json.Unmarshal(data, &m)
+	}
+	return fmt.Sprint(m.Seed)
 }

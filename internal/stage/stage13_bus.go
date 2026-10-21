@@ -12,18 +12,18 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 12 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 4).
+// Стадия 13 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 5).
 // Больше ничего.
 
-const s12Plan = "state-stage12.json"
+const s13Plan = "state-stage13.json"
 
 func init() {
-	register(Stage{N: 12, Name: "пластины на шину", Run: runBusPlates, Check: checkBusPlates})
+	register(Stage{N: 13, Name: "пластины на шину", Run: runBusPlates, Check: checkBusPlates})
 }
 
-// s12Layout — s12Base; один раз на карту (файл).
-func s12Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s12Plan)); err == nil {
+// s13Layout — s13Base; один раз на карту (файл).
+func s13Layout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(s13Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -33,7 +33,7 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := s12Base(h, plan)
+	res := s13Base(h, plan)
 	if len(res) == 0 {
 		return nil, fmt.Errorf("в плане нет лент пластин шины")
 	}
@@ -41,11 +41,11 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s12Plan), data, 0o644)
+	return res, os.WriteFile(runPath(s13Plan), data, 0o644)
 }
 
 func runBusPlates(ctx context.Context, h *act.Hands) error {
-	list, err := s12Layout(h)
+	list, err := s13Layout(h)
 	if err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func runBusPlates(ctx context.Context, h *act.Hands) error {
 
 // checkBusPlates — всё стоит; на последней ленте каждой ленты пластин шины — её пластины.
 func checkBusPlates(h *act.Hands) error {
-	list, err := s12Layout(h)
+	list, err := s13Layout(h)
 	if err != nil {
 		return err
 	}

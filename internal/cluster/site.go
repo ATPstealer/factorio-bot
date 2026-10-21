@@ -53,6 +53,8 @@ type Base struct {
 	Usable func(entity string) bool
 	// Log — журнал прокладки (попытки, время); nil — молча
 	Log func(format string, args ...any)
+	// Rough — прикидка базы целиком: добыча — по месторождениям (placeMines), без раскладок
+	Rough bool
 
 	g        *grid
 	oreShare int // добыча: доля руды под Area, %
@@ -425,6 +427,12 @@ func (b *Base) PlaceAll(cs []*Cluster) error {
 			clients = append(clients, c)
 			continue
 		}
+		if b.Rough && c.Kind == Mine {
+			if err := b.placeMines(c); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := b.Place(c); err != nil {
 			return err
 		}
@@ -433,6 +441,158 @@ func (b *Base) PlaceAll(cs []*Cluster) error {
 		return b.placeOnBus(clients)
 	}
 	return nil
+}
+
+// placeMines — добыча c по месторождениям своего ресурса (прикидка), ближние к центру базы
+// первыми, радиус не ограничен. Руда: пятно — полосами-кластерами (ряд поперёк, свои коридоры)
+// по размеру пятна, без запаса роста; в полосе — сколько буров встанет целиком на свою руду (на
+// смешанной — нет). Нефть: качалки на скважинах поля. Остаток — следующей полосе или полю.
+func (b *Base) placeMines(c *Cluster) error {
+	g := b.grid()
+	total := int(math.Ceil(c.Units[0].Machines - 1e-9)) // буров (качалок)
+	need := total
+	_, fluid := b.P.Fluids[c.Product]
+	var patches []world.Patch
+	for _, pt := range b.W.Patches() {
+		if pt.Name == c.Product {
+			patches = append(patches, pt)
+		}
+	}
+	ox, oy := float64(b.Origin.X), float64(b.Origin.Y)
+	sort.Slice(patches, func(i, j int) bool {
+		return math.Hypot(patches[i].Center.X-ox, patches[i].Center.Y-oy) < math.Hypot(patches[j].Center.X-ox, patches[j].Center.Y-oy)
+	})
+	add := func(n int, area Rect, vertical bool) {
+		part := scaleCluster(c, float64(n)/float64(total))
+		if len(b.Clusters) == 0 || need == total {
+			part.Name = c.Name
+		} else {
+			part.Name = b.name(c.Product)
+		}
+		part.Count, part.Room = (n+1)/2, (n+1)/2
+		part.Area, part.Rect, part.Vertical = area, area, vertical
+		g.mark(part.Area.Grow(Corridor))
+		b.Clusters = append(b.Clusters, part)
+		need -= n
+		if b.Log != nil {
+			b.Log("добыча %s: %s — %d @ %v", c.Product, part.Name, n, part.Area)
+		}
+	}
+	for _, pt := range patches {
+		if need <= 0 {
+			break
+		}
+		if fluid { // поле нефти: качалки на скважинах, площадь — поле + 2
+			r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(2)
+			if n, out := g.count(g.ring, r.Grow(Corridor)); n > 0 || out > 0 {
+				continue
+			}
+			add(min(need, len(pt.Tiles)), r, false)
+			continue
+		}
+		for _, st := range b.strips(c, pt) {
+			if need <= 0 {
+				break
+			}
+			if n, used := b.stripDrills(c, st.r, st.vertical, need); n > 0 {
+				area := st.r
+				if st.vertical {
+					area.Max.Y = area.Min.Y + used
+				} else {
+					area.Max.X = area.Min.X + used
+				}
+				add(n, area, st.vertical)
+			}
+		}
+	}
+	if need > 0 {
+		return &NoSiteError{c, fmt.Errorf("cluster: на месторождениях %s не хватает места ещё под %d буров из %d", c.Product, need, total)}
+	}
+	return nil
+}
+
+type strip struct {
+	r        Rect
+	vertical bool
+}
+
+// strips — полосы ряда добычи на пятне pt: вдоль длинной стороны, через ряд + 2 коридора; длина —
+// по пятну; полосы, задевающие чужие коридоры или неоткрытое, — нет.
+func (b *Base) strips(c *Cluster, pt world.Patch) []strip {
+	g := b.g
+	vertical := pt.Max.Y-pt.Min.Y > pt.Max.X-pt.Min.X
+	step := c.Cross + 2*Corridor
+	var res []strip
+	for o := 0; ; o += step {
+		var r Rect
+		if !vertical {
+			if pt.Min.Y+o > pt.Max.Y {
+				break
+			}
+			r = Rect{world.Tile{X: pt.Min.X, Y: pt.Min.Y + o}, world.Tile{X: pt.Max.X + 1, Y: pt.Min.Y + o + c.Cross}}
+		} else {
+			if pt.Min.X+o > pt.Max.X {
+				break
+			}
+			r = Rect{world.Tile{X: pt.Min.X + o, Y: pt.Min.Y}, world.Tile{X: pt.Min.X + o + c.Cross, Y: pt.Max.Y + 1}}
+		}
+		if n, out := g.count(g.ring, r.Grow(Corridor)); n == 0 && out == 0 {
+			res = append(res, strip{r, vertical})
+		}
+	}
+	return res
+}
+
+// stripDrills — сколько буров (не больше max) встанет в полосе r целиком на свою руду
+// (площадь 3×3 — вся c.Product, без чужой руды и неубираемого) и длина ряда под них.
+func (b *Base) stripDrills(c *Cluster, r Rect, vertical bool, max int) (drills, used int) {
+	f := frame{r: r, vertical: vertical}
+	L := r.W()
+	if vertical {
+		L = r.H()
+	}
+	ok := func(u, v int) bool {
+		for du := 0; du < 3; du++ {
+			for dv := 0; dv < 3; dv++ {
+				t := f.tile(u+du, v+dv)
+				if res, has := b.W.ResourceAt(t); !has || res.Name != c.Product {
+					return false
+				}
+				if okb, _ := b.W.Buildable(t); !okb {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	for u := 0; u+3 <= L && drills < max; u += c.Pitch {
+		for _, v := range []int{0, 4} {
+			if drills < max && ok(u, v) {
+				drills++
+				used = u + 3
+			}
+		}
+	}
+	return drills, used
+}
+
+// scaleCluster — копия кластера с машинами, потоками и мощностью ×k.
+func scaleCluster(c *Cluster, k float64) *Cluster {
+	p := *c
+	scale := func(fs []Flow) []Flow {
+		var out []Flow
+		for _, f := range fs {
+			out = append(out, Flow{f.Item, f.Rate * k})
+		}
+		return out
+	}
+	p.In, p.Out, p.Internal, p.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
+	p.Units = nil
+	for _, u := range c.Units {
+		u.Machines *= k
+		p.Units = append(p.Units, u)
+	}
+	return &p
 }
 
 // short — короткие имена продуктов для кластеров.

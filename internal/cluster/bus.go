@@ -27,11 +27,13 @@ import (
 const (
 	Bus      Kind = "bus"
 	BusCap        = 40 // лент в шине не меньше (запас ширины на следующие этапы; пары через зазоры 3)
-	BusReserve    = 5  // запас длины шины: ×5 к длине под нынешних клиентов
+	BusReserve    = 5  // запас длины шины: ×5 к длине под нынешних клиентов (итеративная стройка)
 	BusGap        = 5  // подводы у клиента: столбцы до и после него
 	BusHead       = 4  // голова: подход лент от плавки
-	beltRate      = 15 // пропускная способность ленты (жёлтая), шт/с
 )
+
+// BeltRate — пропускная способность ленты шины, шт/с (жёлтая 15; прикидка базы — красная 30).
+var BeltRate = 15.0
 
 // Lane — лента шины: предмет, ряд поперёк (V), занятый отрезок вдоль [Start, End); Fed —
 // подведён поставщик в голову.
@@ -106,24 +108,31 @@ func (bi *BusInfo) lane(item string) *Lane {
 
 // newBus — шина под клиентов: длина — клиенты с коридорами, запас ×BusReserve; ширина — ленты
 // под расход клиентов, не меньше BusCap.
-func newBus(clients []*Cluster) *Cluster {
+func (b *Base) newBus(clients []*Cluster) *Cluster {
 	length, side := 0, 0
 	demand := map[string]float64{}
 	for _, c := range clients {
 		length += c.Cross + 2*Corridor
 		side = max(side, c.Len())
 		for _, in := range c.In {
-			demand[in.Item] += in.Rate * max(1, c.Reserve)
+			if _, fluid := b.P.Fluids[in.Item]; !fluid { // жидкости — трубами
+				demand[in.Item] += in.Rate * max(1, c.Reserve)
+			}
 		}
 	}
 	lanes := 0
 	for _, d := range demand {
-		lanes += max(1, int(math.Ceil(d/beltRate)))
+		lanes += max(1, int(math.Ceil(d/BeltRate)))
 	}
 	need := BusHead + length + 1
-	room := need * BusReserve // запас роста ×5 по длине (cluster.md), не урезается
+	// запас роста ×5 по длине (cluster.md), не урезается; прикидка всей базы — +10% на ошибку
+	reserve := float64(BusReserve)
+	if b.Rough {
+		reserve = 1.1
+	}
+	room := int(math.Ceil(float64(need) * reserve))
 	w := busWidth(max(BusCap, lanes))
-	return &Cluster{Kind: Bus, Product: "bus", Reserve: BusReserve, Pitch: 1, Head: BusHead, Room: room, Count: need, Cross: w,
+	return &Cluster{Kind: Bus, Product: "bus", Reserve: reserve, Pitch: 1, Head: BusHead, Room: room, Count: need, Cross: w,
 		Bus: &BusInfo{Next: BusHead + 1, Width: w, Side: side, Clients: map[string]int{}, Demand: map[string]float64{}}}
 }
 
@@ -171,7 +180,7 @@ func hasOut(c *Cluster, item string) bool {
 func (b *Base) placeOnBus(clients []*Cluster) error {
 	bus := b.Bus()
 	if bus == nil {
-		bus = newBus(clients)
+		bus = b.newBus(clients)
 		bus.Name = b.name("bus")
 		for _, c := range clients { // якорь — у поставщиков входов (плавка)
 			for _, f := range c.In {
@@ -380,8 +389,11 @@ func (b *Base) addLanes(bus, c *Cluster) error {
 		bi.Demand = map[string]float64{}
 	}
 	for _, in := range c.In {
+		if _, fluid := b.P.Fluids[in.Item]; fluid {
+			continue // жидкости — трубами, не по шине
+		}
 		bi.Demand[in.Item] += in.Rate * max(1, c.Reserve)
-		for n := bi.lanes(in.Item); n == 0 || float64(n)*beltRate < bi.Demand[in.Item]; n++ {
+		for n := bi.lanes(in.Item); n == 0 || float64(n)*BeltRate < bi.Demand[in.Item]; n++ {
 			if len(bi.Lanes) >= (bi.Width-3)/5*2 {
 				return fmt.Errorf("cluster: в шине %s нет места под ленту %s", bus.Name, in.Item)
 			}

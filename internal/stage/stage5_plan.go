@@ -19,23 +19,23 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 4 (stages.md): план первых 11 кластеров «на бумаге» (cluster.md) — добыча угля,
+// Стадия 5 (stages.md): план первых 11 кластеров «на бумаге» (cluster.md) — добыча угля,
 // железа, меди; плавка железа и меди; станция; шина; шестерни; красная наука; лаборатории;
-// хранение. Цель — красная наука s4Rate/с. Картинка — план поверх открытой карты.
-// Постройки точек стадии 2 при разметке не мешают: их разберут (стадия 9).
+// хранение. Цель — красная наука s5Rate/с. Картинка — план поверх открытой карты.
+// Постройки точек стадии 2 при разметке не мешают: их разберут (стадия 10).
 
 const (
-	s4Plan    = "state-stage4.json"
-	s4Rate    = 0.5 // красная наука, шт/с
-	s4Reserve = 5   // запас роста ×5 по длине
-	s4LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
-	// нет места — разведка: до s4Explore раз, каждый раз — пока не откроется s4ExploreChunks
-	s4Explore       = 20
-	s4ExploreChunks = 12
+	s5Plan    = "state-stage5.json"
+	s5Rate    = 0.5 // красная наука, шт/с
+	s5Reserve = 5   // запас роста ×5 по длине
+	s5LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
+	// нет места — разведка: до s5Explore раз, каждый раз — пока не откроется s5ExploreChunks
+	s5Explore       = 20
+	s5ExploreChunks = 12
 )
 
-// s4Kinds — какие кластеры должны быть в плане (имя без номера).
-var s4Kinds = []string{"coal", "iron-ore", "copper-ore", "iron-plate", "copper-plate", "power",
+// s5Kinds — какие кластеры должны быть в плане (имя без номера).
+var s5Kinds = []string{"coal", "iron-ore", "copper-ore", "iron-plate", "copper-plate", "power",
 	"bus", "gear", "red-science", "lab", "storage"}
 
 // ClusterPlan — план кластеров карты: кластеры с местами, размещений в раскладке, картинка.
@@ -47,14 +47,14 @@ type ClusterPlan struct {
 }
 
 func init() {
-	register(Stage{N: 4, Name: "план кластеров", Run: runPlan, Check: checkPlan})
+	register(Stage{N: 5, Name: "план кластеров", Run: runPlan, Check: checkPlan})
 }
 
-// LoadPlan — план стадии 4 этой карты (для следующих стадий).
+// LoadPlan — план стадии 5 этой карты (для следующих стадий).
 func LoadPlan() (*ClusterPlan, error) {
-	data, err := os.ReadFile(runPath(s4Plan))
+	data, err := os.ReadFile(runPath(s5Plan))
 	if err != nil {
-		return nil, fmt.Errorf("нет плана кластеров (стадия 4): %w", err)
+		return nil, fmt.Errorf("нет плана кластеров (стадия 5): %w", err)
 	}
 	var s ClusterPlan
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -72,12 +72,12 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	for try := 0; ; try++ {
 		err := planOnce(ctx, h)
 		var ns *cluster.NoSiteError
-		if !errors.As(err, &ns) || try >= s4Explore {
+		if !errors.As(err, &ns) || try >= s5Explore {
 			return err
 		}
 		n0 := len(h.World.Chunks)
 		h.Say("%v — разведываю", err)
-		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+s4ExploreChunks }); err != nil {
+		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+s5ExploreChunks }); err != nil {
 			return err
 		}
 	}
@@ -89,18 +89,18 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	pr := h.Protos
-	targets := map[string]float64{"automation-science-pack": s4Rate}
+	targets := map[string]float64{"automation-science-pack": s5Rate}
 	plan, err := calc.Solve(pr, targets, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
 		return err
 	}
-	cs, err := cluster.Split(pr, plan, s4Reserve, nil, "iron-gear-wheel")
+	cs, err := cluster.Split(pr, plan, s5Reserve, nil, "iron-gear-wheel")
 	if err != nil {
 		return err
 	}
-	cs = append(cs, cluster.Labs(pr, targets, s4LabSec, s4Reserve), cluster.StorageCluster())
-	if cs, err = cluster.AddPower(pr, cs, s4Reserve, nil); err != nil {
+	cs = append(cs, cluster.Labs(pr, targets, s5LabSec, s5Reserve), cluster.StorageCluster())
+	if cs, err = cluster.AddPower(pr, cs, s5Reserve, nil); err != nil {
 		return err
 	}
 	// свои постройки (точки стадии 2) — не помеха
@@ -140,14 +140,14 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 				}
 			}
 			list = l.List
-			if err := s4Draw(h, base, l, p.Position); err != nil {
+			if err := s5Draw(h, base, l, p.Position); err != nil {
 				return err
 			}
 			break
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			s4Draw(h, base, l, p.Position) // что вышло — на картинку
+			s5Draw(h, base, l, p.Position) // что вышло — на картинку
 			for _, c := range base.Sorted() {
 				h.Log("кластер %v", c)
 			}
@@ -164,26 +164,26 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 	for _, c := range base.Sorted() {
 		h.Say("кластер %v", c)
 	}
-	data, err := json.MarshalIndent(ClusterPlan{Clusters: base.Sorted(), Placed: len(list), Layout: list, Image: s4Image()}, "", " ")
+	data, err := json.MarshalIndent(ClusterPlan{Clusters: base.Sorted(), Placed: len(list), Layout: list, Image: s5Image()}, "", " ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(runPath(s4Plan), data, 0o644)
+	return os.WriteFile(runPath(s5Plan), data, 0o644)
 }
 
-// s4Image — картинка плана: run/stages/s3-<сид>.png.
-func s4Image() string {
+// s5Image — картинка плана: run/stages/s3-<сид>.png.
+func s5Image() string {
 	var m struct {
 		Seed int64 `json:"seed"`
 	}
 	if data, err := os.ReadFile(runPath("map.json")); err == nil {
 		json.Unmarshal(data, &m)
 	}
-	return filepath.Join("run/stages", fmt.Sprintf("s4-%d.png", m.Seed))
+	return filepath.Join("run/stages", fmt.Sprintf("s5-%d.png", m.Seed))
 }
 
-// s4Draw — картинка: открытая карта, кластеры с коридорами и раскладка.
-func s4Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos) error {
+// s5Draw — картинка: открытая карта, кластеры с коридорами и раскладка.
+func s5Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
 		r := c.Area.Grow(cluster.Corridor)
@@ -195,7 +195,7 @@ func s4Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos) e
 	img := h.World.Render(ro)
 	base.Draw(img, ro)
 	l.Draw(img, ro)
-	f, err := os.Create(s4Image())
+	f, err := os.Create(s5Image())
 	if err != nil {
 		return err
 	}
@@ -222,13 +222,13 @@ func checkPlan(h *act.Hands) error {
 			return fmt.Errorf("кластер %s без места", c.Name)
 		}
 	}
-	for _, k := range s4Kinds {
+	for _, k := range s5Kinds {
 		if have[k] == 0 {
 			return fmt.Errorf("в плане нет кластера %s", k)
 		}
 	}
-	if len(s.Clusters) != len(s4Kinds) {
-		return fmt.Errorf("кластеров %d, нужно %d", len(s.Clusters), len(s4Kinds))
+	if len(s.Clusters) != len(s5Kinds) {
+		return fmt.Errorf("кластеров %d, нужно %d", len(s.Clusters), len(s5Kinds))
 	}
 	if st, err := os.Stat(s.Image); err != nil || st.Size() == 0 {
 		return fmt.Errorf("нет картинки плана %s", s.Image)

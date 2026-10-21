@@ -12,19 +12,19 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 10 (stages.md): первый кластер добычи угля по плану стадии 4 — уголь в ленту шины;
-// станция берёт уголь отводом с шины вместо сундука стадии 5 (у бойлера — burner-инсертер с
+// Стадия 11 (stages.md): первый кластер добычи угля по плану стадии 5 — уголь в ленту шины;
+// станция берёт уголь отводом с шины вместо сундука стадии 6 (у бойлера — burner-инсертер с
 // ленты, как в плане). Питание — столбами по коридорам от сети (connectPower).
 
-const s10Plan = "state-stage10.json" // раскладка стадии: один раз на карту
+const s11Plan = "state-stage11.json" // раскладка стадии: один раз на карту
 
 func init() {
-	register(Stage{N: 10, Name: "добыча угля", Run: runCoal, Check: checkCoal})
+	register(Stage{N: 11, Name: "добыча угля", Run: runCoal, Check: checkCoal})
 }
 
-// s10Layout — s10Base и столбы питания; один раз на карту (файл).
-func s10Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s10Plan)); err == nil {
+// s11Layout — s11Base и столбы питания; один раз на карту (файл).
+func s11Layout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(s11Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -34,7 +34,7 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := s10Base(h, plan)
+	res := s11Base(h, plan)
 	if len(res) == 0 {
 		return nil, fmt.Errorf("в плане нет добычи угля или станции")
 	}
@@ -53,15 +53,15 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s10Plan), data, 0o644)
+	return res, os.WriteFile(runPath(s11Plan), data, 0o644)
 }
 
 func runCoal(ctx context.Context, h *act.Hands) error {
-	list, err := s10Layout(h)
+	list, err := s11Layout(h)
 	if err != nil {
 		return err
 	}
-	station, err := s5Layout(h)
+	station, err := s6Layout(h)
 	if err != nil {
 		return err
 	}
@@ -70,8 +70,8 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	s := &s2{h: h, sites: sites, useStore: true}
-	// сундук и электроинсертер стадии 5 стоят на месте ленты и burner-инсертера — их в конце
-	tmp := []layout.Placement{s5Find(station, chest), s5Find(station, "inserter")}
+	// сундук и электроинсертер стадии 6 стоят на месте ленты и burner-инсертера — их в конце
+	tmp := []layout.Placement{s6Find(station, chest), s6Find(station, "inserter")}
 	var first []layout.Placement
 	for _, pl := range list {
 		if pl.Pos == tmp[0].Pos || pl.Pos == tmp[1].Pos {
@@ -89,7 +89,7 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 		if e, err := s.entity(pl); err != nil {
 			return err
 		} else if e != nil {
-			h.Say("убираю %s стадии 5 — уголь пойдёт лентой", pl.Name)
+			h.Say("убираю %s стадии 6 — уголь пойдёт лентой", pl.Name)
 			if err := h.Pickup(ctx, *e); err != nil {
 				return err
 			}
@@ -127,19 +127,19 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 }
 
 func checkCoal(h *act.Hands) error {
-	list, err := s10Layout(h)
+	list, err := s11Layout(h)
 	if err != nil {
 		return err
 	}
 	if err := checkBuilt(h, list); err != nil {
 		return err
 	}
-	station, err := s5Layout(h)
+	station, err := s6Layout(h)
 	if err != nil {
 		return err
 	}
-	if e, err := h.B.EntityAt(chest, s5Find(station, chest).Pos); err != nil || e != nil {
-		return fmt.Errorf("сундук стадии 5 у бойлера ещё стоит (%v)", err)
+	if e, err := h.B.EntityAt(chest, s6Find(station, chest).Pos); err != nil || e != nil {
+		return fmt.Errorf("сундук стадии 6 у бойлера ещё стоит (%v)", err)
 	}
 	working := 0
 	for _, pl := range list {
@@ -153,7 +153,7 @@ func checkCoal(h *act.Hands) error {
 		return fmt.Errorf("буры угля не работают")
 	}
 	// лента у бойлера несёт уголь
-	belt := s5Find(station, chest).Pos
+	belt := s6Find(station, chest).Pos
 	st, err := h.B.GetEntity("transport-belt", belt)
 	if err != nil || st == nil {
 		return fmt.Errorf("нет ленты угля у бойлера: %v", err)

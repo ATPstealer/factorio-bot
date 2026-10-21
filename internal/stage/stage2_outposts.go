@@ -594,12 +594,12 @@ func checkOutposts(h *act.Hands) error {
 	return nil
 }
 
-// fromBuffers — пластины из буферов выхода плавки (стадия 11): забрать со всех, где есть;
+// fromBuffers — пластины из буферов выхода плавки (стадия 12): забрать со всех, где есть;
 // нигде нет — подождать.
 func (s *s2) fromBuffers(ctx context.Context, plate string) error {
-	data, err := os.ReadFile(runPath(s11Plan))
+	data, err := os.ReadFile(runPath(s12Plan))
 	if err != nil {
-		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 11): %w", plate, err)
+		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 12): %w", plate, err)
 	}
 	var list []layout.Placement
 	if err := json.Unmarshal(data, &list); err != nil {

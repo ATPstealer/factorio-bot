@@ -14,14 +14,14 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 13 (stages.md): кластер шестерён по плану стадии 4, сразу как положено — отвод железа
+// Стадия 14 (stages.md): кластер шестерён по плану стадии 5, сразу как положено — отвод железа
 // с шины делителем, буфер входа, сборщики с рецептом, выход — в ленту шестерён шины, буфер
 // выхода, питание по коридорам. Общая часть (завод с шины) — makeLayout/runMake/checkMake.
 
 func init() {
-	register(Stage{N: 13, Name: "кластер шестерён",
-		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel", 13) },
-		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel", 13) }})
+	register(Stage{N: 14, Name: "кластер шестерён",
+		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel", 14) },
+		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel", 14) }})
 }
 
 // makeLayout — завод продукта product с шины (стадия n): внутренность кластера, отводы с
@@ -49,7 +49,7 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 	for _, pl := range plan.Layout {
 		all.Add(pl)
 	}
-	buf, err := s11OutBuffer(h, all, c)
+	buf, err := s12OutBuffer(h, all, c)
 	if err != nil {
 		return nil, nil, err
 	}
