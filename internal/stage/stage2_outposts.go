@@ -192,6 +192,23 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
+	// ранние точки за время стройки сожгли топливо — в конце обойти все и долить
+	for _, si := range s2Order(sites) {
+		for _, pl := range sites[si].Items {
+			if pl.Name == chest {
+				continue
+			}
+			e, err := s.entity(pl)
+			if err != nil {
+				return err
+			}
+			if e != nil {
+				if err := s.fuel(ctx, *e); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	return nil
 }
 
