@@ -41,7 +41,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Клиент изолирован от Steam: `HOME=run/client/home` — Steam API не инициализируется. Иначе Steam-версия читает/пишет `player-data.json` только через облако Steam (общее с основной игрой пользователя!), и при сбое облака на сервер заходит новый игрок. Без Steam имя всегда "" — стабильно игрок №2 (`game.connected_players[1]`). Игрок №1 `ATPstealer` (первые запуски) отключён.
 - `--disable-audio` + `[sound] master-muted=true` — без звука.
 - Перезапуск только клиента: `pkill -f "^<путь factorio> .*run/client/config.ini"`, затем та же команда, что в `run.sh` (с `setsid nohup`).
-- Окно Xephyr `factorio-bot`, дисплей `:1`. Ввод бота — только в `:1`.
+- Окно Xephyr `factorio-bot-N` (N — экземпляр), после запуска свёрнуто (`SHOW=1` — нет); смотреть — `scripts/view.sh N` (видео без ввода). Ввод бота — только в дисплей своего экземпляра.
 - `scripts/map-gen-settings.json` — без кусак (`enemy-base` frequency 0, `peaceful_mode`), утёсы обычные (`richness` 1). Огонь у места крушения (`crash-site-fire-flame`) — сила enemy, но не кусаки.
 - `scripts/server-settings.json` — `auto_pause: false`, `require_user_verification: false`, не публичный.
 

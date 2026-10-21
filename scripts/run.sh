@@ -30,8 +30,17 @@ trap 'kill $(jobs -p | grep -vx "$SERVER") 2>/dev/null; kill -INT $SERVER 2>/dev
 
 until grep -q "to(InGame)" "$R/server.log" 2>/dev/null; do sleep 0.5; done
 
-Xephyr "$DISPLAY_NUM" -screen "$RES" -glamor -title "factorio-bot" -ac > "$R/xephyr.log" 2>&1 &
+Xephyr "$DISPLAY_NUM" -screen "$RES" -glamor -title "factorio-bot-$INST" -ac > "$R/xephyr.log" 2>&1 &
 sleep 1
+# окно свёрнуто: мышь пользователя над ним двигает курсор в игре и сбивает клики бота;
+# смотреть — scripts/view.sh N (видео без ввода); SHOW=1 — не сворачивать
+if [[ ${SHOW:-0} != 1 && -n ${DISPLAY:-} ]]; then
+  for i in $(seq 20); do
+    w=$(xdotool search --name "^factorio-bot-$INST\$" 2>/dev/null | head -1)
+    [[ -n $w ]] && { xdotool windowminimize "$w"; break; }
+    sleep 0.25
+  done
+fi
 
 # steam_appid.txt + SteamAppId: иначе Steam перезапускает игру у себя на основном дисплее.
 # Рендер в Xephyr — программный (llvmpipe): LP_NUM_THREADS — сколько ядер ему дать (4), графика — low (config.ini).
