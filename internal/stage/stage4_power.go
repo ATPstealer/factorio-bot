@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -108,29 +109,12 @@ func runPower(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	s := &s2{h: h, sites: sites}
-	for _, name := range s4Order {
-		var todo []layout.Placement
-		for _, pl := range list {
-			if pl.Name != name {
-				continue
-			}
-			if e, err := s.entity(pl); err != nil {
-				return err
-			} else if e == nil {
-				todo = append(todo, pl)
-			}
-		}
-		if len(todo) == 0 {
-			continue
-		}
-		if err := s.have(ctx, name, len(todo)); err != nil {
-			return err
-		}
-		for _, pl := range todo {
-			if _, err := h.Place(ctx, pl.Name, pl.Pos, pl.Dir); err != nil {
-				return fmt.Errorf("поставить %s в (%.1f, %.1f): %w", pl.Name, pl.Pos.X, pl.Pos.Y, err)
-			}
-		}
+	order := slices.Clone(list)
+	slices.SortStableFunc(order, func(a, b layout.Placement) int {
+		return slices.Index(s4Order, a.Name) - slices.Index(s4Order, b.Name)
+	})
+	if err := s.build(ctx, order); err != nil {
+		return err
 	}
 	boiler, box := s4Find(list, "boiler"), s4Find(list, chest)
 	// запуск: бойлер полностью углём руками, потом сундук

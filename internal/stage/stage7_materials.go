@@ -1,0 +1,259 @@
+package stage
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/cluster"
+	"factorio-bot/internal/layout"
+)
+
+// Стадия 7 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
+// меди по плану стадии 3 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
+// сверх расчёта — запас s7Extra; не влезает в инвентарь — в кластер хранения. Только
+// материалы: строят стадии 9–10.
+
+// s7Extra — запас сверх расчёта.
+var s7Extra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 30, "wood": 50, "coal": 1000}
+
+// s7OutBuffer — буфер выхода плавки (стадия 10: пластины копятся в контейнерах).
+var s7OutBuffer = map[string]int{"inserter": 2, chest: 2}
+
+func init() {
+	register(Stage{N: 7, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
+}
+
+// s7Clusters — кластеры стадий 9–10: добыча угля, железа, меди; плавка железа и меди.
+func s7Clusters(plan *S3) []*cluster.Cluster {
+	var res []*cluster.Cluster
+	for _, c := range plan.Clusters {
+		switch {
+		case c.Kind == cluster.Mine && (c.Product == "coal" || c.Product == "iron-ore" || c.Product == "copper-ore"),
+			c.Kind == cluster.Smelt && (c.Product == "iron-plate" || c.Product == "copper-plate"):
+			res = append(res, c)
+		}
+	}
+	return res
+}
+
+// s7Layout — что построят стадии 9–10: внутренности кластеров, ленты к ним (руда, уголь) и
+// уголь на станцию (лента и буфер станции вместо сундука стадии 4), столбы логистики.
+func s7Layout() ([]layout.Placement, error) {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil, err
+	}
+	tags := map[string]bool{cluster.LogisticsTag: true}
+	for _, c := range s7Clusters(plan) {
+		tags[cluster.Tag(c.Name)] = true
+		tags[cluster.LogisticsTag+"/"+c.Name] = true
+	}
+	var power string
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Power {
+			power = c.Name
+		}
+	}
+	var res []layout.Placement
+	for _, pl := range plan.Layout {
+		switch {
+		case tags[pl.Tag]:
+		case pl.Tag == cluster.LogisticsTag+"/"+power && !strings.HasPrefix(pl.Name, "pipe") && pl.Name != "offshore-pump":
+		case pl.Tag == cluster.Tag(power) && (pl.Name == "transport-belt" || pl.Name == "burner-inserter" || pl.Name == chest):
+		default:
+			continue
+		}
+		res = append(res, pl)
+	}
+	return res, nil
+}
+
+// s7Need — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
+func s7Need(h *act.Hands) (map[string]int, error) {
+	list, err := s7Layout()
+	if err != nil {
+		return nil, err
+	}
+	need := map[string]int{}
+	for _, pl := range list {
+		e, err := h.B.EntityAt(pl.Name, pl.Pos)
+		if err != nil {
+			return nil, err
+		}
+		if e == nil {
+			need[pl.Name]++
+		}
+	}
+	plan, _ := LoadPlan()
+	for _, c := range s7Clusters(plan) {
+		if c.Kind == cluster.Smelt {
+			for it, n := range s7OutBuffer {
+				need[it] += n
+			}
+		}
+	}
+	return need, nil
+}
+
+// s7Stock — что есть: инвентарь и сундуки хранения.
+func s7Stock(h *act.Hands) (map[string]int, error) {
+	p, err := h.B.Player()
+	if err != nil {
+		return nil, err
+	}
+	res := map[string]int{}
+	for it, n := range p.Inventory {
+		res[it] += n
+	}
+	list, err := s6Layout()
+	if err != nil {
+		return nil, err
+	}
+	for _, pl := range list {
+		st, err := h.B.GetEntity(pl.Name, pl.Pos)
+		if err != nil || st == nil {
+			continue
+		}
+		for it, n := range st.Inventories["chest"] {
+			res[it] += n
+		}
+	}
+	return res, nil
+}
+
+func runMaterials(ctx context.Context, h *act.Hands) error {
+	need, err := s7Need(h)
+	if err != nil {
+		return err
+	}
+	var names []string
+	for it := range need {
+		names = append(names, it)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, it := range names {
+		fmt.Fprintf(&b, " %s ×%d", it, need[it])
+	}
+	h.Say("материалы на добычу и плавку:%s", b.String())
+	sites, err := s2Layout(h)
+	if err != nil {
+		return err
+	}
+	s := &s2{h: h, sites: sites}
+	for _, it := range names {
+		stock, err := s7Stock(h)
+		if err != nil {
+			return err
+		}
+		if lack := need[it] - stock[it]; lack > 0 {
+			if err := s.store(ctx, 8); err != nil {
+				return err
+			}
+			if err := s.have(ctx, it, s.inv(it)+lack); err != nil {
+				return fmt.Errorf("%s: %w", it, err)
+			}
+		}
+	}
+	for _, it := range []string{"wood", "stone", "copper-plate", "iron-plate", "coal"} {
+		stock, err := s7Stock(h)
+		if err != nil {
+			return err
+		}
+		// сверх расчёта: сырьё — тоже из запаса (на крафт уже ушло своё)
+		for lack := s7Extra[it] - stock[it]; lack > 0; lack = s7Extra[it] - stock[it] {
+			if err := s.store(ctx, 8); err != nil {
+				return err
+			}
+			step := min(lack, 400)
+			if err := s.have(ctx, it, s.inv(it)+step); err != nil {
+				return fmt.Errorf("%s: %w", it, err)
+			}
+			if stock, err = s7Stock(h); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// store — свободных ячеек инвентаря меньше free — в хранение то, что не нужно для крафта
+// сейчас: сначала готовые постройки, потом запас (уголь, пластины).
+func (s *s2) store(ctx context.Context, free int) error {
+	p, err := s.h.B.Player()
+	if err != nil {
+		return err
+	}
+	if p.InventorySize-len(p.InventorySlots) >= free {
+		return nil
+	}
+	list, err := s6Layout()
+	if err != nil {
+		return err
+	}
+	var chests []bridge.Entity
+	for _, pl := range list {
+		if e, err := s.entity(pl); err == nil && e != nil {
+			chests = append(chests, *e)
+		}
+	}
+	if len(chests) == 0 {
+		return fmt.Errorf("инвентарь полон, а хранения нет")
+	}
+	keep := map[string]bool{"wood": true, "stone": true, "iron-plate": true, "copper-plate": true, "coal": true,
+		"iron-gear-wheel": true, "copper-cable": true, "electronic-circuit": true}
+	order := []string{}
+	for it := range p.Inventory {
+		if !keep[it] {
+			order = append(order, it)
+		}
+	}
+	sort.Strings(order)
+	order = append(order, "coal", "iron-plate", "copper-plate")
+	s.h.Say("инвентарь полон — кладу в хранение")
+	k := 0
+	for _, it := range order {
+		for p.Inventory[it] > 0 && k < len(chests) {
+			n, err := s.h.InsertAll(ctx, chests[k], it)
+			if err != nil {
+				return err
+			}
+			if n == 0 { // сундук полон — следующий
+				k++
+			}
+			if p, err = s.h.B.Player(); err != nil {
+				return err
+			}
+		}
+		if p.InventorySize-len(p.InventorySlots) >= free+10 || k >= len(chests) {
+			break
+		}
+	}
+	return nil
+}
+
+func checkMaterials(h *act.Hands) error {
+	need, err := s7Need(h)
+	if err != nil {
+		return err
+	}
+	stock, err := s7Stock(h)
+	if err != nil {
+		return err
+	}
+	for it, n := range need {
+		if stock[it] < n {
+			return fmt.Errorf("%s: есть %d, нужно %d", it, stock[it], n)
+		}
+	}
+	for it, n := range s7Extra {
+		if stock[it] < n {
+			return fmt.Errorf("запас %s: есть %d, нужно %d", it, stock[it], n)
+		}
+	}
+	return nil
+}

@@ -142,8 +142,9 @@ func s2Order(sites []s2Site) []int {
 }
 
 type s2 struct {
-	h     *act.Hands
-	sites []s2Site
+	h        *act.Hands
+	sites    []s2Site
+	useStore bool // брать из кластера хранения (стадии после 8)
 }
 
 func (s *s2) entity(pl layout.Placement) (*bridge.Entity, error) {
@@ -218,10 +219,18 @@ func (s *s2) fuel(ctx context.Context, e bridge.Entity) error {
 // есть), пластины — с печей точек или руда руками в печи, остальное — скрафтить.
 func (s *s2) have(ctx context.Context, item string, n int) error {
 	for tries := 0; s.inv(item) < n; tries++ {
-		if tries > 40 {
+		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
 		}
 		lack := n - s.inv(item)
+		if s.useStore {
+			if got, err := s.fromStorage(ctx, item); err != nil || got {
+				if err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		var err error
 		switch item {
 		case "iron-plate", "copper-plate":
@@ -248,7 +257,7 @@ func (s *s2) have(ctx context.Context, item string, n int) error {
 // очереди крафта — только дождаться.
 func (s *s2) craft(ctx context.Context, item string, n int) error {
 	if s.queued(item)*s.perCraft(item) >= n {
-		return s.waitInv(ctx, item, s.inv(item)+n, time.Duration(n*10+15)*time.Second)
+		return s.waitInv(ctx, item, s.inv(item)+n, s.craftLimit(item, 0))
 	}
 	need := map[string]int{}
 	switch item {
@@ -297,7 +306,24 @@ func (s *s2) craft(ctx context.Context, item string, n int) error {
 	if err := s.h.Craft(ctx, item, (total+per-1)/per); err != nil {
 		return err
 	}
-	return s.waitInv(ctx, item, before+n, time.Duration(n*10+15)*time.Second)
+	return s.waitInv(ctx, item, before+n, s.craftLimit(item, 0))
+}
+
+// craftLimit — сколько ждать крафта: вся очередь (с item) и ещё n item, с запасом.
+func (s *s2) craftLimit(item string, n int) time.Duration {
+	p, err := s.h.B.Player()
+	f, ferr := s.h.B.Force()
+	if err != nil || ferr != nil {
+		return 10 * time.Minute
+	}
+	av := s.h.Protos.NewAvailability(f.Researched, true)
+	secs := calc.Handcraft(s.h.Protos, av, item, float64(n)).Seconds
+	for _, q := range p.CraftingQueue {
+		if !q.Prerequisite {
+			secs += calc.Handcraft(s.h.Protos, av, q.Recipe, float64(q.Count*s.perCraft(q.Recipe))).Seconds
+		}
+	}
+	return time.Duration(secs*1.3+20) * time.Second
 }
 
 // perCraft — предметов за один крафт (подземная труба — 2).
