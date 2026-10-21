@@ -326,3 +326,56 @@ func TestMineUnderCrown(t *testing.T) {
 		t.Errorf("%s стоит", target.Name)
 	}
 }
+
+// Линия столбов вниз с шагом 7 (стадия 5: столбы по коридору ровной линией — шестой не
+// встал, курсор с призраком столба ушёл в сторону от места). Каждый — Place по очереди.
+func TestPoleLine(t *testing.T) {
+	h := handsT(t)
+	const n, step = 7, 7
+	have(t, h, "small-electric-pole", n)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	l := layout.New(h.Protos, h.World)
+	free := func(x, y0 int) bool {
+		for y := y0; y <= y0+(n-1)*step; y++ {
+			for dx := -1; dx <= 1; dx++ {
+				if tl := (world.Tile{X: x + dx, Y: y}); !l.Free(tl, layout.AnyLand) {
+					return false
+				}
+				if ok, clear := h.World.Buildable(world.Tile{X: x + dx, Y: y}); !ok || clear {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	pt := world.TileOf(p.Position)
+	x, y0, found := 0, 0, false
+	for r := 3; r < 60 && !found; r++ {
+		for _, c := range [][2]int{{pt.X + r, pt.Y - 3}, {pt.X - r, pt.Y - 3}, {pt.X + r, pt.Y - 3 - (n-1)*step}, {pt.X - r, pt.Y - 3 - (n-1)*step}} {
+			if free(c[0], c[1]) {
+				x, y0, found = c[0], c[1], true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Skip("нет свободной полосы под линию столбов")
+	}
+	ctx := ctxT(t, 5*time.Minute)
+	for k := 0; k < n; k++ {
+		pos := world.Tile{X: x, Y: y0 + k*step}.Center()
+		if _, err := h.Place(ctx, "small-electric-pole", pos, act.North); err != nil {
+			t.Fatalf("столб %d в (%.1f, %.1f): %v", k+1, pos.X, pos.Y, err)
+		}
+	}
+	for k := 0; k < n; k++ {
+		pos := world.Tile{X: x, Y: y0 + k*step}.Center()
+		if e, _ := h.B.EntityAt("small-electric-pole", pos); e == nil {
+			t.Errorf("столба %d в (%.1f, %.1f) нет", k+1, pos.X, pos.Y)
+		}
+	}
+	clean(t, h)
+}
