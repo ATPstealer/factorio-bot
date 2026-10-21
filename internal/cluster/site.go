@@ -11,7 +11,11 @@ import (
 )
 
 // Corridor — логистический коридор вокруг Area кластера: ленты, трубы, столбы, проход.
+// Внутри зон (zones.md) у кластера бордюр ZoneBorder.
 const Corridor = 6
+
+// ZoneBorder — бордюр кластера внутри зоны: у соседей 3+3 = коридор 6.
+const ZoneBorder = 3
 
 // Rect — прямоугольник тайлов: Min включительно, Max не включая.
 type Rect struct {

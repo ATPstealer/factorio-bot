@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	colCorridor = color.RGBA{230, 200, 40, 255}  // коридор 6 тайлов
+	colCorridor = color.RGBA{230, 200, 40, 255}  // коридор вокруг кластера
 	colReserve  = color.RGBA{60, 150, 230, 255}  // запас роста
 	colBuilt    = color.RGBA{20, 80, 200, 255}   // занято сейчас
 	colMine     = color.RGBA{230, 90, 60, 255}   // добыча
