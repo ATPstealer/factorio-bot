@@ -62,8 +62,11 @@ func busWidth(n int) int { return 5*((n+1)/2) + 3 }
 // laneRow — ряд v — лента (или место будущей), не зазор.
 func laneRow(v, width int) bool { return v >= 3 && v < width && (v-3)%5 < 2 }
 
-// OnBus — кластер берёт входы с шины.
-func OnBus(c *Cluster) bool { return c.Kind == Make || c.Kind == Lab || c.Kind == Supply }
+// OnBus — клиент шины (стоит у неё): плавка, сборка, лаборатории, снабжение. Станция — у
+// воды, уголь берёт отводом с ленты шины; добыча — поставщик в головы лент.
+func OnBus(c *Cluster) bool {
+	return c.Kind == Smelt || c.Kind == Make || c.Kind == Lab || c.Kind == Supply
+}
 
 // Bus — шина базы (nil — нет).
 func (b *Base) Bus() *Cluster {
@@ -126,7 +129,7 @@ func newBus(clients []*Cluster) *Cluster {
 // busOrder — клиенты по зависимостям: поставщик промежуточного — выше по шине, чем его
 // потребители; лаборатории и снабжение — в конце.
 func busOrder(cs []*Cluster) []*Cluster {
-	rank := map[Kind]int{Make: 0, Supply: 1, Lab: 2}
+	rank := map[Kind]int{Smelt: 0, Make: 1, Supply: 2, Lab: 3}
 	cs = append([]*Cluster(nil), cs...)
 	sort.SliceStable(cs, func(i, j int) bool { return rank[cs[i].Kind] < rank[cs[j].Kind] })
 	var res []*Cluster
@@ -266,12 +269,12 @@ func (b *Base) laneBelts(l *layout.Layout, bus *Cluster, ln *Lane, end int) []la
 	f := bus.frame()
 	d := f.dir(layout.E)
 	for u := ln.End; u < end; u++ {
-		l.Add(layout.Placement{Name: "transport-belt", Pos: f.tile(u, ln.V).Center(), Dir: d, Tag: Tag(bus.Name)})
+		l.Add(layout.Placement{Name: "transport-belt", Pos: f.tile(u, ln.V).Center(), Dir: d, Recipe: ln.Item, Tag: Tag(bus.Name)})
 	}
 	ln.End = max(ln.End, end)
 	var res []layout.Placement
 	for u := ln.Start; u < ln.End; u++ {
-		res = append(res, layout.Placement{Name: "transport-belt", Pos: f.tile(u, ln.V).Center(), Dir: d, Tag: Tag(bus.Name)})
+		res = append(res, layout.Placement{Name: "transport-belt", Pos: f.tile(u, ln.V).Center(), Dir: d, Recipe: ln.Item, Tag: Tag(bus.Name)})
 	}
 	return res
 }

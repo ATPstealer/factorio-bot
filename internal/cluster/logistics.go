@@ -603,7 +603,7 @@ func (b *Base) feedBus(l *layout.Layout, bus *Cluster, srcs []*Cluster, outPort 
 			open := b.window(l, bus, lo, hi)
 			var err error = layout.ErrNoRoute
 			for _, p := range targets {
-				if _, err = l.RouteBelt(op.T, op.Dir, p.T, p.Dir, tag); err == nil {
+				if _, err = l.RouteBelt(op.T, op.Dir, p.T, p.Dir, tag+"/"+src.Name); err == nil {
 					ln.Fed = true
 					break
 				}

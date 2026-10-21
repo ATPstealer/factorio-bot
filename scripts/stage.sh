@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Стадия N на картах: со снимка <сид>-(N-1) выполнить стадию, при успехе — снимок <сид>-N.
 #   scripts/stage.sh N СИД…     — лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt
+#   INST=N scripts/stage.sh …  — на экземпляре N (scripts/inst.sh), например по карте на экземпляр
 set -uo pipefail
 cd "$(dirname "$0")/.."
+source scripts/inst.sh
 n=$1; shift
 mkdir -p run/stages
 for seed in "$@"; do

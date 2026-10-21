@@ -15,7 +15,7 @@ import (
 
 // corridorPoles — цепочка столбов от сети (start — стоящие столбы) до тайла, где столб
 // запитает цель (target), только по коридорам: не в площадях кластеров плана, кроме allow
-// (станция, сам кластер-цель); extra — что ещё будет стоять (своё стадии вне плана). Места столбов плана с тегом логистики — дешевле (их всё равно
+// (станция, сам кластер-цель); столбы — ровными линиями (по горизонтали и вертикали); extra — что ещё будет стоять (своё стадии вне плана). Места столбов плана с тегом логистики — дешевле (их всё равно
 // ставить); прочие занятые планом тайлы — нельзя. Кратчайшее по числу столбов (Дейкстра).
 func corridorPoles(h *act.Hands, plan *S3, extra []layout.Placement, start []bridge.Pos, allow []string, target func(pole bridge.Pos) bool) ([]layout.Placement, error) {
 	const pole = "small-electric-pole"
@@ -61,27 +61,34 @@ func corridorPoles(h *act.Hands, plan *S3, extra []layout.Placement, start []bri
 		}
 		return 1, true
 	}
-	dist := map[world.Tile]float64{}
-	prev := map[world.Tile]world.Tile{}
-	isStart := map[world.Tile]bool{}
+	// состояние — тайл столба и направление пролёта к нему (-1 — стоящий столб сети): столбы
+	// ровно — следующий строго по горизонтали или вертикали, поворот дороже (правило «ровно»)
+	type pstate struct {
+		t world.Tile
+		d int
+	}
+	dirs := []world.Tile{{X: 0, Y: -1}, {X: 1, Y: 0}, {X: 0, Y: 1}, {X: -1, Y: 0}}
+	dist := map[pstate]float64{}
+	prev := map[pstate]pstate{}
 	var pq pheap
 	for _, p := range start {
-		t := world.TileOf(p)
-		dist[t], isStart[t] = 0, true
-		heap.Push(&pq, &pnode{t: t})
+		st := pstate{world.TileOf(p), -1}
+		dist[st] = 0
+		heap.Push(&pq, &pnode{t: st.t, dir: -1})
 	}
 	r := int(math.Floor(reach))
 	for pq.Len() > 0 {
 		n := heap.Pop(&pq).(*pnode)
-		if n.d > dist[n.t] {
+		cur := pstate{n.t, n.dir}
+		if n.d > dist[cur] {
 			continue
 		}
-		if !isStart[n.t] && target(n.t.Center()) {
+		if cur.d >= 0 && target(n.t.Center()) {
 			var res []layout.Placement
-			for t := n.t; !isStart[t]; t = prev[t] {
-				pl, ok := planPole[t]
+			for st := cur; st.d >= 0; st = prev[st] {
+				pl, ok := planPole[st.t]
 				if !ok {
-					pl = layout.Placement{Name: pole, Pos: t.Center(), Tag: "poles"}
+					pl = layout.Placement{Name: pole, Pos: st.t.Center(), Tag: "poles"}
 				}
 				res = append(res, pl)
 			}
@@ -91,23 +98,23 @@ func corridorPoles(h *act.Hands, plan *S3, extra []layout.Placement, start []bri
 		if n.d > 400 {
 			break
 		}
-		for dy := -r; dy <= r; dy++ {
-			for dx := -r; dx <= r; dx++ {
-				if dx == 0 && dy == 0 || math.Hypot(float64(dx), float64(dy)) > reach {
-					continue
-				}
-				v := world.Tile{X: n.t.X + dx, Y: n.t.Y + dy}
+		for d, dv := range dirs {
+			for k := 1; k <= r; k++ {
+				v := world.Tile{X: n.t.X + dv.X*k, Y: n.t.Y + dv.Y*k}
 				c, ok := cost(v)
 				if !ok {
 					continue
 				}
-				// дальше — дешевле: при равном числе столбов — длиннее пролёт
-				nd := n.d + c + 1e-3*(reach-math.Hypot(float64(dx), float64(dy)))
-				if d, seen := dist[v]; seen && d <= nd {
+				nd := n.d + c + 1e-3*float64(r-k) // при равном числе столбов — длиннее пролёт
+				if cur.d >= 0 && d != cur.d {
+					nd += 0.6 // поворот линии
+				}
+				ns := pstate{v, d}
+				if old, seen := dist[ns]; seen && old <= nd {
 					continue
 				}
-				dist[v], prev[v] = nd, n.t
-				heap.Push(&pq, &pnode{t: v, d: nd})
+				dist[ns], prev[ns] = nd, cur
+				heap.Push(&pq, &pnode{t: v, dir: d, d: nd})
 			}
 		}
 	}
@@ -115,9 +122,10 @@ func corridorPoles(h *act.Hands, plan *S3, extra []layout.Placement, start []bri
 }
 
 type pnode struct {
-	t world.Tile
-	d float64
-	i int
+	t   world.Tile
+	dir int
+	d   float64
+	i   int
 }
 
 type pheap []*pnode

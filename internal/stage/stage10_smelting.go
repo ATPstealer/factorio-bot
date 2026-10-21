@@ -15,9 +15,9 @@ import (
 )
 
 // Стадия 10 (stages.md): кластеры добычи и плавки железа и меди по плану стадии 3 с буферами
-// входа; руда — лентой от добычи к плавке, уголь — к плавке (с добычи стадии 9). Шину не
-// трогать: пластины копятся в контейнерах буфера выхода (cluster.md 6а) — инсертер с
-// фильтром на продукт берёт с выходной ленты плавки в сундук.
+// входа; руда — в ленты шины, плавка берёт руду и уголь с шины, пластины — в ленты шины.
+// Буферы выхода (cluster.md 6а) — инсертер с фильтром на продукт берёт с выходной ленты
+// плавки в сундук: пластины для крафта и стройки бота.
 
 const s10Plan = "state-stage10.json"
 
@@ -37,31 +37,22 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	tags := map[string]bool{}
+	res := s10Base(h, plan)
 	var smelt []*cluster.Cluster
-	for _, c := range s7Clusters(plan) {
-		if c.Product == "coal" {
-			continue
-		}
-		tags[cluster.Tag(c.Name)] = true
-		if c.Kind == cluster.Smelt {
-			tags[cluster.LogisticsTag+"/"+c.Name] = true
+	var allow []string
+	for _, c := range plan.Clusters {
+		switch {
+		case c.Kind == cluster.Smelt && (c.Product == "iron-plate" || c.Product == "copper-plate"):
 			smelt = append(smelt, c)
+			allow = append(allow, c.Name)
+		case c.Kind == cluster.Mine && (c.Product == "iron-ore" || c.Product == "copper-ore" || c.Product == "coal"),
+			c.Kind == cluster.Power, c.Kind == cluster.Bus:
+			allow = append(allow, c.Name)
 		}
 	}
 	all := layout.New(h.Protos, h.World)
-	var res []layout.Placement
 	for _, pl := range plan.Layout {
 		all.Add(pl)
-		if tags[pl.Tag] {
-			res = append(res, pl)
-		}
-	}
-	var allow []string
-	for _, c := range plan.Clusters {
-		if tags[cluster.Tag(c.Name)] || c.Kind == cluster.Power || c.Kind == cluster.Mine && c.Product == "coal" {
-			allow = append(allow, c.Name)
-		}
 	}
 	for _, c := range smelt {
 		buf, err := s10OutBuffer(h, all, c)

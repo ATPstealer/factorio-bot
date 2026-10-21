@@ -5,18 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
-	"factorio-bot/internal/world"
 )
 
-// Стадия 9 (stages.md): первый кластер добычи угля по плану стадии 3 и лента угля на станцию
-// вместо сундука стадии 4 (у бойлера — burner-инсертер с ленты, как в плане). Питание —
-// столбами по коридорам от сети (connectPower).
+// Стадия 9 (stages.md): первый кластер добычи угля по плану стадии 3 — уголь в ленту шины;
+// станция берёт уголь отводом с шины вместо сундука стадии 4 (у бойлера — burner-инсертер с
+// ленты, как в плане). Питание — столбами по коридорам от сети (connectPower).
 
 const s9Plan = "state-stage9.json" // раскладка стадии: один раз на карту
 
@@ -24,7 +22,7 @@ func init() {
 	register(Stage{N: 9, Name: "добыча угля", Run: runCoal, Check: checkCoal})
 }
 
-// s9Layout — кластер угля, лента угля к станции, лента и буфер станции, столбы логистики.
+// s9Layout — s9Base и столбы питания; один раз на карту (файл).
 func s9Layout(h *act.Hands) ([]layout.Placement, error) {
 	if data, err := os.ReadFile(runPath(s9Plan)); err == nil {
 		var list []layout.Placement
@@ -36,50 +34,17 @@ func s9Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	var coal, power string
-	for _, c := range plan.Clusters {
-		switch {
-		case c.Kind == cluster.Mine && c.Product == "coal" && coal == "":
-			coal = c.Name
-		case c.Kind == cluster.Power:
-			power = c.Name
-		}
-	}
-	if coal == "" || power == "" {
+	res := s9Base(h, plan)
+	if len(res) == 0 {
 		return nil, fmt.Errorf("в плане нет добычи угля или станции")
 	}
-	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		switch {
-		case pl.Tag == cluster.Tag(coal):
-		case pl.Tag == cluster.LogisticsTag+"/"+power && !strings.HasPrefix(pl.Name, "pipe") && pl.Name != "offshore-pump":
-		case pl.Tag == cluster.Tag(power) && (pl.Name == "transport-belt" || pl.Name == "burner-inserter" || pl.Name == chest):
-		default:
-			continue
-		}
-		res = append(res, pl)
-	}
-	// отводы потребителям (делители с их тегом) стоят в разрыве ленты угля — без них лента
-	// до станции не дойдёт
-	line := map[world.Tile]bool{}
-	for _, pl := range res {
-		if pl.Tag == cluster.LogisticsTag+"/"+power {
-			line[world.TileOf(pl.Pos)] = true
-		}
-	}
-	for _, pl := range plan.Layout {
-		if pl.Name != "splitter" || pl.Tag == cluster.LogisticsTag+"/"+power {
-			continue
-		}
-		for _, t := range layout.Tiles(h.Protos, pl) {
-			if line[layout.Step(t, pl.Dir)] || line[layout.Step(t, (pl.Dir+8)%16)] {
-				res = append(res, pl)
-				break
-			}
-		}
+	coal, power := clusterOf(plan, cluster.Mine, "coal"), clusterOf(plan, cluster.Power, "")
+	allow := []string{coal.Name, power.Name}
+	if bus := busOf(plan); bus != nil {
+		allow = append(allow, bus.Name)
 	}
 	// питание кластера — столбами по коридорам от сети
-	poles, err := connectPower(h, plan, res, []string{coal, power})
+	poles, err := connectPower(h, plan, res, allow)
 	if err != nil {
 		return nil, err
 	}

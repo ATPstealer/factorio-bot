@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -234,6 +235,10 @@ func (s *s2) have(ctx context.Context, item string, n int) error {
 		var err error
 		switch item {
 		case "iron-plate", "copper-plate":
+			if s.useStore { // точек стадии 2 уже нет — из буферов выхода плавки, ждать их
+				err = s.fromBuffers(ctx, item)
+				break
+			}
 			err = s.plates(ctx, item, lack)
 		case "coal":
 			err = s.coal(ctx, lack)
@@ -587,4 +592,32 @@ func checkOutposts(h *act.Hands) error {
 		}
 	}
 	return nil
+}
+
+// fromBuffers — пластины из буферов выхода плавки (стадия 10): забрать со всех, где есть;
+// нигде нет — подождать.
+func (s *s2) fromBuffers(ctx context.Context, plate string) error {
+	data, err := os.ReadFile(runPath(s10Plan))
+	if err != nil {
+		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 10): %w", plate, err)
+	}
+	var list []layout.Placement
+	if err := json.Unmarshal(data, &list); err != nil {
+		return err
+	}
+	var es []bridge.Entity
+	for _, pl := range list {
+		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "s10/") {
+			continue
+		}
+		if st, err := s.h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Inventories["chest"][plate] > 0 {
+			es = append(es, st.Entity)
+		}
+	}
+	if len(es) == 0 {
+		s.h.Say("жду %s в буферах выхода плавки", plate)
+		return sleepCtx(ctx, 20*time.Second)
+	}
+	_, err = s.takeAll(ctx, es, "chest")
+	return err
 }

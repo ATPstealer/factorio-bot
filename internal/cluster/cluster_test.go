@@ -464,6 +464,12 @@ func TestConnectGreen(t *testing.T) {
 	if len(dirs) != 1 {
 		t.Errorf("ленты шины в разные стороны: %v", dirs)
 	}
+	// всё через шину (решение пользователя): руда и уголь — ленты шины, плавка — клиент
+	for _, it := range []string{"iron-ore", "copper-ore", "coal", "iron-plate", "copper-plate"} {
+		if bus.Bus.lane(it) == nil {
+			t.Errorf("в шине нет ленты %s", it)
+		}
+	}
 	// клиенты — у шины (записаны), но не в её площади: у каждого свой коридор
 	for _, c := range b.Clusters {
 		if OnBus(c) && !b.onBusArea(bus, c) {

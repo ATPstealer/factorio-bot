@@ -40,41 +40,27 @@ func s7Clusters(plan *S3) []*cluster.Cluster {
 	return res
 }
 
-// s7Layout — что построят стадии 9–10: внутренности кластеров, ленты к ним (руда, уголь) и
-// уголь на станцию (лента и буфер станции вместо сундука стадии 4), столбы логистики.
-func s7Layout() ([]layout.Placement, error) {
+// s7Layout — что построят стадии 9–10 (s9Base, s10Base) и столбы: по столбам логистики
+// плана (цепочки по коридорам выйдут не длиннее).
+func s7Layout(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
-	tags := map[string]bool{cluster.LogisticsTag: true}
-	for _, c := range s7Clusters(plan) {
-		tags[cluster.Tag(c.Name)] = true
-		tags[cluster.LogisticsTag+"/"+c.Name] = true
-	}
-	var power string
-	for _, c := range plan.Clusters {
-		if c.Kind == cluster.Power {
-			power = c.Name
-		}
-	}
+	seen := map[layout.Placement]bool{}
 	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		switch {
-		case tags[pl.Tag]:
-		case pl.Tag == cluster.LogisticsTag+"/"+power && !strings.HasPrefix(pl.Name, "pipe") && pl.Name != "offshore-pump":
-		case pl.Tag == cluster.Tag(power) && (pl.Name == "transport-belt" || pl.Name == "burner-inserter" || pl.Name == chest):
-		default:
-			continue
+	for _, pl := range append(append(s9Base(h, plan), s10Base(h, plan)...), tagged(plan, cluster.LogisticsTag)...) {
+		if !seen[pl] {
+			seen[pl] = true
+			res = append(res, pl)
 		}
-		res = append(res, pl)
 	}
 	return res, nil
 }
 
 // s7Need — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
 func s7Need(h *act.Hands) (map[string]int, error) {
-	list, err := s7Layout()
+	list, err := s7Layout(h)
 	if err != nil {
 		return nil, err
 	}
