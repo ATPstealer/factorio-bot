@@ -65,33 +65,12 @@ func LoadPlan() (*ClusterPlan, error) {
 
 // runPlan — план; кластеру нет места на открытой карте — разведать (мир бесконечный: подошёл
 // к краю — игра открывает новые чанки) и спланировать заново.
-func runPlan(ctx context.Context, h *act.Hands) error { return DesignBase(ctx, h, s4Design()) }
-
-// Design — что проектировать: цели (шт/с), машины по категориям, отдельные кластеры
-// промежуточных продуктов, секунд на пакет в лабораториях, куда сохранить план и картинку.
-type Design struct {
-	Targets  map[string]float64
-	Machines map[string]string
-	Separate []string
-	LabSec   float64
-	File     string // план (ClusterPlan)
-	Image    string // картинка
-}
-
-// s4Design — план стадии 4: красная наука, первые машины.
-func s4Design() Design {
-	return Design{Targets: map[string]float64{"automation-science-pack": s4Rate},
-		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"},
-		Separate: []string{"iron-gear-wheel"}, LabSec: s4LabSec, File: runPath(s4Plan), Image: s4Image()}
-}
-
-// DesignBase — спроектировать базу под d на открытой карте (нет места — разведка и заново).
-func DesignBase(ctx context.Context, h *act.Hands, d Design) error {
+func runPlan(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {
 		return err
 	}
 	for try := 0; ; try++ {
-		err := designOnce(ctx, h, d)
+		err := planOnce(ctx, h)
 		var ns *cluster.NoSiteError
 		if !errors.As(err, &ns) || try >= s4Explore {
 			return err
@@ -104,31 +83,23 @@ func DesignBase(ctx context.Context, h *act.Hands, d Design) error {
 	}
 }
 
-func designOnce(ctx context.Context, h *act.Hands, d Design) error {
+func planOnce(ctx context.Context, h *act.Hands) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err
 	}
 	pr := h.Protos
-	targets := d.Targets
-	plan, err := calc.Solve(pr, targets, calc.Options{All: true, Machines: d.Machines})
+	targets := map[string]float64{"automation-science-pack": s4Rate}
+	plan, err := calc.Solve(pr, targets, calc.Options{All: true,
+		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
 		return err
 	}
-	cs, err := cluster.Split(pr, plan, s4Reserve, nil, d.Separate...)
+	cs, err := cluster.Split(pr, plan, s4Reserve, nil, "iron-gear-wheel")
 	if err != nil {
 		return err
 	}
-	packs := map[string]float64{}
-	for it, v := range targets {
-		if strings.HasSuffix(it, "-science-pack") {
-			packs[it] = v
-		}
-	}
-	if len(packs) > 0 {
-		cs = append(cs, cluster.Labs(pr, packs, d.LabSec, s4Reserve))
-	}
-	cs = append(cs, cluster.StorageCluster())
+	cs = append(cs, cluster.Labs(pr, targets, s4LabSec, s4Reserve), cluster.StorageCluster())
 	if cs, err = cluster.AddPower(pr, cs, s4Reserve, nil); err != nil {
 		return err
 	}
@@ -169,14 +140,14 @@ func designOnce(ctx context.Context, h *act.Hands, d Design) error {
 				}
 			}
 			list = l.List
-			if err := s4Draw(h, base, l, p.Position, d.Image); err != nil {
+			if err := s4Draw(h, base, l, p.Position); err != nil {
 				return err
 			}
 			break
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			s4Draw(h, base, l, p.Position, d.Image) // что вышло — на картинку
+			s4Draw(h, base, l, p.Position) // что вышло — на картинку
 			for _, c := range base.Sorted() {
 				h.Log("кластер %v", c)
 			}
@@ -193,18 +164,26 @@ func designOnce(ctx context.Context, h *act.Hands, d Design) error {
 	for _, c := range base.Sorted() {
 		h.Say("кластер %v", c)
 	}
-	data, err := json.MarshalIndent(ClusterPlan{Clusters: base.Sorted(), Placed: len(list), Layout: list, Image: d.Image}, "", " ")
+	data, err := json.MarshalIndent(ClusterPlan{Clusters: base.Sorted(), Placed: len(list), Layout: list, Image: s4Image()}, "", " ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(d.File, data, 0o644)
+	return os.WriteFile(runPath(s4Plan), data, 0o644)
 }
 
 // s4Image — картинка плана: run/stages/s3-<сид>.png.
-func s4Image() string { return filepath.Join("run/stages", "s4-"+seedOf()+".png") }
+func s4Image() string {
+	var m struct {
+		Seed int64 `json:"seed"`
+	}
+	if data, err := os.ReadFile(runPath("map.json")); err == nil {
+		json.Unmarshal(data, &m)
+	}
+	return filepath.Join("run/stages", fmt.Sprintf("s4-%d.png", m.Seed))
+}
 
 // s4Draw — картинка: открытая карта, кластеры с коридорами и раскладка.
-func s4Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos, image string) error {
+func s4Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
 		r := c.Area.Grow(cluster.Corridor)
@@ -216,7 +195,7 @@ func s4Draw(h *act.Hands, base *cluster.Base, l *layout.Layout, at bridge.Pos, i
 	img := h.World.Render(ro)
 	base.Draw(img, ro)
 	l.Draw(img, ro)
-	f, err := os.Create(image)
+	f, err := os.Create(s4Image())
 	if err != nil {
 		return err
 	}

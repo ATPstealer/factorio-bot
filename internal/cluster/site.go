@@ -1,7 +1,6 @@
 package cluster
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -426,7 +425,7 @@ func (b *Base) PlaceAll(cs []*Cluster) error {
 			clients = append(clients, c)
 			continue
 		}
-		if err := b.placeSplit(c); err != nil {
+		if err := b.Place(c); err != nil {
 			return err
 		}
 	}
@@ -434,51 +433,6 @@ func (b *Base) PlaceAll(cs []*Cluster) error {
 		return b.placeOnBus(clients)
 	}
 	return nil
-}
-
-// placeSplit — место кластеру; добыче на одном месторождении места нет — поделить пополам
-// (буры и потоки) и ставить части по отдельности (разные месторождения, cluster.md: кластер N+1).
-func (b *Base) placeSplit(c *Cluster) error {
-	err := b.Place(c)
-	var ns *NoSiteError
-	if err == nil || c.Kind != Mine || c.Count < 2 || !errors.As(err, &ns) {
-		return err
-	}
-	a, z := halve(c)
-	if b.Log != nil {
-		b.Log("%s не встаёт целиком (%d буров) — делю на два", c.Name, c.Count)
-	}
-	z.Name = c.Name + "b" // имя — временное, ниже — следующее свободное
-	if err := b.placeSplit(a); err != nil {
-		return err
-	}
-	z.Name = b.name(z.Product)
-	return b.placeSplit(z)
-}
-
-// halve — кластер пополам: машины, потоки, мощность, запас роста.
-func halve(c *Cluster) (*Cluster, *Cluster) {
-	part := func(n int) *Cluster {
-		k := float64(n) / float64(c.Count)
-		p := *c
-		scale := func(fs []Flow) []Flow {
-			var out []Flow
-			for _, f := range fs {
-				out = append(out, Flow{f.Item, f.Rate * k})
-			}
-			return out
-		}
-		p.In, p.Out, p.Internal, p.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
-		p.Units = nil
-		for _, u := range c.Units {
-			u.Machines *= k
-			p.Units = append(p.Units, u)
-		}
-		p.Count, p.Room = n, max(n, c.Room*n/c.Count)
-		return &p
-	}
-	n := (c.Count + 1) / 2
-	return part(n), part(c.Count - n)
 }
 
 // short — короткие имена продуктов для кластеров.
