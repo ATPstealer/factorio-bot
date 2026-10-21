@@ -68,3 +68,47 @@ func (b *Base) Draw(img *image.RGBA, o world.RenderOptions) {
 		d.DrawString(c.Name)
 	}
 }
+
+// zoneColors — цвет зоны по виду.
+var zoneColors = map[ZoneKind]color.RGBA{
+	ZoneBus:        {60, 120, 230, 255},
+	ZoneMine:       {150, 90, 40, 255},
+	ZoneProcessing: {220, 120, 40, 255},
+	ZoneSupply:     {60, 180, 90, 255},
+	ZoneFinal:      {170, 70, 200, 255},
+	ZonePower:      {230, 220, 60, 255},
+}
+
+// DrawZones — зоны поверх карты (опции world.Render): прямоугольник цветом вида, рамка, имя.
+func DrawZones(img *image.RGBA, o world.RenderOptions, zones []Zone) {
+	x0, y0 := o.Center.X-o.Radius, o.Center.Y-o.Radius
+	for _, z := range zones {
+		c := zoneColors[z.Kind]
+		for y := z.Rect.Min.Y; y < z.Rect.Max.Y; y++ {
+			for x := z.Rect.Min.X; x < z.Rect.Max.X; x++ {
+				a := 0.35
+				if x == z.Rect.Min.X || y == z.Rect.Min.Y || x == z.Rect.Max.X-1 || y == z.Rect.Max.Y-1 {
+					a = 0.9
+				}
+				for dy := 0; dy < o.Scale; dy++ {
+					for dx := 0; dx < o.Scale; dx++ {
+						p := image.Point{X: (x-x0)*o.Scale + dx, Y: (y-y0)*o.Scale + dy}
+						if !p.In(img.Rect) {
+							continue
+						}
+						q := img.RGBAAt(p.X, p.Y)
+						img.SetRGBA(p.X, p.Y, color.RGBA{uint8(float64(q.R)*(1-a) + float64(c.R)*a),
+							uint8(float64(q.G)*(1-a) + float64(c.G)*a), uint8(float64(q.B)*(1-a) + float64(c.B)*a), 255})
+					}
+				}
+			}
+		}
+	}
+	face := basicfont.Face7x13
+	for _, z := range zones {
+		px := (z.Rect.Min.X-x0)*o.Scale + 3
+		py := (z.Rect.Min.Y-y0)*o.Scale + 13
+		d := &font.Drawer{Dst: img, Src: image.NewUniform(colLabel), Face: face, Dot: fixed.P(px, py)}
+		d.DrawString(z.Name)
+	}
+}

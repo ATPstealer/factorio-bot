@@ -38,8 +38,8 @@ const (
 type RoughPlan struct {
 	Hours     float64             `json:"hours"`
 	Targets   map[string]float64  `json:"targets"`
-	Clusters  []*cluster.Cluster  `json:"clusters"`
-	Layers    *cluster.Layered    `json:"layers"`
+	Zones     []cluster.Zone      `json:"zones"`
+	Clusters  []*cluster.Cluster  `json:"clusters"` // прикидка машин по продуктам (внутри зон)
 	Resources map[string]Resource `json:"resources"`
 	PowerMW   float64             `json:"power_mw"`
 	Image     string              `json:"image"`
@@ -54,7 +54,7 @@ type Resource struct {
 }
 
 func init() {
-	register(Stage{N: 4, Name: "прикидочный план всей базы", Run: runRough, Check: checkRough})
+	register(Stage{N: 4, Name: "зоны всей базы", Run: runRough, Check: checkRough})
 }
 
 // LoadRough — прикидка базы этой карты (для следующих стадий).
@@ -156,34 +156,39 @@ func roughOnce(h *act.Hands) error {
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
 	lay, err := base.PlaceLayered(cs, s4Belt)
 	if err != nil {
-		s4Draw(h, base, nil, s4Image()) // что успело встать — на картинку
 		return err
 	}
-	// ресурсы на всю игру
+	zones := base.Zones(lay)
+	// ресурсы на всю игру: сколько нужно и сколько можно добыть в зонах добычи; не хватает —
+	// ещё зоны на следующих месторождениях этого ресурса (ближе к центру первыми)
 	res := map[string]Resource{}
-	have := map[string]float64{}
-	for _, pt := range h.World.Patches() {
-		have[pt.Name] += float64(pt.Amount)
-	}
 	for it, rate := range plan.Raw {
 		if it == "water" {
 			continue
 		}
-		r := Resource{Rate: rate, Need: rate * s4Hours * 3600, Have: have[it]}
+		r := Resource{Rate: rate, Need: rate * s4Hours * 3600}
+		for _, z := range zones {
+			r.Have += z.Resources[it]
+		}
+		if r.Have < r.Need {
+			zones = s4MoreMines(h, zones, it, r.Need-r.Have)
+			r.Have = 0
+			for _, z := range zones {
+				r.Have += z.Resources[it]
+			}
+		}
 		r.Short = r.Have < r.Need
 		res[it] = r
 	}
-	rp := RoughPlan{Hours: s4Hours, Targets: targets, Clusters: base.Sorted(), Layers: lay, Resources: res, PowerMW: plan.PowerW / 1e6, Image: s4Image()}
-	for i, bus := range lay.Buses {
-		h.Log("шина %d: %v", i, bus.Lanes)
-	}
-	for _, c := range rp.Clusters {
-		h.Log("блок %v", c)
+	rp := RoughPlan{Hours: s4Hours, Targets: targets, Zones: zones, Clusters: base.Sorted(), Resources: res, PowerMW: plan.PowerW / 1e6, Image: s4Image()}
+	sort.Slice(rp.Zones, func(i, j int) bool { return rp.Zones[i].Name < rp.Zones[j].Name })
+	for _, z := range rp.Zones {
+		h.Log("зона %v", z)
 	}
 	for it, r := range res {
-		h.Log("сырьё %s: %.2f/с, на %0.f ч — %.0f, в месторождениях %.0f%s", it, r.Rate, s4Hours, r.Need, r.Have, map[bool]string{true: " — НЕ ХВАТАЕТ"}[r.Short])
+		h.Log("сырьё %s: %.2f/с, на %.0f ч — %.0f, в зонах добычи %.0f%s", it, r.Rate, s4Hours, r.Need, r.Have, map[bool]string{true: " — НЕ ХВАТАЕТ"}[r.Short])
 	}
-	if err := s4Draw(h, base, lay, rp.Image); err != nil {
+	if err := s4Draw(h, rp.Zones, rp.Image); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(rp, "", " ")
@@ -195,28 +200,18 @@ func roughOnce(h *act.Hands) error {
 
 func s4Image() string { return filepath.Join("run/stages", "s4-"+seedOf()+".png") }
 
-// s4Draw — картинка зон: открытая карта, кластеры с коридорами и шины этажей (без раскладок).
-func s4Draw(h *act.Hands, base *cluster.Base, lay *cluster.Layered, image string) error {
-	if lay != nil { // шины — на картинку как кластеры
-		saved := base.Clusters
-		defer func() { base.Clusters = saved }()
-		for i, bus := range lay.Buses {
-			if bus.Rect.W() > 0 {
-				base.Clusters = append(base.Clusters, &cluster.Cluster{Name: fmt.Sprintf("bus-%d", i), Kind: cluster.Bus, Area: bus.Rect, Rect: bus.Rect})
-			}
-		}
-	}
+// s4Draw — картинка зон поверх карты.
+func s4Draw(h *act.Hands, zones []cluster.Zone, image string) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
-	for _, c := range base.Clusters {
-		r := c.Area.Grow(cluster.Corridor)
-		minX, minY = min(minX, r.Min.X), min(minY, r.Min.Y)
-		maxX, maxY = max(maxX, r.Max.X), max(maxY, r.Max.Y)
+	for _, z := range zones {
+		minX, minY = min(minX, z.Rect.Min.X), min(minY, z.Rect.Min.Y)
+		maxX, maxY = max(maxX, z.Rect.Max.X), max(maxY, z.Rect.Max.Y)
 	}
-	radius := max(maxX-minX, maxY-minY)/2 + 20
+	radius := max(maxX-minX, maxY-minY)/2 + 30
 	scale := max(1, min(4, 2000/(2*radius)))
 	ro := world.RenderOptions{Center: world.Tile{X: (minX + maxX) / 2, Y: (minY + maxY) / 2}, Radius: radius, Scale: scale, Labels: true}
 	img := h.World.Render(ro)
-	base.Draw(img, ro)
+	cluster.DrawZones(img, ro, zones)
 	f, err := os.Create(image)
 	if err != nil {
 		return err
@@ -228,14 +223,60 @@ func s4Draw(h *act.Hands, base *cluster.Base, lay *cluster.Layered, image string
 	return f.Close()
 }
 
+// s4MoreMines — ещё зоны добычи ресурса it на месторождениях вне зон (ближние к центру первыми),
+// пока запас в них не покроет lack.
+func s4MoreMines(h *act.Hands, zones []cluster.Zone, it string, lack float64) []cluster.Zone {
+	pts := h.World.Patches()
+	sort.Slice(pts, func(i, j int) bool {
+		return math.Hypot(pts[i].Center.X, pts[i].Center.Y) < math.Hypot(pts[j].Center.X, pts[j].Center.Y)
+	})
+	n := 0
+	for _, z := range zones {
+		if z.Kind == cluster.ZoneMine {
+			n++
+		}
+	}
+	for _, pt := range pts {
+		if lack <= 0 {
+			break
+		}
+		if pt.Name != it {
+			continue
+		}
+		r := cluster.Rect{Min: pt.Min, Max: world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(cluster.ZoneBorder)
+		taken := false
+		for _, z := range zones {
+			taken = taken || z.Rect.Overlaps(r)
+		}
+		if taken {
+			continue
+		}
+		n++
+		z := cluster.Zone{Name: fmt.Sprintf("mine-%d", n), Kind: cluster.ZoneMine, Rect: r, Resources: map[string]float64{}}
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				if res, ok := h.World.ResourceAt(world.Tile{X: x, Y: y}); ok {
+					z.Resources[res.Name] += float64(res.Amount)
+				}
+			}
+		}
+		lack -= z.Resources[it]
+		zones = append(zones, z)
+	}
+	return zones
+}
+
 func checkRough(h *act.Hands) error {
 	rp, err := LoadRough()
 	if err != nil {
 		return err
 	}
-	for _, c := range rp.Clusters {
-		if c.Area.W() == 0 || c.Area.H() == 0 {
-			return fmt.Errorf("блок %s без зоны", c.Name)
+	if len(rp.Zones) == 0 {
+		return fmt.Errorf("зон нет")
+	}
+	for _, z := range rp.Zones {
+		if z.Rect.W() == 0 || z.Rect.H() == 0 {
+			return fmt.Errorf("зона %s без прямоугольника", z.Name)
 		}
 	}
 	for it, r := range rp.Resources {
