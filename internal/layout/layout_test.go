@@ -133,6 +133,38 @@ func TestRouteBelt(t *testing.T) {
 	}
 }
 
+// Подземка ленты не встаёт внутрь чужой пары той же оси (стадия 10: вход руды меди между
+// концами подземок угля — игра спаривала их накрест, лента рвалась). В ряду 10 чужая пара
+// 26 → 30, лента начинается между её концами (27), впереди вода 31–32; прочие ряды закрыты —
+// пройти можно только парой накрест (вход 28/29 → выход за водой): нельзя, не провести.
+func TestRouteBeltUGCross(t *testing.T) {
+	w := synth(t, 2, 2, func(x, y int) byte {
+		if x == 31 || x == 32 {
+			return 'w'
+		}
+		return '.'
+	})
+	l := New(pt(t), w)
+	l.Add(Placement{Name: "underground-belt", Pos: world.Tile{X: 26, Y: 10}.Center(), Dir: E, Recipe: "input", Tag: "old"})
+	l.Add(Placement{Name: "underground-belt", Pos: world.Tile{X: 30, Y: 10}.Center(), Dir: E, Recipe: "output", Tag: "old"})
+	for y := 0; y < 64; y++ {
+		for x := 22; x < 38; x++ {
+			if y != 10 {
+				l.Reserved[world.Tile{X: x, Y: y}] = true
+			}
+		}
+	}
+	if _, err := l.RouteBelt(world.Tile{X: 27, Y: 10}, E, world.Tile{X: 40, Y: 10}, E, "new"); err == nil {
+		var ugs []string
+		for _, p := range l.List {
+			if p.Name == "underground-belt" {
+				ugs = append(ugs, p.String())
+			}
+		}
+		t.Errorf("пара подземок накрест с чужой: %v", ugs)
+	}
+}
+
 // Станция у воды с любой стороны: помпа → водяной вход бойлера, паровыход → двигатель →
 // двигатель — соединения стыкуются.
 func TestSteamPower(t *testing.T) {

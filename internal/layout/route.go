@@ -171,6 +171,9 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 				if _, ok := cost(outT); !ok {
 					continue
 				}
+				if !l.ugAxisClear(cur.s.T, d, k, maxUG) {
+					continue
+				}
 				after := Step(outT, d)
 				if _, ok := cost(after); !ok {
 					continue
@@ -237,4 +240,41 @@ func (l *Layout) beltInto(t world.Tile) bool {
 		}
 	}
 	return false
+}
+
+// ugAxisClear — подземка ленты (вход a, выход через k тайлов по d) не спарится с чужими:
+// между её концами нет подземок этой оси, вход не внутри чужой пары (позади ближайшая
+// подземка оси — не вход по d), выход тоже (впереди ближайшая — не выход по d).
+func (l *Layout) ugAxisClear(a world.Tile, d, k, maxUG int) bool {
+	const ug = "underground-belt"
+	axis := func(t world.Tile) *Placement {
+		if p := l.At(t); p != nil && p.Name == ug && p.Dir%8 == d%8 {
+			return p
+		}
+		return nil
+	}
+	t := a
+	for i := 1; i < k; i++ {
+		if t = Step(t, d); axis(t) != nil {
+			return false
+		}
+	}
+	out := Step(t, d)
+	for i, t := 1, a; i <= maxUG+1; i++ {
+		if t = Step(t, (d+8)%16); axis(t) != nil {
+			if p := axis(t); p.Dir == d && p.Recipe == "input" {
+				return false
+			}
+			break
+		}
+	}
+	for i, t := 1, out; i <= maxUG+1; i++ {
+		if t = Step(t, d); axis(t) != nil {
+			if p := axis(t); p.Dir == d && p.Recipe == "output" {
+				return false
+			}
+			break
+		}
+	}
+	return true
 }
