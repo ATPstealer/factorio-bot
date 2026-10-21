@@ -640,9 +640,23 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 		}
 	}
 	_, werr := h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
-	// нажатие могло потеряться — доложить недостающее (один заход)
-	if p, err := h.B.Player(); err == nil && werr != nil {
+	// нажатие могло потеряться — доложить недостающее (до 3 заходов, курсор — заново: в игре
+	// терялись и повторные нажатия, стадия 2 на 794457638)
+	for try := 0; try < 3 && werr != nil; try++ {
+		p, err := h.B.Player()
+		if err != nil {
+			break
+		}
 		if lack := n - (held(p0, item) - held(p, item)); lack > 0 && held(p, item) > 0 {
+			if p.Cursor == nil || p.Cursor.Name != item {
+				if err := h.Pick(ctx, item); err != nil {
+					return err
+				}
+			}
+			if err := h.Hover(ctx, e); err != nil {
+				h.ClearCursor(ctx)
+				return err
+			}
 			for i := 0; i < lack; i++ {
 				if err := h.In.Tap("z"); err != nil {
 					return err
@@ -652,6 +666,8 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 				}
 			}
 			_, werr = h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
+		} else {
+			break
 		}
 	}
 	p1, err := h.B.Player()
