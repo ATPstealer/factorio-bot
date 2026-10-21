@@ -117,14 +117,41 @@ func (b *Base) Zones(lay *Layered) []Zone {
 		in, out, ms, pw := bundle(byFloor[f])
 		res = append(res, Zone{Name: fmt.Sprintf("%s-%d", k, n[k]), Kind: k, Rect: lay.Floors[f], In: in, Out: out, Machines: ms, PowerW: pw})
 	}
-	// добыча: зона на пятно под кластерами добычи (пятно целиком); соседние (до patchNear) —
-	// в одну, только если прямоугольник плотный (без ресурсов не больше 30%); пересекающиеся —
-	// в одну всегда (zones.md)
-	type mz struct {
-		r  Rect
-		cs []*Cluster
+	res = append(res, b.mineZones...)
+	for _, c := range b.Clusters {
+		if c.Kind == Power {
+			in, out, ms, pw := bundle([]*Cluster{c})
+			res = append(res, Zone{Name: "power-1", Kind: ZonePower, Rect: c.Area, In: in, Out: out, Machines: ms, PowerW: pw})
+		}
 	}
+	return res
+}
+
+// MineZones — зоны добычи по месторождениям (zones.md): на каждый ресурс need (сколько нужно
+// за игру) — пятна от ближних к центру базы, пока запаса хватит; зона — пятно целиком;
+// пересекающиеся — в одну, соседние (до patchNear) — в одну, только если плотно (ресурса не
+// меньше minOre площади). Машины и выход добычи (кластеры добычи прикидки) — по зонам
+// пропорционально запасу. Нужно до PlaceLayered (станция — по зонам угля).
+func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 	g := b.grid()
+	ox, oy := float64(b.Origin.X), float64(b.Origin.Y)
+	pts := b.W.Patches()
+	sort.Slice(pts, func(i, j int) bool {
+		return math.Hypot(pts[i].Center.X-ox, pts[i].Center.Y-oy) < math.Hypot(pts[j].Center.X-ox, pts[j].Center.Y-oy)
+	})
+	var rs []Rect
+	for it, n := range need {
+		have := 0.0
+		for _, pt := range pts {
+			if have >= n {
+				break
+			}
+			if pt.Name == it {
+				rs = append(rs, Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}})
+				have += float64(pt.Amount)
+			}
+		}
+	}
 	ore := func(r Rect) int {
 		n := 0
 		for _, o := range g.ore {
@@ -133,57 +160,65 @@ func (b *Base) Zones(lay *Layered) []Zone {
 		}
 		return n
 	}
-	var mines []mz
-	for _, pt := range b.W.Patches() {
-		pr := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}
-		var cs []*Cluster
-		for _, c := range b.Clusters {
-			if c.Kind == Mine && c.Product == pt.Name && pr.Overlaps(c.Area) {
-				cs = append(cs, c)
-			}
-		}
-		if len(cs) > 0 {
-			mines = append(mines, mz{pr, cs})
-		}
-	}
 	for merged := true; merged; {
 		merged = false
-		for i := 0; i < len(mines) && !merged; i++ {
-			for j := i + 1; j < len(mines); j++ {
-				u := union(mines[i].r, mines[j].r)
-				dense := mines[i].r.Grow(patchNear).Overlaps(mines[j].r) && float64(ore(u)) >= minOre*float64(u.W()*u.H())
-				if mines[i].r.Overlaps(mines[j].r) || dense {
-					mines[i] = mz{u, append(mines[i].cs, mines[j].cs...)}
-					mines = append(mines[:j], mines[j+1:]...)
+		for i := 0; i < len(rs) && !merged; i++ {
+			for j := i + 1; j < len(rs); j++ {
+				u := union(rs[i], rs[j])
+				dense := rs[i].Grow(patchNear).Overlaps(rs[j]) && float64(ore(u)) >= minOre*float64(u.W()*u.H())
+				if rs[i].Overlaps(rs[j]) || dense {
+					rs[i] = u
+					rs = append(rs[:j], rs[j+1:]...)
 					merged = true
 					break
 				}
 			}
 		}
 	}
-	for i := range mines {
-		mines[i].r = mines[i].r.Grow(ZoneBorder)
-	}
-	for i, m := range mines {
-		in, out, ms, pw := bundle(m.cs)
-		z := Zone{Name: fmt.Sprintf("mine-%d", i+1), Kind: ZoneMine, Rect: m.r, In: in, Out: out, Machines: ms, PowerW: pw,
-			Resources: map[string]float64{}}
-		for y := m.r.Min.Y; y < m.r.Max.Y; y++ {
-			for x := m.r.Min.X; x < m.r.Max.X; x++ {
-				if r, ok := b.W.ResourceAt(world.Tile{X: x, Y: y}); ok {
-					z.Resources[r.Name] += float64(r.Amount)
+	sort.Slice(rs, func(i, j int) bool {
+		ci, cj := rs[i], rs[j]
+		xi, yi := ci.Center()
+		xj, yj := cj.Center()
+		return math.Hypot(xi-ox, yi-oy) < math.Hypot(xj-ox, yj-oy)
+	})
+	var zs []Zone
+	total := map[string]float64{}
+	for i, r := range rs {
+		r = r.Grow(ZoneBorder)
+		z := Zone{Name: fmt.Sprintf("mine-%d", i+1), Kind: ZoneMine, Rect: r, Resources: map[string]float64{}, Machines: map[string]float64{}}
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				if res, ok := b.W.ResourceAt(world.Tile{X: x, Y: y}); ok {
+					z.Resources[res.Name] += float64(res.Amount)
 				}
 			}
 		}
-		res = append(res, z)
+		for it, v := range z.Resources {
+			total[it] += v
+		}
+		zs = append(zs, z)
 	}
-	for _, c := range b.Clusters {
-		if c.Kind == Power {
-			in, out, ms, pw := bundle([]*Cluster{c})
-			res = append(res, Zone{Name: "power-1", Kind: ZonePower, Rect: c.Area, In: in, Out: out, Machines: ms, PowerW: pw})
+	// машины и выход добычи — по зонам пропорционально запасу ресурса
+	for _, c := range cs {
+		if c.Kind != Mine {
+			continue
+		}
+		for i := range zs {
+			if total[c.Product] == 0 || zs[i].Resources[c.Product] == 0 {
+				continue
+			}
+			k := zs[i].Resources[c.Product] / total[c.Product]
+			for _, u := range c.Units {
+				zs[i].Machines[u.Machine] += u.Machines * k
+			}
+			for _, f := range c.Out {
+				zs[i].Out = append(zs[i].Out, Flow{f.Item, f.Rate * k})
+			}
+			zs[i].PowerW += c.PowerW * k
 		}
 	}
-	return res
+	b.mineZones = zs
+	return zs
 }
 
 // patchNear — соседние пятна (до стольких тайлов) — кандидаты в одну зону добычи; minOre —

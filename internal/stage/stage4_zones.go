@@ -154,28 +154,25 @@ func roughOnce(h *act.Hands) error {
 	base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта (0, 0)
 	base.Log, base.Rough = h.Log, true
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
+	// зоны добычи — по месторождениям: на каждый ресурс — пятна, пока запаса хватит на игру
+	need := map[string]float64{}
+	for it, rate := range plan.Raw {
+		if it != "water" {
+			need[it] = rate * s4Hours * 3600
+		}
+	}
+	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, s4Belt)
 	if err != nil {
 		return err
 	}
 	zones := base.Zones(lay)
-	// ресурсы на всю игру: сколько нужно и сколько можно добыть в зонах добычи; не хватает —
-	// ещё зоны на следующих месторождениях этого ресурса (ближе к центру первыми)
+	// ресурсы на всю игру: сколько нужно и сколько можно добыть в зонах добычи
 	res := map[string]Resource{}
-	for it, rate := range plan.Raw {
-		if it == "water" {
-			continue
-		}
-		r := Resource{Rate: rate, Need: rate * s4Hours * 3600}
+	for it, n := range need {
+		r := Resource{Rate: n / (s4Hours * 3600), Need: n}
 		for _, z := range zones {
 			r.Have += z.Resources[it]
-		}
-		if r.Have < r.Need {
-			zones = s4MoreMines(h, zones, it, r.Need-r.Have)
-			r.Have = 0
-			for _, z := range zones {
-				r.Have += z.Resources[it]
-			}
 		}
 		r.Short = r.Have < r.Need
 		res[it] = r
@@ -221,49 +218,6 @@ func s4Draw(h *act.Hands, zones []cluster.Zone, image string) error {
 		return err
 	}
 	return f.Close()
-}
-
-// s4MoreMines — ещё зоны добычи ресурса it на месторождениях вне зон (ближние к центру первыми),
-// пока запас в них не покроет lack.
-func s4MoreMines(h *act.Hands, zones []cluster.Zone, it string, lack float64) []cluster.Zone {
-	pts := h.World.Patches()
-	sort.Slice(pts, func(i, j int) bool {
-		return math.Hypot(pts[i].Center.X, pts[i].Center.Y) < math.Hypot(pts[j].Center.X, pts[j].Center.Y)
-	})
-	n := 0
-	for _, z := range zones {
-		if z.Kind == cluster.ZoneMine {
-			n++
-		}
-	}
-	for _, pt := range pts {
-		if lack <= 0 {
-			break
-		}
-		if pt.Name != it {
-			continue
-		}
-		r := cluster.Rect{Min: pt.Min, Max: world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(cluster.ZoneBorder)
-		taken := false
-		for _, z := range zones {
-			taken = taken || z.Rect.Overlaps(r)
-		}
-		if taken {
-			continue
-		}
-		n++
-		z := cluster.Zone{Name: fmt.Sprintf("mine-%d", n), Kind: cluster.ZoneMine, Rect: r, Resources: map[string]float64{}}
-		for y := r.Min.Y; y < r.Max.Y; y++ {
-			for x := r.Min.X; x < r.Max.X; x++ {
-				if res, ok := h.World.ResourceAt(world.Tile{X: x, Y: y}); ok {
-					z.Resources[res.Name] += float64(res.Amount)
-				}
-			}
-		}
-		lack -= z.Resources[it]
-		zones = append(zones, z)
-	}
-	return zones
 }
 
 func checkRough(h *act.Hands) error {

@@ -115,9 +115,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	for _, c := range cs {
 		switch f := floorOf(c); {
 		case c.Kind == Mine:
-			if err := b.placeMines(c); err != nil {
-				return nil, err
-			}
+			// добыча — зонами по месторождениям (MineZones, до этажей)
 		case f == 0:
 			later = append(later, c)
 		default:
@@ -326,12 +324,12 @@ func (b *Base) fitLayered(zw []int, depth int, widths []int, width int) *layered
 }
 
 // powerSpot — берег (вода рядом с сушей), где меньше всего сумма расстояний от ближайшей
-// добычи угля до него и от него до края базы area (zones.md, энергия).
+// зоны добычи угля до него и от него до края базы area (zones.md, энергия).
 func (b *Base) powerSpot(area Rect) (world.Tile, bool) {
 	var coal []Rect
-	for _, c := range b.Clusters {
-		if c.Kind == Mine && c.Product == "coal" {
-			coal = append(coal, c.Area)
+	for _, z := range b.mineZones {
+		if z.Resources["coal"] > 0 {
+			coal = append(coal, z.Rect)
 		}
 	}
 	if len(coal) == 0 {
