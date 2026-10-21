@@ -26,6 +26,13 @@ const (
 	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
 	busLanes   = 16             // лент шин 2 и 3, не меньше
 	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
+	busThick   = 0.03           // шине: толстых утёсов и воды — не больше доли площади
+)
+
+// minCols — столбцов в зоне этажа не меньше (zones.md): 15 (30 на картах не влезают); colWidth — ширина столбца: кластер с бордюрами (плавка 8+6, сборка 9+6).
+var (
+	minCols  = [floors + 1]int{1: 15, 2: 15, 3: 15, 4: 15}
+	colWidth = [floors + 1]int{1: 14, 2: 15, 3: 15, 4: 15}
 )
 
 // LayerBus — шина этажной базы: прямоугольник, лент по предметам (трубы жидкостей — тоже),
@@ -41,7 +48,7 @@ type LayerBus struct {
 type Layered struct {
 	Area   Rect           `json:"area"`
 	Buses  []LayerBus     `json:"buses"`
-	Floors []Rect         `json:"floors"`
+	Floors [][]Rect       `json:"floors"` // зоны этажа: части слева направо (zones.md)
 	Of     map[string]int `json:"of"`
 }
 
@@ -196,10 +203,19 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	base := 0
 	for f := 1; f <= floors; f++ {
 		pos[f], zw[f] = pack(fl[f], depth)
+		if len(fl[f]) > 0 { // не уже минимума (zones.md): прикидка даёт мало машин
+			zw[f] = max(zw[f], minCols[f]*colWidth[f])
+		}
 		base = max(base, zw[f])
 	}
 	width := layerHead + base + layerSlack
-	lo := b.fitLayered(zw, depth, widths, width)
+	var lo *layered
+	for _, extra := range []int{0, base / 4, base / 2} { // части этажей между препятствиями — шире
+		if lo = b.fitLayered(zw, colWidth[:], depth, widths, width+extra); lo != nil {
+			width += extra
+			break
+		}
+	}
 	if lo == nil {
 		return nil, &NoSiteError{&Cluster{Name: "этажи"}, fmt.Errorf("cluster: нет места под этажную базу %d×~%d (утёсы и вода не толще %d, без месторождений)", width, floors*depth+sum(widths), maxGap)}
 	}
@@ -208,16 +224,21 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		L.Buses[i].Rect = lo.buses[i]
 	}
 	for f := 1; f <= floors; f++ {
-		o := lo.floors[f].Min
+		at := partsAt(pos[f], fl[f], lo.floors[f])
 		for i, c := range fl[f] {
+			o := at[pos[f][i].X]
 			c.Vertical = true // ряд кластера — вдоль Y (столбец)
-			c.Area = Rect{world.Tile{X: o.X + pos[f][i].X, Y: o.Y + pos[f][i].Y}, world.Tile{X: o.X + pos[f][i].X + c.Cross, Y: o.Y + pos[f][i].Y + c.Len()}}
+			c.Area = Rect{world.Tile{X: o.X, Y: o.Y + pos[f][i].Y}, world.Tile{X: o.X + c.Cross, Y: o.Y + pos[f][i].Y + c.Len()}}
 			c.Rect = c.Area
 			b.Clusters = append(b.Clusters, c)
 			L.Of[c.Name] = f
 		}
 	}
-	for _, r := range append(append([]Rect(nil), lo.buses...), lo.floors...) {
+	rs := append([]Rect(nil), lo.buses...)
+	for _, ps := range lo.floors {
+		rs = append(rs, ps...)
+	}
+	for _, r := range rs {
 		if r.W() > 0 {
 			g.mark(r.Grow(ZoneBorder))
 		}
@@ -241,6 +262,30 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	return L, nil
 }
 
+// partsAt — где столбцы укладки (pack: x столбца → его кластеры) встают в частях этажа: по
+// частям слева направо, столбец не влез в часть — в следующую. Ключ — x столбца в укладке.
+func partsAt(pos []world.Tile, cs []*Cluster, parts []Rect) map[int]world.Tile {
+	colw := map[int]int{}
+	for i, c := range cs {
+		colw[pos[i].X] = max(colw[pos[i].X], c.Cross)
+	}
+	var xs []int
+	for x := range colw {
+		xs = append(xs, x)
+	}
+	sort.Ints(xs)
+	res := map[int]world.Tile{}
+	pi, off := 0, 0
+	for _, x := range xs {
+		for pi < len(parts)-1 && off+colw[x] > parts[pi].W() {
+			pi, off = pi+1, 0
+		}
+		res[x] = world.Tile{X: parts[pi].Min.X + off, Y: parts[pi].Min.Y}
+		off += colw[x] + floorGap
+	}
+	return res
+}
+
 func sum(xs []int) int {
 	s := 0
 	for _, x := range xs {
@@ -253,15 +298,15 @@ func sum(xs []int) int {
 type layered struct {
 	area   Rect
 	buses  []Rect
-	floors []Rect
+	floors [][]Rect
 	dist   float64
 }
 
 // fitLayered — место этажной базы шириной width, ближе к центру базы: снизу вверх шина (на всю
-// ширину), зона (ширина zw[f], глубина depth; сдвиг вбок и зазор от шины снизу — чтобы обойти
-// утёсы и воду), шина, …; всё — без зон месторождений, неоткрытого, чужих коридоров, утёсов и
-// воды толще maxGap. nil — нет места.
-func (b *Base) fitLayered(zw []int, depth int, widths []int, width int) *layered {
+// ширину), зона (ширина zw[f], глубина depth; зазор от шины снизу и части между препятствиями —
+// чтобы обойти утёсы и воду; часть — не уже столбца colw[f]), шина, …; всё — без зон
+// месторождений, неоткрытого, чужих коридоров, утёсов и воды толще maxGap. nil — нет места.
+func (b *Base) fitLayered(zw, colw []int, depth int, widths []int, width int) *layered {
 	g := b.g
 	height := floors*(depth+maxShift/2) + sum(widths)
 	free := func(r Rect) bool {
@@ -277,12 +322,56 @@ func (b *Base) fitLayered(zw []int, depth int, widths []int, width int) *layered
 		n, _ := g.count(g.thick, r)
 		return n == 0
 	}
+	// шине — мягче (zones.md): толстых утёсов и воды — не больше busThick площади, ленты обойдут
+	freeBus := func(r Rect) bool {
+		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
+			return false
+		}
+		if n, _ := g.count(g.unknown, r); n > 0 {
+			return false
+		}
+		if n, _ := g.count(g.zone, r); n > 0 {
+			return false
+		}
+		n, _ := g.count(g.thick, r)
+		return float64(n) <= busThick*float64(r.W()*r.H())
+	}
+	// части этажа f между шинами (от top до bottom): свободные полосы на всю глубину слева
+	// направо, пока в сумме не наберётся zw[f]; nil — не набралось
+	parts := func(f, x0, top, bottom int) []Rect {
+		var res []Rect
+		need := zw[f]
+		run := -1
+		take := func(end int) {
+			if run < 0 || need <= 0 || end-run < colw[f] {
+				return
+			}
+			w := max(min(end-run, need), colw[f])
+			res = append(res, Rect{world.Tile{X: run, Y: top}, world.Tile{X: run + w, Y: bottom}})
+			need -= w
+		}
+		for x := x0 + layerHead; x < x0+width && need > 0; x++ {
+			if free(Rect{world.Tile{X: x, Y: top}, world.Tile{X: x + 1, Y: bottom}}) {
+				if run < 0 {
+					run = x
+				}
+				continue
+			}
+			take(x)
+			run = -1
+		}
+		take(x0 + width)
+		if need > 0 {
+			return nil
+		}
+		return res
+	}
 	stack := func(x0, y0 int) *layered {
-		lo := &layered{buses: make([]Rect, floors), floors: make([]Rect, floors+1)}
+		lo := &layered{buses: make([]Rect, floors), floors: make([][]Rect, floors+1)}
 		y := y0
 		for f := 1; f <= floors; f++ {
 			bus := Rect{world.Tile{X: x0, Y: y - widths[f-1]}, world.Tile{X: x0 + width, Y: y}}
-			if !free(bus) {
+			if !freeBus(bus) {
 				return nil
 			}
 			lo.buses[f-1], y = bus, bus.Min.Y-2*ZoneBorder
@@ -291,11 +380,8 @@ func (b *Base) fitLayered(zw []int, depth int, widths []int, width int) *layered
 			}
 			placed := false
 			for gap := 0; gap <= maxShift && !placed; gap += 2 {
-				for sx := layerHead; sx+zw[f] <= width && !placed; sx += 2 {
-					r := Rect{world.Tile{X: x0 + sx, Y: y - gap - depth}, world.Tile{X: x0 + sx + zw[f], Y: y - gap}}
-					if free(r) {
-						lo.floors[f], y, placed = r, r.Min.Y-2*ZoneBorder, true
-					}
+				if ps := parts(f, x0, y-gap-depth, y-gap); ps != nil {
+					lo.floors[f], y, placed = ps, y-gap-depth-2*ZoneBorder, true
 				}
 			}
 			if !placed {

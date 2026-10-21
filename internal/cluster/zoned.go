@@ -39,9 +39,12 @@ func (zb *ZBus) lane(item string) *ZoneLane {
 	return nil
 }
 
-// floorOfZone — номер этажа (1–4) зоны производства по её виду и порядку (final-1 → 3, final-2 → 4).
+// floorOfZone — номер этажа (1–4) зоны производства: Floor; в старых файлах — по виду и
+// порядку (final-1 → 3, final-2 → 4).
 func floorOfZone(z Zone) int {
 	switch {
+	case z.Floor > 0:
+		return z.Floor
 	case z.Kind == ZoneProcessing:
 		return 1
 	case z.Kind == ZoneSupply:
@@ -60,7 +63,7 @@ func floorOfZone(z Zone) int {
 func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 	b.grid()
 	var buses []*ZBus
-	floor := map[int]Rect{}
+	floor := map[int][]Rect{} // части этажа слева направо
 	var mines []Zone
 	var power *Rect
 	base := Rect{world.Tile{X: math.MaxInt, Y: math.MaxInt}, world.Tile{X: math.MinInt, Y: math.MinInt}}
@@ -75,11 +78,15 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			r := z.Rect
 			power = &r
 		default:
-			floor[floorOfZone(z)] = z.Rect
+			f := floorOfZone(z)
+			floor[f] = append(floor[f], z.Rect)
 		}
 		b.zoneRects = append(b.zoneRects, z.Rect)
 	}
 	sort.Slice(buses, func(i, j int) bool { return buses[i].Name < buses[j].Name })
+	for _, ps := range floor {
+		sort.Slice(ps, func(i, j int) bool { return ps[i].Min.X < ps[j].Min.X })
+	}
 	if len(buses) == 0 {
 		return nil, fmt.Errorf("cluster: в зонах нет шин")
 	}
@@ -127,11 +134,18 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			r := power.Grow(4)
 			c.Zone = &r
 		case f > 0:
-			r, ok := floor[f]
-			if !ok {
-				return nil, fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
+			// части этажа слева направо — первая, где есть место; ряд — поперёк шин
+			var err error = fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
+			for _, r := range floor[f] {
+				c.Zone, c.Upright = &r, true
+				if err = b.Place(c); err == nil {
+					break
+				}
 			}
-			c.Zone, c.Upright = &r, true // ряд — поперёк шин; укладка — слева направо, снизу вверх
+			if err != nil {
+				return nil, err
+			}
+			continue
 		default: // хранение — вне зон, у стартовых буров
 			cx, cy := base.Center()
 			near := world.Tile{X: int(cx), Y: int(cy)}

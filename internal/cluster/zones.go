@@ -29,6 +29,7 @@ const (
 type Zone struct {
 	Name      string             `json:"name"`
 	Kind      ZoneKind           `json:"kind"`
+	Floor     int                `json:"floor,omitempty"` // зона производства: этаж 1–4
 	Rect      Rect               `json:"rect"`
 	In        []Flow             `json:"in,omitempty"`
 	Out       []Flow             `json:"out,omitempty"`
@@ -109,13 +110,21 @@ func (b *Base) Zones(lay *Layered) []Zone {
 	kinds := map[int]ZoneKind{1: ZoneProcessing, 2: ZoneSupply, 3: ZoneFinal, 4: ZoneFinal}
 	n := map[ZoneKind]int{}
 	for f := 1; f < len(lay.Floors); f++ {
-		if lay.Floors[f].W() == 0 || len(byFloor[f]) == 0 {
+		if len(byFloor[f]) == 0 {
 			continue
 		}
 		k := kinds[f]
-		n[k]++
-		in, out, ms, pw := bundle(byFloor[f])
-		res = append(res, Zone{Name: fmt.Sprintf("%s-%d", k, n[k]), Kind: k, Rect: lay.Floors[f], In: in, Out: out, Machines: ms, PowerW: pw})
+		for _, r := range lay.Floors[f] { // части этажа — отдельными зонами
+			var cs []*Cluster
+			for _, c := range byFloor[f] {
+				if c.Area.Overlaps(r) {
+					cs = append(cs, c)
+				}
+			}
+			n[k]++
+			in, out, ms, pw := bundle(cs)
+			res = append(res, Zone{Name: fmt.Sprintf("%s-%d", k, n[k]), Kind: k, Floor: f, Rect: r, In: in, Out: out, Machines: ms, PowerW: pw})
+		}
 	}
 	res = append(res, b.mineZones...)
 	for _, c := range b.Clusters {
