@@ -4,7 +4,8 @@
 #                                (1, 2, …; scripts/inst.sh), каждый в своём окне, запуск через
 #                                8 с; после — экземпляры остановлены
 #   scripts/stage.sh N-M СИД…  — стадии N…M по очереди: следующая — когда все карты закончили
-#                                прошлую, и только на картах, где она выполнена
+#                                прошлую; не выполнена хоть на одной — стоп (чинить, потом
+#                                продолжить с неё же: scripts/stage.sh K-M …)
 #   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0)
 #   LIMIT=мин                  — лимит стадии (по умолчанию 60, разведка — 180)
@@ -15,16 +16,14 @@ range=$1; shift
 from=${range%-*} to=${range#*-}
 mkdir -p run/stages
 if [[ $from != "$to" ]]; then
-  seeds=("$@")
-  for ((n = from; n <= to && ${#seeds[@]} > 0; n++)); do
-    "$0" "$n" "${seeds[@]}"
-    ok=()
-    for s in "${seeds[@]}"; do [[ -f run/stages/ok-$n-$s ]] && ok+=("$s"); done
-    seeds=("${ok[@]}")
+  for ((n = from; n <= to; n++)); do
+    if ! "$0" "$n" "$@"; then
+      echo "== стоп: стадия $n выполнена не на всех картах" | tee -a run/stages/summary.txt
+      exit 1
+    fi
   done
-  echo "== стадии $from–$to: выполнены на ${#seeds[@]} из $# карт ${seeds[*]}" | tee -a run/stages/summary.txt
-  [[ ${#seeds[@]} -eq $# ]]
-  exit
+  echo "== стадии $from–$to выполнены на всех картах" | tee -a run/stages/summary.txt
+  exit 0
 fi
 n=$from
 if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
