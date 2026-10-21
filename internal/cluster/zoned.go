@@ -131,7 +131,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			if !ok {
 				return nil, fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
 			}
-			c.Zone, c.Upright = &r, true                               // ряд — поперёк шин
+			c.Zone, c.Upright = &r, true // ряд — поперёк шин
 			// к середине зоны: у левого края (головы шин) тесно от лент добычи
 			mid := world.Tile{X: (r.Min.X + r.Max.X) / 2, Y: (r.Min.Y + r.Max.Y) / 2}
 			c.Near = &mid
