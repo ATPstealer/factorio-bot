@@ -74,7 +74,12 @@ type grid struct {
 	unknown      []int32            // неоткрыто
 	avoid        []int32            // Base.Avoid
 	solid        []int32            // не построить (вода, неубираемое, свои постройки) — без зон руды
+	zone         []int32            // зона месторождения (руда + Corridor)
+	thick        []int32            // непроходимое (вода, утёсы…) подряд больше maxGap — подземкой не пройти
 }
+
+// maxGap — сколько тайлов непроходимого подряд пройдёт подземка (этажная база, cluster.md 5а).
+const maxGap = 3
 
 func (b *Base) grid() *grid {
 	if b.g != nil {
@@ -134,6 +139,8 @@ func (b *Base) grid() *grid {
 	}
 	g.avoid = prefix(avoid, g.w, g.h)
 	g.solid = prefix(bad, g.w, g.h)
+	g.zone = prefix(zone, g.w, g.h)
+	g.thick = prefix(thickRuns(bad, g.w, g.h), g.w, g.h)
 	for i := range bad {
 		bad[i] = bad[i] || zone[i]
 	}
@@ -173,6 +180,36 @@ func (g *grid) count(s []int32, r Rect) (n, out int) {
 	W := g.w + 1
 	n = int(s[y1*W+x1] - s[y0*W+x1] - s[y1*W+x0] + s[y0*W+x0])
 	return n, r.W()*r.H() - (x1-x0)*(y1-y0)
+}
+
+// thickRuns — тайлы в отрезках непроходимого длиннее maxGap по горизонтали или вертикали.
+func thickRuns(bad []bool, w, h int) []bool {
+	res := make([]bool, w*h)
+	run := func(at func(k int) int, n int) {
+		for k := 0; k < n; {
+			if !bad[at(k)] {
+				k++
+				continue
+			}
+			e := k
+			for e < n && bad[at(e)] {
+				e++
+			}
+			if e-k > maxGap {
+				for j := k; j < e; j++ {
+					res[at(j)] = true
+				}
+			}
+			k = e
+		}
+	}
+	for y := 0; y < h; y++ {
+		run(func(k int) int { return y*w + k }, w)
+	}
+	for x := 0; x < w; x++ {
+		run(func(k int) int { return k*w + x }, h)
+	}
+	return res
 }
 
 // mark — отметить r в ring (пересчёт префиксных сумм).

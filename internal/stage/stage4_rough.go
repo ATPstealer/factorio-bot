@@ -39,7 +39,7 @@ type RoughPlan struct {
 	Hours     float64             `json:"hours"`
 	Targets   map[string]float64  `json:"targets"`
 	Clusters  []*cluster.Cluster  `json:"clusters"`
-	Lanes     []cluster.Lane      `json:"lanes"`
+	Layers    *cluster.Layered    `json:"layers"`
 	Resources map[string]Resource `json:"resources"`
 	PowerMW   float64             `json:"power_mw"`
 	Image     string              `json:"image"`
@@ -153,7 +153,10 @@ func roughOnce(h *act.Hands) error {
 	defer func() { cluster.BeltRate = saved }()
 	base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта (0, 0)
 	base.Log, base.Rough = h.Log, true
-	if err := base.PlaceAll(cs); err != nil {
+	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
+	lay, err := base.PlaceLayered(cs, s4Belt)
+	if err != nil {
+		s4Draw(h, base, nil, s4Image()) // что успело встать — на картинку
 		return err
 	}
 	// ресурсы на всю игру
@@ -170,9 +173,9 @@ func roughOnce(h *act.Hands) error {
 		r.Short = r.Have < r.Need
 		res[it] = r
 	}
-	rp := RoughPlan{Hours: s4Hours, Targets: targets, Clusters: base.Sorted(), Resources: res, PowerMW: plan.PowerW / 1e6, Image: s4Image()}
-	if bus := base.Bus(); bus != nil {
-		rp.Lanes = bus.Bus.Lanes
+	rp := RoughPlan{Hours: s4Hours, Targets: targets, Clusters: base.Sorted(), Layers: lay, Resources: res, PowerMW: plan.PowerW / 1e6, Image: s4Image()}
+	for i, bus := range lay.Buses {
+		h.Log("шина %d: %v", i, bus.Lanes)
 	}
 	for _, c := range rp.Clusters {
 		h.Log("блок %v", c)
@@ -180,7 +183,7 @@ func roughOnce(h *act.Hands) error {
 	for it, r := range res {
 		h.Log("сырьё %s: %.2f/с, на %0.f ч — %.0f, в месторождениях %.0f%s", it, r.Rate, s4Hours, r.Need, r.Have, map[bool]string{true: " — НЕ ХВАТАЕТ"}[r.Short])
 	}
-	if err := s4Draw(h, base, rp.Image); err != nil {
+	if err := s4Draw(h, base, lay, rp.Image); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(rp, "", " ")
@@ -192,8 +195,17 @@ func roughOnce(h *act.Hands) error {
 
 func s4Image() string { return filepath.Join("run/stages", "s4-"+seedOf()+".png") }
 
-// s4Draw — картинка зон: открытая карта и кластеры с коридорами (без раскладок).
-func s4Draw(h *act.Hands, base *cluster.Base, image string) error {
+// s4Draw — картинка зон: открытая карта, кластеры с коридорами и шины этажей (без раскладок).
+func s4Draw(h *act.Hands, base *cluster.Base, lay *cluster.Layered, image string) error {
+	if lay != nil { // шины — на картинку как кластеры
+		saved := base.Clusters
+		defer func() { base.Clusters = saved }()
+		for i, bus := range lay.Buses {
+			if bus.Rect.W() > 0 {
+				base.Clusters = append(base.Clusters, &cluster.Cluster{Name: fmt.Sprintf("bus-%d", i), Kind: cluster.Bus, Area: bus.Rect, Rect: bus.Rect})
+			}
+		}
+	}
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
 		r := c.Area.Grow(cluster.Corridor)
