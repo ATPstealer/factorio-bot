@@ -515,7 +515,7 @@ func (b *Base) placeMines(c *Cluster) error {
 		}
 		part.Count, part.Room = (n+1)/2, (n+1)/2
 		part.Area, part.Rect, part.Vertical = area, area, vertical
-		g.mark(part.Area.Grow(Corridor))
+		g.mark(part.Area.Grow(ZoneBorder))
 		b.Clusters = append(b.Clusters, part)
 		need -= n
 		if b.Log != nil {
@@ -528,7 +528,7 @@ func (b *Base) placeMines(c *Cluster) error {
 		}
 		if fluid { // поле нефти: качалки на скважинах, площадь — поле + 2
 			r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(2)
-			if n, out := g.count(g.ring, r.Grow(Corridor)); n > 0 || out > 0 {
+			if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 				continue
 			}
 			add(min(need, len(pt.Tiles)), r, false)
@@ -565,7 +565,7 @@ type strip struct {
 func (b *Base) strips(c *Cluster, pt world.Patch) []strip {
 	g := b.g
 	vertical := pt.Max.Y-pt.Min.Y > pt.Max.X-pt.Min.X
-	step := c.Cross + 2*Corridor
+	step := c.Cross + 2*ZoneBorder
 	var res []strip
 	for o := 0; ; o += step {
 		var r Rect
@@ -580,7 +580,7 @@ func (b *Base) strips(c *Cluster, pt world.Patch) []strip {
 			}
 			r = Rect{world.Tile{X: pt.Min.X + o, Y: pt.Min.Y}, world.Tile{X: pt.Min.X + o + c.Cross, Y: pt.Max.Y + 1}}
 		}
-		if n, out := g.count(g.ring, r.Grow(Corridor)); n == 0 && out == 0 {
+		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n == 0 && out == 0 {
 			res = append(res, strip{r, vertical})
 		}
 	}
