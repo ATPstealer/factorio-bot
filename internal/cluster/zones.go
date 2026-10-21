@@ -142,6 +142,19 @@ func (b *Base) Zones(lay *Layered) []Zone {
 		}
 		mines = append(mines, mz{r.Grow(ZoneBorder), []*Cluster{c}})
 	}
+	for merged := true; merged; { // пересекающиеся — в одну
+		merged = false
+		for i := 0; i < len(mines) && !merged; i++ {
+			for j := i + 1; j < len(mines); j++ {
+				if mines[i].r.Overlaps(mines[j].r) {
+					mines[i] = mz{union(mines[i].r, mines[j].r), append(mines[i].cs, mines[j].cs...)}
+					mines = append(mines[:j], mines[j+1:]...)
+					merged = true
+					break
+				}
+			}
+		}
+	}
 	for i, m := range mines {
 		in, out, ms, pw := bundle(m.cs)
 		z := Zone{Name: fmt.Sprintf("mine-%d", i+1), Kind: ZoneMine, Rect: m.r, In: in, Out: out, Machines: ms, PowerW: pw,
