@@ -516,9 +516,18 @@ func (s *s2) coal(ctx context.Context, lack int) error {
 		if err != nil {
 			return err
 		}
-		if got > 0 { // пары без топлива встанут — каждому буру немного назад
-			for _, d := range ds {
-				if err := s.h.Insert(ctx, d, "coal", s2Back); err != nil {
+		if got > 0 { // пары без топлива встанут — каждому буру немного назад (поровну из того,
+			// что есть: забрали мало — меньше s2Back каждому, хоть по одному)
+			have := s.inv("coal")
+			for i, d := range ds {
+				back := min(s2Back, have/len(ds))
+				if back == 0 && i < have {
+					back = 1
+				}
+				if back == 0 {
+					continue
+				}
+				if err := s.h.Insert(ctx, d, "coal", back); err != nil {
 					return err
 				}
 			}
