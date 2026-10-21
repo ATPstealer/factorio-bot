@@ -1,13 +1,32 @@
 #!/usr/bin/env bash
-# Стадия N на картах: со снимка <сид>-(N-1) выполнить стадию, при успехе — снимок <сид>-N.
-#   scripts/stage.sh N СИД…     — лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt
-#   несколько карт — параллельно, по экземпляру на карту (1, 2, …; scripts/inst.sh), каждый в
-#   своём окне, запуск через 8 с; после — экземпляры остановлены
+# Стадии на картах: со снимка <сид>-(N-1) выполнить стадию N, при успехе — снимок <сид>-N.
+#   scripts/stage.sh N СИД…    — стадия N; карт несколько — параллельно, по экземпляру на карту
+#                                (1, 2, …; scripts/inst.sh), каждый в своём окне, запуск через
+#                                8 с; после — экземпляры остановлены
+#   scripts/stage.sh N-M СИД…  — стадии N…M по очереди: следующая — когда все карты закончили
+#                                прошлую, и только на картах, где она выполнена
+#   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0)
+#   LIMIT=мин                  — лимит стадии (по умолчанию 60, разведка — 180)
+# Лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt; код 0 — выполнена на всех картах.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-n=$1; shift
+range=$1; shift
+from=${range%-*} to=${range#*-}
 mkdir -p run/stages
+if [[ $from != "$to" ]]; then
+  seeds=("$@")
+  for ((n = from; n <= to && ${#seeds[@]} > 0; n++)); do
+    "$0" "$n" "${seeds[@]}"
+    ok=()
+    for s in "${seeds[@]}"; do [[ -f run/stages/ok-$n-$s ]] && ok+=("$s"); done
+    seeds=("${ok[@]}")
+  done
+  echo "== стадии $from–$to: выполнены на ${#seeds[@]} из $# карт ${seeds[*]}" | tee -a run/stages/summary.txt
+  [[ ${#seeds[@]} -eq $# ]]
+  exit
+fi
+n=$from
 if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
   go build -o bin/bot ./cmd/bot || exit 1
   k=0
@@ -21,18 +40,30 @@ if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
   done
   wait
   tail -$(($# * 2)) run/stages/summary.txt
+  for seed in "$@"; do [[ -f run/stages/ok-$n-$seed ]] || exit 1; done
   exit 0
 fi
 source scripts/inst.sh
+limit=${LIMIT:-$([[ $n == 3 ]] && echo 180 || echo 60)}
+code=0
 for seed in "$@"; do
   log=run/stages/s$n-$seed.log
+  rm -f "run/stages/ok-$n-$seed"
   echo "== стадия $n, $seed $(date +%T)" | tee -a run/stages/summary.txt
-  timeout 600 scripts/snapshot.sh load "$seed-$((n - 1))" > /dev/null 2>&1 || { echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt; continue; }
+  if [[ $n == 1 && ! -f run/snapshots/$seed-0/bot.zip ]]; then
+    rm -f "$R"/state*.json
+    SEED=$seed timeout 600 scripts/newmap.sh > /dev/null 2>&1 || { echo "   карта $seed не создалась" | tee -a run/stages/summary.txt; code=1; continue; }
+  else
+    timeout 600 scripts/snapshot.sh load "$seed-$((n - 1))" > /dev/null 2>&1 || { echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt; code=1; continue; }
+  fi
   start=$(date +%s)
-  if timeout 3600 bin/bot -t 60m stage "$n" > "$log" 2>&1; then
+  if timeout $((limit * 60 + 300)) bin/bot -t "${limit}m" stage "$n" > "$log" 2>&1; then
     timeout 300 scripts/snapshot.sh save "$seed-$n" "сид $seed: после стадии $n" > /dev/null 2>&1
+    touch "run/stages/ok-$n-$seed"
     echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
   else
+    code=1
     echo "   НЕ выполнена: $(tail -1 "$log" | cut -c17-200)" | tee -a run/stages/summary.txt
   fi
 done
+exit $code
