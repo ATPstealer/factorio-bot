@@ -38,6 +38,7 @@ var s3Kinds = []string{"coal", "iron-ore", "copper-ore", "iron-plate", "copper-p
 type S3 struct {
 	Clusters []*cluster.Cluster `json:"clusters"`
 	Placed   int                `json:"placed"` // размещений внутри кластеров и логистики
+	Layout   []layout.Placement `json:"layout"` // раскладка: по ней строят следующие стадии
 	Image    string             `json:"image"`
 }
 
@@ -94,7 +95,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	base.Log = h.Log
 	base.Avoid = map[world.Tile]bool{}
 	// кластер, к которому ленту не провести, — в другое место (до 6 попыток)
-	var placed int
+	var list []layout.Placement
 	for try := 0; ; try++ {
 		base.Clusters = nil
 		base.Reset()
@@ -113,7 +114,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			if errs := l.Validate(); len(errs) > 0 {
 				return fmt.Errorf("раскладка: %v", errs[0])
 			}
-			placed = len(l.List)
+			list = l.List
 			if err := s3Draw(h, base, l, p.Position); err != nil {
 				return err
 			}
@@ -138,7 +139,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	for _, c := range base.Sorted() {
 		h.Say("кластер %v", c)
 	}
-	data, err := json.MarshalIndent(S3{Clusters: base.Sorted(), Placed: placed, Image: s3Image()}, "", " ")
+	data, err := json.MarshalIndent(S3{Clusters: base.Sorted(), Placed: len(list), Layout: list, Image: s3Image()}, "", " ")
 	if err != nil {
 		return err
 	}

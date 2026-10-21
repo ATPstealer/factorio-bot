@@ -12,6 +12,7 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/calc"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -28,6 +29,7 @@ const (
 	s2Plan  = "run/state-stage2.json"
 	s2Fuel  = 20 // угля в бур или печь: доливать до стольких
 	s2Low   = 3  // когда топлива меньше — доливать
+	s2Back  = 5  // забрав уголь с пары, вернуть каждому буру
 )
 
 // s2Site — точка: вид (coal, iron-ore, copper-ore, stone) и её постройки по порядку стройки.
@@ -245,7 +247,7 @@ func (s *s2) have(ctx context.Context, item string, n int) error {
 // craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в
 // очереди крафта — только дождаться.
 func (s *s2) craft(ctx context.Context, item string, n int) error {
-	if s.queued(item) >= n {
+	if s.queued(item)*s.perCraft(item) >= n {
 		return s.waitInv(ctx, item, s.inv(item)+n, time.Duration(n*10+15)*time.Second)
 	}
 	need := map[string]int{}
@@ -256,12 +258,20 @@ func (s *s2) craft(ctx context.Context, item string, n int) error {
 		need["stone"] = 5 * n
 	case chest:
 		need["wood"] = 2 * n
-	case "iron-gear-wheel":
-		need["iron-plate"] = 2 * n
-	default:
-		return fmt.Errorf("крафт %s не предусмотрен", item)
+	default: // по дереву ручных рецептов
+		f, err := s.h.B.Force()
+		if err != nil {
+			return err
+		}
+		hc := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, float64(n))
+		for raw, v := range hc.Base {
+			if raw != "iron-plate" && raw != "copper-plate" && raw != "stone" && raw != "wood" {
+				return fmt.Errorf("крафт %s: нужно %s — руками не сделать", item, raw)
+			}
+			need[raw] = int(math.Ceil(v - 1e-9))
+		}
 	}
-	for _, raw := range []string{"iron-plate", "stone", "wood"} {
+	for _, raw := range []string{"iron-plate", "copper-plate", "stone", "wood"} {
 		if need[raw] > 0 {
 			if err := s.have(ctx, raw, need[raw]); err != nil {
 				return err
@@ -283,10 +293,21 @@ func (s *s2) craft(ctx context.Context, item string, n int) error {
 		s.h.Say("в очередь %s ×%d (нужно сейчас %d)", item, total, n)
 	}
 	before := s.inv(item)
-	if err := s.h.Craft(ctx, item, total); err != nil {
+	per := s.perCraft(item)
+	if err := s.h.Craft(ctx, item, (total+per-1)/per); err != nil {
 		return err
 	}
 	return s.waitInv(ctx, item, before+n, time.Duration(n*10+15)*time.Second)
+}
+
+// perCraft — предметов за один крафт (подземная труба — 2).
+func (s *s2) perCraft(item string) int {
+	for _, pr := range s.h.Protos.Recipes[item].Products {
+		if pr.Name == item && pr.Mean() > 1 {
+			return int(pr.Mean())
+		}
+	}
+	return 1
 }
 
 // waitInv — дождаться, пока item в инвентаре станет не меньше n.
@@ -461,8 +482,16 @@ func (s *s2) firstMissing(ore, name string) (layout.Placement, bool) {
 func (s *s2) coal(ctx context.Context, lack int) error {
 	if ds := s.built("coal", drill); len(ds) > 0 {
 		got, err := s.takeAll(ctx, ds, "fuel")
-		if err != nil || got > 0 {
+		if err != nil {
 			return err
+		}
+		if got > 0 { // пары без топлива встанут — каждому буру немного назад
+			for _, d := range ds {
+				if err := s.h.Insert(ctx, d, "coal", s2Back); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 	}
 	if _, err := s.h.Gather(ctx, "huge-rock", 1, 60); err == nil {

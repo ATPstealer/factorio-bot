@@ -187,16 +187,26 @@ func (w *World) ObjectsNear(p bridge.Pos, r float64) []Object {
 
 // place — рамка прототипа b, повёрнутая по направлению объекта и сдвинутая в его позицию.
 func place(b bridge.Box, o Object) bridge.Box {
-	if o.Direction == 4 || o.Direction == 12 { // восток/запад: рамка повёрнута
-		b = bridge.Box{
-			LeftTop:     bridge.Pos{X: -b.RightBottom.Y, Y: b.LeftTop.X},
-			RightBottom: bridge.Pos{X: -b.LeftTop.Y, Y: b.RightBottom.X},
-		}
-	}
+	b = RotateBox(b, o.Direction)
 	return bridge.Box{
 		LeftTop:     bridge.Pos{X: o.Pos.X + b.LeftTop.X, Y: o.Pos.Y + b.LeftTop.Y},
 		RightBottom: bridge.Pos{X: o.Pos.X + b.RightBottom.X, Y: o.Pos.Y + b.RightBottom.Y},
 	}
+}
+
+// RotateBox — рамка прототипа (при «север») при направлении dir (по часовой: восток — на 90°).
+// Несимметричные рамки (помпа) у востока и запада разные.
+func RotateBox(b bridge.Box, dir int) bridge.Box {
+	lt, rb := b.LeftTop, b.RightBottom
+	switch dir {
+	case 4:
+		return bridge.Box{LeftTop: bridge.Pos{X: -rb.Y, Y: lt.X}, RightBottom: bridge.Pos{X: -lt.Y, Y: rb.X}}
+	case 8:
+		return bridge.Box{LeftTop: bridge.Pos{X: -rb.X, Y: -rb.Y}, RightBottom: bridge.Pos{X: -lt.X, Y: -lt.Y}}
+	case 12:
+		return bridge.Box{LeftTop: bridge.Pos{X: lt.Y, Y: -rb.X}, RightBottom: bridge.Pos{X: rb.Y, Y: -lt.X}}
+	}
+	return b
 }
 
 // BoxTiles — тайлы, которые рамка задевает изнутри (касание края не считается).

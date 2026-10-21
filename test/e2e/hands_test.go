@@ -7,10 +7,12 @@ import (
 	"errors"
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 	"math"
 	"math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -172,6 +174,51 @@ func TestPlaceAmongBelts(t *testing.T) {
 	}
 	if got, err := h.B.EntityAt(f.Name, f.Position); err != nil || got == nil {
 		t.Errorf("печь не стоит (%v)", err)
+	}
+	clean(t, h)
+}
+
+// Помпа на кромке воды и труба на её выходе (стадия 4: на картах, где помпа смотрит на запад
+// или юг, труба не ставилась — «место занято помпой»). Помпа — по раскладке (layout.WaterPump)
+// у ближайшей воды, лучше на запад или юг.
+func TestPumpPipe(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "offshore-pump", 1)
+	have(t, h, "pipe", 1)
+	p, _ := h.B.Player()
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	var pump layout.Placement
+	var pipe bridge.Pos
+	for _, dirs := range [][]int{{layout.W, layout.S}, {layout.N, layout.E, layout.W, layout.S}} {
+		l := layout.New(h.Protos, h.World)
+		pl, err := l.WaterPump(world.TileOf(p.Position), "test", func(pm layout.Placement) bool {
+			cs := layout.Connections(h.Protos, pm)
+			if !slices.Contains(dirs, pm.Dir) || len(cs) == 0 || !l.CanPlace(pm, layout.AnyLand) {
+				return false
+			}
+			return l.CanPlace(layout.Placement{Name: "pipe", Pos: cs[0].To.Center()}, layout.AnyLand)
+		})
+		if err == nil {
+			pump, pipe = pl, layout.Connections(h.Protos, pl)[0].To.Center()
+			break
+		}
+	}
+	if pump.Name == "" {
+		t.Skip("нет кромки воды под помпу на открытой карте")
+	}
+	t.Logf("помпа %v, труба (%.1f, %.1f)", pump, pipe.X, pipe.Y)
+	ctx := ctxT(t, 4*time.Minute)
+	if _, err := h.Place(ctx, "offshore-pump", pump.Pos, pump.Dir); err != nil {
+		t.Fatalf("помпа: %v", err)
+	}
+	if _, err := h.Place(ctx, "pipe", pipe, act.North); err != nil {
+		t.Fatalf("труба на выходе помпы: %v", err)
+	}
+	st, err := h.B.GetEntity("offshore-pump", pump.Pos)
+	if err != nil || st == nil {
+		t.Fatalf("помпа не стоит (%v)", err)
 	}
 	clean(t, h)
 }

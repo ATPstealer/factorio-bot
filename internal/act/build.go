@@ -35,9 +35,7 @@ func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
 	if e, ok := h.Protos.Entities[entity]; ok {
 		b = e.CollisionBox
 	}
-	if dir%8 == 4 { // восток/запад
-		b = bridge.Box{LeftTop: bridge.Pos{X: b.LeftTop.Y, Y: b.LeftTop.X}, RightBottom: bridge.Pos{X: b.RightBottom.Y, Y: b.RightBottom.X}}
-	}
+	b = world.RotateBox(b, dir)
 	return bridge.Box{
 		LeftTop:     bridge.Pos{X: pos.X + b.LeftTop.X, Y: pos.Y + b.LeftTop.Y},
 		RightBottom: bridge.Pos{X: pos.X + b.RightBottom.X, Y: pos.Y + b.RightBottom.Y},
