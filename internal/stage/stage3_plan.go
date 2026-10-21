@@ -25,7 +25,7 @@ import (
 // Постройки точек стадии 2 при разметке не мешают: их разберут (стадия 8).
 
 const (
-	s3Plan    = "run/state-stage3.json"
+	s3Plan    = "state-stage3.json"
 	s3Rate    = 0.5 // красная наука, шт/с
 	s3Reserve = 5   // запас роста ×5 по длине
 	s3LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
@@ -52,7 +52,7 @@ func init() {
 
 // LoadPlan — план стадии 3 этой карты (для следующих стадий).
 func LoadPlan() (*S3, error) {
-	data, err := os.ReadFile(s3Plan)
+	data, err := os.ReadFile(runPath(s3Plan))
 	if err != nil {
 		return nil, fmt.Errorf("нет плана кластеров (стадия 3): %w", err)
 	}
@@ -164,7 +164,7 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s3Plan, data, 0o644)
+	return os.WriteFile(runPath(s3Plan), data, 0o644)
 }
 
 // s3Image — картинка плана: run/stages/s3-<сид>.png.
@@ -172,7 +172,7 @@ func s3Image() string {
 	var m struct {
 		Seed int64 `json:"seed"`
 	}
-	if data, err := os.ReadFile("run/map.json"); err == nil {
+	if data, err := os.ReadFile(runPath("map.json")); err == nil {
 		json.Unmarshal(data, &m)
 	}
 	return filepath.Join("run/stages", fmt.Sprintf("s3-%d.png", m.Seed))

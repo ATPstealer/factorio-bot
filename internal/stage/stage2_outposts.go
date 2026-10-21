@@ -26,7 +26,7 @@ const (
 	drill   = "burner-mining-drill"
 	furnace = "stone-furnace"
 	chest   = "wooden-chest"
-	s2Plan  = "run/state-stage2.json"
+	s2Plan  = "state-stage2.json"
 	s2Fuel  = 20 // угля в бур или печь: доливать до стольких
 	s2Low   = 3  // когда топлива меньше — доливать
 	s2Back  = 5  // забрав уголь с пары, вернуть каждому буру
@@ -44,7 +44,7 @@ func init() {
 
 // s2Layout — раскладка всех точек у ближайших месторождений; один раз на карту (файл).
 func s2Layout(h *act.Hands) ([]s2Site, error) {
-	if data, err := os.ReadFile(s2Plan); err == nil {
+	if data, err := os.ReadFile(runPath(s2Plan)); err == nil {
 		var sites []s2Site
 		if json.Unmarshal(data, &sites) == nil && len(sites) > 0 {
 			return sites, nil
@@ -112,7 +112,7 @@ func s2Layout(h *act.Hands) ([]s2Site, error) {
 		return nil, err
 	}
 	if data, err := json.MarshalIndent(sites, "", " "); err == nil {
-		os.WriteFile(s2Plan, data, 0o644)
+		os.WriteFile(runPath(s2Plan), data, 0o644)
 	}
 	return sites, nil
 }

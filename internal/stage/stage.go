@@ -5,6 +5,8 @@ package stage
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"factorio-bot/internal/act"
@@ -19,6 +21,15 @@ type Stage struct {
 }
 
 var all = map[int]Stage{}
+
+// runPath — файл в папке экземпляра игры (BOT_RUN, по умолчанию run; scripts/inst.sh).
+func runPath(name string) string {
+	dir := os.Getenv("BOT_RUN")
+	if dir == "" {
+		dir = "run"
+	}
+	return filepath.Join(dir, name)
+}
 
 func register(s Stage) { all[s.N] = s }
 

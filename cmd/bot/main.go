@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"syscall"
@@ -100,7 +101,7 @@ func main() {
   DISPLAY=:1 xdotool mouseup 3 keyup w keyup a keyup s keyup d
 `)
 	}
-	addr := flag.String("rcon", "127.0.0.1:27015", "адрес RCON")
+	addr := flag.String("rcon", envOr("BOT_RCON", "127.0.0.1:27015"), "адрес RCON (экземпляр — scripts/inst.sh)")
 	pass := flag.String("password", envOr("RCON_PASSWORD", "botpass"), "пароль RCON")
 	display := flag.String("display", envOr("BOT_DISPLAY", ":1"), "X-дисплей клиента")
 	limit := flag.Duration("t", 5*time.Minute, "общий лимит времени команды")
@@ -148,7 +149,7 @@ func main() {
 		}
 		h.Log = log.Printf
 		h.Console = true
-		h.DebugDir = "run/debug"
+		h.DebugDir = filepath.Join(envOr("BOT_RUN", "run"), "debug")
 		h.World = loadWorld(b)
 		h.Protos = h.World.Protos
 		check(h.Clean(context.Background()))

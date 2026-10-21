@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Остановить сервер (SIGTERM — сохраняет карту в bot.zip), клиент и Xephyr.
-F='^/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio'
-pkill -f "^bash .*scripts/run.sh" 2>/dev/null
-pkill -TERM -f "$F .*--start-server" && while pgrep -f "$F .*--start-server" >/dev/null; do sleep 0.3; done
-pkill -f "$F .*run/client/config.ini"
-pkill -x Xephyr
+# Остановить экземпляр INST (scripts/inst.sh): сервер (SIGTERM — сохраняет карту в bot.zip),
+# клиент и Xephyr. Другие экземпляры не трогает.
+source "$(dirname "$0")/inst.sh"
+if [[ -f $R/run.pid ]]; then
+  kill "$(cat "$R/run.pid")" 2>/dev/null
+  rm -f "$R/run.pid"
+fi
+pkill -TERM -f "^$F --config $R/server/config.ini .*--start-server" &&
+  while pgrep -f "^$F --config $R/server/config.ini .*--start-server" >/dev/null; do sleep 0.3; done
+pkill -f "^$F --config $R/client/config.ini"
+pkill -f "^Xephyr $DISPLAY_NUM "
 exit 0

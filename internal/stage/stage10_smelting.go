@@ -19,7 +19,7 @@ import (
 // трогать: пластины копятся в контейнерах буфера выхода (cluster.md 6а) — инсертер с
 // фильтром на продукт берёт с выходной ленты плавки в сундук.
 
-const s10Plan = "run/state-stage10.json"
+const s10Plan = "state-stage10.json"
 
 func init() {
 	register(Stage{N: 10, Name: "добыча и плавка железа и меди", Run: runSmelting, Check: checkSmelting})
@@ -27,7 +27,7 @@ func init() {
 
 // s10Layout — кластеры и подводы к плавке из плана, буферы выхода плавки (один раз на карту).
 func s10Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(s10Plan); err == nil {
+	if data, err := os.ReadFile(runPath(s10Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -80,7 +80,7 @@ func s10Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(s10Plan, data, 0o644)
+	return res, os.WriteFile(runPath(s10Plan), data, 0o644)
 }
 
 // s10OutBuffer — буфер выхода плавки c: сбоку от выходной ленты (от порта назад) инсертер с

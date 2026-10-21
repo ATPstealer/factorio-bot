@@ -20,7 +20,7 @@ import (
 // через чужие кластеры), красная наука руками, изучить s5Techs.
 
 const (
-	s5Plan = "run/state-stage5.json"
+	s5Plan = "state-stage5.json"
 	s5Labs = 2
 	s5Pack = "automation-science-pack"
 )
@@ -34,7 +34,7 @@ func init() {
 // s5Layout — лаборатории и столбы до них: кратчайшая цепочка столбов плана (логистика,
 // станция, лаборатории) от столбов станции до столба, питающего каждую лабораторию.
 func s5Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(s5Plan); err == nil {
+	if data, err := os.ReadFile(runPath(s5Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -91,7 +91,7 @@ func s5Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return list, os.WriteFile(s5Plan, data, 0o644)
+	return list, os.WriteFile(runPath(s5Plan), data, 0o644)
 }
 
 func runResearch(ctx context.Context, h *act.Hands) error {

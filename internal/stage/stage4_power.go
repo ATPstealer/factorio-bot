@@ -24,7 +24,7 @@ import (
 const (
 	s4Coal = 200
 	s4Tag  = "s4"
-	s4Plan = "run/state-stage4.json" // раскладка стадии: один раз на карту
+	s4Plan = "state-stage4.json" // раскладка стадии: один раз на карту
 )
 
 func init() {
@@ -34,7 +34,7 @@ func init() {
 // s4Layout — что строить: станция плана (бойлеры, двигатели, столбы, трубы), помпа с трубами,
 // сундук и электрический инсертер к бойлеру, недостающие столбы (инсертер запитать).
 func s4Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(s4Plan); err == nil {
+	if data, err := os.ReadFile(runPath(s4Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -93,7 +93,7 @@ func s4Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return l.List, os.WriteFile(s4Plan, data, 0o644)
+	return l.List, os.WriteFile(runPath(s4Plan), data, 0o644)
 }
 
 // s4Order — порядок стройки: вода, бойлер, двигатели, столбы, сундук, инсертер.

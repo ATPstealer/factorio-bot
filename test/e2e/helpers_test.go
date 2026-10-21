@@ -58,7 +58,7 @@ func handsT(t *testing.T) *act.Hands {
 		if handsErr != nil {
 			return
 		}
-		hands.DebugDir = path("run", "debug")
+		hands.DebugDir = runFile("debug")
 		hands.Console = true
 		pong, err := b.Ping()
 		if err != nil {
@@ -125,10 +125,7 @@ func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
 	return c
 }
 
-const (
-	rconAddr    = "127.0.0.1:27015"
-	gameVersion = "2.0.77"
-)
+const gameVersion = "2.0.77"
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -137,7 +134,11 @@ func env(key, def string) string {
 	return def
 }
 
-var botDisplay = env("BOT_DISPLAY", ":1")
+// экземпляр игры (scripts/inst.sh): дисплей, RCON, папка
+var (
+	botDisplay = env("BOT_DISPLAY", ":1")
+	rconAddr   = env("BOT_RCON", "127.0.0.1:27015")
+)
 
 // root — корень репозитория.
 func root() string {
@@ -146,6 +147,11 @@ func root() string {
 }
 
 func path(parts ...string) string { return filepath.Join(append([]string{root()}, parts...)...) }
+
+// runFile — файл в папке экземпляра игры (BOT_RUN, по умолчанию run/).
+func runFile(parts ...string) string {
+	return filepath.Join(append([]string{env("BOT_RUN", path("run"))}, parts...)...)
+}
 
 var (
 	connOnce sync.Once
@@ -367,8 +373,8 @@ func checkServerSettings(t *testing.T) {
 }
 
 func checkConfigIni(t *testing.T) {
-	srv := ini(t, path("run", "server", "config.ini"))
-	cli := ini(t, path("run", "client", "config.ini"))
+	srv := ini(t, runFile("server", "config.ini"))
+	cli := ini(t, runFile("client", "config.ini"))
 	if srv["path.write-data"] == "" || srv["path.write-data"] == cli["path.write-data"] {
 		t.Errorf("write-data сервера и клиента должны быть разными: %q / %q", srv["path.write-data"], cli["path.write-data"])
 	}
@@ -383,7 +389,7 @@ func checkConfigIni(t *testing.T) {
 			t.Errorf("client config.ini %s = %q, нужно %q", k, cli[k], v)
 		}
 	}
-	b, err := os.ReadFile(path("run", "client", "steam_appid.txt"))
+	b, err := os.ReadFile(runFile("client", "steam_appid.txt"))
 	if err != nil || strings.TrimSpace(string(b)) != "427520" {
 		t.Errorf("run/client/steam_appid.txt должен содержать 427520 (иначе Steam перезапустит клиент на :0): %q %v", b, err)
 	}
@@ -392,7 +398,7 @@ func checkConfigIni(t *testing.T) {
 func checkModLinked(t *testing.T) {
 	want, _ := filepath.Abs(path("mod", "botbridge"))
 	for _, side := range []string{"server", "client"} {
-		link := path("run", side, "mods", "botbridge")
+		link := runFile(side, "mods", "botbridge")
 		got, err := filepath.EvalSymlinks(link)
 		if err != nil {
 			t.Errorf("%s: %v", link, err)
@@ -463,7 +469,7 @@ func checkMap(t *testing.T) {
 		enemies=s.count_entities_filtered{force="enemy", type={"unit","unit-spawner","turret"}}}`, &m)
 	// карта — та, что создал scripts/run.sh (сид в run/map.json), с настройками из файла
 	var mj struct{ Seed int }
-	readJSON(t, path("run", "map.json"), &mj)
+	readJSON(t, runFile("map.json"), &mj)
 	if m.Seed != mj.Seed {
 		t.Errorf("seed = %d, в run/map.json %d", m.Seed, mj.Seed)
 	}
@@ -496,11 +502,11 @@ func checkClient(t *testing.T) {
 		t.Error("у игрока нет персонажа")
 	}
 	// клиент бота изолирован от Steam: не трогает облако пользователя и заходит одним и тем же игроком
-	if log, err := os.ReadFile(path("run", "client.log")); err != nil || !strings.Contains(string(log), "Steam API could not be initialized") {
+	if log, err := os.ReadFile(runFile("client.log")); err != nil || !strings.Contains(string(log), "Steam API could not be initialized") {
 		t.Error("клиент запущен со Steam API (нужен HOME=run/client/home, см. scripts/run.sh)")
 	}
 	// клиент бота изолирован от Steam: не трогает облако пользователя и заходит одним и тем же игроком
-	if log, err := os.ReadFile(path("run", "client.log")); err != nil || !strings.Contains(string(log), "Steam API could not be initialized") {
+	if log, err := os.ReadFile(runFile("client.log")); err != nil || !strings.Contains(string(log), "Steam API could not be initialized") {
 		t.Error("клиент запущен со Steam API (нужен HOME=run/client/home, см. scripts/run.sh)")
 	}
 	if c.Scale != 1 {

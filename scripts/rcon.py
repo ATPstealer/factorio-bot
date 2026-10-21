@@ -3,7 +3,7 @@
 # Как модуль: from rcon import Rcon; r = Rcon(); r.cmd("/sc rcon.print(game.tick)")
 import os, socket, struct, sys
 
-HOST, PORT = "127.0.0.1", 27015
+HOST, PORT = "127.0.0.1", int(os.environ.get("RCON_PORT", "27015"))  # экземпляр — scripts/inst.sh
 PASSWORD = os.environ.get("RCON_PASSWORD", "botpass")
 
 

@@ -18,7 +18,7 @@ import (
 // вместо сундука стадии 4 (у бойлера — burner-инсертер с ленты, как в плане). Питание —
 // столбами по коридорам от сети (connectPower).
 
-const s9Plan = "run/state-stage9.json" // раскладка стадии: один раз на карту
+const s9Plan = "state-stage9.json" // раскладка стадии: один раз на карту
 
 func init() {
 	register(Stage{N: 9, Name: "добыча угля", Run: runCoal, Check: checkCoal})
@@ -26,7 +26,7 @@ func init() {
 
 // s9Layout — кластер угля, лента угля к станции, лента и буфер станции, столбы логистики.
 func s9Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(s9Plan); err == nil {
+	if data, err := os.ReadFile(runPath(s9Plan)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -88,7 +88,7 @@ func s9Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(s9Plan, data, 0o644)
+	return res, os.WriteFile(runPath(s9Plan), data, 0o644)
 }
 
 func runCoal(ctx context.Context, h *act.Hands) error {

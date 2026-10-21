@@ -7,10 +7,11 @@
 #   scripts/snapshot.sh load ИМЯ  — остановить игру, вернуть снимок, поднять
 #   scripts/snapshot.sh list
 # По RCON ничего не пишется: сохраняет сам сервер при штатной остановке.
+#   INST=N …                         — экземпляр N (scripts/inst.sh); снимки общие
 set -euo pipefail
 cd "$(dirname "$0")/.."
-R=run
-S=$R/snapshots/${2:-}
+source scripts/inst.sh
+S=run/snapshots/${2:-}
 case "${1:-}" in
 save)
   [[ -n "${2:-}" ]] || { echo "нужно имя" >&2; exit 1; }
@@ -37,14 +38,15 @@ load)
   [[ -f "$S/bot.zip" ]] || { echo "нет снимка $S" >&2; exit 1; }
   scripts/stop.sh
   rm -f $R/state*.json
+  inst_setup
   cp "$S"/bot.zip $R/server/saves/bot.zip
   cp "$S"/map.json $R/
   cp "$S"/state*.json $R/ 2>/dev/null || true
   NEW_MAP=0 scripts/newmap.sh >/dev/null
-  echo "загружен снимок $2: $(cat $R/map.json)"
+  echo "загружен снимок $2: $(cat "$R/map.json")"
   ;;
 list)
-  for d in $R/snapshots/*/; do
+  for d in run/snapshots/*/; do
     [[ -d "$d" ]] || continue
     echo "$(basename "$d"): $(cat "$d/map.json")"
     if [[ -f "$d/NOTE.txt" ]]; then sed "s/^/    /" "$d/NOTE.txt"; fi
