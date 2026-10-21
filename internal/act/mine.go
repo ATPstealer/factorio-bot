@@ -51,6 +51,7 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 	}
 	var idleSince, fullSince time.Time
 	repressed := false
+	flips := 0
 	for {
 		if err := sleep(ctx, pollEvery); err != nil {
 			return err
@@ -70,6 +71,11 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 			}
 			if got == nil {
 				return nil // цель добыта, выделение перешло на соседа
+			}
+			// выделение раз за разом уходит на соседа (цель под его кроной) — пусть Mine
+			// сначала срубит соседей
+			if flips++; flips >= 3 {
+				return fmt.Errorf("%w: %s под %s", ErrHover, e.Name, p.Selected.Name)
 			}
 			h.Say("под курсором %s вместо %s — отпускаю и навожу заново", p.Selected.Name, e.Name)
 			if err := h.Hover(ctx, e); err != nil {

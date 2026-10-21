@@ -666,8 +666,54 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 			return err
 		}
 	}
+	// цель под кроной дерева (крона выделяется первой) — срубить накрывающие деревья
+	if cut, cerr := h.cutCovering(ctx, e); cerr != nil {
+		return cerr
+	} else if cut {
+		if err = h.hoverOnce(ctx, e); !errors.Is(err, ErrHover) {
+			return err
+		}
+	}
 	h.debugShot("hover-" + e.Name)
 	return err
+}
+
+// cutCovering — срубить деревья, чья рамка выделения (крона) накрывает середину рамки
+// выделения постройки e. true — что-то срублено.
+func (h *Hands) cutCovering(ctx context.Context, e bridge.Entity) (bool, error) {
+	if h.World == nil || e.Type == "tree" { // деревья — Mine сам рубит соседей
+		return false, nil
+	}
+	c := e.Position
+	if e.SelectionBox != nil {
+		c = bridge.Pos{X: (e.SelectionBox.LeftTop.X + e.SelectionBox.RightBottom.X) / 2, Y: (e.SelectionBox.LeftTop.Y + e.SelectionBox.RightBottom.Y) / 2}
+	}
+	cut := false
+	for _, o := range h.World.ObjectsNear(c, 6) {
+		if o.Type != "tree" || o.Name == e.Name && dist(o.Pos, e.Position) < 0.01 || !inBox(c, h.World.SelectionBox(o), 0) {
+			continue
+		}
+		t, err := h.B.EntityAt(o.Name, o.Pos)
+		if err != nil {
+			return cut, err
+		}
+		if t == nil {
+			continue
+		}
+		h.Say("%s под кроной %s — рублю дерево", e.Name, o.Name)
+		if err := h.WalkToMine(ctx, *t); err != nil && !errors.Is(err, ErrNotReached) {
+			return cut, err
+		}
+		if err := h.mineOnce(ctx, *t, 20*time.Second); err != nil {
+			return cut, err
+		}
+		cut = true
+	}
+	if cut {
+		_, err := h.World.Sync(h.B, false)
+		return cut, err
+	}
+	return false, nil
 }
 
 func (h *Hands) hoverOnce(ctx context.Context, e bridge.Entity) error {

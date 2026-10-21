@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"os"
 	"slices"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -221,4 +222,107 @@ func TestPumpPipe(t *testing.T) {
 		t.Fatalf("помпа не стоит (%v)", err)
 	}
 	clean(t, h)
+}
+
+// Инсертер целиком под кроной дерева — поставить и задать фильтр (стадия 10: курсор выделял
+// крону, «не удалось навести курсор: inserter»). Место — свободный тайл внутри рамки
+// выделения ближайшего подходящего дерева, вне его рамки коллизии.
+func TestFilterUnderCrown(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "inserter", 1)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	l := layout.New(h.Protos, h.World)
+	trees := h.World.ObjectsNear(p.Position, 60)
+	sort.Slice(trees, func(i, j int) bool {
+		return math.Hypot(trees[i].Pos.X-p.Position.X, trees[i].Pos.Y-p.Position.Y) < math.Hypot(trees[j].Pos.X-p.Position.X, trees[j].Pos.Y-p.Position.Y)
+	})
+	var at bridge.Pos
+	found := false
+	for _, o := range trees {
+		if o.Type != "tree" || found {
+			continue
+		}
+		sb, cb := h.World.SelectionBox(o), h.World.CollisionBox(o)
+		for y := math.Floor(sb.LeftTop.Y); y+1 <= sb.RightBottom.Y && !found; y++ {
+			for x := math.Floor(sb.LeftTop.X); x+1 <= sb.RightBottom.X; x++ {
+				if x < sb.LeftTop.X || y < sb.LeftTop.Y {
+					continue
+				}
+				// тайл целиком в кроне и не задевает ствол
+				if x+1 > cb.LeftTop.X && x < cb.RightBottom.X && y+1 > cb.LeftTop.Y && y < cb.RightBottom.Y {
+					continue
+				}
+				tl := world.TileOf(bridge.Pos{X: x + 0.5, Y: y + 0.5})
+				if ok, clear := h.World.Buildable(tl); !ok || clear || !l.Free(tl, layout.AnyLand) {
+					continue
+				}
+				at, found = tl.Center(), true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Skip("нет дерева с кроной над свободным тайлом рядом")
+	}
+	ctx := ctxT(t, 3*time.Minute)
+	e, err := h.Place(ctx, "inserter", at, act.North)
+	if err != nil {
+		t.Fatalf("инсертер под кроной (%.1f, %.1f): %v", at.X, at.Y, err)
+	}
+	if err := h.SetFilter(ctx, e, "coal"); err != nil {
+		t.Fatalf("фильтр инсертера под кроной: %v", err)
+	}
+	clean(t, h)
+}
+
+// Дерево, чья рамка выделения под кроной соседнего, — срубить (стадия 10: dead-tree-desert
+// под tree-08-brown — курсор перескакивал на соседа, «не добыл за 20s»).
+func TestMineUnderCrown(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	objs := h.World.ObjectsNear(p.Position, 80)
+	var target world.Object
+	bd := math.Inf(1)
+	for _, a := range objs {
+		if a.Type != "tree" {
+			continue
+		}
+		sa := h.World.SelectionBox(a)
+		ca := bridge.Pos{X: (sa.LeftTop.X + sa.RightBottom.X) / 2, Y: (sa.LeftTop.Y + sa.RightBottom.Y) / 2}
+		for _, b := range objs {
+			if b.Type != "tree" || b.Pos == a.Pos {
+				continue
+			}
+			sb := h.World.SelectionBox(b)
+			if ca.X > sb.LeftTop.X && ca.X < sb.RightBottom.X && ca.Y > sb.LeftTop.Y && ca.Y < sb.RightBottom.Y {
+				if d := math.Hypot(a.Pos.X-p.Position.X, a.Pos.Y-p.Position.Y); d < bd {
+					target, bd = a, d
+				}
+			}
+		}
+	}
+	if target.Name == "" {
+		t.Skip("нет дерева под кроной соседнего рядом")
+	}
+	t.Logf("дерево %s (%.1f, %.1f)", target.Name, target.Pos.X, target.Pos.Y)
+	ctx := ctxT(t, 3*time.Minute)
+	e, err := h.B.EntityAt(target.Name, target.Pos)
+	if err != nil || e == nil {
+		t.Fatalf("дерева нет: %v", err)
+	}
+	if err := h.WalkToMine(ctx, *e); err != nil && !errors.Is(err, act.ErrNotReached) {
+		t.Fatal(err)
+	}
+	if err := h.Mine(ctx, *e, 20*time.Second); err != nil {
+		t.Fatalf("срубить %s под кроной: %v", target.Name, err)
+	}
+	if got, _ := h.B.EntityAt(target.Name, target.Pos); got != nil {
+		t.Errorf("%s стоит", target.Name)
+	}
 }
