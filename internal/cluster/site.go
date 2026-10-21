@@ -415,6 +415,9 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 // прочие (и станция — к углю: лента дороже столбов) — к центру своих поставщиков (по
 // потоку), без них — к центру базы.
 func (b *Base) anchor(c *Cluster) (float64, float64) {
+	if c.Near != nil {
+		return float64(c.Near.X), float64(c.Near.Y)
+	}
 	ox, oy := float64(b.Origin.X), float64(b.Origin.Y)
 	var sx, sy, sw float64
 	for _, o := range b.Clusters {

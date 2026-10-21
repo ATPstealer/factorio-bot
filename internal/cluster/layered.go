@@ -9,31 +9,39 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Этажная база (cluster.md 5а): прямоугольник из горизонтальных полос снизу вверх — шина 0
-// (ресурсы), этаж 1 (плавка, нефтехимия), шина 1 (материалы), этаж 2 (сборка промежуточного),
-// шина 2 (промежуточное), этаж 3 (наука, ракетные части), шина 3 (конечные), этаж 4
-// (лаборатории, ракетная шахта). Клиенты этажа — столбцами через коридоры floorGap; добыча —
-// на месторождениях, станция — у воды, хранение — рядом.
+// Этажная база (zones.md, «Расположение — этажами»): снизу вверх шина 1 (ресурсы), переработка,
+// шина 2 (материалы), снабжение, шина 3 (промежуточное), конечный продукт, шина 4 (конечные),
+// конечный продукт (лаборатории, ракетная шахта). Шины — на всю ширину базы; зоны производства
+// одной глубины (по самой глубокой), ширина — по необходимости; зона сдвигается влево-вправо и
+// отходит от шины снизу с зазором (обходит утёсы и воду). Ширина — вдоль шин (X), глубина —
+// поперёк (Y).
 
 const (
 	floors     = 4
-	floorGap   = 2 * ZoneBorder // между кластерами этажа — бордюры 3+3 = коридор 6 (zones.md)
-	floorDepth = 40             // глубина этажа: клиент длиннее — несколькими столбцами
-	layerHead  = 10             // начало прямоугольника: головы шин, подвод с добычи
+	floorGap   = 2 * ZoneBorder // между кластерами зоны — бордюры 3+3 = коридор 6 (zones.md)
+	floorDepth = 40             // кластер длиннее — несколькими столбцами
+	layerHead  = 10             // начало шин: головы лент, подвод с добычи
+	layerSlack = 24             // запас ширины базы: зонам — сдвигаться влево-вправо
+	maxShift   = 12             // зазор между шиной снизу и зоной — до стольких тайлов
+	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
+	busLanes   = 16             // лент остальных шин, не меньше
 )
 
-// LayerBus — шина этажной базы: прямоугольник и лент по предметам.
+// LayerBus — шина этажной базы: прямоугольник, лент по предметам (трубы жидкостей — тоже),
+// всего лент с запасом, направление течения (E — вправо, W — влево; меняется).
 type LayerBus struct {
 	Rect  Rect           `json:"rect"`
 	Lanes map[string]int `json:"lanes"`
+	Total int            `json:"total"`
+	Dir   string         `json:"dir"`
 }
 
-// Layered — этажная база: прямоугольник, шины (0–3 снизу вверх) и этажи (1–4).
+// Layered — этажная база: шины (1–4 снизу вверх), зоны производства (этажи 1–4), этаж кластера.
 type Layered struct {
 	Area   Rect           `json:"area"`
 	Buses  []LayerBus     `json:"buses"`
 	Floors []Rect         `json:"floors"`
-	Of     map[string]int `json:"of"` // кластер → этаж
+	Of     map[string]int `json:"of"`
 }
 
 // floorOf — этаж кластера (0 — вне этажей: добыча, станция, хранение).
@@ -45,10 +53,10 @@ func floorOf(c *Cluster) int {
 		return 4
 	case Make:
 		for _, u := range c.Units {
-			switch {
-			case u.Machine == "rocket-silo":
+			switch u.Machine {
+			case "rocket-silo":
 				return 4
-			case u.Machine == "oil-refinery", u.Machine == "chemical-plant":
+			case "oil-refinery", "chemical-plant":
 				return 1
 			}
 		}
@@ -60,9 +68,41 @@ func floorOf(c *Cluster) int {
 	return 0
 }
 
-// PlaceLayered — прикидка всей базы этажами: добыча — по месторождениям, станция и хранение —
-// как обычно, остальное — в прямоугольник этажей ближе к центру базы. belt — пропускная
-// способность ленты шины, шт/с.
+// pack — кластеры зоны в глубину depth: стопками столбцов (в стопке кластеры друг над другом,
+// пока влезают), стопки — слева направо. Смещения от левого верхнего угла зоны и её ширина.
+func pack(cs []*Cluster, depth int) (pos []world.Tile, width int) {
+	order := make([]int, len(cs))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return cs[order[a]].Len() > cs[order[b]].Len() })
+	type stack struct{ x, w, used int }
+	var st []stack
+	pos = make([]world.Tile, len(cs))
+	x := 0
+	for _, i := range order {
+		c := cs[i]
+		placed := false
+		for k := range st {
+			if st[k].used+floorGap+c.Len() <= depth && c.Cross <= st[k].w {
+				pos[i] = world.Tile{X: st[k].x, Y: st[k].used + floorGap}
+				st[k].used += floorGap + c.Len()
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			pos[i] = world.Tile{X: x, Y: 0}
+			st = append(st, stack{x, c.Cross, c.Len()})
+			x += c.Cross + floorGap
+		}
+	}
+	return pos, max(0, x-floorGap)
+}
+
+// PlaceLayered — зоны всей базы этажами: добыча — по месторождениям, этажи — ближе к центру
+// базы, станция — у воды ближе к базе, хранение — рядом. belt — пропускная способность ленты
+// шины, шт/с.
 func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	g := b.grid()
 	for _, c := range cs {
@@ -81,8 +121,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		case f == 0:
 			later = append(later, c)
 		default:
-			// длинный клиент — несколькими столбцами
-			if k := int(math.Ceil(float64(c.Len()) / floorDepth)); k > 1 {
+			if k := int(math.Ceil(float64(c.Len()) / floorDepth)); k > 1 { // длинный — столбцами
 				for i := 0; i < k; i++ {
 					p := scaleCluster(c, 1/float64(k))
 					p.Count = max(1, (c.Count+k-1)/k)
@@ -97,7 +136,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 			fl[f] = append(fl[f], c)
 		}
 	}
-	// шины: что этаж отдаёт выше (шина f — выходы этажа f; шина 0 — входы этажа 1 с добычи)
+	// шины: шина i — выходы этажа i (шина 0 — то, что приходит извне); жидкости — трубами
 	producedOn := map[string]int{}
 	for f := 1; f <= floors; f++ {
 		for _, c := range fl[f] {
@@ -113,14 +152,10 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	for f := 1; f <= floors; f++ {
 		for _, c := range fl[f] {
 			for _, in := range c.In {
-				if _, fluid := b.P.Fluids[in.Item]; fluid {
-					continue // жидкости — трубами
+				if in.Item == "water" {
+					continue // вода — помпой на месте
 				}
-				bus := 0
-				if pf, ok := producedOn[in.Item]; ok {
-					bus = pf
-				}
-				if bus < floors {
+				if bus := producedOn[in.Item]; bus < floors {
 					demand[bus][in.Item] += in.Rate
 				}
 			}
@@ -132,38 +167,97 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		lanes := map[string]int{}
 		n := 0
 		for it, r := range demand[i] {
-			lanes[it] = max(1, int(math.Ceil(r/belt)))
+			if _, fluid := b.P.Fluids[it]; fluid {
+				lanes[it] = 1 // труба
+			} else {
+				lanes[it] = max(1, int(math.Ceil(r/belt)))
+			}
 			n += lanes[it]
 		}
-		L.Buses = append(L.Buses, LayerBus{Lanes: lanes})
-		if n > 0 {
-			widths[i] = busWidth(n)
+		least := busLanes
+		if i == 0 {
+			least = busLanes0
 		}
+		n = max(n, least)
+		L.Buses = append(L.Buses, LayerBus{Lanes: lanes, Total: n, Dir: "E"})
+		widths[i] = busWidth(n)
 	}
-	// этажи: глубина — самый длинный клиент, длина — столбцы через проход
-	depth := make([]int, floors+1)
-	length := 0
+	// глубина зон — по самой глубокой (самый длинный кластер), ширина — по укладке
+	depth := 0
 	for f := 1; f <= floors; f++ {
-		u := layerHead
 		for _, c := range fl[f] {
-			depth[f] = max(depth[f], c.Len())
-			u += c.Cross + floorGap
+			depth = max(depth, c.Len())
 		}
-		length = max(length, u)
 	}
-	H := 0
+	zw := make([]int, floors+1)
+	var pos [floors + 1][]world.Tile
+	base := 0
 	for f := 1; f <= floors; f++ {
-		H += depth[f] + widths[f-1]
+		pos[f], zw[f] = pack(fl[f], depth)
+		base = max(base, zw[f])
 	}
-	if H == 0 {
-		return L, nil
+	width := layerHead + base + layerSlack
+	lo := b.fitLayered(zw, depth, widths, width)
+	if lo == nil {
+		return nil, &NoSiteError{&Cluster{Name: "этажи"}, fmt.Errorf("cluster: нет места под этажную базу %d×~%d (утёсы и вода не толще %d, без месторождений)", width, floors*depth+sum(widths), maxGap)}
 	}
-	// место: ближе к центру базы, без зон месторождений, неоткрытого, чужих коридоров; утёсы
-	// и вода — не толще maxGap подряд
-	best, bestD := Rect{}, math.Inf(1)
-	ok := func(r Rect) bool {
-		ring := r.Grow(Corridor)
-		if n, out := g.count(g.ring, ring); n > 0 || out > 0 {
+	L.Area, L.Floors = lo.area, lo.floors
+	for i := range L.Buses {
+		L.Buses[i].Rect = lo.buses[i]
+	}
+	for f := 1; f <= floors; f++ {
+		o := lo.floors[f].Min
+		for i, c := range fl[f] {
+			c.Vertical = true // ряд кластера — вдоль Y (столбец)
+			c.Area = Rect{world.Tile{X: o.X + pos[f][i].X, Y: o.Y + pos[f][i].Y}, world.Tile{X: o.X + pos[f][i].X + c.Cross, Y: o.Y + pos[f][i].Y + c.Len()}}
+			c.Rect = c.Area
+			b.Clusters = append(b.Clusters, c)
+			L.Of[c.Name] = f
+		}
+	}
+	for _, r := range append(append([]Rect(nil), lo.buses...), lo.floors...) {
+		if r.W() > 0 {
+			g.mark(r.Grow(ZoneBorder))
+		}
+	}
+	// станция — у воды ближе к базе; хранение — рядом с базой
+	cx, cy := lo.area.Center()
+	near := world.Tile{X: int(cx), Y: int(cy)}
+	sort.SliceStable(later, func(i, j int) bool { return later[i].Kind == Power })
+	for _, c := range later {
+		c.Near = &near
+		if err := b.Place(c); err != nil {
+			return nil, err
+		}
+	}
+	return L, nil
+}
+
+func sum(xs []int) int {
+	s := 0
+	for _, x := range xs {
+		s += x
+	}
+	return s
+}
+
+// layered — найденное место этажной базы.
+type layered struct {
+	area   Rect
+	buses  []Rect
+	floors []Rect
+	dist   float64
+}
+
+// fitLayered — место этажной базы шириной width, ближе к центру базы: снизу вверх шина (на всю
+// ширину), зона (ширина zw[f], глубина depth; сдвиг вбок и зазор от шины снизу — чтобы обойти
+// утёсы и воду), шина, …; всё — без зон месторождений, неоткрытого, чужих коридоров, утёсов и
+// воды толще maxGap. nil — нет места.
+func (b *Base) fitLayered(zw []int, depth int, widths []int, width int) *layered {
+	g := b.g
+	height := floors*(depth+maxShift/2) + sum(widths)
+	free := func(r Rect) bool {
+		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
 		}
 		if n, _ := g.count(g.unknown, r); n > 0 {
@@ -175,53 +269,52 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		n, _ := g.count(g.thick, r)
 		return n == 0
 	}
+	stack := func(x0, y0 int) *layered {
+		lo := &layered{buses: make([]Rect, floors), floors: make([]Rect, floors+1)}
+		y := y0
+		for f := 1; f <= floors; f++ {
+			bus := Rect{world.Tile{X: x0, Y: y - widths[f-1]}, world.Tile{X: x0 + width, Y: y}}
+			if !free(bus) {
+				return nil
+			}
+			lo.buses[f-1], y = bus, bus.Min.Y-2*ZoneBorder
+			if zw[f] == 0 {
+				continue
+			}
+			placed := false
+			for gap := 0; gap <= maxShift && !placed; gap += 2 {
+				for sx := layerHead; sx+zw[f] <= width && !placed; sx += 2 {
+					r := Rect{world.Tile{X: x0 + sx, Y: y - gap - depth}, world.Tile{X: x0 + sx + zw[f], Y: y - gap}}
+					if free(r) {
+						lo.floors[f], y, placed = r, r.Min.Y-2*ZoneBorder, true
+					}
+				}
+			}
+			if !placed {
+				return nil
+			}
+		}
+		lo.area = Rect{world.Tile{X: x0, Y: y + 2*ZoneBorder}, world.Tile{X: x0 + width, Y: y0}}
+		return lo
+	}
 	ox, oy := b.Origin.X, b.Origin.Y
-	for rr := 0; rr <= b.MaxR; rr += 4 {
-		if float64(rr) > bestD+8 {
+	var best *layered
+	for r := 0; r*8 <= b.MaxR; r++ {
+		if best != nil && float64(r*8) > best.dist+16 {
 			break
 		}
-		for _, o := range ringOffsets(rr) {
-			x0, y0 := ox+o.X-length/2, oy+o.Y-H/2
-			r := Rect{world.Tile{X: x0, Y: y0}, world.Tile{X: x0 + length, Y: y0 + H}}
-			cx, cy := r.Center()
-			d := math.Hypot(cx-float64(ox), cy-float64(oy))
-			if d < bestD && ok(r) {
-				best, bestD = r, d
+		for _, o := range ringOffsets(r) {
+			x0, y0 := ox+o.X*8-width/2, oy+o.Y*8+height/2
+			lo := stack(x0, y0)
+			if lo == nil {
+				continue
+			}
+			cx, cy := lo.area.Center()
+			lo.dist = math.Hypot(cx-float64(ox), cy-float64(oy))
+			if best == nil || lo.dist < best.dist {
+				best = lo
 			}
 		}
 	}
-	if math.IsInf(bestD, 1) {
-		return nil, &NoSiteError{&Cluster{Name: "этажи"}, fmt.Errorf("cluster: нет места под этажную базу %d×%d (утёсы и вода не толще %d, без месторождений)", length, H, maxGap)}
-	}
-	L.Area = best
-	// снизу вверх: шина 0, этаж 1, шина 1, …, этаж 4 (низ — большие Y)
-	y := best.Max.Y
-	L.Floors = make([]Rect, floors+1)
-	for f := 1; f <= floors; f++ {
-		if w := widths[f-1]; w > 0 {
-			L.Buses[f-1].Rect = Rect{world.Tile{X: best.Min.X, Y: y - w}, world.Tile{X: best.Max.X, Y: y}}
-			y -= w
-		}
-		L.Floors[f] = Rect{world.Tile{X: best.Min.X, Y: y - depth[f]}, world.Tile{X: best.Max.X, Y: y}}
-		u := best.Min.X + layerHead
-		for _, c := range fl[f] {
-			// столбец: ряд клиента — вдоль Y, начало — у шины снизу
-			c.Vertical = true
-			c.Area = Rect{world.Tile{X: u, Y: y - c.Len()}, world.Tile{X: u + c.Cross, Y: y}}
-			c.Rect = c.Area
-			b.Clusters = append(b.Clusters, c)
-			L.Of[c.Name] = f
-			u += c.Cross + floorGap
-		}
-		y -= depth[f]
-	}
-	g.mark(best.Grow(Corridor))
-	// станция, хранение — как обычно (ближе к своим поставщикам и центру)
-	sort.SliceStable(later, func(i, j int) bool { return later[i].Kind == Power })
-	for _, c := range later {
-		if err := b.Place(c); err != nil {
-			return nil, err
-		}
-	}
-	return L, nil
+	return best
 }

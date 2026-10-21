@@ -13,6 +13,7 @@ import (
 	"factorio-bot/internal/calc"
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Kind — вид кластера.
@@ -76,6 +77,8 @@ type Cluster struct {
 	Vertical bool `json:"vertical,omitempty"` // ряд вдоль Y
 	// Bus — у шины: ленты и разметка клиентов
 	Bus *BusInfo `json:"bus,omitempty"`
+	// Near — куда тянуть кластер при выборе места (nil — к поставщикам или центру базы)
+	Near *world.Tile `json:"-"`
 }
 
 func (c *Cluster) String() string {
