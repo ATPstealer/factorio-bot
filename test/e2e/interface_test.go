@@ -73,6 +73,40 @@ func TestPickFromInventory(t *testing.T) {
 	clean(t, h)
 }
 
+// Рука при заполненной быстрой панели (стадия 10: «клик по ячейке 2 не дал inserter в
+// руку»): все предметы инвентаря по кругу, трижды — каждый в руке; кому нет места на панели,
+// берётся кликом в окне инвентаря.
+func TestPickFullQuickbar(t *testing.T) {
+	h := handsT(t)
+	p0, _ := h.B.Player()
+	var items []string
+	for it := range p0.Inventory {
+		if h.Protos.Items[it].PlaceResult != "" || len(items) < 12 {
+			items = append(items, it)
+		}
+	}
+	sort.Strings(items)
+	if len(items) <= len(p0.Quickbar) {
+		t.Skipf("в инвентаре %d видов — панель (%d) не заполнить", len(items), len(p0.Quickbar))
+	}
+	ctx := ctxT(t, 5*time.Minute)
+	for round := 0; round < 3; round++ {
+		for _, it := range items {
+			if err := h.Pick(ctx, it); err != nil {
+				t.Fatalf("круг %d, %s: %v", round+1, it, err)
+			}
+			p, _ := h.B.Player()
+			if p.Cursor == nil || p.Cursor.Name != it {
+				t.Fatalf("круг %d: в руке %+v, ждали %s", round+1, p.Cursor, it)
+			}
+			if err := h.ClearCursor(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	clean(t, h)
+}
+
 // Исследование: окно технологий → поиск → «Start research»; в игре оно текущее или в
 // очереди. Берётся доступная наукой технология (предпосылки изучены).
 func TestStartResearch(t *testing.T) {
