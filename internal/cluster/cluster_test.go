@@ -63,7 +63,7 @@ func synth(t *testing.T, cw, ch int, fill func(x, y int) byte) *world.World {
 
 // карта 320×320: озеро, железо, медь, уголь, камень вокруг центра (160,160)
 func testMap(t *testing.T) *world.World {
-	return synth(t, 10, 10, func(x, y int) byte {
+	return synth(t, 20, 20, func(x, y int) byte { // карта в игре бесконечна — места с запасом
 		switch {
 		case (x-60)*(x-60)+(y-60)*(y-60) < 30*30:
 			return 'w'
@@ -156,10 +156,7 @@ func TestPlaceRed(t *testing.T) {
 	for i, a := range b.Clusters {
 		t.Log(a)
 		for _, o := range b.Clusters[i+1:] {
-			// клиенты шины стоят на ней вплотную — у них общий коридор (полоса шины)
-			if a.Kind == Bus || o.Kind == Bus || OnBus(a) && OnBus(o) {
-				continue
-			}
+			// у каждого кластера свой коридор, шина — тоже (решение пользователя)
 			if a.Area.Grow(Corridor).Overlaps(o.Area.Grow(Corridor)) {
 				t.Errorf("коридоры %s и %s пересекаются", a.Name, o.Name)
 			}
@@ -467,9 +464,13 @@ func TestConnectGreen(t *testing.T) {
 	if len(dirs) != 1 {
 		t.Errorf("ленты шины в разные стороны: %v", dirs)
 	}
+	// клиенты — у шины (записаны), но не в её площади: у каждого свой коридор
 	for _, c := range b.Clusters {
-		if OnBus(c) && !bus.Area.Overlaps(c.Area) {
-			t.Errorf("%s не на шине", c.Name)
+		if OnBus(c) && !b.onBusArea(bus, c) {
+			t.Errorf("%s не у шины", c.Name)
+		}
+		if c != bus && bus.Area.Grow(Corridor).Overlaps(c.Area.Grow(Corridor)) {
+			t.Errorf("%s: коридор пересекает коридор шины", c.Name)
 		}
 	}
 	if splitters == 0 {

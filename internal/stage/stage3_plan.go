@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/png"
 	"math"
@@ -28,6 +29,9 @@ const (
 	s3Rate    = 0.5 // красная наука, шт/с
 	s3Reserve = 5   // запас роста ×5 по длине
 	s3LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
+	// нет места — разведка: до s3Explore раз, каждый раз — пока не откроется s3ExploreChunks
+	s3Explore       = 20
+	s3ExploreChunks = 12
 )
 
 // s3Kinds — какие кластеры должны быть в плане (имя без номера).
@@ -59,10 +63,27 @@ func LoadPlan() (*S3, error) {
 	return &s, nil
 }
 
+// runPlan — план; кластеру нет места на открытой карте — разведать (мир бесконечный: подошёл
+// к краю — игра открывает новые чанки) и спланировать заново.
 func runPlan(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {
 		return err
 	}
+	for try := 0; ; try++ {
+		err := planOnce(ctx, h)
+		var ns *cluster.NoSiteError
+		if !errors.As(err, &ns) || try >= s3Explore {
+			return err
+		}
+		n0 := len(h.World.Chunks)
+		h.Say("%v — разведываю", err)
+		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+s3ExploreChunks }); err != nil {
+			return err
+		}
+	}
+}
+
+func planOnce(ctx context.Context, h *act.Hands) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err

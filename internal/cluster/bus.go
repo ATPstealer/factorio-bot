@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"fmt"
+	"maps"
+	"math"
 	"sort"
 
 	"factorio-bot/internal/layout"
@@ -9,25 +11,25 @@ import (
 )
 
 // Главная шина (решение пользователя: спагетти «лента от каждого поставщика к каждому
-// потребителю» не работает): прямая полоса лент по предметам, все текут в одну сторону (+u
-// в системе шины). Клиенты (сборка, лаборатории, снабжение) — по одну сторону шины поперёк
-// неё, началом ряда к шине; вход — делителем с ленты шины и подземками под соседние ленты,
-// выход промежуточного продукта — в голову своей ленты ниже по ходу. Плавка, добыча, станция
-// — вне шины: пластины приходят в голову шины.
+// потребителю» не работает): отдельный кластер — прямая полоса лент по предметам, все текут в
+// одну сторону (+u в системе шины), от базовых ресурсов к сложным продуктам. Ширина — по
+// потокам: лент предмета хватает на его расход с запасом роста, и место под ленты следующих
+// этапов (BusCap). Клиенты (сборка, лаборатории, снабжение) — обычными кластерами по одну
+// сторону шины (не уместились — по другую), поперёк неё, началом ряда к шине, каждый со своим
+// коридором; по ходу шины — в порядке зависимостей. Вход клиента — делителем с ленты шины и
+// лентой по коридорам (под соседними лентами — подземкой), выход промежуточного продукта — в
+// свою ленту ниже по ходу. Плавка, добыча, станция — вне шины: пластины приходят в голову.
 //
 // Поперёк (v): ряд лент — пары лент через зазоры в 3 тайла (в зазоре — половина делителя,
-// поворот и тайл между подземками: спуск к клиентам прямой — подземка под парой, выход,
-// лента, снова подземка; v 0–2 зазор, 3–4 ленты, 5–7 зазор, …), потом полоса BusStrip (подвод к
-// клиентам, столбы), потом клиенты на глубину Depth. Вдоль (u): голова BusHead (сюда
-// подходят ленты от плавки), потом клиенты через BusGap (порты и подъём выхода).
+// поворот и тайл между подземками; v 0–2 зазор, 3–4 ленты, 5–7 зазор, …). Вдоль (u): голова
+// BusHead (сюда подходят ленты от плавки), дальше — клиенты.
 
 const (
 	Bus      Kind = "bus"
-	BusCap        = 10 // лент в шине (с запасом на следующие этапы)
-	BusStrip      = 4  // полоса между лентами и клиентами
-	BusGap        = 5  // между клиентами: порты, подходы к ним и поворот выхода к шине
+	BusCap        = 10 // лент в шине не меньше (с запасом на следующие этапы)
+	BusGap        = 5  // подводы у клиента: столбцы до и после него
 	BusHead       = 4  // голова: подход лент от плавки
-	busDepth      = 40 // глубина клиентов (ряд с запасом длиннее — запас урезается)
+	beltRate      = 15 // пропускная способность ленты (жёлтая), шт/с
 )
 
 // Lane — лента шины: предмет, ряд поперёк (V), занятый отрезок вдоль [Start, End); Fed —
@@ -40,12 +42,15 @@ type Lane struct {
 	Fed   bool   `json:"fed,omitempty"`
 }
 
-// BusInfo — шина: ленты, где следующий клиент (Next), ширина ряда лент, глубина клиентов.
+// BusInfo — шина: ленты, где следующий клиент (Next), ширина ряда лент, клиенты (имя → u
+// начала), расход по предметам с запасом (под него — число лент).
 type BusInfo struct {
-	Lanes []Lane `json:"lanes"`
-	Next  int    `json:"next"`
-	Width int    `json:"width"`
-	Depth int    `json:"depth"`
+	Lanes   []Lane             `json:"lanes"`
+	Next    int                `json:"next"`
+	Width   int                `json:"width"`
+	Clients map[string]int     `json:"clients,omitempty"`
+	Side    int                `json:"side,omitempty"` // глубина клиентов: полоса сбоку свободна
+	Demand  map[string]float64 `json:"demand,omitempty"`
 }
 
 // laneV — ряд j-й ленты: пары через зазоры в 3.
@@ -76,6 +81,8 @@ func (c *Cluster) Clone() *Cluster {
 	if c.Bus != nil {
 		bi := *c.Bus
 		bi.Lanes = append([]Lane(nil), c.Bus.Lanes...)
+		bi.Clients = maps.Clone(c.Bus.Clients)
+		bi.Demand = maps.Clone(c.Bus.Demand)
 		x.Bus = &bi
 	}
 	return &x
@@ -93,19 +100,27 @@ func (bi *BusInfo) lane(item string) *Lane {
 	return nil
 }
 
-// newBus — шина под клиентов: длина — с тройным запасом на следующие этапы.
+// newBus — шина под клиентов: длина — клиенты с коридорами, с запасом на следующие этапы;
+// ширина — ленты под расход клиентов, не меньше BusCap.
 func newBus(clients []*Cluster) *Cluster {
-	length, depth := 0, busDepth // глубина — сразу под клиентов следующих этапов
+	length, side := 0, 0
+	demand := map[string]float64{}
 	for _, c := range clients {
-		length += c.Cross + BusGap
-		depth = max(depth, c.Head+c.Count*c.Pitch)
+		length += c.Cross + 2*Corridor
+		side = max(side, c.Len())
+		for _, in := range c.In {
+			demand[in.Item] += in.Rate * max(1, c.Reserve)
+		}
 	}
-	need := length + 1
-	length = max(length*6/5, 150) // с запасом на следующие этапы (клиентов к этапу 3 — ~10 × 14)
-	w := busWidth(BusCap)
-	c := &Cluster{Kind: Bus, Product: "bus", Reserve: 1, Pitch: 1, Head: BusHead, Room: length, Count: need,
-		Cross: w + BusStrip + depth, Bus: &BusInfo{Next: BusHead + 1, Width: w, Depth: depth}}
-	return c
+	lanes := 0
+	for _, d := range demand {
+		lanes += max(1, int(math.Ceil(d/beltRate)))
+	}
+	need := BusHead + length + 1
+	length = max(length*6/5, 150)
+	w := busWidth(max(BusCap, lanes))
+	return &Cluster{Kind: Bus, Product: "bus", Reserve: 1, Pitch: 1, Head: BusHead, Room: length, Count: need, Cross: w,
+		Bus: &BusInfo{Next: BusHead + 1, Width: w, Side: side, Clients: map[string]int{}, Demand: map[string]float64{}}}
 }
 
 // busOrder — клиенты по зависимостям: поставщик промежуточного — выше по шине, чем его
@@ -146,8 +161,9 @@ func hasOut(c *Cluster, item string) bool {
 	return false
 }
 
-// placeOnBus — места клиентам вдоль шины (нет шины — сначала она: у плавки); ленты под их
-// входы. Клиент поперёк шины, началом ряда к ней; запас роста — не глубже шины.
+// placeOnBus — места клиентам вдоль шины (нет шины — сначала она: у плавки) и ленты под их
+// входы. Клиент поперёк шины, началом ряда к ней, через коридоры (свой и шины); следующий —
+// дальше по ходу.
 func (b *Base) placeOnBus(clients []*Cluster) error {
 	bus := b.Bus()
 	if bus == nil {
@@ -164,60 +180,51 @@ func (b *Base) placeOnBus(clients []*Cluster) error {
 			return err
 		}
 	}
+	b.grid()
 	bi := bus.Bus
-	f := bus.frame()
-	// длиннее шины — на несколько кластеров того же продукта (глубже не выйдет)
-	var fit []*Cluster
-	for _, c := range clients {
-		if need := c.Head + c.Count*c.Pitch; need > bi.Depth && b.deepenBus(bus, need) != nil {
-			parts := splitCount(c, (bi.Depth-c.Head)/c.Pitch)
-			for i, p := range parts {
-				if i > 0 {
-					p.Name = b.name(p.Product)
-				}
-				b.Clusters = append(b.Clusters, p) // имя занято — следующее другое
-			}
-			b.Clusters = b.Clusters[:len(b.Clusters)-len(parts)]
-			fit = append(fit, parts...)
-			continue
-		}
-		fit = append(fit, c)
+	if bi.Clients == nil {
+		bi.Clients = map[string]int{}
 	}
-	for _, c := range busOrder(fit) {
-		if need := max(c.Head+c.Count*c.Pitch, min(c.Len(), busDepth)); need > bi.Depth {
-			if err := b.deepenBus(bus, need); err != nil && c.Head+c.Count*c.Pitch > bi.Depth {
-				return fmt.Errorf("cluster: %s длиннее шины (%d > %d): %w", c.Name, c.Head+c.Count*c.Pitch, bi.Depth, err)
-			}
-		}
-		c.Room = max(c.Count, min(c.Room, (bi.Depth-c.Head)/c.Pitch))
-		u0 := bi.Next
-		if u0+c.Cross > bus.Head+bus.Room {
-			if err := b.extendBus(bus, u0+c.Cross+BusGap-bus.Head-bus.Room); err != nil {
-				// шина кончилась — клиент рядом, вход — делителем с ленты шины
-				if b.Log != nil {
-					b.Log("шина %s кончилась (%v): %s — рядом", bus.Name, err, c.Name)
-				}
-				if err := b.Place(c); err != nil {
-					return err
-				}
-				if err := b.addLanes(bus, c); err != nil {
-					return err
-				}
-				continue
-			}
-		}
-		v0 := bi.Width + BusStrip
-		a, z := f.tile(u0, v0), f.tile(u0+c.Cross-1, v0+c.Len()-1)
-		c.Area = Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
+	f := bus.frame()
+	for _, c := range busOrder(clients) {
 		c.Vertical = !bus.Vertical
-		c.Rect = c.Area
-		l := c.Head + c.Count*c.Pitch
-		if c.Vertical {
-			c.Rect.Max.Y = c.Rect.Min.Y + l
-		} else {
-			c.Rect.Max.X = c.Rect.Min.X + l
+		placed := false
+		// сначала по одну сторону на всю длину, потом — по другую
+		for _, side := range []int{1, -1} {
+			for u0 := bi.Next; !placed && u0 < bi.Next+400; u0++ {
+				if u0+c.Cross+Corridor > bus.Head+bus.Room {
+					if err := b.extendBus(bus, u0+c.Cross+Corridor-bus.Head-bus.Room); err != nil {
+						break
+					}
+				}
+				v0, v1 := bi.Width+2*Corridor, bi.Width+2*Corridor+c.Len()-1
+				if side < 0 {
+					v0, v1 = -2*Corridor-c.Len(), -2*Corridor-1
+				}
+				a, z := f.tile(u0, v0), f.tile(u0+c.Cross-1, v1)
+				r := Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
+				if !b.fits(c, r, c.Vertical) {
+					continue
+				}
+				c.Area, c.Rect = r, r
+				l := c.Head + c.Count*c.Pitch
+				if c.Vertical {
+					c.Rect.Max.Y = c.Rect.Min.Y + l
+				} else {
+					c.Rect.Max.X = c.Rect.Min.X + l
+				}
+				b.g.mark(c.Area.Grow(Corridor))
+				bi.Clients[c.Name] = u0
+				bi.Next = u0 + c.Cross + 2*Corridor
+				placed = true
+			}
+			if placed {
+				break
+			}
 		}
-		bi.Next = u0 + c.Cross + BusGap
+		if !placed { // у шины места нет — разведать (мир бесконечный) и заново
+			return &NoSiteError{c, fmt.Errorf("cluster: нет места у шины %s под %s", bus.Name, c.Name)}
+		}
 		if err := b.addLanes(bus, c); err != nil {
 			return err
 		}
@@ -229,49 +236,25 @@ func (b *Base) placeOnBus(clients []*Cluster) error {
 }
 
 // busU — u начала клиента c вдоль шины.
-func (b *Base) busU(bus, c *Cluster) int {
-	f := bus.frame()
-	for u := 0; u < bus.Head+bus.Room; u++ {
-		t := f.tile(u, bus.Bus.Width+BusStrip)
-		if t == c.Area.Min {
-			return u
-		}
-	}
-	return 0
-}
+func (b *Base) busU(bus, c *Cluster) int { return bus.Bus.Clients[c.Name] }
 
-// busFree — тайл шины, свободный для лент и подводов: голова, зазоры и полоса — везде, где
-// клиенты уже стоят (ряды лент — нет); дальше (u ≥ Next) — запас будущих клиентов и лент; клиенты — только
-// столбцы между ними у начала ряда (порты, подъём выхода).
-func busFree(bus *Cluster, u, v int, clientAt func(u int) bool) bool {
+// busFree — тайл шины, свободный для подводов: голова и зазоры между парами лент — до
+// последнего клиента (дальше — запас будущих клиентов и лент); ряды лент (и будущих) —
+// пересекать только подземкой.
+func busFree(bus *Cluster, u, v int) bool {
 	bi := bus.Bus
 	if u >= bi.Next {
 		return false
 	}
-	if laneRow(v, bi.Width) && u >= BusHead {
-		return false // ряды лент (и будущих): пересекать — только подземкой
-	}
-	if v < bi.Width+BusStrip {
-		return true
-	}
-	return !clientAt(u) && v < bi.Width+BusStrip+2
+	return !laneRow(v, bi.Width) || u < BusHead
 }
 
 // reserveBus — закрыть тайлы шины, кроме свободных (busFree), в l.
 func (b *Base) reserveBus(l *layout.Layout, bus *Cluster) {
 	f := bus.frame()
-	in := map[int]bool{}
-	for _, c := range b.Clusters {
-		if b.onBusArea(bus, c) {
-			u0 := b.busU(bus, c)
-			for u := u0; u < u0+c.Cross; u++ {
-				in[u] = true
-			}
-		}
-	}
 	for u := 0; u < bus.Head+bus.Room; u++ {
 		for v := 0; v < bus.Cross; v++ {
-			if t := f.tile(u, v); !busFree(bus, u, v, func(u int) bool { return in[u] }) && l.At(t) == nil {
+			if t := f.tile(u, v); !busFree(bus, u, v) && l.At(t) == nil {
 				l.Reserved[t] = true
 			}
 		}
@@ -340,9 +323,10 @@ func (b *Base) extendBus(bus *Cluster, n int) error {
 	return nil
 }
 
-// onBusArea — o стоит на шине (клиент).
+// onBusArea — o — клиент шины.
 func (b *Base) onBusArea(bus, o *Cluster) bool {
-	return OnBus(o) && bus.Area.Overlaps(o.Area)
+	_, ok := bus.Bus.Clients[o.Name]
+	return ok
 }
 
 // window — подводы только в столбцах [lo, hi) шины (у своего клиента — не гулять вдоль
@@ -355,7 +339,7 @@ func (b *Base) window(l *layout.Layout, bus *Cluster, lo, hi int) func() {
 		if u >= lo && u < hi {
 			continue
 		}
-		for v := 0; v < bus.Bus.Width+BusStrip+2; v++ {
+		for v := 0; v < bus.Cross; v++ {
 			if t := f.tile(u, v); l.At(t) == nil && !l.Reserved[t] {
 				l.Reserved[t] = true
 				shut = append(shut, t)
@@ -385,71 +369,31 @@ func inWindow(bus *Cluster, line []layout.Placement, lo, hi int) []layout.Placem
 	return res
 }
 
-// deepenBus — глубже под клиентов (до depth): полоса за клиентами свободна.
-func (b *Base) deepenBus(bus *Cluster, depth int) error {
-	bi := bus.Bus
-	f := bus.frame()
-	add := depth - bi.Depth
-	L := bus.Head + bus.Room
-	a, z := f.tile(0, bus.Cross), f.tile(L-1, bus.Cross+add-1)
-	ext := Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
-	g := b.grid()
-	if k, out := g.count(g.bad, ext); k > 0 || out > 0 {
-		return fmt.Errorf("за шиной занято")
-	}
-	for _, o := range b.Clusters {
-		if o != bus && !b.onBusArea(bus, o) && o.Area.Grow(Corridor).Overlaps(ext.Grow(Corridor)) {
-			return fmt.Errorf("за шиной %s", o.Name)
-		}
-	}
-	bi.Depth, bus.Cross = depth, bus.Cross+add
-	z = f.tile(L-1, bus.Cross-1)
-	a = f.tile(0, 0)
-	bus.Area = Rect{world.Tile{X: min(a.X, z.X), Y: min(a.Y, z.Y)}, world.Tile{X: max(a.X, z.X) + 1, Y: max(a.Y, z.Y) + 1}}
-	g.mark(bus.Area.Grow(Corridor))
-	return nil
-}
-
-// addLanes — ленты шины под входы клиента c.
+// addLanes — ленты шины под входы клиента c: лент предмета — на весь расход с запасом.
 func (b *Base) addLanes(bus, c *Cluster) error {
 	bi := bus.Bus
+	if bi.Demand == nil {
+		bi.Demand = map[string]float64{}
+	}
 	for _, in := range c.In {
-		if bi.lane(in.Item) != nil {
-			continue
+		bi.Demand[in.Item] += in.Rate * max(1, c.Reserve)
+		for n := bi.lanes(in.Item); n == 0 || float64(n)*beltRate < bi.Demand[in.Item]; n++ {
+			if len(bi.Lanes) >= (bi.Width-3)/5*2 {
+				return fmt.Errorf("cluster: в шине %s нет места под ленту %s", bus.Name, in.Item)
+			}
+			bi.Lanes = append(bi.Lanes, Lane{Item: in.Item, V: laneV(len(bi.Lanes)), Start: BusHead, End: BusHead})
 		}
-		if len(bi.Lanes) >= BusCap {
-			return fmt.Errorf("cluster: в шине %s нет места под ленту %s", bus.Name, in.Item)
-		}
-		bi.Lanes = append(bi.Lanes, Lane{Item: in.Item, V: laneV(len(bi.Lanes)), Start: BusHead, End: BusHead})
 	}
 	return nil
 }
 
-// splitCount — кластер c на части не больше max машин (потоки и машины — пропорционально).
-func splitCount(c *Cluster, max int) []*Cluster {
-	if max < 1 || c.Count <= max {
-		return []*Cluster{c}
-	}
-	var res []*Cluster
-	for left := c.Count; left > 0; left -= max {
-		n := min(left, max)
-		k := float64(n) / float64(c.Count)
-		p := *c
-		scale := func(fs []Flow) []Flow {
-			var out []Flow
-			for _, f := range fs {
-				out = append(out, Flow{f.Item, f.Rate * k})
-			}
-			return out
+// lanes — сколько лент предмета в шине.
+func (bi *BusInfo) lanes(item string) int {
+	n := 0
+	for _, ln := range bi.Lanes {
+		if ln.Item == item {
+			n++
 		}
-		p.In, p.Out, p.Internal, p.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
-		p.Units = nil
-		for _, u := range c.Units {
-			u.Machines *= k
-			p.Units = append(p.Units, u)
-		}
-		p.Count, p.Room = n, max
-		res = append(res, &p)
 	}
-	return res
+	return n
 }

@@ -15,9 +15,9 @@ import (
 
 // corridorPoles — цепочка столбов от сети (start — стоящие столбы) до тайла, где столб
 // запитает цель (target), только по коридорам: не в площадях кластеров плана, кроме allow
-// (станция, сам кластер-цель). Места столбов плана с тегом логистики — дешевле (их всё равно
+// (станция, сам кластер-цель); extra — что ещё будет стоять (своё стадии вне плана). Места столбов плана с тегом логистики — дешевле (их всё равно
 // ставить); прочие занятые планом тайлы — нельзя. Кратчайшее по числу столбов (Дейкстра).
-func corridorPoles(h *act.Hands, plan *S3, start []bridge.Pos, allow []string, target func(pole bridge.Pos) bool) ([]layout.Placement, error) {
+func corridorPoles(h *act.Hands, plan *S3, extra []layout.Placement, start []bridge.Pos, allow []string, target func(pole bridge.Pos) bool) ([]layout.Placement, error) {
 	const pole = "small-electric-pole"
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return nil, err
@@ -30,6 +30,12 @@ func corridorPoles(h *act.Hands, plan *S3, start []bridge.Pos, allow []string, t
 		if pl.Name == pole && pl.Tag == cluster.LogisticsTag {
 			planPole[world.TileOf(pl.Pos)] = pl
 		}
+	}
+	for _, pl := range extra { // своё стадии вне плана (буферы, столбы)
+		if all.At(world.TileOf(pl.Pos)) == nil {
+			all.Add(pl)
+		}
+		delete(planPole, world.TileOf(pl.Pos))
 	}
 	var areas []cluster.Rect
 	for _, c := range plan.Clusters {
@@ -183,7 +189,7 @@ func connectPower(h *act.Hands, plan *S3, list []layout.Placement, allow []strin
 			break
 		}
 		group := left
-		path, err := corridorPoles(h, plan, net, allow, func(t bridge.Pos) bool { return near(t, group) })
+		path, err := corridorPoles(h, plan, append(slices.Clone(list), added...), net, allow, func(t bridge.Pos) bool { return near(t, group) })
 		if err != nil {
 			return nil, fmt.Errorf("столбы (%.1f, %.1f) к сети: %w", group[0].X, group[0].Y, err)
 		}
@@ -203,7 +209,7 @@ func connectPower(h *act.Hands, plan *S3, list []layout.Placement, allow []strin
 		if ok {
 			continue
 		}
-		path, err := corridorPoles(h, plan, net, allow, func(t bridge.Pos) bool { return powers(h, t, pl) })
+		path, err := corridorPoles(h, plan, append(slices.Clone(list), added...), net, allow, func(t bridge.Pos) bool { return powers(h, t, pl) })
 		if err != nil {
 			return nil, fmt.Errorf("%s в (%.1f, %.1f) запитать: %w", pl.Name, pl.Pos.X, pl.Pos.Y, err)
 		}

@@ -483,6 +483,20 @@ func (b *Base) connectBus(l *layout.Layout, bus *Cluster, fresh []*Cluster, outP
 			end[in.Item] = max(end[in.Item], e)
 		}
 	}
+	// поставщик-клиент подводит выход боком ниже себя: лента — дальше его подвода, и потребителям
+	// не у шины — место под отвод за ним
+	feed := map[string]int{} // предмет → u подвода поставщика-клиента
+	for _, c := range b.Clusters {
+		if !b.onBusArea(bus, c) {
+			continue
+		}
+		for _, o := range c.Out {
+			if bi.lane(o.Item) != nil {
+				feed[o.Item] = b.busU(bus, c) + c.Cross + 1
+				end[o.Item] = max(end[o.Item], feed[o.Item]+BusGap+16)
+			}
+		}
+	}
 	f := bus.frame()
 	for i := range bi.Lanes {
 		ln := &bi.Lanes[i]
@@ -534,6 +548,9 @@ func (b *Base) connectBus(l *layout.Layout, bus *Cluster, fresh []*Cluster, outP
 			ctag := LogisticsTag + "/" + c.Name
 			// у своего клиента: делитель и спуск — в его столбцах (с зазорами по бокам)
 			lo, hi := 0, ln.End
+			if u, ok := feed[p.Item]; ok { // ниже подвода поставщика
+				lo = u + BusGap + 8
+			}
 			if b.onBusArea(bus, c) {
 				u0 := b.busU(bus, c)
 				lo, hi = u0-BusGap, u0+c.Cross+BusGap

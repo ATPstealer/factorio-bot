@@ -329,6 +329,35 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 		}
 		bs, _ := g.count(g.solid, belt)
 		return bs == 0 && a*3 <= area && n*100 >= area*b.oreShare
+	case Bus:
+		// клиентам — свободная полоса сбоку (за коридорами шины и клиента) на всю длину
+		if bi := c.Bus; bi != nil && bi.Side > 0 {
+			// на длину под нынешних клиентов (Count), запас роста — потом: по одну сторону
+			// целиком или по обе — по половине
+			d := 2*Corridor + bi.Side + Corridor // коридор шины, клиента, клиент, его коридор
+			strip := func(n, side int) Rect {
+				if !vertical {
+					if side > 0 {
+						return Rect{world.Tile{X: r.Min.X, Y: r.Max.Y}, world.Tile{X: r.Min.X + n, Y: r.Max.Y + d}}
+					}
+					return Rect{world.Tile{X: r.Min.X, Y: r.Min.Y - d}, world.Tile{X: r.Min.X + n, Y: r.Min.Y}}
+				}
+				if side > 0 {
+					return Rect{world.Tile{X: r.Max.X, Y: r.Min.Y}, world.Tile{X: r.Max.X + d, Y: r.Min.Y + n}}
+				}
+				return Rect{world.Tile{X: r.Min.X - d, Y: r.Min.Y}, world.Tile{X: r.Min.X, Y: r.Min.Y + n}}
+			}
+			free := func(sd Rect) bool {
+				bad, out := g.count(g.bad, sd)
+				ring, _ := g.count(g.ring, sd)
+				unk, _ := g.count(g.unknown, sd)
+				return bad == 0 && out == 0 && ring == 0 && unk == 0
+			}
+			n := min(c.Count, max(r.W(), r.H()))
+			if !free(strip(n, 1)) && !free(strip(n, -1)) && !(free(strip((n+1)/2, 1)) && free(strip((n+1)/2, -1))) {
+				return false
+			}
+		}
 	case Power:
 		// станция у воды: вода в коридоре
 		if n, _ := g.count(g.water, ring); n == 0 {

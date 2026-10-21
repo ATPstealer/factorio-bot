@@ -77,7 +77,7 @@ func s5Layout(h *act.Hands) ([]layout.Placement, error) {
 	// столбы — по коридорам до каждой лаборатории (следующей — от уже проведённых)
 	var list []layout.Placement
 	for _, lab := range labs {
-		path, err := corridorPoles(h, plan, start, []string{powerName, labName, busName}, func(p bridge.Pos) bool { return powers(h, p, lab) })
+		path, err := corridorPoles(h, plan, list, start, []string{powerName, labName, busName}, func(p bridge.Pos) bool { return powers(h, p, lab) })
 		if err != nil {
 			return nil, fmt.Errorf("лаборатория в (%.1f, %.1f): %w", lab.Pos.X, lab.Pos.Y, err)
 		}
