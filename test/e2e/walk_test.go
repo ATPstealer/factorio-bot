@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"errors"
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/world"
@@ -189,5 +190,37 @@ func TestExplore(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("открыто чанков: %d → %d", start, len(h.World.Chunks))
+	clean(t, h)
+}
+
+// Разведка области (стадия 3: квадрат вокруг старта): обойти квадрат 24×24 чанка вокруг
+// игрока — закончить (открыто всё или недоступное пропущено), а не ходить кругами у
+// недоступного (бот бродил вдоль воды, цели за ней не пропускал).
+func TestExploreArea(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	c0 := world.ChunkOf(world.TileOf(p.Position))
+	const half = 12
+	inside := func(c bridge.ChunkPos) bool {
+		return c.X >= c0.X-half && c.X < c0.X+half && c.Y >= c0.Y-half && c.Y < c0.Y+half
+	}
+	count := func() int {
+		n := 0
+		for c := range h.World.Chunks {
+			if inside(c) {
+				n++
+			}
+		}
+		return n
+	}
+	start := count()
+	err := h.ExploreWhere(ctxT(t, 20*time.Minute), inside, func() bool { return count() == 4*half*half })
+	if err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+		t.Fatalf("разведка области: %v (открыто %d → %d из %d)", err, start, count(), 4*half*half)
+	}
+	t.Logf("открыто чанков области: %d → %d из %d", start, count(), 4*half*half)
 	clean(t, h)
 }

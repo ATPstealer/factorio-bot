@@ -132,8 +132,12 @@ func planOnce(ctx context.Context, h *act.Hands) error {
 		}
 		err = base.Connect(l, nil, nil)
 		if err == nil {
-			if errs := l.Validate(); len(errs) > 0 {
-				return fmt.Errorf("раскладка: %v", errs[0])
+			// связность столбов — не здесь: питание каждая стадия тянет сама по коридорам
+			// (connectPower), шина разделяет сети кластеров по сторонам
+			for _, e := range l.Validate() {
+				if !strings.Contains(e, "столбы не связаны") {
+					return fmt.Errorf("раскладка: %v", e)
+				}
 			}
 			list = l.List
 			if err := s4Draw(h, base, l, p.Position); err != nil {

@@ -31,6 +31,7 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 	}
 	w := h.World
 	skip := map[bridge.ChunkPos]bool{}
+	tries := map[bridge.ChunkPos]int{} // походов к чанку без новых открытых
 	start := len(w.Chunks)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -82,8 +83,12 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 		if _, err := w.Sync(h.B, false); err != nil {
 			return err
 		}
-		// не пройти или подошли, а карта не прибавилась — к этому чанку больше не идти
-		if !moved || len(w.Chunks) == before && near {
+		// не пройти или подошли, а карта не прибавилась — к этому чанку больше не идти; ходим к
+		// нему раз за разом без новых чанков (за водой, утёсами) — тоже
+		if len(w.Chunks) == before {
+			tries[tc]++
+		}
+		if !moved || len(w.Chunks) == before && (near || tries[tc] >= 3) {
 			skip[tc] = true
 		}
 	}
