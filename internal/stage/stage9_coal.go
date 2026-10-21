@@ -117,6 +117,9 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 	if err := s.build(ctx, first); err != nil {
 		return err
 	}
+	if err := s.store(ctx, 10); err != nil { // в сундуке — уголь: при подборе — в инвентарь
+		return err
+	}
 	for _, pl := range tmp {
 		if e, err := s.entity(pl); err != nil {
 			return err

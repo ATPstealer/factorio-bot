@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
+	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Стадия 6 (stages.md): кластер хранения (склад бота) из плана стадии 3.
@@ -75,6 +78,9 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 		if len(todo) == 0 {
 			continue
 		}
+		if strings.HasPrefix(name, "underground") {
+			todo = ugPairs(todo)
+		}
 		if err := s.have(ctx, name, len(todo)); err != nil {
 			return err
 		}
@@ -107,4 +113,41 @@ func checkBuilt(h *act.Hands, list []layout.Placement) error {
 		}
 	}
 	return nil
+}
+
+// ugPairs — подземки ленты парами «вход, потом выход» (выход, поставленный раньше входа,
+// игра делает входом): на одной линии одного направления — по ходу ленты, по две подряд.
+func ugPairs(list []layout.Placement) []layout.Placement {
+	type key struct{ dir, line int }
+	along := func(pl layout.Placement) float64 { // координата по ходу ленты
+		switch pl.Dir {
+		case layout.N:
+			return -pl.Pos.Y
+		case layout.S:
+			return pl.Pos.Y
+		case layout.W:
+			return -pl.Pos.X
+		}
+		return pl.Pos.X
+	}
+	groups := map[key][]layout.Placement{}
+	var keys []key
+	for _, pl := range list {
+		t := world.TileOf(pl.Pos)
+		k := key{pl.Dir, t.Y}
+		if pl.Dir == layout.N || pl.Dir == layout.S {
+			k.line = t.X
+		}
+		if groups[k] == nil {
+			keys = append(keys, k)
+		}
+		groups[k] = append(groups[k], pl)
+	}
+	var res []layout.Placement
+	for _, k := range keys {
+		g := groups[k]
+		sort.SliceStable(g, func(i, j int) bool { return along(g[i]) < along(g[j]) })
+		res = append(res, g...)
+	}
+	return res
 }
