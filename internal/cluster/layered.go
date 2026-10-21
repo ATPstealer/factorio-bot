@@ -24,7 +24,8 @@ const (
 	layerSlack = 24             // запас ширины базы: зонам — сдвигаться влево-вправо
 	maxShift   = 12             // зазор между шиной снизу и зоной — до стольких тайлов
 	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
-	busLanes   = 16             // лент остальных шин, не меньше
+	busLanes   = 16             // лент шин 2 и 3, не меньше
+	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
 )
 
 // LayerBus — шина этажной базы: прямоугольник, лент по предметам (трубы жидкостей — тоже),
@@ -173,8 +174,11 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 			n += lanes[it]
 		}
 		least := busLanes
-		if i == 0 {
+		switch i {
+		case 0:
 			least = busLanes0
+		case 3:
+			least = busLanes4
 		}
 		n = max(n, least)
 		L.Buses = append(L.Buses, LayerBus{Lanes: lanes, Total: n, Dir: "E"})

@@ -322,6 +322,9 @@ type cand struct {
 
 // find — ближайшее к якорю место под c (как сейчас: Room) или nil.
 func (b *Base) find(c *Cluster) *cand {
+	if c.Upright && c.Zone != nil {
+		return b.pack(c)
+	}
 	ax, ay := b.anchor(c)
 	var best *cand
 	try := func(r Rect, vertical bool) {
@@ -362,6 +365,22 @@ func (b *Base) find(c *Cluster) *cand {
 		}
 	}
 	return best
+}
+
+// pack — место в зоне производства (zones.md): плотно слева направо и снизу вверх — первое,
+// что влезает, по столбцам от левого края, в столбце — от низа зоны.
+func (b *Base) pack(c *Cluster) *cand {
+	z := *c.Zone
+	w, h := size(c, false)
+	for x := z.Min.X; x+w <= z.Max.X; x++ {
+		for y := z.Max.Y - h; y >= z.Min.Y; y-- {
+			r := Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + w, Y: y + h}}
+			if b.fits(c, r, true) {
+				return &cand{r, 0, true}
+			}
+		}
+	}
+	return nil
 }
 
 // fits — r годится кластеру c.

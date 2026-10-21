@@ -131,10 +131,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			if !ok {
 				return nil, fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
 			}
-			c.Zone, c.Upright = &r, true // ряд — поперёк шин
-			// к середине зоны: у левого края (головы шин) тесно от лент добычи
-			mid := world.Tile{X: (r.Min.X + r.Max.X) / 2, Y: (r.Min.Y + r.Max.Y) / 2}
-			c.Near = &mid
+			c.Zone, c.Upright = &r, true // ряд — поперёк шин; укладка — слева направо, снизу вверх
 		default: // хранение — вне зон, у стартовых буров
 			cx, cy := base.Center()
 			near := world.Tile{X: int(cx), Y: int(cy)}
@@ -149,6 +146,13 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 	}
 	return buses, nil
 }
+
+// laneHead — лента шины не короче (от начала зоны шины): подводы добычи, сквозные отводы;
+// laneTail — за последним пользователем ленты (отвод делителем, подвод боком).
+const (
+	laneHead = 41
+	laneTail = 20
+)
 
 // ConnectZoned — логистика кластеров в зонах: ленты шин, подводы с добычи в головы лент шины
 // ресурсов, выходы этажей — боком в ленты шины над собой, сквозные ленты (что нужно выше), входы
@@ -194,6 +198,26 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 		}
 	}
+	// конец ленты it шины k — по необходимости (zones.md): за последним, кто с неё берёт (этаж
+	// над шиной; снабжение — и этаж под ней) или в неё кладёт (этаж под шиной), с запасом под
+	// отвод; не короче головы (подводы добычи, сквозные отводы)
+	laneEnd := func(k int, it string) int {
+		bus := buses[k]
+		end := bus.Rect.Min.X + laneHead
+		for _, c := range b.Clusters {
+			f, use := floorOf(c), false
+			for _, in := range c.In {
+				use = use || in.Item == it && (f == k+1 || f == k && c.Kind == Make)
+			}
+			for _, o := range c.Out {
+				use = use || o.Item == it && f == k
+			}
+			if use {
+				end = max(end, c.Area.Max.X+laneTail)
+			}
+		}
+		return min(end, bus.Rect.Max.X)
+	}
 	for k, bus := range buses {
 		var items []string
 		for it := range need[k] {
@@ -212,10 +236,11 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 				return fmt.Errorf("cluster: %s: нет ряда под ленту %s", bus.Name, it)
 			}
 			bus.Lanes = append(bus.Lanes, ZoneLane{Item: it, Y: bus.Rect.Min.Y + v})
-			for x := bus.Rect.Min.X; x < bus.Rect.Max.X; x++ {
+			end := laneEnd(k, it)
+			for x := bus.Rect.Min.X; x < end; x++ {
 				l.Add(layout.Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: bus.Rect.Min.Y + v}.Center(), Dir: layout.E, Recipe: it, Tag: Tag(bus.Name)})
 			}
-			l.AllowEnd(world.Tile{X: bus.Rect.Max.X, Y: bus.Rect.Min.Y + v})
+			l.AllowEnd(world.Tile{X: end, Y: bus.Rect.Min.Y + v})
 		}
 	}
 	laneBelts := func(bus *ZBus, ln *ZoneLane, x0, x1 int) []layout.Placement {
