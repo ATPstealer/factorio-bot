@@ -209,11 +209,13 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		base = max(base, zw[f])
 	}
 	width := layerHead + base + layerSlack
+	// части этажей между препятствиями — база шире; из ширин — место ближе к старту (лишний тайл
+	// ширины — как тайл расстояния): у старта препятствия, а узкая база уезжает за сотни тайлов
 	var lo *layered
-	for _, extra := range []int{0, base / 4, base / 2} { // части этажей между препятствиями — шире
-		if lo = b.fitLayered(zw, colWidth[:], depth, widths, width+extra); lo != nil {
-			width += extra
-			break
+	bestCost := math.Inf(1)
+	for _, extra := range []int{0, base / 4, base / 2, base} {
+		if l := b.fitLayered(zw, colWidth[:], depth, widths, width+extra); l != nil && l.dist+float64(extra) < bestCost {
+			lo, bestCost = l, l.dist+float64(extra)
 		}
 	}
 	if lo == nil {
