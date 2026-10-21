@@ -77,9 +77,10 @@ function util.gui_name(t)
   return gui_names[t]
 end
 
--- Честность: бот знает только то, что видит игрок — открытые (charted) чанки его силы.
+-- Честность (решение пользователя 2026-10-21): бот знает всю уже сгенерированную карту —
+-- без разведки. Генерировать новые чанки нельзя: карта растёт сама, когда персонаж ходит.
 function util.chunk_visible(p, cx, cy)
-  return p.force.is_chunk_charted(p.surface, { cx, cy })
+  return p.surface.is_chunk_generated { cx, cy }
 end
 
 function util.visible(p, position)

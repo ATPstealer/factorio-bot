@@ -327,9 +327,11 @@ end)
 script.on_event(d.on_gui_closed, function(e)
   push { type = "gui_closed", gui_type = e.gui_type, entity = entity_info(e.entity) }
 end)
-script.on_event(d.on_chunk_charted, function(e)
+-- новый сгенерированный чанк (персонаж ходит — игра генерирует вокруг): модели мира — как
+-- открытый (видна вся сгенерированная карта)
+script.on_event(d.on_chunk_generated, function(e)
   local p = game.connected_players[1]
-  if p and e.force == p.force and e.surface_index == p.surface.index then
+  if p and e.surface.index == p.surface.index then
     push { type = "chunk_charted", chunk = { x = e.position.x, y = e.position.y } }
   end
 end)

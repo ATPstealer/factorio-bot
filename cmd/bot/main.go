@@ -49,6 +49,7 @@ const usage = `bot — бот Factorio: действует только мышь
   rotate X Y n|e|s|w    повернуть постройку в точке (X, Y) (R)
   filter X Y ПРЕДМЕТ    фильтр инсертера в точке (X, Y): брать только ПРЕДМЕТ (окно инсертера)
   research ТЕХНОЛОГИЯ   запустить исследование (окно технологий, T)
+  design [ЧАСЫ]         спроектировать базу до ракеты за ЧАСЫ (10) на открытой карте: план + картинка (без стройки)
   stage N               выполнить стадию N (stages.md) на текущей карте и проверить её критерии
   pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
@@ -344,6 +345,19 @@ func main() {
 			check(h.Rotate(ctx, *target, d))
 			log.Printf("%s повёрнут", target.Name)
 		}
+	case "design":
+		hours := 10.0
+		if len(args) > 1 {
+			hours, _ = strconv.ParseFloat(args[1], 64)
+		}
+		h := hands()
+		d, err := stage.RocketDesign(h, hours)
+		check(err)
+		for it, v := range d.Targets {
+			log.Printf("цель: %s %.3f/с", it, v)
+		}
+		check(stage.DesignBase(ctx, h, d))
+		log.Printf("план базы до ракеты: %s, картинка %s", d.File, d.Image)
 	case "stage":
 		if len(args) < 2 {
 			log.Fatal("bot stage N")
