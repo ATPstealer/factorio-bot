@@ -145,18 +145,36 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	s := &s2{h: h, sites: sites}
-	for _, it := range names {
-		stock, err := s7Stock(h)
-		if err != nil {
-			return err
+	// сначала то, что тратит другие нужные предметы (подземки, делители — ленты), иначе
+	// их крафт съест уже готовое; на всякий случай — несколько проходов
+	uses := func(a, b string) bool {
+		for _, in := range h.Protos.Recipes[a].Ingredients {
+			if in.Name == b {
+				return true
+			}
 		}
-		if lack := need[it] - stock[it]; lack > 0 {
-			if err := s.store(ctx, 8); err != nil {
+		return false
+	}
+	sort.SliceStable(names, func(i, j int) bool { return uses(names[i], names[j]) && !uses(names[j], names[i]) })
+	for pass := 0; pass < 3; pass++ {
+		short := false
+		for _, it := range names {
+			stock, err := s7Stock(h)
+			if err != nil {
 				return err
 			}
-			if err := s.have(ctx, it, s.inv(it)+lack); err != nil {
-				return fmt.Errorf("%s: %w", it, err)
+			if lack := need[it] - stock[it]; lack > 0 {
+				short = true
+				if err := s.store(ctx, 8); err != nil {
+					return err
+				}
+				if err := s.have(ctx, it, s.inv(it)+lack); err != nil {
+					return fmt.Errorf("%s: %w", it, err)
+				}
 			}
+		}
+		if !short {
+			break
 		}
 	}
 	for _, it := range []string{"wood", "stone", "copper-plate", "iron-plate", "coal"} {
