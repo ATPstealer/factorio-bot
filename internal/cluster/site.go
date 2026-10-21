@@ -289,7 +289,11 @@ func (b *Base) Place(c *Cluster) error {
 	} else {
 		c.Rect.Max.Y = c.Rect.Min.Y + l
 	}
-	b.g.mark(c.Area.Grow(b.border(c)))
+	occ := c.Area.Grow(b.border(c))
+	if c.Upright && c.Zone != nil { // столбец зоны — целиком кластеру (рост вдоль ряда)
+		occ.Min.Y, occ.Max.Y = min(occ.Min.Y, c.Zone.Min.Y), max(occ.Max.Y, c.Zone.Max.Y)
+	}
+	b.g.mark(occ)
 	b.Clusters = append(b.Clusters, c)
 	return nil
 }
@@ -367,8 +371,9 @@ func (b *Base) find(c *Cluster) *cand {
 	return best
 }
 
-// pack — место в зоне производства (zones.md): плотно слева направо и снизу вверх — первое,
-// что влезает, по столбцам от левого края, в столбце — от низа зоны.
+// pack — место в зоне производства (zones.md): плотно слева направо — первое, что влезает, по
+// столбцам от левого края, в столбце — от низа зоны. Столбец кластера целиком (на всю глубину
+// зоны) — его (Place): друг над другом кластеры не ставятся.
 func (b *Base) pack(c *Cluster) *cand {
 	z := *c.Zone
 	w, h := size(c, false)
