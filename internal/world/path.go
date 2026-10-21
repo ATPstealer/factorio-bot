@@ -680,3 +680,39 @@ func (w *World) onBelt(cl Cell) bool {
 	in := w.cellSet(ch)[cl]
 	return in != nil && in.belt
 }
+
+// Hide — убрать объекты из модели (план поверх того, что потом разберут); restore — вернуть.
+func (w *World) Hide(objs []Object) (restore func()) {
+	type saved struct {
+		c    *Chunk
+		objs []Object
+	}
+	var undo []saved
+	byChunk := map[*Chunk][]Object{}
+	for _, o := range objs {
+		if c := w.Chunks[ChunkOf(TileOf(o.Pos))]; c != nil {
+			byChunk[c] = append(byChunk[c], o)
+		}
+	}
+	for c, os := range byChunk {
+		undo = append(undo, saved{c, c.Objects})
+		var keep []Object
+		for _, x := range c.Objects {
+			hide := false
+			for _, o := range os {
+				hide = hide || x.Name == o.Name && x.Pos == o.Pos
+			}
+			if !hide {
+				keep = append(keep, x)
+			}
+		}
+		c.Objects = keep
+		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+	}
+	return func() {
+		for _, u := range undo {
+			u.c.Objects = u.objs
+			u.c.blocked, u.c.hard, u.c.solid, u.c.cells = nil, nil, nil, nil
+		}
+	}
+}
