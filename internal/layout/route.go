@@ -32,6 +32,9 @@ func (h rheap) Swap(i, j int)      { h[i], h[j] = h[j], h[i]; h[i].i = i; h[j].i
 func (h *rheap) Push(x any)        { n := x.(*rnode); n.i = len(*h); *h = append(*h, n) }
 func (h *rheap) Pop() any          { o := *h; n := o[len(o)-1]; *h = o[:len(o)-1]; return n }
 
+// turnCost — штраф за поворот ленты: обход на тайл в сторону дороже, чем прямо.
+const turnCost = 3.0
+
 type redge struct {
 	from rstate
 	ug   int // 0 — обычная лента; >0 — подземка длиной ug тайлов под землёй
@@ -101,9 +104,8 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 			if _, ore := l.W.ResourceAt(t); ore {
 				c += 2
 			}
-			if _, clear := l.W.Buildable(t); clear {
-				c += 1
-			}
+			// убираемое (деревья, камни, обломки) — как свободное: убрать и класть ровно
+			// (правило пользователя), а не обходить змейкой
 		}
 		return c, true
 	}
@@ -147,7 +149,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 			if c, ok := cost(nt); ok {
 				g := cur.g + c
 				if d != cur.s.D {
-					g += 0.5 // поворот
+					g += turnCost // поворот: лента — ровно, без змейки
 				}
 				ns := rstate{nt, d, false}
 				if old, ok := best[ns]; !ok || g < old {
