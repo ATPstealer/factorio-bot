@@ -448,7 +448,7 @@ func lineBuffer(l *layout.Layout, line []layout.Placement, c *Cluster, item stri
 			// run[0] — ниже по ходу (ближе к порту), run[span-1] — выше
 			up, down := span-1, 0
 			for j := up; j >= down; j -= 2 {
-				l.Add(layout.Placement{Name: "wooden-chest", Pos: box[j].Center(), Tag: tag})
+				l.Add(layout.Placement{Name: layout.Chest, Pos: box[j].Center(), Tag: tag})
 				if j-2 >= down {
 					m := box[j-1]
 					l.Add(layout.Placement{Name: "inserter", Pos: m.Center(), Dir: layout.InserterDir(l.P, "inserter", m, box[j]), Recipe: item, Tag: tag})

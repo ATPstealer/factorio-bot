@@ -439,7 +439,7 @@ func SupplyCluster(p *knowledge.Prototypes, in map[string]float64) *Cluster {
 
 // StorageCluster — склад мусора бота.
 func StorageCluster() *Cluster {
-	c := &Cluster{Kind: Storage, Product: "storage", Reserve: 1, Units: []Unit{{Recipe: "store", Machine: "wooden-chest", Machines: 8}}}
+	c := &Cluster{Kind: Storage, Product: "storage", Reserve: 1, Units: []Unit{{Recipe: "store", Machine: layout.Chest, Machines: 8}}}
 	c.Cross, c.Pitch, c.Head = geometry(Storage)
 	c.Count, c.Room = 8, 8
 	return c

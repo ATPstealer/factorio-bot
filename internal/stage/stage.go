@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/layout"
 )
 
 // Stage — стадия: номер, название, выполнить, проверить критерии (nil — выполнены).
@@ -60,6 +61,9 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 		return err
 	}
 	h.Say("стадия %d: %s", s.N, s.Name)
+	if n > 17 { // после первого обслуживания — только железные сундуки
+		layout.Chest = ironChest
+	}
 	// перед стройкой — проверка и расчистка площади плана (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
 		return fmt.Errorf("стадия %d: %w", n, err)

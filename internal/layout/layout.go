@@ -57,6 +57,10 @@ func New(p *knowledge.Prototypes, w *world.World) *Layout {
 	return &Layout{P: p, W: w, occ: map[world.Tile]int{}, Clear: map[world.Tile]bool{}, Reserved: map[world.Tile]bool{}}
 }
 
+// Chest — сундук раскладок (буферы, хранение): деревянный до первого обслуживания, после —
+// железный (cluster.md, раздел 6; стадия 17).
+var Chest = "wooden-chest"
+
 // Rule — что можно под постройкой.
 type Rule int
 

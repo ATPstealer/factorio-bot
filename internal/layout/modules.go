@@ -157,7 +157,7 @@ func (l *Layout) boilerFeed(b Placement) {
 		}
 		ct := Step(it, back)
 		ins := Placement{Name: "inserter", Pos: it.Center(), Dir: InserterDir(l.P, "inserter", it, ct), Tag: b.Tag}
-		ch := Placement{Name: "wooden-chest", Pos: ct.Center(), Tag: b.Tag}
+		ch := Placement{Name: Chest, Pos: ct.Center(), Tag: b.Tag}
 		if !l.CanPlace(ins, OffOre) || !l.CanPlace(ch, OffOre) {
 			continue
 		}
@@ -168,6 +168,6 @@ func (l *Layout) boilerFeed(b Placement) {
 	if best < 0 {
 		return
 	}
-	l.Add(Placement{Name: "wooden-chest", Pos: bc.Center(), Tag: b.Tag})
+	l.Add(Placement{Name: Chest, Pos: bc.Center(), Tag: b.Tag})
 	l.Add(Placement{Name: "inserter", Pos: bi.Center(), Dir: InserterDir(l.P, "inserter", bi, bc), Tag: b.Tag})
 }

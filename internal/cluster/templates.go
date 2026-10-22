@@ -248,7 +248,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 	case Storage:
 		for u := 0; u < c.Count; u++ {
-			if err := add(f.at(l, "wooden-chest", u, 1, layout.N, tag)); err != nil {
+			if err := add(f.at(l, layout.Chest, u, 1, layout.N, tag)); err != nil {
 				return err
 			}
 		}
@@ -415,7 +415,7 @@ func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 	}
 	for i := 0; i < n; i++ {
 		u := 1 + 2*i
-		ch := f.at(l, "wooden-chest", u, chestV, layout.N, tag)
+		ch := f.at(l, layout.Chest, u, chestV, layout.N, tag)
 		if !l.CanPlace(ch, layout.AnyLand) {
 			return fmt.Errorf("cluster %s: буфер не встаёт (%s)", c.Name, ch)
 		}
