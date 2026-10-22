@@ -19,6 +19,9 @@ import (
 // под срубленное на месте постройки (стадия 11: «дерево не поднять — инвентарь полон»).
 const s8Free = 5
 
+// s8Raw — что убирать в хранение при постройке: сырьё с вырубки и руда.
+var s8Raw = []string{"wood", "stone", "iron-ore", "copper-ore"}
+
 func init() {
 	register(Stage{N: 8, Name: "хранение", Run: runStorage, Check: checkStorage})
 }
@@ -89,8 +92,19 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 			return err
 		}
 		for _, pl := range todo {
-			if s.useStore { // место под срубленное на месте постройки (деревья, камни)
-				if err := s.store(ctx, s8Free, names...); err != nil {
+			if s.useStore { // место под срубленное на месте постройки (деревья, камни): в
+				// хранение — только сырьё с вырубки, постройки и запас стадии остаются
+				p, err := s.h.B.Player()
+				if err != nil {
+					return err
+				}
+				var keep []string
+				for it := range p.Inventory {
+					if !slices.Contains(s8Raw, it) {
+						keep = append(keep, it)
+					}
+				}
+				if err := s.store(ctx, s8Free, keep...); err != nil {
 					return err
 				}
 			}
