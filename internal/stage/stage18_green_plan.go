@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"slices"
 	"strings"
@@ -114,6 +113,22 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 	for t := range built {
 		avoid[t] = true
 	}
+	// потребность всей базы — красная и зелёная наука вместе (с запасом): по ней рост старых
+	// кластеров
+	targets := map[string]float64{s7Pack: s5Rate, s18Green: s18Rate}
+	whole, err := calc.Solve(pr, targets, calc.Options{All: true,
+		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
+	if err != nil {
+		return err
+	}
+	needs, err := cluster.Split(pr, whole, s5Reserve, nil, append([]string{"iron-gear-wheel"}, s18Separate...)...)
+	if err != nil {
+		return err
+	}
+	needs = append(needs, cluster.Labs(pr, targets, s5LabSec, s5Reserve))
+	if needs, err = cluster.AddPower(pr, needs, s5Reserve, nil); err != nil {
+		return err
+	}
 	for try := 0; ; try++ {
 		old, err := loadPlanFile(runPath(s18Base)) // заново: прошлая попытка меняла кластеры
 		if err != nil {
@@ -148,15 +163,63 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 		cluster.FillLanes(zb, old.Layout)
-		l, err := base.Layout(fresh...)
+		layoutAll := func() (*layout.Layout, error) {
+			l, err := base.Layout(fresh...)
+			if err != nil {
+				return nil, err
+			}
+			for t := range built {
+				delete(l.Reserved, t)
+			}
+			for _, pl := range old.Layout {
+				l.Add(pl)
+			}
+			return l, nil
+		}
+		// рост старых кластеров (cluster.md §7): вдоль ряда, не влез — новый кластер
+		l, err := layoutAll()
 		if err != nil {
 			return err
 		}
-		for t := range built {
-			delete(l.Reserved, t)
+		grow := map[*cluster.Cluster]int{}
+		var extras []*cluster.Cluster
+		for _, c := range slices.Clone(base.Clusters) {
+			if c.Kind != cluster.Mine && c.Kind != cluster.Smelt && c.Kind != cluster.Power || slices.Contains(fresh, c) {
+				continue
+			}
+			n, have := cluster.Need(needs, c), cluster.Built(old.Layout, c)
+			if n <= have {
+				continue
+			}
+			if err := base.GrowRow(l, c, n); err == nil {
+				h.Say("рост: %s — %s %d → %d вдоль ряда", c.Name, c.MainMachine(), have, n)
+				grow[c] = n
+				continue
+			} else {
+				h.Log("рост %s: %v", c.Name, err)
+			}
+			x, err := cluster.Extra(pr, needs, c, have, n)
+			if err != nil {
+				return fmt.Errorf("рост %s (%d → %d): %w", c.Name, have, n, err)
+			}
+			extras = append(extras, x)
 		}
-		for _, pl := range old.Layout {
-			l.Add(pl)
+		if len(extras) > 0 {
+			if _, err := base.PlaceZoned(extras, rough.Zones); err != nil {
+				return err
+			}
+			for _, x := range extras {
+				h.Say("рост: новый кластер %s", x.Name)
+			}
+			fresh = append(fresh, extras...)
+		}
+		if l, err = layoutAll(); err != nil {
+			return err
+		}
+		for c, n := range grow {
+			if err := base.GrowRow(l, c, n); err != nil {
+				return err
+			}
 		}
 		before := map[string]bool{}
 		for _, e := range l.Validate() {
@@ -186,7 +249,6 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			for _, c := range fresh {
 				h.Say("кластер %v", c)
 			}
-			s18Report(h, base, plan)
 			if err := s5Draw(h, rough.Zones, base, l, stageImage(18)); err != nil {
 				return err
 			}
@@ -209,46 +271,6 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 				avoid[world.Tile{X: x, Y: y}] = true
 			}
 		}
-	}
-}
-
-// s18Report — сказать, хватит ли старой плавки и станции на красную и зелёную науку вместе
-// (мягко: их рост — отдельными шагами).
-func s18Report(h *act.Hands, base *cluster.Base, plan *calc.Plan) {
-	have, use := map[string]float64{}, map[string]float64{}
-	power, gen := 0.0, 0.0
-	for _, c := range base.Clusters {
-		// выход — по стоящим машинам (Count, не меньше 5), а не по темпу плана
-		k, m := 1.0, 0.0
-		for _, u := range c.Units {
-			m += u.Machines
-		}
-		if c.Kind == cluster.Smelt && m > 0 {
-			k = float64(c.Count) / m
-		}
-		for _, f := range c.Out {
-			have[f.Item] += f.Rate * k
-		}
-		for _, f := range c.In {
-			use[f.Item] += f.Rate
-		}
-		if c.Kind == cluster.Power { // паровой двигатель — 900 кВт
-			for _, u := range c.Units {
-				if u.Machine == "steam-engine" {
-					gen += math.Ceil(u.Machines-1e-9) * 900e3
-				}
-			}
-		} else {
-			power += c.PowerW
-		}
-	}
-	for _, it := range []string{"iron-plate", "copper-plate"} {
-		if use[it] > have[it]*1.001 {
-			h.Say("проверка: %s — нужно %.2f/с, плавка даёт %.2f/с (плавку растить)", it, use[it], have[it])
-		}
-	}
-	if power > gen*1.001 {
-		h.Say("проверка: питание — нужно %.0f кВт, станция на %.0f кВт (станцию растить)", power/1e3, gen/1e3)
 	}
 }
 

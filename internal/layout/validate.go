@@ -28,6 +28,13 @@ func (l *Layout) AllowEnd(t world.Tile) {
 	l.ends[t] = true
 }
 
+// AllowEndsOf — разрешённые концы лент раскладки o (её часть переносится в l).
+func (l *Layout) AllowEndsOf(o *Layout) {
+	for t := range o.ends {
+		l.AllowEnd(t)
+	}
+}
+
 // Validate — все проверки; список проблем (пусто — раскладка годится).
 func (l *Layout) Validate() []string {
 	var errs []string

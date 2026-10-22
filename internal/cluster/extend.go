@@ -130,6 +130,12 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		}
 	}
 	for _, c := range fresh {
+		if c.Kind == Mine { // ещё одна добыча того же ресурса — боком у головы ленты
+			if err := feedMine(l, buses, c); err != nil {
+				return &ConnectError{c, err}
+			}
+			continue
+		}
 		if err := b.feedOut(l, buses, c, g); err != nil {
 			return err
 		}

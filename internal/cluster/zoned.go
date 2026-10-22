@@ -516,6 +516,31 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 	return nil
 }
 
+// feedMine — выход добычи c — в голову своей ленты шины ресурсов, есть поставщик — боком у
+// головы.
+func feedMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
+	op, ok := outPort(c)
+	if !ok {
+		return nil
+	}
+	ln := buses[0].lane(c.Product)
+	if ln == nil {
+		return nil
+	}
+	bus := buses[0]
+	var to []Port
+	if !ln.Fed {
+		to = append(to, Port{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true})
+	}
+	to = append(to, zSidePorts(l, bus, ln, bus.Rect.Min.X, bus.Rect.Min.X+12)...)
+	p, err := zRoute(l, op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
+	if err != nil {
+		return fmt.Errorf("добыча %s → %s (%s): %w", c.Name, bus.Name, c.Product, err)
+	}
+	ln.feed(p.T.X)
+	return nil
+}
+
 // sortedItems — предметы лент шины k: сначала свои (этажа под шиной), потом сквозные.
 func sortedItems(need map[string]bool, on map[string]int, k int) []string {
 	var items []string
@@ -592,28 +617,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 	}
 	// добыча → головы лент шины ресурсов (второй поставщик — боком у головы); сначала уголь и
 	// сразу отвод угля на станцию — иначе ленты другой добычи замуруют вход станции
-	feedMine := func(c *Cluster) error {
-		op, ok := outPort(c)
-		if !ok {
-			return nil
-		}
-		ln := buses[0].lane(c.Product)
-		if ln == nil {
-			return nil
-		}
-		bus := buses[0]
-		var to []Port
-		if !ln.Fed {
-			to = append(to, Port{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true})
-		}
-		to = append(to, zSidePorts(l, bus, ln, bus.Rect.Min.X, bus.Rect.Min.X+12)...)
-		p, err := zRoute(l, op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
-		if err != nil {
-			return fmt.Errorf("добыча %s → %s (%s): %w", c.Name, bus.Name, c.Product, err)
-		}
-		ln.feed(p.T.X)
-		return nil
-	}
+	feedMine := func(c *Cluster) error { return feedMine(l, buses, c) }
 	// уголь: лента с добычи прямо на станцию (мимо шин), с неё делителем — в голову ленты шины
 	// ресурсов; станции нет или уже питается — добыча угля сразу на шину
 	powered := false
