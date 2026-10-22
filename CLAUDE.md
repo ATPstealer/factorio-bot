@@ -23,7 +23,7 @@
 
 - Игра: `/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio`. Пользовательский `~/.factorio` не трогать.
 - `run/server/` — write-data сервера (`config.ini`, `mods/`, `saves/bot.zip`); `run/client/` — клиента (`config.ini`, `mods/`, `player-data.json`, `steam_appid.txt`, `home/`).
-- Логи: `run/server.log`, `run/client.log`, `run/xephyr.log`. Сид текущей карты — `run/map.json`.
+- Логи: `run/server.log`, `run/client.log`, `run/xephyr.log`. Сид текущей карты — `run/map.json`. У экземпляра N (`INST=N`, 1–4) — то же в `run/iN/`.
 
 ```bash
 scripts/run.sh                      # сервер → Xephyr :1 → клиент; Ctrl+C — остановить всё
