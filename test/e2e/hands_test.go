@@ -564,3 +564,51 @@ func TestPlaceBeltRun(t *testing.T) {
 	t.Logf("поворачивали после постановки: %d", rotations)
 	clean(t, h)
 }
+
+// Подземки после ленты другим поворотом (стадия 13 на 794457638: «underground-belt не встал
+// направлением 0» — рука помнила поворот прошлой ленты, а перестановка считала, что взятый
+// предмет смотрит на север): лента на восток, затем две пары подземок на север (вход, через
+// 2 тайла выход) — все встали своим направлением и спарились.
+func TestPlaceUndergroundAfterTurn(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "underground-belt") {
+		t.Skip("подземки не открыты (logistics)")
+	}
+	have(t, h, "transport-belt", 1)
+	have(t, h, "underground-belt", 4)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y + 25}, 10, 10, 60, &p0.Position)
+	if !ok {
+		t.Skip("нет свободной площадки 10×10")
+	}
+	x, y := math.Floor(c.X)+0.5, math.Floor(c.Y)+0.5
+	ctx := ctxT(t, 4*time.Minute)
+	if _, err := h.Place(ctx, "transport-belt", bridge.Pos{X: x - 3, Y: y}, layout.E); err != nil {
+		t.Fatal(err)
+	}
+	pos := []bridge.Pos{{X: x, Y: y + 2}, {X: x, Y: y - 1}, {X: x + 2, Y: y + 2}, {X: x + 2, Y: y - 1}}
+	dirs := []int{layout.N, layout.N, layout.N, layout.N}
+	if _, err := h.PlaceDirs(ctx, "underground-belt", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range pos {
+		st, err := h.B.GetEntity("underground-belt", p)
+		if err != nil || st == nil {
+			t.Fatalf("подземка %d в (%.1f, %.1f) не стоит (%v)", i+1, p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction%8 != layout.N%8 {
+			t.Errorf("подземка %d: направление %v, ждали север", i+1, st.Direction)
+		}
+		if !st.UGPaired {
+			t.Errorf("подземка %d не спарилась", i+1)
+		}
+	}
+	clean(t, h)
+}

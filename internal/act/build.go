@@ -197,8 +197,8 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			return nil, err
 		}
 	}
-	hand := h.handDir // куда смотрит предмет в руке
-	defer func() { h.handDir = hand }()
+	hand := h.handDir[item] // куда смотрит предмет в руке (по предмету; не было — север)
+	defer func() { h.setHand(item, hand) }()
 	// held — предмет точно в руке (после удачной постановки игра доливает руку из инвентаря,
 	// пока он есть): не спрашивать игру перед каждой постановкой
 	held, stock := false, -1
@@ -324,7 +324,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 				if e, err = h.replace(ctx, item, e, pos, want); err != nil {
 					return built, err
 				}
-				held = false
+				held, hand = false, want
 			}
 			if exit {
 				if e, err = h.ugExit(ctx, item, e, pos, dir); err != nil {
@@ -337,7 +337,8 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			}
 			built[i] = e
 			left = removeInt(left, i)
-			if !exit && e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
+			// подземку R не поворачивает, а меняет вход/выход — её переставляет replace выше
+			if !exit && !ug && e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
 				misrotated = append(misrotated, i)
 			}
 			if e.Direction != nil && !exit && !ug && w == hh {
@@ -424,12 +425,18 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 	if err := h.Pick(ctx, item); err != nil {
 		return e, err
 	}
-	// взятый в руку предмет смотрит на север (поворот сбрасывается) — R до dir
-	for k := dir / 4; k > 0; k-- {
+	// игра помнит поворот руки и для заново взятого предмета (не «всегда север», стадия 13:
+	// «не встал направлением 0»): рука смотрит, как встала неверная — R от него до dir
+	hand := h.handDir[item]
+	if e.Direction != nil && h.Protos.Entities[e.Name].Type != "underground-belt" {
+		hand = *e.Direction // у подземки-выхода направление — не поворот руки
+	}
+	for k := ((dir-hand)/4%4 + 4) % 4; k > 0; k-- {
 		if err := h.In.Tap("r"); err != nil {
 			return e, err
 		}
 	}
+	h.setHand(item, dir)
 	if err := sleep(ctx, inputLatency); err != nil {
 		return e, err
 	}
@@ -1189,4 +1196,12 @@ func (h *Hands) nearBelt(q bridge.Pos) bool {
 		}
 	}
 	return false
+}
+
+// setHand — запомнить поворот руки для предмета item.
+func (h *Hands) setHand(item string, dir int) {
+	if h.handDir == nil {
+		h.handDir = map[string]int{}
+	}
+	h.handDir[item] = dir
 }
