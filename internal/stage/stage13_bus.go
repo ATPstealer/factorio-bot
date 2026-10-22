@@ -97,10 +97,12 @@ func checkBusPlates(h *act.Hands) error {
 				}
 			}
 		}
+		// конец ленты — самая дальняя по течению (шина течёт на восток), а не последняя в плане:
+		// голову за неровностью план добавляет в конец (859088572: проверялась голова)
 		var last *layout.Placement
 		for i, pl := range plan.Layout {
-			if bus != "" && pl.Tag == cluster.Tag(bus) && pl.Recipe == it {
-				last = &plan.Layout[i] // ленты шины — по ходу, последняя — конец
+			if bus != "" && pl.Tag == cluster.Tag(bus) && pl.Recipe == it && pl.Name == "transport-belt" && (last == nil || pl.Pos.X > last.Pos.X) {
+				last = &plan.Layout[i]
 			}
 		}
 		if last == nil {
