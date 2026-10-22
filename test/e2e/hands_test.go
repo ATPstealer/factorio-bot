@@ -9,12 +9,14 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -483,5 +485,74 @@ func TestRefuelFiveCoalPairs(t *testing.T) {
 			t.Errorf("бур %d (%.1f, %.1f): %v", i+1, e.Position.X, e.Position.Y, err)
 		}
 	}
+	clean(t, h)
+}
+
+// Трасса лент вплотную одним вызовом (стадия 13: каждую ленту брали заново, «взятая смотрит
+// на север» — вставали не так, потом R по наведению поворачивала соседнюю: «не повернулся в
+// 4»): змейка из 20 лент с поворотами — все встали своим направлением, поворачивать после
+// пришлось не больше одной (первую, пока рука не сверена); потом средняя лента ряда — на
+// север и обратно на восток, соседние не тронуты.
+func TestPlaceBeltRun(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "transport-belt", 20)
+	c := freeArea(t, h, 12)
+	x0, y0 := math.Floor(c.X)-2.5, math.Floor(c.Y)-2.5
+	var pos []bridge.Pos
+	var dirs []int
+	for row := 0; row < 4; row++ {
+		for k := 0; k < 5; k++ {
+			x := x0 + float64(k)
+			d := layout.E
+			if row%2 == 1 {
+				x, d = x0+float64(4-k), layout.W
+			}
+			if k == 4 {
+				d = layout.S // конец ряда — вниз, к следующему
+			}
+			pos = append(pos, bridge.Pos{X: x, Y: y0 + float64(row)})
+			dirs = append(dirs, d)
+		}
+	}
+	rotations := 0
+	log := h.Log
+	h.Log = func(format string, args ...any) {
+		if msg := fmt.Sprintf(format, args...); strings.HasPrefix(msg, "поворачиваю") {
+			rotations++
+		}
+		log(format, args...)
+	}
+	defer func() { h.Log = log }()
+	ctx := ctxT(t, 4*time.Minute)
+	if _, err := h.PlaceDirs(ctx, "transport-belt", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range pos {
+		st, err := h.B.GetEntity("transport-belt", p)
+		if err != nil || st == nil {
+			t.Fatalf("лента %d в (%.1f, %.1f) не стоит (%v)", i+1, p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction != dirs[i] {
+			t.Errorf("лента %d в (%.1f, %.1f): направление %v, ждали %d", i+1, p.X, p.Y, st.Direction, dirs[i])
+		}
+	}
+	if rotations > 1 {
+		t.Errorf("после постановки поворачивали %d лент (рука не помнит поворот)", rotations)
+	}
+	mid, err := h.B.EntityAt("transport-belt", pos[2])
+	if err != nil || mid == nil {
+		t.Fatalf("средней ленты нет (%v)", err)
+	}
+	for _, d := range []int{layout.N, layout.E} {
+		if err := h.Rotate(ctx, *mid, d); err != nil {
+			t.Fatalf("поворот средней в %d: %v", d, err)
+		}
+	}
+	for _, i := range []int{1, 3} {
+		if st, _ := h.B.GetEntity("transport-belt", pos[i]); st == nil || st.Direction == nil || *st.Direction != dirs[i] {
+			t.Errorf("соседняя лента %d повёрнута: %+v", i+1, st)
+		}
+	}
+	t.Logf("поворачивали после постановки: %d", rotations)
 	clean(t, h)
 }

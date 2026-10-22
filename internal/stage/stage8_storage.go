@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -18,6 +19,9 @@ import (
 // s8Free — свободных ячеек инвентаря перед постройкой не меньше (стадии с хранением): место
 // под срубленное на месте постройки (стадия 11: «дерево не поднять — инвентарь полон»).
 const s8Free = 5
+
+// s8Batch — сколько одинаковых построек ставить одним вызовом (рука не меняется).
+const s8Batch = 40
 
 // s8Raw — что убирать в хранение при постройке: сырьё с вырубки и руда.
 var s8Raw = []string{"wood", "stone", "iron-ore", "copper-ore"}
@@ -91,25 +95,27 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 		if err := s.have(ctx, name, len(todo)); err != nil {
 			return err
 		}
-		for _, pl := range todo {
+		// одинаковое — подряд одним вызовом (рука не меняется между постановками), пачками по
+		// s8Batch: между пачками — место в инвентаре под срубленное
+		for len(todo) > 0 {
+			batch := todo[:min(len(todo), s8Batch)]
+			todo = todo[len(batch):]
 			if s.useStore { // место под срубленное на месте постройки (деревья, камни): в
 				// хранение — только сырьё с вырубки, постройки и запас стадии остаются
 				p, err := s.h.B.Player()
 				if err != nil {
 					return err
 				}
-				var keep []string
-				for it := range p.Inventory {
-					if !slices.Contains(s8Raw, it) {
-						keep = append(keep, it)
-					}
-				}
-				if err := s.store(ctx, s8Free, keep...); err != nil {
+				if err := s.store(ctx, s8Free, keepBuilt(p)...); err != nil {
 					return err
 				}
 			}
-			if _, err := s.h.Place(ctx, pl.Name, pl.Pos, pl.Dir); err != nil {
-				return fmt.Errorf("поставить %s в (%.1f, %.1f): %w", pl.Name, pl.Pos.X, pl.Pos.Y, err)
+			pos, dirs := make([]bridge.Pos, len(batch)), make([]int, len(batch))
+			for i, pl := range batch {
+				pos[i], dirs[i] = pl.Pos, pl.Dir
+			}
+			if _, err := s.h.PlaceDirs(ctx, name, pos, dirs); err != nil {
+				return fmt.Errorf("поставить %s ×%d с (%.1f, %.1f): %w", name, len(batch), pos[0].X, pos[0].Y, err)
 			}
 		}
 	}

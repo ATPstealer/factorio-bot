@@ -546,7 +546,37 @@ func (h *Hands) pickFromInventory(ctx context.Context, item string) error {
 		return err
 	}
 	if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return cursorName(p) == item }); err != nil {
-		return fmt.Errorf("act: клик по ячейке %d не дал %s в руку: %w", slot, item, err)
+		// клик потерялся (стадия 13 на 794457638, сразу после крафта 409 лент) — ещё раз, с
+		// заново открытым окном и свежими ячейками
+		h.debugShot("pick-" + item)
+		if err := h.ClearCursor(ctx); err != nil {
+			return err
+		}
+		if err := h.CloseGUI(ctx); err != nil {
+			return err
+		}
+		if err := h.OpenInventory(ctx); err != nil {
+			return err
+		}
+		if p, err = h.B.Player(); err != nil {
+			return err
+		}
+		for _, s := range p.InventorySlots {
+			if s.Name == item {
+				slot = s.Slot
+				break
+			}
+		}
+		i = slot - 1
+		if err := h.at(point{L.InvSlot1.X + (i%L.Cols)*L.SlotStep, L.InvSlot1.Y + (i/L.Cols)*L.SlotStep}); err != nil {
+			return err
+		}
+		if err := h.In.Click(input.Left); err != nil {
+			return err
+		}
+		if _, err := h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return cursorName(p) == item }); err != nil {
+			return fmt.Errorf("act: клик по ячейке %d не дал %s в руку: %w", slot, item, err)
+		}
 	}
 	// на панель — в следующий раз хватит клавиши: в свободный слот, а свободных нет — по кругу
 	// вместо того, что там было (номер следующего — в памяти, Hands.qbNext)

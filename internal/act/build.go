@@ -189,12 +189,16 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 	} else {
 		h.Say("ставлю %s ×%d%s", it.PlaceResult, len(positions), dirName(dir))
 	}
-	// предмет в руке с прошлого шага повёрнут неизвестно как — убрать: взятый заново смотрит
-	// на север (иначе первая постановка — наугад: подземки вставали не тем концом)
-	if err := h.ClearCursor(ctx); err != nil {
-		return nil, err
+	// поворот руки — из памяти (игра сохраняет его и для заново взятого предмета: стадия 13,
+	// каждая лента вставала не туда при «взятый смотрит на север»); после каждой постановки
+	// сверяется с тем, как встала постройка
+	if q, err := h.B.Player(); err == nil && cursorName(q) != item {
+		if err := h.ClearCursor(ctx); err != nil {
+			return nil, err
+		}
 	}
-	hand := 0 // куда смотрит предмет в руке
+	hand := h.handDir // куда смотрит предмет в руке
+	defer func() { h.handDir = hand }()
 	// held — предмет точно в руке (после удачной постановки игра доливает руку из инвентаря,
 	// пока он есть): не спрашивать игру перед каждой постановкой
 	held, stock := false, -1
@@ -274,12 +278,9 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 				}
 				held = true
 			}
-			if fresh {
-				hand = 0
-			}
-			if fresh || hand != want {
-				// взятый в руку предмет смотрит на север — сразу довернуть (иначе первая
-				// постройка встанет не так и её придётся переставлять); дальше — от прежнего
+			if hand != want {
+				// довернуть руку от запомненного поворота (иначе постройка встанет не так и её
+				// придётся поворачивать)
 				for k := ((want-hand)/4%4 + 4) % 4; k > 0; k-- {
 					if err := h.In.Tap("r"); err != nil {
 						return built, err
@@ -338,7 +339,9 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			left = removeInt(left, i)
 			if !exit && e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
 				misrotated = append(misrotated, i)
-				// рука смотрит, куда встала постройка: следующая постановка довернёт
+			}
+			if e.Direction != nil && !exit && !ug && w == hh {
+				// рука смотрит, куда встала постройка (сверка памяти): следующая довернёт от неё
 				hand = *e.Direction
 			}
 		}
@@ -505,6 +508,9 @@ func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
 	if err := h.waitStill(ctx); err != nil {
 		return err
 	}
+	if err := h.ClearCursor(ctx); err != nil { // с предметом в руке R поворачивает руку
+		return err
+	}
 	if err := h.Hover(ctx, e); err != nil {
 		return err
 	}
@@ -528,6 +534,15 @@ func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
 		}
 		if d == dir || h.Protos.Entities[e.Name].Type == "generator" && d%8 == dir%8 {
 			return nil // у симметричных (паровой двигатель) d и d+8 — одно
+		}
+		// R — только когда выделена именно она: ленты вплотную, курсор мог выделить соседнюю
+		// (стадия 13 на 851731946: «не повернулся» — поворачивалась соседняя)
+		if p, err := h.B.Player(); err != nil {
+			return err
+		} else if !same(p.Selected, e) {
+			if err := h.Hover(ctx, e); err != nil {
+				return err
+			}
 		}
 		if err := h.In.Tap("r"); err != nil {
 			return err
