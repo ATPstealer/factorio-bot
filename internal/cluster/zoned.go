@@ -28,6 +28,15 @@ type ZoneLane struct {
 	Item string `json:"item"`
 	Y    int    `json:"y"`
 	Fed  bool   `json:"fed,omitempty"`
+	From int    `json:"from,omitempty"` // X самого раннего подвода: отводы — только ниже по течению
+}
+
+// feed — подвод в ленту у x: запомнить самый ранний.
+func (ln *ZoneLane) feed(x int) {
+	if !ln.Fed || x < ln.From {
+		ln.From = x
+	}
+	ln.Fed = true
 }
 
 func (zb *ZBus) lane(item string) *ZoneLane {
@@ -279,14 +288,15 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		}
 		return res
 	}
-	route := func(from Port, to []Port, tag string) error {
+	// route — лента из from в первый из to, куда проводится; возвращает его
+	route := func(from Port, to []Port, tag string) (Port, error) {
 		var err error = layout.ErrNoRoute
 		for _, p := range to {
 			if _, err = l.RouteBelt(from.T, from.Dir, p.T, p.Dir, tag); err == nil {
-				return nil
+				return p, nil
 			}
 		}
-		return err
+		return Port{}, err
 	}
 	outPort := func(c *Cluster) (Port, bool) {
 		for _, p := range c.Ports {
@@ -348,10 +358,11 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			to = append(to, Port{T: world.Tile{X: bus.Rect.Min.X - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true})
 		}
 		to = append(to, sidePorts(bus, ln, bus.Rect.Min.X, bus.Rect.Min.X+12)...)
-		if err := route(op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name); err != nil {
+		p, err := route(op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
+		if err != nil {
 			return fmt.Errorf("добыча %s → %s (%s): %w", c.Name, bus.Name, c.Product, err)
 		}
-		ln.Fed = true
+		ln.feed(p.T.X)
 		return nil
 	}
 	// уголь: лента с добычи прямо на станцию (мимо шин), с неё делителем — в голову ленты шины
@@ -378,7 +389,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			continue
 		}
 		mark := l.Mark()
-		if err := route(op, []Port{pp}, LogisticsTag+"/"+pw.Name); err != nil {
+		if _, err := route(op, []Port{pp}, LogisticsTag+"/"+pw.Name); err != nil {
 			return &ConnectError{pw, fmt.Errorf("уголь %s → %s: %w", m.Name, pw.Name, err)}
 		}
 		powered = true
@@ -396,13 +407,13 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		err := layout.ErrNoRoute
 		for _, p := range to {
 			if err = SplitTap(l, line, p, LogisticsTag+"/"+bus.Name+"/"+m.Name, 60); err == nil {
+				ln.feed(p.T.X)
 				break
 			}
 		}
 		if err != nil {
 			return fmt.Errorf("уголь %s → %s (отвод со станции): %w", m.Name, bus.Name, err)
 		}
-		ln.Fed = true
 	}
 	for _, c := range b.Clusters {
 		if c.Kind == Mine && c.Product != "coal" {
@@ -411,7 +422,8 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 		}
 	}
-	// выходы этажей — боком в ленты шины над собой, у своих столбцов
+	// выходы этажей — боком в ленты шины над собой, ближе к голове ленты (шина течёт от головы:
+	// потребители берут ниже по течению — у поставщика правее головы им ничего не дойдёт)
 	for _, c := range b.Clusters {
 		f := floorOf(c)
 		op, ok := outPort(c)
@@ -423,17 +435,16 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		if ln == nil {
 			continue // продукт выше не нужен (буфер выхода)
 		}
-		to := sidePorts(bus, ln, c.Area.Min.X-20, c.Area.Max.X+20)
-		sort.SliceStable(to, func(i, j int) bool {
-			return math.Abs(float64(to[i].T.X-op.T.X)) < math.Abs(float64(to[j].T.X-op.T.X))
-		})
+		to := sidePorts(bus, ln, bus.Rect.Min.X, c.Area.Max.X+20)
+		sort.SliceStable(to, func(i, j int) bool { return to[i].T.X < to[j].T.X })
 		if len(to) > 40 {
 			to = to[:40]
 		}
-		if err := route(op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name); err != nil {
+		p, err := route(op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
+		if err != nil {
 			return &ConnectError{c, fmt.Errorf("%s → %s (%s): %w", c.Name, bus.Name, op.Item, err)}
 		}
-		ln.Fed = true
+		ln.feed(p.T.X)
 	}
 	// сквозные ленты: голова ленты шины k — отводом с той же ленты шины k-1
 	for k := 1; k < len(buses); k++ {
@@ -447,11 +458,11 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 				continue
 			}
 			p := Port{T: world.Tile{X: buses[k].Rect.Min.X - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}
-			line := laneBelts(buses[k-1], low, buses[k-1].Rect.Min.X, buses[k-1].Rect.Min.X+40)
+			line := laneBelts(buses[k-1], low, low.From+1, low.From+41) // ниже подвода
 			if err := SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err != nil {
 				return fmt.Errorf("сквозная %s → %s (%s): %w", buses[k-1].Name, buses[k].Name, ln.Item, err)
 			}
-			ln.Fed = true
+			ln.feed(p.T.X)
 		}
 	}
 	// входы: делителем с ленты шины снизу (снабжение — и сверху), у своих столбцов
@@ -470,7 +481,9 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 					continue
 				}
 				if ln := buses[k].lane(p.Item); ln != nil && len(line) == 0 {
-					line = laneBelts(buses[k], ln, c.Area.Min.X-40, c.Area.Max.X+40)
+					// только ниже подвода: выше по течению предмета на ленте нет
+					x0 := max(c.Area.Min.X-40, ln.From+1)
+					line = laneBelts(buses[k], ln, x0, max(c.Area.Max.X+40, x0+60))
 				}
 			}
 			if len(line) == 0 {
