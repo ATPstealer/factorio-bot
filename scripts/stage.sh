@@ -26,8 +26,8 @@ if [[ $from != "$to" ]]; then
   exit 0
 fi
 n=$from
+go build -o bin/bot ./cmd/bot || exit 1
 if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
-  go build -o bin/bot ./cmd/bot || exit 1
   k=0
   for seed in "$@"; do
     k=$((k + 1))

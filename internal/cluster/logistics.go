@@ -352,6 +352,15 @@ func SplitTap(l *layout.Layout, line []layout.Placement, p Port, tag string, tri
 		if q := l.At(t); q != nil && q.Name != "transport-belt" {
 			continue // уже делитель (прошлый отвод)
 		}
+		fed := false // сюда сбоку въезжает подвод: делитель его оборвёт
+		for _, side := range []int{(d + 4) % 16, (d + 12) % 16} {
+			if q := l.At(layout.Step(t, side)); q != nil && (q.Name == "transport-belt" || q.Name == "underground-belt" && q.Recipe == "output") && q.Dir == (side+8)%16 {
+				fed = true
+			}
+		}
+		if fed {
+			continue
+		}
 		if pd, ok := dir[layout.Step(t, (d+8)%16)]; !ok || pd != d {
 			continue
 		}

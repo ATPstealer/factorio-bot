@@ -163,9 +163,19 @@ func (b *Base) grid() *grid {
 	g.ring = make([]int32, n)
 	b.g = g
 	for _, c := range b.Clusters { // уже размеченные кластеры
-		g.mark(c.Area.Grow(Corridor))
+		g.mark(b.occupied(c))
 	}
 	return g
+}
+
+// occupied — что кластер c занимает в разметке: Area с бордюром; в зоне производства — весь
+// столбец зоны (рост вдоль ряда, друг над другом кластеры не ставятся).
+func (b *Base) occupied(c *Cluster) Rect {
+	occ := c.Area.Grow(b.border(c))
+	if c.Upright && c.Zone != nil {
+		occ.Min.Y, occ.Max.Y = min(occ.Min.Y, c.Zone.Min.Y), max(occ.Max.Y, c.Zone.Max.Y)
+	}
+	return occ
 }
 
 func prefix(v []bool, w, h int) []int32 {
@@ -289,11 +299,7 @@ func (b *Base) Place(c *Cluster) error {
 	} else {
 		c.Rect.Max.Y = c.Rect.Min.Y + l
 	}
-	occ := c.Area.Grow(b.border(c))
-	if c.Upright && c.Zone != nil { // столбец зоны — целиком кластеру (рост вдоль ряда)
-		occ.Min.Y, occ.Max.Y = min(occ.Min.Y, c.Zone.Min.Y), max(occ.Max.Y, c.Zone.Max.Y)
-	}
-	b.g.mark(occ)
+	b.g.mark(b.occupied(c))
 	b.Clusters = append(b.Clusters, c)
 	return nil
 }

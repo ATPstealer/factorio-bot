@@ -124,7 +124,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			for _, c := range all {
 				h.Say("кластер %v", c)
 			}
-			if err := s5Draw(h, rough.Zones, base, l); err != nil {
+			if err := s5Draw(h, rough.Zones, base, l, s5Image()); err != nil {
 				return err
 			}
 			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: s5Image()}, "", " ")
@@ -135,7 +135,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			s5Draw(h, rough.Zones, base, l) // что вышло — на картинку
+			s5Draw(h, rough.Zones, base, l, s5Image()) // что вышло — на картинку
 			return err
 		}
 		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
@@ -149,18 +149,21 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 }
 
 // s5Image — картинка плана: run/stages/s5-<сид>.png.
-func s5Image() string {
+func s5Image() string { return stageImage(5) }
+
+// stageImage — картинка стадии n: run/stages/s<n>-<сид>.png.
+func stageImage(n int) string {
 	var m struct {
 		Seed int64 `json:"seed"`
 	}
 	if data, err := os.ReadFile(runPath("map.json")); err == nil {
 		json.Unmarshal(data, &m)
 	}
-	return filepath.Join("run/stages", fmt.Sprintf("s5-%d.png", m.Seed))
+	return filepath.Join("run/stages", fmt.Sprintf("s%d-%d.png", n, m.Seed))
 }
 
-// s5Draw — картинка: карта, зоны, кластеры с бордюрами и раскладка.
-func s5Draw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout) error {
+// s5Draw — картинка в файл path: карта, зоны, кластеры с бордюрами и раскладка.
+func s5Draw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, path string) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
 		r := c.Area.Grow(cluster.Corridor)
@@ -182,7 +185,7 @@ func s5Draw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.La
 	if l != nil {
 		l.Draw(img, ro)
 	}
-	f, err := os.Create(s5Image())
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
