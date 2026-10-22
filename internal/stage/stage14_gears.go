@@ -12,6 +12,7 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Стадия 14 (stages.md): кластер шестерён по плану стадии 5, сразу как положено — отвод железа
@@ -49,7 +50,7 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 	for _, pl := range plan.Layout {
 		all.Add(pl)
 	}
-	buf, err := s12OutBuffer(h, all, c, 1) // сборщик — медленнее плавки: один инсертер буфера
+	buf, err := makeOutBuffer(h, all, c, res, product)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -70,6 +71,37 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 		return nil, nil, err
 	}
 	return res, c, os.WriteFile(file, data, 0o644)
+}
+
+// makeOutBuffer — буфер выхода сборки: инсертер с фильтром на продукт и сундук за концом
+// ленты продукта шины — туда доходит только то, что не взяли потребители (излишек). На
+// выходной ленте кластера инсертер забирал весь выход медленной сборки (красная наука
+// 0.1 шт/с) — на шину не шло ничего.
+func makeOutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, res []layout.Placement, product string) ([]layout.Placement, error) {
+	var end *layout.Placement
+	for i, pl := range res {
+		if pl.Name == "transport-belt" && pl.Recipe == product && strings.HasPrefix(pl.Tag, "c/bus-") && (end == nil || pl.Pos.X > end.Pos.X) {
+			end = &res[i]
+		}
+	}
+	if end == nil {
+		return nil, fmt.Errorf("на шине нет ленты %s", product)
+	}
+	t := world.TileOf(end.Pos)
+	tag := "outbuf/" + c.Name
+	for _, d := range []int{end.Dir, (end.Dir + 4) % 16, (end.Dir + 12) % 16} {
+		ins := layout.Step(t, d)
+		box := layout.Step(ins, d)
+		if !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
+			continue
+		}
+		pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: product, Tag: tag}
+		pc := layout.Placement{Name: chest, Pos: box.Center(), Tag: tag}
+		all.Add(pi)
+		all.Add(pc)
+		return []layout.Placement{pi, pc}, nil
+	}
+	return nil, fmt.Errorf("у конца ленты %s шины нет места под буфер выхода", product)
 }
 
 // runMake — построить завод (машины, ленты, инсертеры, столбы), рецепты сборщиков, фильтры
