@@ -55,6 +55,18 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		return list, err
 	case 16:
 		return s16Layout(h)
+	case 19:
+		grow, err := s19GrowLayout(h)
+		if err != nil {
+			return nil, err
+		}
+		list, _, err := makeLayout(h, s19Product, 19)
+		return append(grow, list...), err
+	case 20, 21, 22:
+		list, _, err := makeLayout(h, map[int]string{20: "inserter", 21: "transport-belt", 22: s18Green}[n], n)
+		return list, err
+	case 23:
+		return s23Layout(h)
 	}
 	return nil, nil
 }
