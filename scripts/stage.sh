@@ -8,7 +8,7 @@
 #                                продолжить с неё же: scripts/stage.sh K-M …)
 #   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0)
-#   LIMIT=мин                  — лимит стадии (по умолчанию 60, разведка — 180)
+#   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 180)
 # Лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt; код 0 — выполнена на всех картах.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -43,7 +43,7 @@ if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
   exit 0
 fi
 source scripts/inst.sh
-limit=${LIMIT:-$([[ $n == 3 ]] && echo 180 || echo 60)}
+limit=${LIMIT:-$([[ $n == 3 ]] && echo 180 || echo 120)}
 code=0
 for seed in "$@"; do
   log=run/stages/s$n-$seed.log
