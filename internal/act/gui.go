@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -547,26 +548,49 @@ func (h *Hands) pickFromInventory(ctx context.Context, item string) error {
 	if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return cursorName(p) == item }); err != nil {
 		return fmt.Errorf("act: клик по ячейке %d не дал %s в руку: %w", slot, item, err)
 	}
-	// привязать к первому свободному слоту панели — в следующий раз хватит клавиши
-	for i, q := range p.Quickbar {
-		if q != "" {
-			continue
-		}
-		h.Say("привязываю %s к клавише %s", item, quickbarKeys[i])
-		if err := h.at(L.Quickbar[i]); err != nil {
+	// на панель — в следующий раз хватит клавиши: в свободный слот, а свободных нет — по кругу
+	// вместо того, что там было (номер следующего — в памяти, Hands.qbNext)
+	q := slices.Index([]string(p.Quickbar), "")
+	if q < 0 && len(p.Quickbar) > 0 {
+		q = h.qbNext % len(p.Quickbar)
+		h.qbNext = q + 1
+	}
+	if q >= 0 && q < len(L.Quickbar) {
+		if err := h.bindQuickbar(ctx, q, item, p.Quickbar[q] != ""); err != nil {
 			return err
 		}
-		if err := h.In.Click(input.Left); err != nil {
-			return err
-		}
-		if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool {
-			return len(p.Quickbar) > i && p.Quickbar[i] == item && cursorName(p) == item
-		}); err != nil {
-			return fmt.Errorf("act: не привязался слот панели %d: %w", i+1, err)
-		}
-		break
 	}
 	return h.CloseGUI(ctx)
+}
+
+// bindQuickbar — предмет в руке (item) — на слот i быстрой панели; busy — слот занят другим:
+// сначала очистить его средней кнопкой (рука не меняется), потом ЛКМ. ЛКМ или ПКМ по
+// занятому слоту с предметом в руке не заменяют его, а берут в руку то, что в слоте
+// (проверено в игре, 2.0.77).
+func (h *Hands) bindQuickbar(ctx context.Context, i int, item string, busy bool) error {
+	L := h.Layout
+	h.Say("привязываю %s к клавише %s", item, quickbarKeys[i])
+	bound := func(p bridge.Player) bool {
+		return len(p.Quickbar) > i && p.Quickbar[i] == item && cursorName(p) == item
+	}
+	if err := h.at(L.Quickbar[i]); err != nil {
+		return err
+	}
+	if busy {
+		if err := h.In.Click(input.Middle); err != nil {
+			return err
+		}
+		if _, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return len(p.Quickbar) > i && p.Quickbar[i] == "" }); err != nil {
+			return fmt.Errorf("act: слот панели %d не очистился: %w", i+1, err)
+		}
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	if _, err := h.waitFor(ctx, time.Second, bound); err != nil {
+		return fmt.Errorf("act: не привязался слот панели %d: %w", i+1, err)
+	}
+	return nil
 }
 
 // Крафт ---------------------------------------------------------------------------

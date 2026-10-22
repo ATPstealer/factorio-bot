@@ -107,6 +107,75 @@ func TestPickFullQuickbar(t *testing.T) {
 	clean(t, h)
 }
 
+// Полная быстрая панель (стадия 12, пользователь: «каждый раз берёт ленту из инвентаря»):
+// предмет не с панели — в руку из инвентаря и на панель по кругу вместо того, что там было;
+// второй раз — клавишей (окно инвентаря не открывается). Три таких предмета подряд — в
+// соседние слоты по кругу.
+func TestQuickbarRotation(t *testing.T) {
+	h := handsT(t)
+	p0, _ := h.B.Player()
+	var off []string // в инвентаре, не на панели
+	for it := range p0.Inventory {
+		if !slices.Contains(p0.Quickbar[:], it) {
+			off = append(off, it)
+		}
+	}
+	sort.Strings(off)
+	full := true
+	for _, q := range p0.Quickbar {
+		full = full && q != ""
+	}
+	if !full || len(off) < 3 {
+		t.Skipf("панель не полна или в инвентаре мало видов не с панели (%d)", len(off))
+	}
+	ctx := ctxT(t, 3*time.Minute)
+	var slots []int
+	for _, it := range off[:3] {
+		if err := h.Pick(ctx, it); err != nil {
+			t.Fatalf("%s: %v", it, err)
+		}
+		if err := h.ClearCursor(ctx); err != nil {
+			t.Fatal(err)
+		}
+		p, _ := h.B.Player()
+		i := slices.Index(p.Quickbar[:], it)
+		if i < 0 {
+			t.Fatalf("%s не попал на панель: %v", it, p.Quickbar)
+		}
+		slots = append(slots, i)
+		// второй раз — клавишей: окно инвентаря не открывается
+		opened := false
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for k := 0; k < 20; k++ {
+				if q, err := h.B.Player(); err == nil && q.OpenedGUIType != nil && *q.OpenedGUIType != 0 {
+					opened = true
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}()
+		if err := h.Pick(ctx, it); err != nil {
+			t.Fatalf("%s второй раз: %v", it, err)
+		}
+		<-done
+		if opened {
+			t.Errorf("%s второй раз — через окно инвентаря, а не клавишей", it)
+		}
+		if err := h.ClearCursor(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := len(p0.Quickbar)
+	for k := 1; k < len(slots); k++ {
+		if slots[k] != (slots[k-1]+1)%n {
+			t.Errorf("слоты не по кругу: %v", slots)
+		}
+	}
+	t.Logf("слоты %v", slots)
+	clean(t, h)
+}
+
 // Исследование: окно технологий → поиск → «Start research»; в игре оно текущее или в
 // очереди. Берётся доступная наукой технология (предпосылки изучены).
 func TestStartResearch(t *testing.T) {
