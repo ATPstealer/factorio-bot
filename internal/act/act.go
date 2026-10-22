@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/bridge"
@@ -215,6 +216,17 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		for replan := 0; ; replan++ {
 			err := h.followPath(ctx, target, stop)
 			if errors.Is(err, world.ErrNoPath) && replan < 3 {
+				// щель уже запаса модели (персонаж сюда как-то зашёл) — сначала протиснуться:
+				// между бурами «обступили» оказывалось ложным, бот разбирал постройки и не
+				// выбирался (тест угольных пар на 1039746529-0)
+				if replan == 0 {
+					h.World.Squeeze = true
+					serr := h.followPath(ctx, target, stop)
+					h.World.Squeeze = false
+					if serr == nil {
+						break
+					}
+				}
 				// обступили свои постройки — поднять, выйти, поставить назад
 				p, _ := h.B.Player()
 				if !unstuckTried && h.World.Enclosed(p.Position) {
@@ -223,15 +235,6 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 						return uerr
 					}
 					continue
-				}
-				// щель уже запаса модели (персонаж сюда как-то зашёл) — протиснуться
-				if replan == 0 {
-					h.World.Squeeze = true
-					serr := h.followPath(ctx, target, stop)
-					h.World.Squeeze = false
-					if serr == nil {
-						break
-					}
 				}
 				// за кольцом своих построек (трубы вокруг химзаводов) — пролом
 				if ok, berr := h.breach(ctx, target); berr != nil {
@@ -907,6 +910,38 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		}
 		if !h.World.Enclosed(p.Position) {
 			break
+		}
+	}
+	// своё убрано, а выхода нет — закрывают деревья и камни: рубить ближайшие (устранимое не
+	// обходить; тест угольных пар на 1039746529-0: «не выбраться»)
+	for k := 0; k < 12 && h.World.Enclosed(p.Position); k++ {
+		var best *world.Object
+		bd := math.Inf(1)
+		for _, o := range h.World.ObjectsNear(p.Position, 4) {
+			rock := o.Type == "simple-entity" && strings.Contains(o.Name, "rock")
+			if o.Own || o.Type != "tree" && !rock {
+				continue
+			}
+			if d := dist(p.Position, o.Pos); d < bd {
+				o := o
+				best, bd = &o, d
+			}
+		}
+		if best == nil {
+			break
+		}
+		e, err := h.B.EntityAt(best.Name, best.Pos)
+		if err != nil {
+			return err
+		}
+		if e != nil {
+			h.Say("обступили деревья — рублю %s", e.Name)
+			if err := h.Mine(ctx, *e, 10*time.Second); err != nil && ctx.Err() != nil {
+				return err
+			}
+		}
+		if _, err := h.World.Sync(h.B, false); err != nil {
+			return err
 		}
 	}
 	if h.World.Enclosed(p.Position) {

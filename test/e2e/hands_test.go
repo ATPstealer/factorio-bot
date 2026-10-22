@@ -496,7 +496,15 @@ func TestRefuelFiveCoalPairs(t *testing.T) {
 func TestPlaceBeltRun(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "transport-belt", 20)
-	c := freeArea(t, h, 12)
+	// площадка — в стороне (тесты не убирают за собой: ленты у персонажа мешали TestWalk)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y - 25}, 12, 12, 60, &p0.Position)
+	if !ok {
+		t.Skip("нет свободной площадки 12×12")
+	}
 	x0, y0 := math.Floor(c.X)-2.5, math.Floor(c.Y)-2.5
 	var pos []bridge.Pos
 	var dirs []int
