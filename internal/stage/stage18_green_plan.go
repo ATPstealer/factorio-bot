@@ -100,10 +100,17 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	// свои постройки — не помеха (они в плане); прочие — как обычно
+	// свои постройки по плану — не помеха (они в плане); свои вне плана (столбы стадий к
+	// лабораториям и т.п.) и прочие — препятствие
+	planned := map[string]bool{}
+	for _, pl := range old.Layout {
+		t := world.TileOf(pl.Pos)
+		planned[fmt.Sprintf("%s@%d,%d", pl.Name, t.X, t.Y)] = true
+	}
 	var own []world.Object
 	for _, o := range h.World.Objects() {
-		if o.Own {
+		t := world.TileOf(o.Pos)
+		if o.Own && planned[fmt.Sprintf("%s@%d,%d", o.Name, t.X, t.Y)] {
 			own = append(own, o)
 		}
 	}
