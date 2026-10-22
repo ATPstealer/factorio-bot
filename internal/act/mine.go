@@ -39,6 +39,25 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 		if err := h.guard(ctx); err != nil {
 			return err
 		}
+		// цель дальше досягаемости (подход застрял в лесу — стадия 12 на 859088572: рубил сухой
+		// ствол с 5 тайлов) — подойти ещё раз; не подошли — так и сказать, а не «не добывает»
+		if b := h.collisionBox(e); b != nil {
+			reach := func() float64 {
+				p, err := h.B.Player()
+				if err != nil {
+					return 0
+				}
+				return dist(p.Position, closestOnBox(p.Position, *b))
+			}
+			if reach() > mineReachGame {
+				if err := h.WalkToMine(ctx, e); err != nil && !errors.Is(err, ErrNotReached) && !errors.Is(err, ErrStuck) {
+					return err
+				}
+				if d := reach(); d > mineReachGame {
+					return fmt.Errorf("%w до %s (%.1f, %.1f): %.1f тайла", ErrNotReached, e.Name, e.Position.X, e.Position.Y, d)
+				}
+			}
+		}
 	}
 	if err := h.Hover(ctx, e); err != nil {
 		return err
