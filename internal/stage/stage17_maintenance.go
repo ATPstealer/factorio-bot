@@ -21,7 +21,9 @@ const ironChest = "iron-chest"
 
 // s17Keep — что не класть в хранение: понадобится на следующих стадиях (стройка кластеров).
 var s17Keep = []string{"transport-belt", "underground-belt", "splitter", "inserter", "small-electric-pole",
-	"medium-electric-pole", "assembling-machine-1", "assembling-machine-2", ironChest, "electric-mining-drill"}
+	"medium-electric-pole", "assembling-machine-1", "assembling-machine-2", ironChest, "electric-mining-drill",
+	// сырьё крафта стройки
+	"iron-plate", "copper-plate", "iron-gear-wheel", "copper-cable", "electronic-circuit"}
 
 func init() {
 	register(Stage{N: 17, Name: "обслуживание", Run: runMaintenance, Check: checkMaintenance})

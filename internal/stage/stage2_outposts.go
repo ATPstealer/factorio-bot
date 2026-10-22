@@ -26,13 +26,15 @@ import (
 const (
 	drill   = "burner-mining-drill"
 	furnace = "stone-furnace"
-	chest   = "wooden-chest"
 	s2Plan  = "state-stage2.json"
 	s2Fuel  = 20 // угля в бур или печь: доливать до стольких
 	s2Full  = 50 // в конце стадии — до стольких в каждый бур и печь
 	s2Low   = 3  // когда топлива меньше — доливать
 	s2Back  = 5  // забрав уголь с пары, вернуть каждому буру
 )
+
+// chest — сундук стадий: деревянный до обслуживания, с него (стадия 17) — железный (stage.Do).
+var chest = "wooden-chest"
 
 // s2Site — точка: вид (coal, iron-ore, copper-ore, stone) и её постройки по порядку стройки.
 type s2Site struct {
