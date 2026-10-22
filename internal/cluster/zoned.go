@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -131,7 +132,10 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			return nil, &NoSiteError{c, fmt.Errorf("cluster: в зонах добычи %s нет места под %s", c.Product, c.Name)}
 		}
 	}
-	for _, c := range cs {
+	// этажи снизу вверх: поставщики входов стоят раньше потребителей
+	order := slices.Clone(cs)
+	sort.SliceStable(order, func(i, j int) bool { return floorOf(order[i]) < floorOf(order[j]) })
+	for _, c := range order {
 		f := floorOf(c)
 		switch {
 		case c.Kind == Mine:
@@ -143,6 +147,19 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			r := power.Grow(4)
 			c.Zone = &r
 		case f > 0:
+			// не левее поставщиков своих входов с этажей ниже: продукт кладётся в ленту шины у
+			// столбца поставщика, отвод — только ниже по течению (zones.md)
+			for _, in := range c.In {
+				first := math.MaxInt // самый левый поставщик предмета
+				for _, p := range b.Clusters {
+					if f2 := floorOf(p); f2 > 0 && f2 < f && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
+						first = min(first, p.Area.Min.X)
+					}
+				}
+				if first != math.MaxInt && (c.MinX == nil || first > *c.MinX) {
+					c.MinX = &first
+				}
+			}
 			// части этажа слева направо — первая, где есть место; ряд — поперёк шин
 			var err error = fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
 			for _, r := range floor[f] {
@@ -422,8 +439,8 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 		}
 	}
-	// выходы этажей — боком в ленты шины над собой, ближе к голове ленты (шина течёт от головы:
-	// потребители берут ниже по течению — у поставщика правее головы им ничего не дойдёт)
+	// выходы этажей — боком в ленты шины над собой, у своих столбцов (к голове — нельзя: лента
+	// ляжет вдоль зазора между лентами шины и закроет его другим); отводы — ниже по течению
 	for _, c := range b.Clusters {
 		f := floorOf(c)
 		op, ok := outPort(c)
@@ -435,8 +452,10 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		if ln == nil {
 			continue // продукт выше не нужен (буфер выхода)
 		}
-		to := sidePorts(bus, ln, bus.Rect.Min.X, c.Area.Max.X+20)
-		sort.SliceStable(to, func(i, j int) bool { return to[i].T.X < to[j].T.X })
+		to := sidePorts(bus, ln, c.Area.Min.X-20, c.Area.Max.X+20)
+		sort.SliceStable(to, func(i, j int) bool {
+			return math.Abs(float64(to[i].T.X-op.T.X)) < math.Abs(float64(to[j].T.X-op.T.X))
+		})
 		if len(to) > 40 {
 			to = to[:40]
 		}
@@ -457,12 +476,21 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			if low == nil {
 				continue
 			}
-			p := Port{T: world.Tile{X: buses[k].Rect.Min.X - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}
-			line := laneBelts(buses[k-1], low, low.From+1, low.From+41) // ниже подвода
-			if err := SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err != nil {
+			// отвод — ниже подвода в нижнюю ленту; в ленту шины k — в голову или боком до места
+			// отвода (подвод в нижнюю бывает не у головы)
+			line := laneBelts(buses[k-1], low, low.From+1, low.From+81)
+			to := append([]Port{{T: world.Tile{X: buses[k].Rect.Min.X - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}},
+				sidePorts(buses[k], ln, buses[k].Rect.Min.X, low.From+41)...)
+			err := layout.ErrNoRoute
+			for _, p := range to {
+				if err = SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err == nil {
+					ln.feed(p.T.X)
+					break
+				}
+			}
+			if err != nil {
 				return fmt.Errorf("сквозная %s → %s (%s): %w", buses[k-1].Name, buses[k].Name, ln.Item, err)
 			}
-			ln.feed(p.T.X)
 		}
 	}
 	// входы: делителем с ленты шины снизу (снабжение — и сверху), у своих столбцов

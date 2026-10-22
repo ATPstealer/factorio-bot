@@ -395,6 +395,9 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 	if z := c.Zone; z != nil && (r.Min.X < z.Min.X || r.Min.Y < z.Min.Y || r.Max.X > z.Max.X || r.Max.Y > z.Max.Y) {
 		return false // только внутри своей зоны
 	}
+	if c.MinX != nil && r.Min.X < *c.MinX {
+		return false // ниже по течению шины, чем поставщики входов
+	}
 	if c.Zone == nil {
 		for _, z := range append(b.zoneRects, b.Keep...) {
 			if ring.Overlaps(z) {
