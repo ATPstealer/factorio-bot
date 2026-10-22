@@ -7,7 +7,7 @@
 #                                прошлую; не выполнена хоть на одной — стоп (чинить, потом
 #                                продолжить с неё же: scripts/stage.sh K-M …)
 #   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
-#   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0)
+#   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0); после — он остановлен
 #   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 180)
 # Лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt; код 0 — выполнена на всех картах.
 set -uo pipefail
@@ -65,4 +65,5 @@ for seed in "$@"; do
     echo "   НЕ выполнена: $(tail -1 "$log" | cut -c17-200)" | tee -a run/stages/summary.txt
   fi
 done
+scripts/stop.sh > /dev/null 2>&1 # экземпляр после прогона не оставлять
 exit $code
