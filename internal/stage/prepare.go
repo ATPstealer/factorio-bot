@@ -112,6 +112,11 @@ func obstacles(h *act.Hands, fp map[world.Tile]bool) []world.Object {
 			continue
 		}
 		b := h.World.CollisionBox(o)
+		if o.Type == "tree" {
+			// крона над постройкой мешает кликать по ней (окно инсертера не открывалось —
+			// курсор выделял дерево): у деревьев — рамка выделения
+			b = h.World.SelectionBox(o)
+		}
 		hit := false
 		for y := int(math.Floor(b.LeftTop.Y)); y < int(math.Ceil(b.RightBottom.Y)) && !hit; y++ {
 			for x := int(math.Floor(b.LeftTop.X)); x < int(math.Ceil(b.RightBottom.X)) && !hit; x++ {

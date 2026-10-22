@@ -1002,18 +1002,11 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 	if err := h.waitStill(ctx); err != nil {
 		return err
 	}
-	if err := h.Hover(ctx, e); err != nil {
-		return err
-	}
-	if err := h.In.Click(input.Left); err != nil {
-		return err
-	}
 	defer h.CloseGUI(ctx)
-	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
-	if _, err := h.waitFor(ctx, time.Second, opened); err != nil {
-		h.debugShot("filter-open")
-		return fmt.Errorf("act: окно %s не открылось: %w", e.Name, err)
+	if err := h.openEntity(ctx, e, "filter-open"); err != nil {
+		return err
 	}
+	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
 	click := func(p point, pause time.Duration) error {
 		if err := h.at(p); err != nil {
 			return err
@@ -1093,18 +1086,11 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	if err := h.waitStill(ctx); err != nil {
 		return err
 	}
-	if err := h.Hover(ctx, e); err != nil {
-		return err
-	}
-	if err := h.In.Click(input.Left); err != nil {
-		return err
-	}
 	defer h.CloseGUI(ctx)
-	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
-	if _, err := h.waitFor(ctx, time.Second, opened); err != nil {
-		h.debugShot("recipe-open")
-		return fmt.Errorf("act: окно %s не открылось: %w", e.Name, err)
+	if err := h.openEntity(ctx, e, "recipe-open"); err != nil {
+		return err
 	}
+	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
 	first := h.Layout.RecipeFirst
 	if was != "" {
 		// рецепт уже есть (не тот) — кнопка смены рецепта открывает окно выбора
@@ -1199,3 +1185,65 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 
 // SearchText — что набирать в поиске: английское название ≈ имя без дефисов.
 func SearchText(name string) string { return strings.ReplaceAll(name, "-", " ") }
+
+// openEntity — открыть окно постройки e кликом. Не открылось, а под курсором дерево (крона
+// закрывает постройку: стадия 14 на 794457638, фильтр инсертера) — срубить деревья, чья рамка
+// выделения накрывает e, и ещё раз.
+func (h *Hands) openEntity(ctx context.Context, e bridge.Entity, shot string) error {
+	opened := func(p bridge.Player) bool { return p.OpenedGUIType != nil && *p.OpenedGUIType != 0 }
+	for try := 0; ; try++ {
+		if err := h.Hover(ctx, e); err != nil && (try > 0 || !errors.Is(err, ErrHover)) {
+			return err
+		} else if err == nil {
+			if err := h.In.Click(input.Left); err != nil {
+				return err
+			}
+			if _, err := h.waitFor(ctx, time.Second, opened); err == nil {
+				return nil
+			}
+		}
+		if try > 0 || h.World == nil {
+			h.debugShot(shot)
+			return fmt.Errorf("act: окно %s не открылось", e.Name)
+		}
+		if n, err := h.cutCrowns(ctx, e); err != nil {
+			return err
+		} else if n == 0 {
+			h.debugShot(shot)
+			return fmt.Errorf("act: окно %s не открылось", e.Name)
+		}
+	}
+}
+
+// cutCrowns — срубить деревья, чья рамка выделения (крона) накрывает постройку e; сколько.
+func (h *Hands) cutCrowns(ctx context.Context, e bridge.Entity) (int, error) {
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, o := range h.World.ObjectsNear(e.Position, 6) {
+		if o.Type != "tree" {
+			continue
+		}
+		b := h.World.SelectionBox(o)
+		if !inBox(e.Position, b, 0.6) {
+			continue
+		}
+		t, err := h.B.EntityAt(o.Name, o.Pos)
+		if err != nil {
+			return n, err
+		}
+		if t == nil {
+			continue
+		}
+		h.Say("%s под кроной %s — рублю", e.Name, o.Name)
+		if err := h.WalkToMine(ctx, *t); err != nil && !errors.Is(err, ErrNotReached) {
+			return n, err
+		}
+		if err := h.Mine(ctx, *t, 20*time.Second); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
