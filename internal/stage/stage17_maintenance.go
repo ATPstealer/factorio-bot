@@ -111,7 +111,20 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 		if err := s.have(ctx, ironChest, len(wooden)); err != nil {
 			return err
 		}
-		for i, o := range wooden {
+		for i := 0; len(wooden) > 0; i++ {
+			// следующий — ближайший к персонажу
+			p, err := h.B.Player()
+			if err != nil {
+				return err
+			}
+			k := 0
+			for j, w := range wooden {
+				if dist2(w.Pos, p.Position) < dist2(wooden[k].Pos, p.Position) {
+					k = j
+				}
+			}
+			o := wooden[k]
+			wooden = slices.Delete(wooden, k, k+1)
 			if _, err := h.Place(ctx, ironChest, o.Pos, 0); err != nil {
 				return fmt.Errorf("сундук в (%.1f, %.1f): %w", o.Pos.X, o.Pos.Y, err)
 			}
