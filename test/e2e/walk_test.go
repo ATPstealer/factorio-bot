@@ -224,3 +224,46 @@ func TestExploreArea(t *testing.T) {
 	t.Logf("открыто чанков области: %d → %d из %d", start, count(), 4*half*half)
 	clean(t, h)
 }
+
+// Сквозь густой лес (стадия 12 на 859088572: «застрял у (17.3, 202.4)» среди деревьев,
+// валунов и сухих стволов на прямом доходе к цели за 280 тайлов): самое густое место леса
+// в 200 тайлах от игрока — дойти до точки за ним на 40 тайлов дальше.
+func TestWalkDenseForest(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	const cell = 12
+	count := map[[2]int]int{}
+	for _, c := range h.World.Chunks {
+		for _, o := range c.Objects {
+			if o.Type == "tree" && dist(o.Pos, p.Position) < 200 {
+				count[[2]int{int(math.Floor(o.Pos.X / cell)), int(math.Floor(o.Pos.Y / cell))}]++
+			}
+		}
+	}
+	best, bn := [2]int{}, 0
+	for k, n := range count {
+		if n > bn || n == bn && (k[0] < best[0] || k[0] == best[0] && k[1] < best[1]) {
+			best, bn = k, n
+		}
+	}
+	if bn < 40 {
+		t.Skipf("густого леса рядом нет (самое густое — %d деревьев на %d×%d)", bn, cell, cell)
+	}
+	mid := bridge.Pos{X: float64(best[0]*cell + cell/2), Y: float64(best[1]*cell + cell/2)}
+	d := dist(mid, p.Position)
+	if d < 1 {
+		d = 1
+	}
+	target := bridge.Pos{X: mid.X + (mid.X-p.Position.X)/d*40, Y: mid.Y + (mid.Y-p.Position.Y)/d*40}
+	t.Logf("лес: %d деревьев у (%.0f, %.0f), цель (%.1f, %.1f)", bn, mid.X, mid.Y, target.X, target.Y)
+	ctx := ctxT(t, 4*time.Minute)
+	if err := h.WalkTo(ctx, target, 1); err != nil {
+		if errors.Is(err, act.ErrNotReached) {
+			t.Skipf("цель недостижима: %v", err)
+		}
+		t.Fatal(err)
+	}
+}

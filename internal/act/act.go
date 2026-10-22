@@ -255,8 +255,20 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		}
 	}
 	t1 := time.Now()
-	if err := h.run(ctx, target, stop+brakeDist, true); err != nil {
-		return err
+	for again := 0; ; again++ {
+		err := h.run(ctx, target, stop+brakeDist, true)
+		if err == nil {
+			break
+		}
+		// застрял на прямом доходе (лес гуще модели, стадия 12 на 859088572) — щель отмечена
+		// (MarkStuck): путь заново и снова
+		if !errors.Is(err, ErrStuck) || h.World == nil || again >= 2 {
+			return err
+		}
+		h.Say("застрял — перестраиваю путь")
+		if ferr := h.followPath(ctx, target, stop); ferr != nil && !errors.Is(ferr, ErrStuck) {
+			return ferr
+		}
 	}
 	t2 := time.Now()
 	err := h.approach(ctx, target, stop)
