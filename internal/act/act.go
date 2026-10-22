@@ -453,7 +453,9 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		sideUntil time.Time
 		side      map[string]bool
 		stucks    int
+		cuts      int // срублено застряв (деревья впереди)
 	)
+	const maxCuts = 40
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -484,6 +486,22 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 				}
 				lastMove = time.Now()
 				continue
+			}
+			// застрял в лесу (щели уже модели, стадия 12 на 859088572) — срубить дерево впереди
+			// и идти дальше: устранимое не обходить (правило пользователя)
+			if cuts < maxCuts {
+				if t, ok := h.treeAhead(p.Position, ahead); ok {
+					cuts++
+					release()
+					h.Log("застрял в лесу у (%.1f, %.1f) — рублю %s впереди", p.Position.X, p.Position.Y, t.Name)
+					if e, err := h.B.EntityAt(t.Name, t.Pos); err == nil && e != nil {
+						if err := h.Mine(ctx, *e, 10*time.Second); err != nil && ctx.Err() != nil {
+							return err
+						}
+					}
+					lastMove = time.Now()
+					continue
+				}
 			}
 			stucks++
 			if stucks == 1 {
@@ -525,6 +543,35 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		}
 		time.Sleep(pollEvery)
 	}
+}
+
+// treeAhead — ближайшее дерево впереди (по клавишам ahead) в досягаемости рубки от рамки
+// коллизии персонажа.
+func (h *Hands) treeAhead(at bridge.Pos, ahead map[string]bool) (world.Object, bool) {
+	if h.World == nil {
+		return world.Object{}, false
+	}
+	var dx, dy float64
+	for k, v := range map[string][2]float64{"d": {1, 0}, "a": {-1, 0}, "s": {0, 1}, "w": {0, -1}} {
+		if ahead[k] {
+			dx, dy = dx+v[0], dy+v[1]
+		}
+	}
+	best, bd := world.Object{}, math.Inf(1)
+	for _, o := range h.World.ObjectsNear(at, 3) {
+		if o.Type != "tree" {
+			continue
+		}
+		vx, vy := o.Pos.X-at.X, o.Pos.Y-at.Y
+		if vx*dx+vy*dy <= 0 { // позади или сбоку
+			continue
+		}
+		b := h.World.CollisionBox(o)
+		if d := dist(at, closestOnBox(at, b)); d <= mineReachGame && d < bd {
+			best, bd = o, d
+		}
+	}
+	return best, !math.IsInf(bd, 1)
 }
 
 // approach — доводка короткими нажатиями с остановкой после каждого. Длительность
