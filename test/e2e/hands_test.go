@@ -432,3 +432,56 @@ func TestRefuelCoalPairs(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// Пять угольных пар вплотную, угля у игрока много (стадия 2 на 794457638, 22.10: пятой/шестой
+// закладке легло 4 из 5 при 300+ угля; три игры и три бота шли разом): поставить пары, каждому
+// по 5, поработали — забрать топливо у всех, затем каждому по 5 подряд.
+func TestRefuelFiveCoalPairs(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "burner-mining-drill", 10)
+	have(t, h, "coal", 200)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	var patch []world.Tile
+	bd := math.Inf(1)
+	for _, pt := range h.World.Patches() {
+		if d := math.Hypot(pt.Center.X-p.Position.X, pt.Center.Y-p.Position.Y); pt.Name == "coal" && len(pt.Tiles) >= 100 && d < bd {
+			patch, bd = pt.Tiles, d
+		}
+	}
+	if patch == nil {
+		t.Skip("нет месторождения угля на открытой карте")
+	}
+	l := layout.New(h.Protos, h.World)
+	for i := 0; i < 5; i++ {
+		if err := l.CoalPair(patch, "coal", "burner-mining-drill", world.TileOf(p.Position), "test"); err != nil {
+			t.Skipf("пара %d: %v", i+1, err)
+		}
+	}
+	ctx := ctxT(t, 8*time.Minute)
+	var ds []bridge.Entity
+	for _, pl := range l.List {
+		e, err := h.Place(ctx, pl.Name, pl.Pos, pl.Dir)
+		if err != nil {
+			t.Fatalf("бур в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
+		}
+		if err := h.Insert(ctx, e, "coal", 5); err != nil {
+			t.Fatalf("первая заправка (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
+		}
+		ds = append(ds, e)
+	}
+	time.Sleep(15 * time.Second)
+	for _, e := range ds {
+		if _, err := h.Take(ctx, e); err != nil {
+			t.Fatalf("забрать из (%.1f, %.1f): %v", e.Position.X, e.Position.Y, err)
+		}
+	}
+	for i, e := range ds {
+		if err := h.Insert(ctx, e, "coal", 5); err != nil {
+			t.Errorf("бур %d (%.1f, %.1f): %v", i+1, e.Position.X, e.Position.Y, err)
+		}
+	}
+	clean(t, h)
+}

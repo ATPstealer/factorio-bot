@@ -657,15 +657,24 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 				h.ClearCursor(ctx)
 				return err
 			}
+			// под нагрузкой (несколько игр разом) короткое нажатие теряется — держать дольше,
+			// паузы и ожидание длиннее (автоповтор Z — после ~0.3 с удержания, 100 мс — одно)
 			for i := 0; i < lack; i++ {
-				if err := h.In.Tap("z"); err != nil {
+				if err := h.In.KeyDown("z"); err != nil {
 					return err
 				}
-				if err := sleep(ctx, zInterval); err != nil {
+				if err := sleep(ctx, 100*time.Millisecond); err != nil {
+					h.In.KeyUp("z")
+					return err
+				}
+				if err := h.In.KeyUp("z"); err != nil {
+					return err
+				}
+				if err := sleep(ctx, 2*zInterval); err != nil {
 					return err
 				}
 			}
-			_, werr = h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
+			_, werr = h.waitFor(ctx, 3*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
 		} else {
 			break
 		}
