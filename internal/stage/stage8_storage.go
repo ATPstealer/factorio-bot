@@ -90,7 +90,7 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 		}
 		for _, pl := range todo {
 			if s.useStore { // место под срубленное на месте постройки (деревья, камни)
-				if err := s.store(ctx, s8Free); err != nil {
+				if err := s.store(ctx, s8Free, names...); err != nil {
 					return err
 				}
 			}

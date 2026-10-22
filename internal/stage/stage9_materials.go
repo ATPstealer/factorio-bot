@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -186,8 +187,9 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 }
 
 // store — свободных ячеек инвентаря меньше free — в хранение то, что не нужно для крафта
-// сейчас: сначала готовые постройки, потом запас (уголь, пластины).
-func (s *s2) store(ctx context.Context, free int) error {
+// сейчас: сначала готовые постройки, потом запас (уголь, пластины); need — что ещё ставить
+// (не убирать).
+func (s *s2) store(ctx context.Context, free int, need ...string) error {
 	p, err := s.h.B.Player()
 	if err != nil {
 		return err
@@ -218,6 +220,7 @@ func (s *s2) store(ctx context.Context, free int) error {
 	}
 	sort.Strings(order)
 	order = append(order, "coal", "iron-plate", "copper-plate", "wood", "stone")
+	order = slices.DeleteFunc(order, func(it string) bool { return slices.Contains(need, it) })
 	s.h.Say("инвентарь полон — кладу в хранение")
 	k := 0
 	for _, it := range order {
