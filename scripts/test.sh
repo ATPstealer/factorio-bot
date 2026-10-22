@@ -28,7 +28,10 @@ echo "карта: $(cat "$R/map.json" 2>/dev/null)"
 # e2e по шаблону: вывод — только итоги и логи тестов; код — go test
 e2e() {
   set +e
-  go test -tags e2e -count=1 -timeout 150m -run "$1" -v ./test/e2e/ | tee "$R/e2e-last.log" | grep --line-buffered -E '^(=== RUN|--- |    |PASS|FAIL|ok|panic|fatal|\[signal|\t/)' | grep --line-buffered -v '^=== RUN'
+  # прогресс после каждого теста — в вывод, $R/e2e-progress.txt и консоль игры (scripts/progress.py)
+  local total
+  total=$(go test -tags e2e -list "$1" ./test/e2e/ 2>/dev/null | grep -c '^Test')
+  go test -tags e2e -count=1 -timeout 150m -run "$1" -v ./test/e2e/ | tee "$R/e2e-last.log" | scripts/progress.py "$total" "$R/e2e-progress.txt" | grep --line-buffered -E '^(=== RUN|--- |    |PASS|FAIL|ok|panic|fatal|\[signal|\t/)' | grep --line-buffered -v '^=== RUN'
   local code=${PIPESTATUS[0]}
   # статистика — test/e2e/stats.tsv и таблица в README (параллельные прогоны — по очереди)
   flock run/stats.lock scripts/test_stats.py "$R/e2e-last.log" "$(date "+%F %R")${SNAP:+ ($SNAP)}"
