@@ -61,7 +61,8 @@ func s16Layout(h *act.Hands) ([]layout.Placement, error) {
 }
 
 // s16Tech — исследование на одной красной науке, доступное (предпосылки изучены), не
-// изученное; самое дешёвое.
+// изученное; самое дорогое: дешёвое (gun-turret) кончалось из буфера пакетов раньше проверки
+// «исследование идёт».
 func s16Tech(h *act.Hands) (string, error) {
 	f, err := h.B.Force()
 	if err != nil {
@@ -90,7 +91,7 @@ func s16Tech(h *act.Hands) (string, error) {
 	cost := func(n string) float64 { t := h.Protos.Technologies[n]; return t.UnitCount * t.UnitTime }
 	sort.Slice(cands, func(i, j int) bool {
 		if cost(cands[i]) != cost(cands[j]) {
-			return cost(cands[i]) < cost(cands[j])
+			return cost(cands[i]) > cost(cands[j])
 		}
 		return cands[i] < cands[j]
 	})
@@ -138,6 +139,14 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 	}
 	deadline := time.Now().Add(8 * time.Minute)
 	for checkLabs(h) != nil && time.Now().Before(deadline) {
+		// исследование кончилось — следующее
+		if f, err := h.B.Force(); err == nil && f.Current == "" {
+			if tech, err := s16Tech(h); err == nil {
+				if err := h.StartResearch(ctx, tech); err != nil {
+					return err
+				}
+			}
+		}
 		if err := sleepCtx(ctx, 10*time.Second); err != nil {
 			return err
 		}
