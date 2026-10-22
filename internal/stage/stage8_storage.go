@@ -15,6 +15,10 @@ import (
 
 // Стадия 8 (stages.md): кластер хранения (склад бота) из плана стадии 5.
 
+// s8Free — свободных ячеек инвентаря перед постройкой не меньше (стадии с хранением): место
+// под срубленное на месте постройки (стадия 11: «дерево не поднять — инвентарь полон»).
+const s8Free = 5
+
 func init() {
 	register(Stage{N: 8, Name: "хранение", Run: runStorage, Check: checkStorage})
 }
@@ -85,6 +89,11 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 			return err
 		}
 		for _, pl := range todo {
+			if s.useStore { // место под срубленное на месте постройки (деревья, камни)
+				if err := s.store(ctx, s8Free); err != nil {
+					return err
+				}
+			}
 			if _, err := s.h.Place(ctx, pl.Name, pl.Pos, pl.Dir); err != nil {
 				return fmt.Errorf("поставить %s в (%.1f, %.1f): %w", pl.Name, pl.Pos.X, pl.Pos.Y, err)
 			}

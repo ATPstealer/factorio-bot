@@ -217,7 +217,7 @@ func (s *s2) store(ctx context.Context, free int) error {
 		}
 	}
 	sort.Strings(order)
-	order = append(order, "coal", "iron-plate", "copper-plate")
+	order = append(order, "coal", "iron-plate", "copper-plate", "wood", "stone")
 	s.h.Say("инвентарь полон — кладу в хранение")
 	k := 0
 	for _, it := range order {
