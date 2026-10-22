@@ -102,15 +102,6 @@ func protosT(t *testing.T) *knowledge.Prototypes {
 	return p
 }
 
-func worldT(t *testing.T) *world.World {
-	t.Helper()
-	w := world.New(protosT(t))
-	if _, err := w.Sync(bridgeT(t), true); err != nil {
-		t.Fatal(err)
-	}
-	return w
-}
-
 // freeArea — центр свободной (суша без объектов) площадки size×size рядом с игроком, не под ним.
 func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
 	t.Helper()
