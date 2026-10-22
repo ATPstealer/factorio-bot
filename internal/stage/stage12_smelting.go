@@ -56,7 +56,7 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 		all.Add(pl)
 	}
 	for _, c := range smelt {
-		buf, err := s12OutBuffer(h, all, c)
+		buf, err := s12OutBuffer(h, all, c, s9OutBuffer[chest])
 		if err != nil {
 			return nil, err
 		}
@@ -75,9 +75,11 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 	return res, os.WriteFile(runPath(s12Plan), data, 0o644)
 }
 
-// s12OutBuffer — буфер выхода плавки c: сбоку от выходной ленты (от порта назад) инсертер с
-// фильтром на продукт и сундук за ним; места — свободные от плана.
-func s12OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster) ([]layout.Placement, error) {
+// s12OutBuffer — буфер выхода кластера c: сбоку от выходной ленты (от порта назад) pairs пар
+// «инсертер с фильтром на продукт — сундук»; места — свободные от плана. Инсертер берёт с
+// ленты всё, что успевает (~0.8 шт/с): у сборщика с выходом ~1 шт/с два инсертера забирали
+// всё — на шину не шло ничего (стадия 14).
+func s12OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) ([]layout.Placement, error) {
 	var out *cluster.Port
 	for i := range c.Ports {
 		if !c.Ports[i].In {
@@ -90,14 +92,14 @@ func s12OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster) ([]layou
 	tag := "outbuf/" + c.Name
 	var res []layout.Placement
 	t := layout.Step(out.T, (out.Dir+8)%16)
-	for k := 0; k < 12 && len(res) < 2*s9OutBuffer[chest]; k++ {
+	for k := 0; k < 12 && len(res) < 2*pairs; k++ {
 		b := all.At(t)
 		if b == nil || b.Name != "transport-belt" {
 			break
 		}
 		for _, side := range []int{(b.Dir + 4) % 16, (b.Dir + 12) % 16} {
 			ins, box := layout.Step(t, side), layout.Step(layout.Step(t, side), side)
-			if len(res) >= 2*s9OutBuffer[chest] || !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
+			if len(res) >= 2*pairs || !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
 				continue
 			}
 			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: out.Item, Tag: tag}

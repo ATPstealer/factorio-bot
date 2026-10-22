@@ -49,7 +49,7 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 	for _, pl := range plan.Layout {
 		all.Add(pl)
 	}
-	buf, err := s12OutBuffer(h, all, c)
+	buf, err := s12OutBuffer(h, all, c, 1) // сборщик — медленнее плавки: один инсертер буфера
 	if err != nil {
 		return nil, nil, err
 	}
