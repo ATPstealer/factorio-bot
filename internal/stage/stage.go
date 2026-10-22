@@ -60,6 +60,10 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 		return err
 	}
 	h.Say("стадия %d: %s", s.N, s.Name)
+	// перед стройкой — проверка и расчистка площади плана (stages.md, общее)
+	if err := prepare(ctx, h, n); err != nil {
+		return fmt.Errorf("стадия %d: %w", n, err)
+	}
 	if err := s.Run(ctx, h); err != nil {
 		return fmt.Errorf("стадия %d: %w", n, err)
 	}
