@@ -29,6 +29,7 @@ const (
 	chest   = "wooden-chest"
 	s2Plan  = "state-stage2.json"
 	s2Fuel  = 20 // угля в бур или печь: доливать до стольких
+	s2Full  = 50 // в конце стадии — до стольких в каждый бур и печь
 	s2Low   = 3  // когда топлива меньше — доливать
 	s2Back  = 5  // забрав уголь с пары, вернуть каждому буру
 )
@@ -192,7 +193,8 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	// ранние точки за время стройки сожгли топливо — в конце обойти все и долить
+	// ранние точки за время стройки сожгли топливо — в конце обойти все и долить до полного
+	// (пользователь: по 50); во время стройки — по s2Fuel, угля в начале мало
 	for _, si := range s2Order(sites) {
 		for _, pl := range sites[si].Items {
 			if pl.Name == chest {
@@ -203,7 +205,7 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 				return err
 			}
 			if e != nil {
-				if err := s.fuel(ctx, *e); err != nil {
+				if err := s.fuelTo(ctx, *e, s2Full, s2Full); err != nil {
 					return err
 				}
 			}
@@ -214,12 +216,17 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 
 // fuel — в бур или печь уголь: меньше s2Low — долить до s2Fuel.
 func (s *s2) fuel(ctx context.Context, e bridge.Entity) error {
+	return s.fuelTo(ctx, e, s2Low, s2Fuel)
+}
+
+// fuelTo — в бур или печь уголь: меньше low — долить до to.
+func (s *s2) fuelTo(ctx context.Context, e bridge.Entity, low, to int) error {
 	st, err := s.h.B.GetEntity(e.Name, e.Position)
 	if err != nil || st == nil {
 		return err
 	}
 	have := st.Inventories["fuel"]["coal"]
-	if have >= s2Low {
+	if have >= low {
 		return nil
 	}
 	// угля много — Ctrl+клик (весь слот разом), а не по штуке
@@ -227,10 +234,17 @@ func (s *s2) fuel(ctx context.Context, e bridge.Entity) error {
 		_, err := s.h.InsertAll(ctx, e, "coal")
 		return err
 	}
-	if err := s.have(ctx, "coal", s2Fuel-have); err != nil {
+	if err := s.have(ctx, "coal", to-have); err != nil {
 		return err
 	}
-	return s.h.Insert(ctx, e, "coal", s2Fuel-have)
+	err = s.h.Insert(ctx, e, "coal", to-have)
+	if err != nil {
+		// угольная пара: сосед докладывает в тот же слот, пока кладём — слот полон раньше
+		if st, e2 := s.h.B.GetEntity(e.Name, e.Position); e2 == nil && st != nil && st.Inventories["fuel"]["coal"] >= to*9/10 {
+			return nil
+		}
+	}
+	return err
 }
 
 // have — довести предмет в инвентаре до n: сырьё — добыть (уголь и камень — с точек, если

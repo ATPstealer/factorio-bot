@@ -78,6 +78,8 @@ type Cluster struct {
 	// Upright — ряд только вдоль Y, головой вниз (в зоне производства — поперёк шин, входы — к
 	// шине снизу, выход — к шине сверху; zones.md)
 	Upright bool `json:"upright,omitempty"`
+	// Need — мест по темпу (до минимума MinUnits; прикидка ширины этажей)
+	Need int `json:"-"`
 	// MinX — место не левее (в зоне — ниже по течению шины, чем поставщики входов; zones.md)
 	MinX *int `json:"-"`
 	// Bus — у шины: ленты и разметка клиентов
@@ -505,6 +507,9 @@ func sameCats(e, o knowledge.Entity) bool {
 	return true
 }
 
+// MinUnits — мест выхода в кластере не меньше (машин; у пар — пар): cluster.md §2.
+const MinUnits = 5
+
 // shape — размер ряда кластера (шаблоны — templates.go): Count — машин сейчас, Room — мест
 // с запасом роста (часть роста дадут машины лучше — место только на остальное).
 func shape(p *knowledge.Prototypes, c *Cluster) {
@@ -542,6 +547,11 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		}
 	}
 	c.Count = max(int(math.Ceil(n-1e-9)), 1)
+	c.Need = c.Count
+	switch c.Kind {
+	case Mine, Smelt, Make, Lab: // не меньше 5 мест выхода (cluster.md §2): лента выхода забита
+		c.Count = max(c.Count, MinUnits)
+	}
 	room := c.Reserve / upgrade(p, m)
 	c.Room = max(int(math.Ceil(float64(c.Count)*math.Max(room, 1)-1e-9)), c.Count)
 }
