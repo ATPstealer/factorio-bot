@@ -467,9 +467,12 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 	return c
 }
 
+// StorageChest — сундук хранения: сразу железный, потом не менять (stages.md, стадия 13).
+const StorageChest = "iron-chest"
+
 // StorageCluster — склад мусора бота.
 func StorageCluster() *Cluster {
-	c := &Cluster{Kind: Storage, Product: "storage", Reserve: 1, Units: []Unit{{Recipe: "store", Machine: layout.Chest, Machines: 8}}}
+	c := &Cluster{Kind: Storage, Product: "storage", Reserve: 1, Units: []Unit{{Recipe: "store", Machine: StorageChest, Machines: 8}}}
 	c.Cross, c.Pitch, c.Head = geometry(Storage)
 	c.Count, c.Room = 8, 8
 	return c

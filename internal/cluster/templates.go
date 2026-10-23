@@ -338,7 +338,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 	case Storage:
 		for u := 0; u < c.Count; u++ {
-			if err := add(f.at(l, layout.Chest, u, 1, layout.N, tag)); err != nil {
+			if err := add(f.at(l, StorageChest, u, 1, layout.N, tag)); err != nil {
 				return err
 			}
 		}
