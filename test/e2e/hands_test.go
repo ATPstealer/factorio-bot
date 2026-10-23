@@ -625,8 +625,8 @@ func TestPickupSplitterKeepsNeighbors(t *testing.T) {
 	if !slices.Contains(f.Recipes, "splitter") {
 		t.Skip("делители не открыты (logistics)")
 	}
+	have(t, h, "splitter", 1) // делитель крафтится из лент — сначала он, потом ленты на постановку
 	have(t, h, "transport-belt", 8)
-	have(t, h, "splitter", 1)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
@@ -766,6 +766,192 @@ func TestPlaceSplitterCrosswiseKeepsNeighbors(t *testing.T) {
 		}
 		if st, err := h2.B.GetEntity("transport-belt", p); err != nil || st == nil {
 			t.Errorf("лента %d в (%.1f, %.1f) пропала (%v)", i+1, p.X, p.Y, err)
+		}
+	}
+	clean(t, h2)
+}
+
+// keepNeighborsSpot — свободная площадка 10×10 со смещением d от персонажа (у каждого теста
+// своя: тесты за собой не убирают); центр тайла.
+func keepNeighborsSpot(t *testing.T, h *act.Hands, d bridge.Pos) (float64, float64) {
+	t.Helper()
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + d.X, Y: p0.Position.Y + d.Y}, 10, 10, 60, &p0.Position)
+	if !ok {
+		t.Skip("нет свободной площадки 10×10")
+	}
+	return math.Floor(c.X) + 0.5, math.Floor(c.Y) + 0.5
+}
+
+// standing — что из list (имя, место) стоит; не стоит — ошибка теста.
+func standing(t *testing.T, h *act.Hands, name string, list []bridge.Pos, what string) {
+	t.Helper()
+	for i, p := range list {
+		if st, err := h.B.GetEntity(name, p); err != nil || st == nil {
+			t.Errorf("%s %d (%s в (%.1f, %.1f)) пропал(а) (%v)", what, i+1, name, p.X, p.Y, err)
+		}
+	}
+}
+
+// TestPickupInserterKeepsNeighbors — подбор инсертера между лентой и сундуком: лента и сундук
+// на месте (зажатая ПКМ после цели не добывает то, что под курсором).
+func TestPickupInserterKeepsNeighbors(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "inserter", 1)
+	have(t, h, "iron-chest", 1)
+	have(t, h, "transport-belt", 5)
+	x, y := keepNeighborsSpot(t, h, bridge.Pos{Y: 35})
+	ctx := ctxT(t, 4*time.Minute)
+	var belts []bridge.Pos
+	for dx := -2.0; dx <= 2; dx++ {
+		belts = append(belts, bridge.Pos{X: x + dx, Y: y})
+	}
+	if _, err := h.PlaceDirs(ctx, "transport-belt", belts, []int{layout.E, layout.E, layout.E, layout.E, layout.E}); err != nil {
+		t.Fatal(err)
+	}
+	chest := bridge.Pos{X: x, Y: y + 2}
+	if _, err := h.Place(ctx, "iron-chest", chest, layout.N); err != nil {
+		t.Fatal(err)
+	}
+	ins, err := h.Place(ctx, "inserter", bridge.Pos{X: x, Y: y + 1}, layout.N)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Pickup(ctx, ins); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := h.B.GetEntity("inserter", ins.Position); st != nil {
+		t.Errorf("инсертер не поднят")
+	}
+	standing(t, h, "transport-belt", belts, "лента")
+	standing(t, h, "iron-chest", []bridge.Pos{chest}, "сундук")
+	clean(t, h)
+}
+
+// TestPickupAllKeepsOthers — подбор лент ряда через одну: поднятые — нет, остальные — на месте.
+func TestPickupAllKeepsOthers(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "transport-belt", 7)
+	x, y := keepNeighborsSpot(t, h, bridge.Pos{Y: -35})
+	ctx := ctxT(t, 4*time.Minute)
+	var all []bridge.Pos
+	var dirs []int
+	for dx := -3.0; dx <= 3; dx++ {
+		all, dirs = append(all, bridge.Pos{X: x + dx, Y: y}), append(dirs, layout.E)
+	}
+	built, err := h.PlaceDirs(ctx, "transport-belt", all, dirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var take []bridge.Entity
+	var keep []bridge.Pos
+	for i, e := range built {
+		if i%2 == 1 {
+			take = append(take, e)
+		} else {
+			keep = append(keep, all[i])
+		}
+	}
+	if err := h.PickupAll(ctx, take); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range take {
+		if st, _ := h.B.GetEntity(e.Name, e.Position); st != nil {
+			t.Errorf("лента в (%.1f, %.1f) не поднята", e.Position.X, e.Position.Y)
+		}
+	}
+	standing(t, h, "transport-belt", keep, "лента")
+	clean(t, h)
+}
+
+// TestPickupUndergroundKeepsNeighbors — подбор входа подземки рядом с параллельной лентой: лента
+// рядом, лента перед входом и выход — на месте.
+func TestPickupUndergroundKeepsNeighbors(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "underground-belt") {
+		t.Skip("подземки не открыты (logistics)")
+	}
+	have(t, h, "underground-belt", 2)
+	have(t, h, "transport-belt", 7)
+	x, y := keepNeighborsSpot(t, h, bridge.Pos{X: 35})
+	ctx := ctxT(t, 4*time.Minute)
+	// параллельная лента сверху, перед входом — лента
+	var belts []bridge.Pos
+	var dirs []int
+	for dx := -2.0; dx <= 3; dx++ {
+		belts, dirs = append(belts, bridge.Pos{X: x + dx, Y: y - 1}), append(dirs, layout.E)
+	}
+	belts, dirs = append(belts, bridge.Pos{X: x - 1, Y: y}), append(dirs, layout.E)
+	if _, err := h.PlaceDirs(ctx, "transport-belt", belts, dirs); err != nil {
+		t.Fatal(err)
+	}
+	ug, err := h.PlaceDirs(ctx, "underground-belt", []bridge.Pos{{X: x, Y: y}, {X: x + 3, Y: y}}, []int{layout.E, layout.E})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Pickup(ctx, ug[0]); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := h.B.GetEntity("underground-belt", ug[0].Position); st != nil {
+		t.Errorf("вход подземки не поднят")
+	}
+	standing(t, h, "transport-belt", belts, "лента")
+	standing(t, h, "underground-belt", []bridge.Pos{ug[1].Position}, "выход подземки")
+	clean(t, h)
+}
+
+// TestReplaceUndergroundKeepsNeighbors — подземка встала не так (рука повёрнута с прошлого
+// запуска) и переставляется рядом с лентами: соседние ленты на месте.
+func TestReplaceUndergroundKeepsNeighbors(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "underground-belt") {
+		t.Skip("подземки не открыты (logistics)")
+	}
+	have(t, h, "underground-belt", 3)
+	have(t, h, "transport-belt", 6)
+	x, y := keepNeighborsSpot(t, h, bridge.Pos{X: -35})
+	ctx := ctxT(t, 5*time.Minute)
+	// прошлый запуск: подземка на запад
+	if _, err := h.Place(ctx, "underground-belt", bridge.Pos{X: x - 4, Y: y - 4}, layout.W); err != nil {
+		t.Fatal(err)
+	}
+	// ленты по обе стороны будущих подземок
+	var belts []bridge.Pos
+	var dirs []int
+	for dy := -1.0; dy <= 3; dy += 4 {
+		for dx := -1.0; dx <= 1; dx++ {
+			belts, dirs = append(belts, bridge.Pos{X: x + dx, Y: y + dy}), append(dirs, layout.E)
+		}
+	}
+	if _, err := h.PlaceDirs(ctx, "transport-belt", belts, dirs); err != nil {
+		t.Fatal(err)
+	}
+	// новый запуск: память руки пуста
+	h2, err := act.New(h.B, h.In)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2.Protos, h2.World, h2.Log, h2.DebugDir, h2.Console = h.Protos, h.World, h.Log, h.DebugDir, h.Console
+	pos := []bridge.Pos{{X: x, Y: y + 2}, {X: x, Y: y}}
+	if _, err := h2.PlaceDirs(ctx, "underground-belt", pos, []int{layout.N, layout.N}); err != nil {
+		t.Fatal(err)
+	}
+	standing(t, h2, "transport-belt", belts, "лента")
+	for i, p := range pos {
+		st, err := h2.B.GetEntity("underground-belt", p)
+		if err != nil || st == nil || st.Direction == nil || *st.Direction != layout.N {
+			t.Errorf("подземка %d в (%.1f, %.1f): %v, ждали на север", i+1, p.X, p.Y, st)
 		}
 	}
 	clean(t, h2)
