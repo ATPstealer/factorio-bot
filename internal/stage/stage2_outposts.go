@@ -451,7 +451,7 @@ func (s *worker) missing(item string) int {
 	return n
 }
 
-// queued — сколько item уже в очереди крафта.
+// queued — сколько item уже в очереди крафта (своих, не полуфабрикатов).
 func (s *worker) queued(item string) int {
 	p, err := s.h.B.Player()
 	if err != nil {
@@ -459,7 +459,8 @@ func (s *worker) queued(item string) int {
 	}
 	n := 0
 	for _, q := range p.CraftingQueue {
-		if q.Recipe == item {
+		// полуфабрикаты (печи для буров в очереди) уйдут в свой крафт, в инвентарь не попадут
+		if q.Recipe == item && !q.Prerequisite {
 			n += q.Count
 		}
 	}
