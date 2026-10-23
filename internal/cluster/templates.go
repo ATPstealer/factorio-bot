@@ -34,8 +34,8 @@ func geometry(k Kind) (cross, pitch, head int) {
 	switch k {
 	case Mine:
 		return 7, 4, 0
-	case Smelt:
-		return 8, 3, 1
+	case Smelt: // cluster.md §2а «Плавка»: 2 ленты подачи, инсертеры, печи, инсертеры, выход
+		return 7, 3, 1
 	case Make:
 		return 9, 4, 1
 	case Lab: // блок (cluster.md §2а «Лаборатории»): поперёк — 4 ряда лент и буферов + столбцы лабораторий
@@ -234,7 +234,11 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 				l.Reserved[t] = true
 			}
 		}
-	case Smelt, Make, Supply:
+	case Smelt:
+		if err := smeltRow(l, f, c, L, tag, add, belt, row, deadEnd); err != nil {
+			return err
+		}
+	case Make, Supply:
 		mach, mh := "stone-furnace", 2
 		ins := "inserter"
 		belts := 2
@@ -298,20 +302,15 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			}
 		}
 		if c.Kind != Lab && c.Kind != Supply {
-			// выход — к началу ряда (←) и вниз в коридор у столбца портов: рост его не двигает
+			// выход — вдоль ряда к его концу и сразу дальше, в шину над этажом (cluster.md §2
+			// «Размер»: ленты текут снизу вверх; кластер строится целиком — конец ряда не
+			// двигается)
 			ov := belts + 3 + mh
-			if err := row(ov, 2, cur, layout.W); err != nil {
+			if err := row(ov, c.Head, L, layout.E); err != nil {
 				return err
 			}
-			if err := belt(1, ov, layout.S); err != nil {
-				return err
-			}
-			item := c.Product
-			if len(c.Out) > 0 {
-				item = c.Out[0].Item
-			}
-			l.AllowEnd(f.tile(1, c.Cross))
-			c.Ports = append(c.Ports, Port{T: f.tile(1, c.Cross), Dir: f.dir(layout.S), Item: item})
+			l.AllowEnd(f.tile(L, ov))
+			c.Ports = append(c.Ports, Port{T: f.tile(L, ov), Dir: f.dir(layout.E), Item: outItem(c)})
 		}
 	case Power:
 		if err := powerRow(l, f, c, L, tag); err != nil {
@@ -343,6 +342,81 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 	for _, t := range closed {
 		delete(l.Reserved, t)
 	}
+	return nil
+}
+
+// outItem — продукт на выходе кластера.
+func outItem(c *Cluster) string {
+	if len(c.Out) > 0 {
+		return c.Out[0].Item
+	}
+	return c.Product
+}
+
+// smeltRow — плавка (cluster.md §2а «Плавка»): поперёк — 0 лента угля, 1 лента руды (обе
+// подачи — снизу, с торца, текут вверх), 2 инсертеры (обычный с руды, длинный с угля), 3–4
+// печи, 5 инсертеры выхода, 6 лента выхода (вверх, в конце ряда — в шину над этажом). Инсертер
+// кладёт на дальнюю полосу — в середине ряда лента выхода перекладывается: первая половина
+// уходит на ближнюю полосу (лента обходит через ряд инсертеров и входит сбоку), вторая кладёт
+// на освободившуюся.
+func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(layout.Placement) error,
+	belt func(u, v, d int) error, row func(v, from, to, d int) error, deadEnd func(v, to int)) error {
+	const coalV, oreV, insV, furV, outInsV, outV = 0, 1, 2, 3, 5, 6
+	coal, ore := "coal", ""
+	for _, in := range c.In {
+		if in.Item != coal {
+			ore = in.Item
+		}
+	}
+	long := "long-handed-inserter"
+	if l.Usable != nil && !l.Usable(long) {
+		return fmt.Errorf("cluster %s: нет длинных инсертеров (уголь со второй ленты)", c.Name)
+	}
+	for i := 0; i < c.Count; i++ {
+		u := c.Head + i*c.Pitch
+		for _, p := range []layout.Placement{
+			f.at(l, "stone-furnace", u, furV, layout.N, tag),
+			f.inserter(l, "inserter", u, insV, oreV, tag),
+			f.inserter(l, long, u+1, insV, coalV, tag),
+			f.inserter(l, "inserter", u, outInsV, furV+1, tag),
+		} {
+			if err := add(p); err != nil {
+				return err
+			}
+		}
+	}
+	end := c.Head + c.Count*c.Pitch - 1 // ленты подачи — до последней печи
+	for _, v := range []int{coalV, oreV} {
+		if err := row(v, 0, end, layout.E); err != nil {
+			return err
+		}
+		deadEnd(v, end)
+	}
+	c.Ports = append(c.Ports,
+		Port{T: f.tile(-1, coalV), Dir: f.dir(layout.E), Item: coal, In: true},
+		Port{T: f.tile(-1, oreV), Dir: f.dir(layout.E), Item: ore, In: true})
+	// выход с перекладкой: первая половина — до m-1, обход через (m-1, 5) → (m, 5) → боком в (m, 6)
+	half := c.Count / 2
+	if half == 0 {
+		if err := row(outV, c.Head, L, layout.E); err != nil {
+			return err
+		}
+	} else {
+		m := c.Head + (half-1)*c.Pitch + 2 // столбцы m-1, m в ряду инсертеров выхода свободны
+		if err := row(outV, c.Head, m-1, layout.E); err != nil {
+			return err
+		}
+		for _, b := range []struct{ u, v, d int }{{m - 1, outV, layout.N}, {m - 1, outInsV, layout.E}, {m, outInsV, layout.S}} {
+			if err := belt(b.u, b.v, b.d); err != nil {
+				return err
+			}
+		}
+		if err := row(outV, m, L, layout.E); err != nil {
+			return err
+		}
+	}
+	l.AllowEnd(f.tile(L, outV))
+	c.Ports = append(c.Ports, Port{T: f.tile(L, outV), Dir: f.dir(layout.E), Item: outItem(c)})
 	return nil
 }
 

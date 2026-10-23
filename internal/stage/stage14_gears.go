@@ -115,7 +115,7 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 }
 
 // isScience — пакет науки (у кластеров науки нет буфера выхода).
-func isScience(item string) bool { return strings.HasSuffix(item, "-science-pack") }
+var isScience = cluster.IsScience
 
 // runMake — построить завод (машины, ленты, инсертеры, столбы), рецепты сборщиков, фильтры
 // инсертеров буферов; дождаться продукта на шине и в буфере выхода.

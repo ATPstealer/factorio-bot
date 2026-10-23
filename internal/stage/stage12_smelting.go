@@ -141,7 +141,7 @@ func runSmelting(ctx context.Context, h *act.Hands) error {
 	s := &s2{h: h, sites: sites, useStore: true}
 	// добыча и машины — потом ленты (подземки — парами по порядку плана), инсертеры, столбы
 	order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "transport-belt", "underground-belt", "splitter",
-		chest, "inserter", "burner-inserter", "small-electric-pole"}
+		chest, "inserter", "long-handed-inserter", "burner-inserter", "small-electric-pole"}
 	sorted := slices.Clone(list)
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
 		return slices.Index(order, a.Name) - slices.Index(order, b.Name)

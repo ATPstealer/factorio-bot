@@ -25,7 +25,7 @@ import (
 
 const (
 	s5Plan    = "state-stage5.json"
-	s5Rate    = 0.5 // красная наука, шт/с
+	s5Rate    = 0.1 // красная наука, шт/с (вся наука до ракеты — 0.1/с, stages.md)
 	s5Reserve = 1   // без запаса роста: запасы — в зонах (zones.md)
 	s5LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
 	// нет места — разведка: до s5Explore раз, каждый раз — пока не откроется s5ExploreChunks

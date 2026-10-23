@@ -507,8 +507,56 @@ func sameCats(e, o knowledge.Entity) bool {
 	return true
 }
 
-// MinUnits — мест выхода в кластере не меньше (машин; у пар — пар): cluster.md §2.
-const MinUnits = 5
+// MinUnits, MaxUnits — мест выхода в кластере плавки, производства и науки (машин; у пар —
+// пар): жёсткие пределы, cluster.md §2 «Размер».
+const (
+	MinUnits = 5
+	MaxUnits = 30
+)
+
+// Конечные машины и лента для расчёта размера (cluster.md §2 «Размер»): строятся пока первые
+// на тех же местах, потом замена на месте.
+var (
+	tier2 = map[string]string{"stone-furnace": "steel-furnace", "assembling-machine-1": "assembling-machine-2"}
+	// beltRate — красная лента, шт/с (по 15 на полосу)
+	beltRate = 30.0
+)
+
+// IsScience — пакет науки (размер — по темпу, буфера выхода нет).
+func IsScience(item string) bool { return strings.HasSuffix(item, "-science-pack") }
+
+// byBelts — сколько основных машин (n — по темпу, машинами плана) прокормят ленты входа и
+// вывезет лента выхода, если машины — второго уровня; с округлением вверх. Плавка: руда —
+// своя лента целиком, уголь — своя; сборка: один вход — лента целиком, два — по полосе.
+func byBelts(p *knowledge.Prototypes, c *Cluster, n float64) int {
+	if n <= 0 {
+		return 0
+	}
+	m := c.machine()
+	k := 1.0 // во сколько раз быстрее машина второго уровня
+	if t2, ok := tier2[m]; ok && p.Entities[m].CraftingSpeed > 0 {
+		k = p.Entities[t2].CraftingSpeed / p.Entities[m].CraftingSpeed
+	}
+	best := math.Inf(1)
+	limit := func(flows []Flow, cap func(item string) float64) {
+		for _, f := range flows {
+			if per := f.Rate / n * k; per > 0 {
+				best = math.Min(best, cap(f.Item)/per)
+			}
+		}
+	}
+	limit(c.In, func(string) float64 {
+		if c.Kind == Make && len(c.In) > 1 {
+			return beltRate / 2
+		}
+		return beltRate
+	})
+	limit(c.Out, func(string) float64 { return beltRate })
+	if math.IsInf(best, 1) {
+		return 0
+	}
+	return int(math.Ceil(best - 1e-9))
+}
 
 // shape — размер ряда кластера (шаблоны — templates.go): Count — машин сейчас, Room — мест
 // с запасом роста (часть роста дадут машины лучше — место только на остальное).
@@ -549,11 +597,19 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	c.Count = max(int(math.Ceil(n-1e-9)), 1)
 	c.Need = c.Count
 	switch c.Kind {
-	case Mine, Smelt, Make, Lab: // не меньше 5 мест выхода (cluster.md §2): лента выхода забита
+	case Smelt, Make: // по лентам (наука — по темпу), от MinUnits до MaxUnits (cluster.md §2 «Размер»)
+		if !IsScience(c.Product) {
+			c.Count = byBelts(p, c, n)
+		}
+		c.Count = min(max(c.Count, MinUnits), MaxUnits)
+	case Lab:
 		c.Count = max(c.Count, MinUnits)
 	}
 	room := c.Reserve / upgrade(p, m)
 	c.Room = max(int(math.Ceil(float64(c.Count)*math.Max(room, 1)-1e-9)), c.Count)
+	if c.Kind == Smelt || c.Kind == Make {
+		c.Room = c.Count // кластер строится сразу целиком — запаса в ряду нет
+	}
 	if c.Kind == Lab { // блок сразу на все места (cluster.md §2а «Лаборатории»); в голове — ещё лента C и её инсертеры
 		c.Room = max(labRoom, c.Count)
 		c.Head = 2*bufferChests(p, c) + 2
