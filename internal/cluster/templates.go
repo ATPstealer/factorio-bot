@@ -729,7 +729,7 @@ func labReserve(f frame, c *Cluster) []world.Tile {
 	var res []world.Tile
 	n := (c.Head - 2) / 2
 	res = append(res, f.tile(0, labA+1)) // подача второго пакета A — снизу, рядом с первой (§6б)
-	for u := 1; u <= 2*n-1; u++ { // его буфер — сверху
+	for u := 1; u <= 2*n-1; u++ {        // его буфер — сверху
 		res = append(res, f.tile(u, labA-1), f.tile(u, labA-2))
 	}
 	L := c.Len()
@@ -743,7 +743,7 @@ func labReserve(f frame, c *Cluster) []world.Tile {
 		i, j := k/labCols, k%labCols
 		u0, v0 := c.Head+4*i, 4+4*j
 		res = append(res, f.tile(u0, labA+1), f.tile(u0+2, labA+1)) // длинные с B (и запас)
-		res = append(res, f.tile(u0+1, v0-1))                      // инсертер слева
+		res = append(res, f.tile(u0+1, v0-1))                       // инсертер слева
 		if i > 0 {
 			res = append(res, f.tile(u0-1, v0+1)) // инсертер снизу
 		}
