@@ -79,6 +79,9 @@ type Cluster struct {
 	// ряд по темпу, старое размещение); OreUnder — сколько руды под поставленными
 	Ore      int `json:"ore,omitempty"`
 	OreUnder int `json:"ore_under,omitempty"`
+	// Back — ряд в обратную сторону (голова — у Max: снизу у вертикального, справа у
+	// горизонтального); у блока добычи — голова к шине ресурсов
+	Back bool `json:"back,omitempty"`
 	// Upright — ряд только вдоль Y, головой вниз (в зоне производства — поперёк шин, входы — к
 	// шине снизу, выход — к шине сверху; zones.md)
 	Upright bool `json:"upright,omitempty"`

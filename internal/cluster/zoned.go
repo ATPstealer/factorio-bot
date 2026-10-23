@@ -109,29 +109,20 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 		}
 	}
 	// добыча: зона своего ресурса, ближняя к голове шины ресурсов
+	sort.SliceStable(mines, func(i, j int) bool {
+		xi, yi := mines[i].Rect.Center()
+		xj, yj := mines[j].Rect.Center()
+		return math.Hypot(xi-float64(head.X), yi-float64(head.Y)) < math.Hypot(xj-float64(head.X), yj-float64(head.Y))
+	})
+	var mineCs []*Cluster
 	for _, c := range cs {
-		if c.Kind != Mine {
-			continue
+		if c.Kind == Mine {
+			mineCs = append(mineCs, c)
 		}
-		placed := false
-		sort.SliceStable(mines, func(i, j int) bool {
-			xi, yi := mines[i].Rect.Center()
-			xj, yj := mines[j].Rect.Center()
-			return math.Hypot(xi-float64(head.X), yi-float64(head.Y)) < math.Hypot(xj-float64(head.X), yj-float64(head.Y))
-		})
-		for _, z := range mines {
-			if z.Resources[c.Product] == 0 {
-				continue
-			}
-			// блок на пятно (cluster.md §2а «Добыча»): по объёму руды, а не по темпу
-			if b.placeMineBlock(c, z, head) {
-				placed = true
-				break
-			}
-		}
-		if !placed {
-			return nil, mineError(c)
-		}
+	}
+	// блоки на пятна (cluster.md §2а «Добыча»): по объёму руды, соседи делят место поровну
+	if err := b.placeMines(mineCs, mines, head); err != nil {
+		return nil, err
 	}
 	// этажи снизу вверх: поставщики входов стоят раньше потребителей
 	order := slices.Clone(cs)
@@ -532,19 +523,19 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 // feedMine — выход добычи c — в голову своей ленты шины ресурсов, есть поставщик — боком у
 // головы.
 func feedMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
-	return feedMinePorts(l, buses, c, 0)
+	return feedMinePorts(l, buses, c, nil)
 }
 
-// feedMinePorts — выходы добычи c, начиная с from-го (у блока их два — две ленты в bus-1), —
-// в голову своей ленты шины ресурсов или боком у головы.
-func feedMinePorts(l *layout.Layout, buses []*ZBus, c *Cluster, from int) error {
+// feedMinePorts — выходы добычи c (у блока их два — две ленты в bus-1), кроме skip, — в голову
+// своей ленты шины ресурсов или боком у головы.
+func feedMinePorts(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port) error {
 	ln := buses[0].lane(c.Product)
 	if ln == nil {
 		return nil
 	}
 	bus := buses[0]
 	for i, op := range outPorts(c) {
-		if i < from {
+		if skip != nil && op.T == skip.T {
 			continue
 		}
 		var to []Port
@@ -560,6 +551,9 @@ func feedMinePorts(l *layout.Layout, buses []*ZBus, c *Cluster, from int) error 
 	}
 	return nil
 }
+
+// dist — расстояние между тайлами (манхэттен).
+func dist(a, b world.Tile) int { return abs(a.X-b.X) + abs(a.Y-b.Y) }
 
 // outPorts — все выходы кластера.
 func outPorts(c *Cluster) []Port {
@@ -664,6 +658,12 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 			continue
 		}
+		// на станцию — выход, ближний к её входу (дальний уводил ленту в обход всего блока)
+		for _, p := range outPorts(m) {
+			if dist(p.T, pp.T) < dist(op.T, pp.T) {
+				op = p
+			}
+		}
 		mark := l.Mark()
 		if _, err := zRoute(l, op, []Port{pp}, LogisticsTag+"/"+pw.Name); err != nil {
 			return &ConnectError{pw, fmt.Errorf("уголь %s → %s: %w", m.Name, pw.Name, err)}
@@ -691,7 +691,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			return fmt.Errorf("уголь %s → %s (отвод со станции): %w", m.Name, bus.Name, err)
 		}
 		// второй выход блока — сразу на шину
-		if err := feedMinePorts(l, buses, m, 1); err != nil {
+		if err := feedMinePorts(l, buses, m, &op); err != nil {
 			return err
 		}
 	}

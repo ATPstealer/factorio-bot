@@ -95,7 +95,7 @@ func (c *Cluster) Clone() *Cluster {
 }
 
 func (c *Cluster) frame() frame {
-	return frame{r: c.Area, vertical: c.Vertical, up: c.Upright && c.Vertical}
+	return frame{r: c.Area, vertical: c.Vertical, up: (c.Upright || c.Back) && c.Vertical, back: c.Back && !c.Vertical}
 }
 
 // lane — лента предмета (nil — нет).

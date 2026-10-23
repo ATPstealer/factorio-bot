@@ -306,6 +306,9 @@ func (b *Base) Place(c *Cluster) error {
 
 // border — коридор вокруг кластера: внутри зоны — бордюр ZoneBorder, иначе Corridor.
 func (b *Base) border(c *Cluster) int {
+	if c.Kind == Mine && c.Ore > 0 {
+		return MineBorder // блок добычи (cluster.md §2а «Добыча»)
+	}
 	if c.Zone != nil {
 		return ZoneBorder
 	}
