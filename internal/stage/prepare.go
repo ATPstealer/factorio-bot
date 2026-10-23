@@ -236,7 +236,9 @@ func prepCheck(ctx context.Context, h *act.Hands, n int, list []layout.Placement
 		prepMaterials(ctx, h, list)
 		prepTime(ctx, h, list)
 	}
-	prepForward(h, n)
+	if !PlanOnly { // только планы подряд: следующие стадии сами идут следом
+		prepForward(h, n)
+	}
 	if len(hard) > 0 {
 		if len(hard) > 5 {
 			hard = append(hard[:5], fmt.Sprintf("… ещё %d", len(hard)-5))

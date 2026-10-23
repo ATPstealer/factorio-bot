@@ -187,6 +187,29 @@ func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 	if err := bufferAt(l, f, c, labA, labA-1, labA-2, (c.Head-2)/2, item, tag); err != nil {
 		return Port{}, err
 	}
+	// столбы к новым инсертерам — внутри площади, на свободных тайлах (не на месте под будущее)
+	keep := map[world.Tile]bool{}
+	for _, t := range labReserve(f, c) {
+		keep[t] = true
+	}
+	var opened []world.Tile
+	for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
+		for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+			t := world.Tile{X: x, Y: y}
+			if l.Reserved[t] && !keep[t] && l.At(t) == nil {
+				delete(l.Reserved, t)
+				opened = append(opened, t)
+			}
+		}
+	}
+	l.PoleTag = tag
+	l.Poles("small-electric-pole", tag)
+	l.PoleTag = ""
+	for _, t := range opened {
+		if l.At(t) == nil {
+			l.Reserved[t] = true
+		}
+	}
 	port := Port{T: f.tile(0, c.Cross), Dir: f.dir(layout.N), Item: item, In: true}
 	c.Ports = append(c.Ports, port)
 	addFlow(&c.In, item, rate)

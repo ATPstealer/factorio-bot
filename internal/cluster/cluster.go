@@ -604,6 +604,10 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		c.Count = min(max(c.Count, MinUnits), MaxUnits)
 	case Lab:
 		c.Count = max(c.Count, MinUnits)
+	case Mine:
+		// размер добычи — по объёму руды (cluster.md §2а «Добыча»), пока не сделано — ряд не
+		// короче MinUnits пар: на коротком ряду буры не находят руды
+		c.Count = max(c.Count, MinUnits)
 	}
 	room := c.Reserve / upgrade(p, m)
 	c.Room = max(int(math.Ceil(float64(c.Count)*math.Max(room, 1)-1e-9)), c.Count)
