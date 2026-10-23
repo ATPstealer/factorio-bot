@@ -29,36 +29,48 @@ func FillLanes(buses []*ZBus, list []layout.Placement) {
 		}
 		bus.Lanes = nil
 		for it, ys := range rows {
-			y, n := 0, -1
-			for yy, k := range ys { // ряд ленты — где её больше всего (обходы неровностей — в стороне)
-				if k > n || k == n && yy < y {
-					y, n = yy, k
+			// ряды лент — где их больше всего (обходы неровностей — в стороне, в зазорах); у
+			// добытого лент две — второй ряд не короче половины первого
+			n := 0
+			for yy, k := range ys {
+				if laneRow(yy-bus.Rect.Min.Y, bus.Rect.H()) {
+					n = max(n, k)
 				}
 			}
-			ln := ZoneLane{Item: it, Y: y, Start: bus.Rect.Max.X}
-			for _, p := range list {
-				if t := world.TileOf(p.Pos); p.Tag == tag && p.Recipe == it && t.Y == y {
-					ln.Start = min(ln.Start, t.X)
+			for y, k := range ys {
+				if laneRow(y-bus.Rect.Min.Y, bus.Rect.H()) && 2*k >= n {
+					bus.Lanes = append(bus.Lanes, fillLane(bus, list, it, y))
 				}
 			}
-			// подводы: ленты логистики этой шины, смотрящие в ряд сбоку или в голову
-			prefix := LogisticsTag + "/" + bus.Name + "/"
-			for _, p := range list {
-				if !strings.HasPrefix(p.Tag, prefix) || p.Name != "transport-belt" {
-					continue
-				}
-				t := world.TileOf(p.Pos)
-				if t.Y == y-1 && p.Dir == layout.S || t.Y == y+1 && p.Dir == layout.N || t.Y == y && t.X == ln.Start-1 && p.Dir == layout.E {
-					ln.feed(t.X)
-				}
-			}
-			if !ln.Fed { // поставщик есть (лента построена), подвода не нашли — отводы где угодно
-				ln.feed(ln.Start)
-			}
-			bus.Lanes = append(bus.Lanes, ln)
 		}
 		sort.Slice(bus.Lanes, func(i, j int) bool { return bus.Lanes[i].Y < bus.Lanes[j].Y })
 	}
+}
+
+// fillLane — лента it в ряду y шины bus по раскладке list: голова, самый ранний подвод.
+func fillLane(bus *ZBus, list []layout.Placement, it string, y int) ZoneLane {
+	tag := Tag(bus.Name)
+	ln := ZoneLane{Item: it, Y: y, Start: bus.Rect.Max.X}
+	for _, p := range list {
+		if t := world.TileOf(p.Pos); p.Tag == tag && p.Recipe == it && t.Y == y {
+			ln.Start = min(ln.Start, t.X)
+		}
+	}
+	// подводы: ленты логистики этой шины, смотрящие в ряд сбоку или в голову
+	prefix := LogisticsTag + "/" + bus.Name + "/"
+	for _, p := range list {
+		if !strings.HasPrefix(p.Tag, prefix) || p.Name != "transport-belt" {
+			continue
+		}
+		t := world.TileOf(p.Pos)
+		if t.Y == y-1 && p.Dir == layout.S || t.Y == y+1 && p.Dir == layout.N || t.Y == y && t.X == ln.Start-1 && p.Dir == layout.E {
+			ln.feed(t.X)
+		}
+	}
+	if !ln.Fed { // поставщик есть (лента построена), подвода не нашли — отводы где угодно
+		ln.feed(ln.Start)
+	}
+	return ln
 }
 
 // newLane — новая лента it шины k до end — в свободный ряд; обход неровности не проводится
@@ -109,11 +121,13 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 	for k, bus := range buses {
 		for _, it := range sortedItems(need[k], on, k) {
 			end := b.laneEnd(buses, k, it)
-			if ln := bus.lane(it); ln != nil { // старая лента — продолжить, если нужна дальше
-				j := 0
-				for bus.Lanes[j].Item != it {
-					j++
+			n := 0
+			for j := range bus.Lanes { // старые ленты — продолжить, если нужны дальше
+				ln := &bus.Lanes[j]
+				if ln.Item != it {
+					continue
 				}
+				n++
 				if last := laneLast(l, bus, ln); end > last+1 {
 					var gaps []laneGap
 					b.layLane(l, buses, k, j, last+1, end, last, true, &gaps)
@@ -121,10 +135,11 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 						return err
 					}
 				}
-				continue
 			}
-			if err := b.newLane(l, buses, k, it, end); err != nil {
-				return err
+			for ; n < b.laneCount(k, it); n++ {
+				if err := b.newLane(l, buses, k, it, end); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -135,8 +150,8 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		}
 	}
 	for _, c := range fresh {
-		if c.Kind == Mine { // ещё одна добыча того же ресурса — боком у головы ленты
-			if err := feedMine(l, buses, c); err != nil {
+		if c.Kind == Mine { // ещё одна добыча того же ресурса — боком в подвод до головы
+			if err := b.feedMine(l, buses, c, nil); err != nil {
 				return &ConnectError{c, err}
 			}
 			continue

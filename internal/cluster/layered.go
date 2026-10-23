@@ -28,6 +28,7 @@ const (
 	busLanes   = 16             // лент шин 2 и 3, не меньше
 	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
 	busThick   = 0.03           // шине: толстых утёсов и воды — не больше доли площади
+	mineGap    = 16             // от зон базы до зон добычи — подводам развернуться (zones.md)
 	// этаж выше — правее нижнего на долю ширины нижнего (zones.md): лучше floorShift, хоть floorShiftMin
 	floorShift, floorShiftMin = 0.5, 0.3
 )
@@ -340,13 +341,12 @@ type layered struct {
 	dist   float64
 }
 
-// fitLayered — место этажной базы шириной width, ближе к центру базы: снизу вверх шина (на всю
+// fitLayered — место этажной базы шириной width, голова bus-1 — ближе к добыче (mineAnchor): снизу вверх шина (на всю
 // ширину), зона (ширина zw[f], глубина depths[f]; зазор от шины снизу и части между препятствиями —
 // чтобы обойти утёсы и воду; часть — не уже столбца colw[f]), шина, …; всё — без зон
 // месторождений, неоткрытого, чужих коридоров, утёсов и воды толще maxGap. nil — нет места.
 func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int) *layered {
 	g := b.g
-	height := sum(depths) + floors*maxShift/2 + sum(widths)
 	free := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
@@ -455,7 +455,8 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 						left = ps[0].Min.X - layerHead
 					}
 					bus := Rect{world.Tile{X: left, Y: busY.Min.Y}, world.Tile{X: ps[len(ps)-1].Max.X, Y: busY.Max.Y}}
-					if !freeBus(bus) {
+					// шине ресурсов — зазор от добычи: в головы слева входят подводы (zones.md)
+					if !freeBus(bus) || f == 1 && b.nearMine(bus) {
 						continue
 					}
 					lo.buses[f-1], lo.floors[f] = bus, ps
@@ -474,26 +475,67 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		lo.area = area
 		return lo
 	}
-	ox, oy := b.Origin.X, b.Origin.Y
+	// голова шины ресурсов (левый край bus-1) — ближе к добыче первой итерации (zones.md): поиск
+	// — кольцами вокруг неё, (x0, y0) — левый нижний угол bus-1
+	ax, ay := b.mineAnchor()
 	var best *layered
 	for r := 0; r*8 <= b.MaxR; r++ {
 		if best != nil && float64(r*8) > best.dist+16 {
 			break
 		}
 		for _, o := range ringOffsets(r) {
-			x0, y0 := ox+o.X*8-width/2, oy+o.Y*8+height/2
+			x0, y0 := ax+o.X*8, ay+o.Y*8+widths[0]/2
 			lo := stack(x0, y0)
 			if lo == nil {
 				continue
 			}
-			cx, cy := lo.area.Center()
-			lo.dist = math.Hypot(cx-float64(ox), cy-float64(oy))
+			hx, hy := float64(lo.buses[0].Min.X), float64(lo.buses[0].Min.Y+lo.buses[0].Max.Y)/2
+			lo.dist = math.Hypot(hx-float64(ax), hy-float64(ay))
+			if d := float64(ax) - hx; d > 0 { // добыча правее головы — подводы в обход базы к левому краю
+				lo.dist += 2 * d
+			}
 			if best == nil || lo.dist < best.dist {
 				best = lo
 			}
 		}
 	}
 	return best
+}
+
+// nearMine — r ближе mineGap к зоне добычи.
+func (b *Base) nearMine(r Rect) bool {
+	for _, z := range b.mineZones {
+		if r.Grow(mineGap).Overlaps(z.Rect) {
+			return true
+		}
+	}
+	return false
+}
+
+// mineAnchor — куда тянуть голову шины ресурсов: среднее центров ближних к центру базы зон
+// добычи угля, железа и меди (добыча первой итерации); зон нет — центр базы.
+func (b *Base) mineAnchor() (int, int) {
+	ox, oy := b.Origin.X, b.Origin.Y
+	sx, sy, n := 0.0, 0.0, 0
+	for _, res := range []string{"coal", "iron-ore", "copper-ore"} {
+		bd, bx, by := math.Inf(1), 0.0, 0.0
+		for _, z := range b.mineZones {
+			if z.Resources[res] == 0 {
+				continue
+			}
+			cx, cy := z.Rect.Center()
+			if d := math.Hypot(cx-float64(ox), cy-float64(oy)); d < bd {
+				bd, bx, by = d, cx, cy
+			}
+		}
+		if !math.IsInf(bd, 1) {
+			sx, sy, n = sx+bx, sy+by, n+1
+		}
+	}
+	if n == 0 {
+		return ox, oy
+	}
+	return int(math.Round(sx / float64(n))), int(math.Round(sy / float64(n)))
 }
 
 // powerSpot — берег (вода рядом с сушей), где меньше всего сумма расстояний от ближайшей
