@@ -19,7 +19,7 @@ import (
 // материалы: строят стадии 13–12.
 
 // materialsExtra — запас сверх расчёта.
-var materialsExtra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 30, "wood": 50, "coal": 1000}
+var materialsExtra = map[string]int{"iron-plate": 1500, "copper-plate": 1000, "coal": 1000}
 
 // outBufferItems — буфер выхода плавки (стадия 12: пластины копятся в контейнерах).
 var outBufferItems = map[string]int{"inserter": 2, chest: 2}
