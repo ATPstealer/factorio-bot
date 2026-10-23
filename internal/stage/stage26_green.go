@@ -9,7 +9,7 @@ import (
 	"factorio-bot/internal/act"
 )
 
-// Стадия 22 (stages.md): кластер зелёной науки по плану стадии 18 — завод с шины
+// Стадия 26 (stages.md): кластер зелёной науки по плану стадии 6 — завод с шины
 // (makeLayout/runMake/checkMake): инсертеры и ленты отводами с шины промежуточного, выход — в
 // ленту зелёной науки шины конечных; буфера выхода нет. Рецепт — после исследования
 // logistic-science-pack (в очереди с обслуживания, стадия 17): не изучено — доставить в
@@ -19,8 +19,8 @@ import (
 const s22Wait = 40 * time.Minute
 
 func init() {
-	register(Stage{N: 22, Name: "кластер зелёной науки", Run: runGreen,
-		Check: func(h *act.Hands) error { return checkMake(h, s18Green, 22) }})
+	register(Stage{N: 26, Name: "кластер зелёной науки", Run: runGreen,
+		Check: func(h *act.Hands) error { return checkMake(h, s18Green) }})
 }
 
 func runGreen(ctx context.Context, h *act.Hands) error {
@@ -46,5 +46,5 @@ func runGreen(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
-	return runMake(ctx, h, s18Green, 22)
+	return runMake(ctx, h, s18Green)
 }

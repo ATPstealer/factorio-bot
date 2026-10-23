@@ -14,7 +14,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 17 (stages.md): обслуживание — всегда перед следующим планированием. В самом начале —
+// Стадия 22 (stages.md): обслуживание — всегда перед следующим планированием. В самом начале —
 // очередь исследований на красной науке, нужных для ракете (по ходу стадии — доставлять);
 // деревянные сундуки — на железные (быстрая замена, содержимое остаётся); лишнее из
 // инвентаря — в хранение.
@@ -28,7 +28,7 @@ var s17Keep = []string{"transport-belt", "underground-belt", "splitter", "insert
 	"iron-plate", "copper-plate", "iron-gear-wheel", "copper-cable", "electronic-circuit"}
 
 func init() {
-	register(Stage{N: 17, Name: "обслуживание", Run: runMaintenance, Check: checkMaintenance})
+	register(Stage{N: 22, Name: "обслуживание", Run: runMaintenance, Check: checkMaintenance})
 }
 
 // s17Techs — нужные для ракеты исследования на одной красной науке, ещё не изученные, по
@@ -183,8 +183,18 @@ func s17Audit(h *act.Hands) ([]s17Diff, error) {
 	if err != nil {
 		return nil, err
 	}
+	// дописанное проектом зелёной науки (стадия 6) строят стадии после обслуживания — не сверять
+	later := map[layout.Placement]bool{}
+	if added, _, err := s18Added(); err == nil {
+		for _, pl := range added {
+			later[pl] = true
+		}
+	}
 	var res []s17Diff
 	for _, pl := range plan.Layout {
+		if later[pl] {
+			continue
+		}
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
 		if err != nil {
 			return nil, err

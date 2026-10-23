@@ -12,14 +12,14 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 11 (stages.md): первый кластер добычи угля по плану стадии 5 — уголь в ленту шины;
+// Стадия 16 (stages.md): первый кластер добычи угля по плану стадии 5 — уголь в ленту шины;
 // станция берёт уголь отводом с шины вместо сундука стадии 6 (у бойлера — burner-инсертер с
 // ленты, как в плане). Питание — столбами по коридорам от сети (connectPower).
 
 const s11Plan = "state-stage11.json" // раскладка стадии: один раз на карту
 
 func init() {
-	register(Stage{N: 11, Name: "добыча угля", Run: runCoal, Check: checkCoal})
+	register(Stage{N: 16, Name: "добыча угля", Run: runCoal, Check: checkCoal})
 }
 
 // s11Layout — s11Base и столбы питания; один раз на карту (файл).

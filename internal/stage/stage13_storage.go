@@ -14,7 +14,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 8 (stages.md): кластер хранения (склад бота) из плана стадии 5.
+// Стадия 13 (stages.md): кластер хранения (склад бота) из плана стадии 5.
 
 // s8Free — свободных ячеек инвентаря перед постройкой не меньше (стадии с хранением): место
 // под срубленное на месте постройки (стадия 11: «дерево не поднять — инвентарь полон»).
@@ -27,7 +27,7 @@ const s8Batch = 40
 var s8Raw = []string{"wood", "stone", "iron-ore", "copper-ore"}
 
 func init() {
-	register(Stage{N: 8, Name: "хранение", Run: runStorage, Check: checkStorage})
+	register(Stage{N: 13, Name: "хранение", Run: runStorage, Check: checkStorage})
 }
 
 // s8Layout — постройки кластера хранения из плана.

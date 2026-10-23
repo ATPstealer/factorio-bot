@@ -11,7 +11,7 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 19 (stages.md): сначала — рост старых кластеров по плану стадии 18 (новые машины,
+// Стадия 23 (stages.md): сначала — рост старых кластеров по плану стадии 6 (новые машины,
 // продление лент, столбы), потом кластер провода и схем как кластеры 14–15 (makeLayout/runMake).
 
 const (
@@ -20,7 +20,7 @@ const (
 )
 
 func init() {
-	register(Stage{N: 19, Name: "рост и кластер схем", Run: runCircuits, Check: checkCircuits})
+	register(Stage{N: 23, Name: "рост и кластер схем", Run: runCircuits, Check: checkCircuits})
 }
 
 // s18Added — что стадия 18 дописала в план (нет в плане до неё).
@@ -133,7 +133,7 @@ func runCircuits(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
-	return runMake(ctx, h, s19Product, 19)
+	return runMake(ctx, h, s19Product)
 }
 
 func checkCircuits(h *act.Hands) error {
@@ -144,5 +144,5 @@ func checkCircuits(h *act.Hands) error {
 	if err := checkBuilt(h, grow); err != nil {
 		return err
 	}
-	return checkMake(h, s19Product, 19)
+	return checkMake(h, s19Product)
 }

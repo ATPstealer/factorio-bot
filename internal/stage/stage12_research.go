@@ -15,7 +15,7 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 7 (stages.md): 2 лаборатории на месте кластера лабораторий из плана (начало
+// Стадия 12 (stages.md): 2 лаборатории на месте кластера лабораторий из плана (начало
 // кластера), электричество — столбами от станции по коридорам (столбы логистики плана, не
 // через чужие кластеры), красная наука руками, изучить s7Techs.
 
@@ -28,7 +28,7 @@ const (
 var s7Techs = []string{"automation", "electric-mining-drill", "logistics"}
 
 func init() {
-	register(Stage{N: 7, Name: "первые исследования", Run: runResearch, Check: checkResearch})
+	register(Stage{N: 12, Name: "первые исследования", Run: runResearch, Check: checkResearch})
 }
 
 // s7Layout — лаборатории и столбы до них: кратчайшая цепочка столбов плана (логистика,

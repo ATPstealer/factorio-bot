@@ -35,41 +35,38 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 			res = append(res, s.Items...)
 		}
 		return res, nil
-	case 6:
-		return s6Layout(h)
-	case 7:
-		return s7Layout(h)
-	case 8:
-		return s8Layout()
 	case 11:
-		return s11Layout(h)
+		return s6Layout(h)
 	case 12:
-		return s12Layout(h)
+		return s7Layout(h)
 	case 13:
-		return s13Layout(h)
-	case 14:
-		list, _, err := makeLayout(h, "iron-gear-wheel", 14)
-		return list, err
-	case 15:
-		list, _, err := makeLayout(h, "automation-science-pack", 15)
-		return list, err
+		return s8Layout()
 	case 16:
+		return s11Layout(h)
+	case 17:
+		return s12Layout(h)
+	case 18:
+		return s13Layout(h)
+	case 19, 20, 24, 25, 26:
+		list, _, err := makeLayout(h, makeProduct[n])
+		return list, err
+	case 21:
 		return s16Layout(h)
-	case 19:
+	case 23:
 		grow, err := s19GrowLayout(h)
 		if err != nil {
 			return nil, err
 		}
-		list, _, err := makeLayout(h, s19Product, 19)
+		list, _, err := makeLayout(h, s19Product)
 		return append(grow, list...), err
-	case 20, 21, 22:
-		list, _, err := makeLayout(h, map[int]string{20: "inserter", 21: "transport-belt", 22: s18Green}[n], n)
-		return list, err
-	case 23:
+	case 27:
 		return s23Layout(h)
 	}
 	return nil, nil
 }
+
+// makeProduct — продукт завода с шины по стадии (makeLayout).
+var makeProduct = map[int]string{19: "iron-gear-wheel", 20: "automation-science-pack", 24: "inserter", 25: "transport-belt", 26: s18Green}
 
 // clearable — что расчищать (stages.md): легко устранимое — всегда; вода и скалы — когда есть
 // чем (засыпка, динамит в инвентаре или хранении; кластер, который их делает, — потом).

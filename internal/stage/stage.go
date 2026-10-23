@@ -78,7 +78,7 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 		return err
 	}
 	h.Say("стадия %d: %s", s.N, s.Name)
-	if n >= 17 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
+	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
 		layout.Chest, chest = ironChest, ironChest
 	}
 	// перед стройкой — проверка и расчистка площади плана (stages.md, общее)

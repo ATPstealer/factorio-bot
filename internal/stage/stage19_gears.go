@@ -15,20 +15,20 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 14 (stages.md): кластер шестерён по плану стадии 5, сразу как положено — отвод железа
+// Стадия 19 (stages.md): кластер шестерён по плану стадии 5, сразу как положено — отвод железа
 // с шины делителем, буфер входа, сборщики с рецептом, выход — в ленту шестерён шины, буфер
 // выхода, питание по коридорам. Общая часть (завод с шины) — makeLayout/runMake/checkMake.
 
 func init() {
-	register(Stage{N: 14, Name: "кластер шестерён",
-		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel", 14) },
-		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel", 14) }})
+	register(Stage{N: 19, Name: "кластер шестерён",
+		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel") },
+		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel") }})
 }
 
-// makeLayout — завод продукта product с шины (стадия n): внутренность кластера, отводы с
-// шины (с буферами входа), лента продукта шины с подводом, делители на ней, буфер выхода,
-// столбы; один раз на карту (файл state-stage<n>.json).
-func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *cluster.Cluster, error) {
+// makeLayout — завод продукта product с шины: внутренность кластера, отводы с шины (с буферами
+// входа), лента продукта шины с подводом, делители на ней, буфер выхода, столбы; один раз на
+// карту (файл state-make-<продукт>.json).
+func makeLayout(h *act.Hands, product string) ([]layout.Placement, *cluster.Cluster, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, nil, err
@@ -37,7 +37,7 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 	if c == nil {
 		return nil, nil, fmt.Errorf("в плане нет кластера %s", product)
 	}
-	file := runPath(fmt.Sprintf("state-stage%d.json", n))
+	file := runPath(fmt.Sprintf("state-make-%s.json", product))
 	if data, err := os.ReadFile(file); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
@@ -119,8 +119,8 @@ var isScience = cluster.IsScience
 
 // runMake — построить завод (машины, ленты, инсертеры, столбы), рецепты сборщиков, фильтры
 // инсертеров буферов; дождаться продукта на шине и в буфере выхода.
-func runMake(ctx context.Context, h *act.Hands, product string, n int) error {
-	list, _, err := makeLayout(h, product, n)
+func runMake(ctx context.Context, h *act.Hands, product string) error {
+	list, _, err := makeLayout(h, product)
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func runMake(ctx context.Context, h *act.Hands, product string, n int) error {
 		}
 	}
 	deadline := time.Now().Add(8 * time.Minute)
-	for checkMake(h, product, n) != nil && time.Now().Before(deadline) {
+	for checkMake(h, product) != nil && time.Now().Before(deadline) {
 		if err := sleepCtx(ctx, 10*time.Second); err != nil {
 			return err
 		}
@@ -166,8 +166,8 @@ func runMake(ctx context.Context, h *act.Hands, product string, n int) error {
 
 // checkMake — всё стоит, рецепты и фильтры заданы; продукт — на ленте шины (на любой её ленте
 // после подвода) и в буфере выхода.
-func checkMake(h *act.Hands, product string, n int) error {
-	list, c, err := makeLayout(h, product, n)
+func checkMake(h *act.Hands, product string) error {
+	list, c, err := makeLayout(h, product)
 	if err != nil {
 		return err
 	}

@@ -14,13 +14,13 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 13 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 5).
+// Стадия 18 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 5).
 // Больше ничего.
 
 const s13Plan = "state-stage13.json"
 
 func init() {
-	register(Stage{N: 13, Name: "пластины на шину", Run: runBusPlates, Check: checkBusPlates})
+	register(Stage{N: 18, Name: "пластины на шину", Run: runBusPlates, Check: checkBusPlates})
 }
 
 // s13Layout — s13Base; один раз на карту (файл).

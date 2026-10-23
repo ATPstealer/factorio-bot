@@ -15,7 +15,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 18 (stages.md): проект кластеров зелёной науки — план стадии 5 дописывается, а не
+// Стадия 6 (stages.md): проект кластеров зелёной науки — план стадии 5 дописывается, а не
 // перестраивается: построенное — препятствие, новые кластеры (провод и схемы, инсертеры, ленты —
 // шестерни внутри парами, зелёная наука) встают в свои зоны, лаборатории получают второй вход.
 
@@ -34,7 +34,7 @@ var s18Separate = []string{"electronic-circuit", "inserter", "transport-belt"}
 var s18Order = []string{"electronic-circuit", "transport-belt", "inserter", s18Green}
 
 func init() {
-	register(Stage{N: 18, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan, Plan: true})
+	register(Stage{N: 6, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan, Plan: true})
 }
 
 // loadPlanFile — план кластеров из файла path.
@@ -100,19 +100,11 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	// свои постройки по плану — не помеха (они в плане); свои вне плана (столбы стадий к
-	// лабораториям и т.п.) и прочие — препятствие
-	planned := map[string]bool{}
-	for _, pl := range old.Layout {
-		t := world.TileOf(pl.Pos)
-		planned[fmt.Sprintf("%s@%d,%d", pl.Name, t.X, t.Y)] = true
-	}
+	// стадия 6 — сразу после плана стадии 5, стройки ещё не было: свои постройки на карте (точки
+	// стадии 2) к стройке разобраны — не помеха; план стадии 5 считается построенным
 	var own []world.Object
 	for _, o := range h.World.Objects() {
-		t := world.TileOf(o.Pos)
-		// только планы подряд: стройки не было — свои постройки на карте (точки стадии 2) к
-		// этому времени разобраны, план прошлых стадий считается построенным
-		if o.Own && (PlanOnly || planned[fmt.Sprintf("%s@%d,%d", o.Name, t.X, t.Y)]) {
+		if o.Own {
 			own = append(own, o)
 		}
 	}

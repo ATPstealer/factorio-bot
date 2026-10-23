@@ -13,7 +13,7 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 9 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
+// Стадия 14 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
 // меди по плану стадии 5 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
 // сверх расчёта — запас s9Extra; не влезает в инвентарь — в кластер хранения. Только
 // материалы: строят стадии 13–12.
@@ -25,7 +25,7 @@ var s9Extra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 3
 var s9OutBuffer = map[string]int{"inserter": 2, chest: 2}
 
 func init() {
-	register(Stage{N: 9, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
+	register(Stage{N: 14, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
 }
 
 // s9Clusters — кластеры стадий 13–12: добыча угля, железа, меди; плавка железа и меди.
