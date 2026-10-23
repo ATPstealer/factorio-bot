@@ -165,7 +165,7 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 	return nil
 }
 
-// AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §6в): подача
+// AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §2а «Лаборатории»): подача
 // с другой стороны ленты — боком в её голову (на свою полосу), буфер — напротив подачи, на
 // оставленных шаблоном местах. Построенное не трогает; поток item rate — во входы кластера.
 func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag string) (Port, error) {

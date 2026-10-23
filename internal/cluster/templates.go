@@ -38,7 +38,7 @@ func geometry(k Kind) (cross, pitch, head int) {
 		return 8, 3, 1
 	case Make:
 		return 9, 4, 1
-	case Lab: // блок (cluster.md §6в): поперёк — 4 ряда лент и буферов + столбцы лабораторий
+	case Lab: // блок (cluster.md §2а «Лаборатории»): поперёк — 4 ряда лент и буферов + столбцы лабораторий
 		return 4 + 4*labCols - 1, 4, 1
 	case Supply:
 		return 5, 2, 1
@@ -56,7 +56,7 @@ func (c *Cluster) Len() int {
 	return c.Head + c.Room*c.Pitch
 }
 
-// Блок лабораторий (cluster.md §6в): labCols столбцов, всего не меньше labRoom; поперёк: 0 —
+// Блок лабораторий (cluster.md §2а «Лаборатории»): labCols столбцов, всего не меньше labRoom; поперёк: 0 —
 // сундуки буфера второго пакета ленты A, 1 — его инсертеры (в голове) / лента B (вдоль
 // лабораторий), 2 — лента A, 3 — инсертеры буфера первого пакета (в голове) / инсертеры в
 // лаборатории левого столбца (короткий с A, длинный с B), 4 — сундуки буфера первого пакета
@@ -181,7 +181,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		l.AllowEnd(f.tile(-1, 3)) // выход: дальше — лента к потребителю (или её ещё нет)
 		c.Ports = append(c.Ports, Port{T: f.tile(-1, 3), Dir: f.dir(layout.W), Item: c.Product})
 	case Lab:
-		// блок лабораторий (cluster.md §6в): с левого нижнего угла по рядам; левый столбец — с
+		// блок лабораторий (cluster.md §2а «Лаборатории»): с левого нижнего угла по рядам; левый столбец — с
 		// ленты A, остальные — от соседа слева и снизу (пакеты из лаборатории в лабораторию)
 		labU := func(i int) int { return c.Head + 4*i }
 		labV := func(j int) int { return 4 + 4*j }
@@ -228,7 +228,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 				return err
 			}
 		}
-		// место под второй вход ленты A, ленты B и C с инсертерами — не под столбы (§6в)
+		// место под второй вход ленты A, ленты B и C с инсертерами — не под столбы (§2а «Лаборатории»)
 		for _, t := range labReserve(f, c) {
 			if l.At(t) == nil {
 				l.Reserved[t] = true
@@ -506,7 +506,7 @@ func bufferAt(l *layout.Layout, f frame, c *Cluster, v, insV, chestV, n int, ite
 	return nil
 }
 
-// labReserve — место блока лабораторий под будущее (cluster.md §6в): подача и буфер второго
+// labReserve — место блока лабораторий под будущее (cluster.md §2а «Лаборатории»): подача и буфер второго
 // пакета ленты A, лента B и длинные инсертеры с неё, лента C и её инсертеры, лаборатории
 // сверх Count и инсертеры к ним; столбы — только в зазорах.
 func labReserve(f frame, c *Cluster) []world.Tile {
