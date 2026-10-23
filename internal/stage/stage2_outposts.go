@@ -18,8 +18,18 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 2 (stages.md): добывающие точки на твердотопливных бурах — 5 угольных пар (буры носом
-// друг в друга), 10 пар «бур → печь» на железе, 5 на меди, 4 бура носом в сундук на камне.
+// Стадия 2 (stages.md): добывающие точки на твердотопливных бурах — outpostCoal угольных пар
+// (буры носом друг в друга), outpostIron пар «бур → печь» на железе, outpostCopper на меди, 4
+// бура носом в сундук на камне.
+
+// Точки стадии 2: железа на стройку добычи, плавки и шины нужно ~11 000 — 30 пар копят его за
+// ~25 минут, пока идут стадии 11–14 (10 пар — ~75 минут); уголь — топливо всем точкам.
+const (
+	outpostIron   = 30
+	outpostCopper = 6
+	outpostCoal   = 8 // пар (по 2 бура)
+)
+
 // Железо на буры вначале — руками: руда в печи будущих пар; дальше итеративно — пластины с
 // печей. Подошёл к точке — забрать со всех её печей. Уголь — с пар, пока их нет — руками.
 
@@ -99,10 +109,10 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 	}
 	if err := add("iron-ore", func(t []world.Tile, at world.Tile) error {
 		return l.DrillFurnace(t, "iron-ore", drill, furnace, at, "iron")
-	}, 10); err != nil {
+	}, outpostIron); err != nil {
 		return nil, err
 	}
-	if err := add("coal", func(t []world.Tile, at world.Tile) error { return l.CoalPair(t, "coal", drill, at, "coal") }, 5); err != nil {
+	if err := add("coal", func(t []world.Tile, at world.Tile) error { return l.CoalPair(t, "coal", drill, at, "coal") }, outpostCoal); err != nil {
 		return nil, err
 	}
 	if err := add("stone", func(t []world.Tile, at world.Tile) error {
@@ -112,7 +122,7 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 	}
 	if err := add("copper-ore", func(t []world.Tile, at world.Tile) error {
 		return l.DrillFurnace(t, "copper-ore", drill, furnace, at, "copper")
-	}, 5); err != nil {
+	}, outpostCopper); err != nil {
 		return nil, err
 	}
 	if data, err := json.MarshalIndent(sites, "", " "); err == nil {
@@ -627,7 +637,7 @@ func checkOutposts(h *act.Hands) error {
 			}
 		}
 	}
-	want := map[string]int{"coal": 10, "iron-ore": 10, "copper-ore": 5, "stone": 4}
+	want := map[string]int{"coal": 2 * outpostCoal, "iron-ore": outpostIron, "copper-ore": outpostCopper, "stone": 4}
 	for ore, n := range want {
 		if count[ore] != n {
 			return fmt.Errorf("буров на %s: %d из %d", ore, count[ore], n)
