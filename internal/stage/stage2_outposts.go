@@ -306,6 +306,11 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
 		}
+		// инвентарь почти полон — добытое некуда класть (4000 пластин и готовые постройки
+		// забили его на стадии 14): ненужное сейчас — в хранение; хранения ещё нет — как есть
+		if err := s.store(ctx, craftFree, item); err != nil && !errors.Is(err, errNoStorage) {
+			return err
+		}
 		lack := n - s.inv(item)
 		if s.useStore {
 			if got, err := s.fromStorage(ctx, item); err != nil || got {
