@@ -612,3 +612,55 @@ func TestPlaceUndergroundAfterTurn(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// TestPickupSplitterKeepsNeighbors — подбор делителя (переставить не тем направлением вставший)
+// не уносит соседние ленты: зажатая ПКМ добыла ленту отвода, оказавшуюся под курсором после
+// делителя (стадия 21 на 859088572: «не стоит transport-belt»).
+func TestPickupSplitterKeepsNeighbors(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "splitter") {
+		t.Skip("делители не открыты (logistics)")
+	}
+	have(t, h, "transport-belt", 8)
+	have(t, h, "splitter", 1)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y + 25}, 10, 10, 60, &p0.Position)
+	if !ok {
+		t.Skip("нет свободной площадки 10×10")
+	}
+	x, y := math.Floor(c.X)+0.5, math.Floor(c.Y)+0.5
+	ctx := ctxT(t, 4*time.Minute)
+	// лента на восток, отвод: делитель на ней, со второго выхода — лента вниз и на восток
+	var pos []bridge.Pos
+	var dirs []int
+	for dx := -2.0; dx <= 2; dx++ {
+		pos, dirs = append(pos, bridge.Pos{X: x + dx, Y: y}), append(dirs, layout.E)
+	}
+	pos, dirs = append(pos, bridge.Pos{X: x + 1, Y: y + 1}, bridge.Pos{X: x + 1, Y: y + 2}), append(dirs, layout.S, layout.E)
+	if _, err := h.PlaceDirs(ctx, "transport-belt", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := h.Place(ctx, "splitter", bridge.Pos{X: x, Y: y + 0.5}, layout.E)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Pickup(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range pos {
+		if p.X == x {
+			continue // под делителем
+		}
+		if st, err := h.B.GetEntity("transport-belt", p); err != nil || st == nil {
+			t.Errorf("лента %d в (%.1f, %.1f) пропала после подбора делителя (%v)", i+1, p.X, p.Y, err)
+		}
+	}
+	clean(t, h)
+}

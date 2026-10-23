@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -770,6 +771,10 @@ func (h *Hands) Pickup(ctx context.Context, e bridge.Entity) error {
 	return h.PickupAll(ctx, []bridge.Entity{e})
 }
 
+// builtTypes — типы построек бота (рядом с подбираемой: задетые — ставить назад).
+var builtTypes = []string{"transport-belt", "underground-belt", "splitter", "inserter", "electric-pole", "assembling-machine",
+	"furnace", "mining-drill", "lab", "boiler", "generator", "pipe", "pipe-to-ground"}
+
 // mineReachGame — с какого расстояния до рамки коллизии добываем, не подходя (игра — 2.7).
 const mineReachGame = 2.4
 
@@ -828,10 +833,30 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 			}
 		}
 		t1 := time.Now()
+		// свои постройки рядом: зажатая ПКМ после цели добывает то, что оказалось под курсором
+		// (лента у делителя пропала, стадия 21 на 859088572) — задетое ставится назад
+		near, _ := h.B.FindNearest(bridge.FindArgs{Radius: 2.5, Limit: 30, Position: &e.Position})
 		if err := h.mineHeld(ctx, e, nil, &held); err != nil {
 			return err
 		}
 		h.Log("подбор: ходьба %.2f, добыча %.2f", t1.Sub(t0).Seconds(), time.Since(t1).Seconds())
+		for _, o := range near {
+			if !slices.Contains(builtTypes, o.Type) || o.Position == e.Position && o.Name == e.Name || slices.ContainsFunc(es, func(x bridge.Entity) bool { return x.Name == o.Name && x.Position == o.Position }) {
+				continue
+			}
+			if got, err := h.B.EntityAt(o.Name, o.Position); err != nil || got != nil {
+				continue
+			}
+			release()
+			h.Say("задел %s в (%.1f, %.1f) — ставлю назад", o.Name, o.Position.X, o.Position.Y)
+			dir := 0
+			if o.Direction != nil {
+				dir = *o.Direction
+			}
+			if _, err := h.Place(ctx, o.Name, o.Position, dir); err != nil {
+				return fmt.Errorf("поставить назад %s: %w", o.Name, err)
+			}
+		}
 	}
 	return nil
 }
