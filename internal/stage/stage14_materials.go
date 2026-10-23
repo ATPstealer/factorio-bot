@@ -16,9 +16,9 @@ import (
 // Стадия 14 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
 // меди по плану стадии 5 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
 // сверх расчёта — запас materialsExtra; не влезает в инвентарь — в кластер хранения. Только
-// материалы: строят стадии 13–12.
+// материалы: строят стадии 16 (добыча угля) и 17 (добыча и плавка железа и меди).
 
-// materialsExtra — запас сверх расчёта.
+// materialsExtra — запас сверх расчёта: стройке 16 и 17 — до дохода с её же цепочек.
 var materialsExtra = map[string]int{"iron-plate": 1500, "copper-plate": 1000, "coal": 1000}
 
 // outBufferItems — буфер выхода плавки (стадия 12: пластины копятся в контейнерах).
@@ -28,7 +28,7 @@ func init() {
 	register(Stage{N: 14, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
 }
 
-// materialsClusters — кластеры стадий 13–12: добыча угля, железа, меди; плавка железа и меди.
+// materialsClusters — кластеры стадий 16–17: добыча угля, железа, меди; плавка железа и меди.
 func materialsClusters(plan *ClusterPlan) []*cluster.Cluster {
 	var res []*cluster.Cluster
 	for _, c := range plan.Clusters {
@@ -41,7 +41,7 @@ func materialsClusters(plan *ClusterPlan) []*cluster.Cluster {
 	return res
 }
 
-// materialsLayout — что построят стадии 13–12 (coalBase, smeltingBase) и столбы: по столбам логистики
+// materialsLayout — что построят стадии 16–17 (coalBase, smeltingBase) и столбы: по столбам логистики
 // плана (цепочки по коридорам выйдут не длиннее).
 func materialsLayout(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
