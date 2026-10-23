@@ -264,35 +264,47 @@ func prepTiles(h *act.Hands, list []layout.Placement) []string {
 	return res
 }
 
-// prepReach — до каждого места стройки дойти и дотянуться: заливка суши от персонажа (вода не
-// проходится, деревья и камни — расчистятся), место — в досягаемости (9) от залитого тайла.
+// prepReach — до каждого места стройки дойти и дотянуться: заливка суши от персонажа по всей
+// открытой карте (вода не проходится, деревья и камни — расчистятся; путь вокруг озера бывает
+// вдвое длиннее прямой — рамкой не ограничивать), место — в досягаемости (9) от залитого
+// тайла; заливка — пока не найдены все места.
 func prepReach(h *act.Hands, list []layout.Placement) []string {
 	p, err := h.B.Player()
 	if err != nil {
 		return []string{err.Error()}
 	}
-	lo, hi := world.TileOf(p.Position), world.TileOf(p.Position)
-	for _, pl := range list {
-		t := world.TileOf(pl.Pos)
-		lo = world.Tile{X: min(lo.X, t.X), Y: min(lo.Y, t.Y)}
-		hi = world.Tile{X: max(hi.X, t.X), Y: max(hi.Y, t.Y)}
-	}
-	const pad = 64
-	lo, hi = world.Tile{X: lo.X - pad, Y: lo.Y - pad}, world.Tile{X: hi.X + pad, Y: hi.Y + pad}
 	land := func(t world.Tile) bool {
-		if t.X < lo.X || t.Y < lo.Y || t.X > hi.X || t.Y > hi.Y {
-			return false
-		}
 		tt := h.World.TileAt(t)
 		return tt == world.Land || tt == world.Shallow
 	}
+	// тайлы, откуда достаётся место: тайл → места
+	const reach = 9
+	from := map[world.Tile][]int{}
+	for i, pl := range list {
+		c := world.TileOf(pl.Pos)
+		for dy := -reach; dy <= reach; dy++ {
+			for dx := -reach; dx <= reach; dx++ {
+				if dx*dx+dy*dy <= reach*reach {
+					t := world.Tile{X: c.X + dx, Y: c.Y + dy}
+					from[t] = append(from[t], i)
+				}
+			}
+		}
+	}
+	found := make([]bool, len(list))
+	left := len(list)
 	seen := map[world.Tile]bool{}
 	start := world.TileOf(p.Position)
 	queue := []world.Tile{start}
 	seen[start] = true
-	for len(queue) > 0 {
+	for len(queue) > 0 && left > 0 {
 		t := queue[0]
 		queue = queue[1:]
+		for _, i := range from[t] {
+			if !found[i] {
+				found[i], left = true, left-1
+			}
+		}
 		for _, d := range []world.Tile{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
 			q := world.Tile{X: t.X + d.X, Y: t.Y + d.Y}
 			if !seen[q] && land(q) {
@@ -302,16 +314,8 @@ func prepReach(h *act.Hands, list []layout.Placement) []string {
 		}
 	}
 	var res []string
-	const reach = 9
-	for _, pl := range list {
-		c := world.TileOf(pl.Pos)
-		ok := false
-		for dy := -reach; dy <= reach && !ok; dy++ {
-			for dx := -reach; dx <= reach && !ok; dx++ {
-				ok = dx*dx+dy*dy <= reach*reach && seen[world.Tile{X: c.X + dx, Y: c.Y + dy}]
-			}
-		}
-		if !ok {
+	for i, pl := range list {
+		if !found[i] {
 			res = append(res, fmt.Sprintf("до %s в (%.1f, %.1f) не дойти (вода)", pl.Name, pl.Pos.X, pl.Pos.Y))
 		}
 	}
