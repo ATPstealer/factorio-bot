@@ -501,7 +501,11 @@ func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement) {
 	}
 }
 
-// prepForward — планы следующих стадий «на бумаге» (по нынешней карте и плану стадии 5):
+// forwardStages — на сколько стадий вперёд прикидывать планы (дальние — долго, а сети и
+// построек, на которые они опираются, ещё нет).
+const forwardStages = 10
+
+// prepForward — планы следующих стадий (до forwardStages вперёд) «на бумаге» (по нынешней карте и плану стадии 5):
 // ошибка плана дальше — видна сразу. Файлы состояния, созданные при этом, удаляются (стадия
 // построит свой план, когда до неё дойдёт).
 func prepForward(h *act.Hands, n int) {
@@ -522,7 +526,7 @@ func prepForward(h *act.Hands, n int) {
 		return // плана кластеров ещё нет (стадии до 5) — дальше не заглянуть
 	}
 	for _, m := range List() {
-		if m <= n {
+		if m <= n || m > n+forwardStages {
 			continue
 		}
 		if _, err := planOf(h, m); err != nil {
