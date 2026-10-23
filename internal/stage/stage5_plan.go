@@ -46,7 +46,7 @@ type ClusterPlan struct {
 }
 
 func init() {
-	register(Stage{N: 5, Name: "план кластеров", Run: runPlan, Check: checkPlan})
+	register(Stage{N: 5, Name: "план кластеров", Run: runPlan, Check: checkPlan, Plan: true})
 }
 
 // LoadPlan — план стадии 5 этой карты (для следующих стадий).

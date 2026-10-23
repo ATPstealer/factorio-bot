@@ -20,9 +20,26 @@ type Stage struct {
 	Name  string
 	Run   func(ctx context.Context, h *act.Hands) error
 	Check func(h *act.Hands) error
+	Plan  bool // стадия планирования (только «на бумаге»: зоны, план кластеров, проекты)
 }
 
 var all = map[int]Stage{}
+
+// PlanOnly — прогон одних стадий планирования подряд (bin/bot plans): стройки между ними нет,
+// а план прошлых стадий считается построенным — свои постройки на карте (точки стадии 2 и т.п.)
+// планам не мешают.
+var PlanOnly bool
+
+// Plans — номера стадий планирования в from…to по порядку.
+func Plans(from, to int) []int {
+	var res []int
+	for _, n := range List() {
+		if n >= from && n <= to && all[n].Plan {
+			res = append(res, n)
+		}
+	}
+	return res
+}
 
 // runPath — файл в папке экземпляра игры (BOT_RUN, по умолчанию run; scripts/inst.sh).
 func runPath(name string) string {

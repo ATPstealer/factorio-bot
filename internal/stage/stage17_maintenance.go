@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
 
@@ -138,6 +140,13 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
+	// сверка с планом: недостроенное — достроить, стоящее не так — исправить
+	if err := s17Fix(ctx, h, s); err != nil {
+		return err
+	}
+	if err := s17Queue(ctx, h); err != nil {
+		return err
+	}
 	// лишнее — в хранение (все сундуки хранения теперь железные)
 	p, err := h.B.Player()
 	if err != nil {
@@ -149,6 +158,99 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	return s17Queue(ctx, h)
+}
+
+// s17Diff — расхождение плана и построенного: чего нет (st == nil) или что стоит не так.
+type s17Diff struct {
+	pl  layout.Placement
+	st  *bridge.EntityState
+	why string
+}
+
+func (d s17Diff) String() string {
+	return fmt.Sprintf("%s в (%.1f, %.1f): %s", d.pl.Name, d.pl.Pos.X, d.pl.Pos.Y, d.why)
+}
+
+// s17Directed — у постройки важно направление (ленты, подземки, делители, инсертеры).
+func s17Directed(name string) bool {
+	return name == "transport-belt" || name == "underground-belt" || name == "splitter" || name == "inserter" || name == "burner-inserter"
+}
+
+// s17Audit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр
+// инсертера.
+func s17Audit(h *act.Hands) ([]s17Diff, error) {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil, err
+	}
+	var res []s17Diff
+	for _, pl := range plan.Layout {
+		st, err := h.B.GetEntity(pl.Name, pl.Pos)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case st == nil:
+			res = append(res, s17Diff{pl, nil, "нет"})
+		case s17Directed(pl.Name) && st.Direction != nil && *st.Direction != pl.Dir:
+			res = append(res, s17Diff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
+		case strings.HasPrefix(pl.Name, "assembling-machine") && pl.Recipe != "" && st.Recipe != pl.Recipe:
+			res = append(res, s17Diff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
+		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe):
+			res = append(res, s17Diff{pl, st, "нет фильтра " + pl.Recipe})
+		}
+	}
+	return res, nil
+}
+
+// s17Fix — достроить недостающее и исправить стоящее не так.
+func s17Fix(ctx context.Context, h *act.Hands, s *s2) error {
+	diffs, err := s17Audit(h)
+	if err != nil {
+		return err
+	}
+	if len(diffs) == 0 {
+		return nil
+	}
+	h.Say("сверка с планом: %d расхождений", len(diffs))
+	var missing []layout.Placement
+	for _, d := range diffs {
+		h.Log("сверка: %v", d)
+		if d.st == nil {
+			missing = append(missing, d.pl)
+		}
+	}
+	if len(missing) > 0 {
+		order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "lab", "transport-belt", "underground-belt",
+			"splitter", chest, "inserter", "burner-inserter", "small-electric-pole"}
+		if err := buildSorted(ctx, h, missing, order); err != nil {
+			return err
+		}
+	}
+	for _, d := range diffs {
+		if d.st == nil {
+			continue
+		}
+		var err error
+		switch {
+		case d.pl.Name == "underground-belt", d.pl.Name == "splitter" && d.st.Direction != nil && *d.st.Direction%8 != d.pl.Dir%8:
+			// подземку R не поворачивает (меняет вход/выход), делитель поперёк — сдвинет центр:
+			// поднять и поставить заново
+			if err = h.Pickup(ctx, d.st.Entity); err == nil {
+				_, err = h.PlaceDirs(ctx, d.pl.Name, []bridge.Pos{d.pl.Pos}, []int{d.pl.Dir})
+			}
+		case s17Directed(d.pl.Name):
+			err = h.Rotate(ctx, d.st.Entity, d.pl.Dir)
+		case strings.HasPrefix(d.pl.Name, "assembling-machine"):
+			err = h.SetRecipe(ctx, d.st.Entity, d.pl.Recipe)
+		default:
+			err = h.SetFilter(ctx, d.st.Entity, d.pl.Recipe)
+		}
+		if err != nil {
+			return fmt.Errorf("сверка: %v: %w", d, err)
+		}
+	}
+	return nil
 }
 
 // s17RenameChests — в файлах раскладок (план, стадии) деревянные сундуки — железные: стоят
@@ -182,6 +284,13 @@ func checkMaintenance(h *act.Hands) error {
 		if o.Own && o.Name == "wooden-chest" {
 			return fmt.Errorf("деревянный сундук в (%.1f, %.1f)", o.Pos.X, o.Pos.Y)
 		}
+	}
+	diffs, err := s17Audit(h)
+	if err != nil {
+		return err
+	}
+	if len(diffs) > 0 {
+		return fmt.Errorf("сверка с планом: %d расхождений, первое — %v", len(diffs), diffs[0])
 	}
 	techs, err := s17Techs(h)
 	if err != nil {

@@ -34,7 +34,7 @@ var s18Separate = []string{"electronic-circuit", "inserter", "transport-belt"}
 var s18Order = []string{"electronic-circuit", "transport-belt", "inserter", s18Green}
 
 func init() {
-	register(Stage{N: 18, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan})
+	register(Stage{N: 18, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan, Plan: true})
 }
 
 // loadPlanFile — план кластеров из файла path.
@@ -110,7 +110,9 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 	var own []world.Object
 	for _, o := range h.World.Objects() {
 		t := world.TileOf(o.Pos)
-		if o.Own && planned[fmt.Sprintf("%s@%d,%d", o.Name, t.X, t.Y)] {
+		// только планы подряд: стройки не было — свои постройки на карте (точки стадии 2) к
+		// этому времени разобраны, план прошлых стадий считается построенным
+		if o.Own && (PlanOnly || planned[fmt.Sprintf("%s@%d,%d", o.Name, t.X, t.Y)]) {
 			own = append(own, o)
 		}
 	}

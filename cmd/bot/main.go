@@ -50,6 +50,7 @@ const usage = `bot — бот Factorio: действует только мышь
   filter X Y ПРЕДМЕТ    фильтр инсертера в точке (X, Y): брать только ПРЕДМЕТ (окно инсертера)
   research ТЕХНОЛОГИЯ   запустить исследование (окно технологий, T)
   stage N               выполнить стадию N (stages.md) на текущей карте и проверить её критерии
+  plans ОТ ДО           только стадии планирования ОТ…ДО подряд (план прошлых — построен)
   pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
@@ -350,6 +351,17 @@ func main() {
 		}
 		check(stage.Do(ctx, hands(), atoi(args[1])))
 		log.Printf("стадия %s выполнена", args[1])
+	case "plans":
+		// стадии планирования from…to подряд, без стройки между ними (план прошлых — построен)
+		if len(args) < 3 {
+			log.Fatal("bot plans ОТ ДО")
+		}
+		stage.PlanOnly = true
+		h := hands()
+		for _, n := range stage.Plans(atoi(args[1]), atoi(args[2])) {
+			check(stage.Do(ctx, h, n))
+			log.Printf("стадия %d выполнена", n)
+		}
 	case "research":
 		if len(args) < 2 {
 			log.Fatal("bot research ТЕХНОЛОГИЯ")

@@ -9,12 +9,40 @@
 #   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0); после — он остановлен
 #   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 180)
+#   PLAN=1 scripts/stage.sh N-M СИД… — только стадии планирования N…M подряд (bin/bot plans), со
+#                                снимка <сид>-(N-1), без стройки между ними: план прошлых
+#                                считается построенным; снимки не сохраняются (новые картинки —
+#                                run/stages/s<стадия>-<сид>.png); карты — параллельно
 # Лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt; код 0 — выполнена на всех картах.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 range=$1; shift
 from=${range%-*} to=${range#*-}
 mkdir -p run/stages
+if [[ ${PLAN:-0} == 1 ]]; then
+  go build -o bin/bot ./cmd/bot || exit 1
+  k=0
+  for seed in "$@"; do
+    k=$((k + 1))
+    (
+      sleep $((8 * (k - 1)))
+      log=run/stages/plans-$seed.log
+      rm -f "run/stages/ok-plans-$seed"
+      INST=$k bash -c "source scripts/inst.sh
+        timeout 600 scripts/snapshot.sh load $seed-$((from - 1)) > /dev/null 2>&1 || { echo нет снимка $seed-$((from - 1)) > $log; exit 1; }
+        timeout $(( ${LIMIT:-60} * 60 + 300 )) bin/bot -t ${LIMIT:-60}m plans $from $to > $log 2>&1" && touch "run/stages/ok-plans-$seed"
+      INST=$k scripts/stop.sh > /dev/null 2>&1
+      if [[ -f run/stages/ok-plans-$seed ]]; then
+        echo "== планы $from–$to, $seed: выполнены" | tee -a run/stages/summary.txt
+      else
+        echo "== планы $from–$to, $seed: НЕ выполнены: $(tail -1 "$log" | cut -c17-200)" | tee -a run/stages/summary.txt
+      fi
+    ) &
+  done
+  wait
+  for seed in "$@"; do [[ -f run/stages/ok-plans-$seed ]] || exit 1; done
+  exit 0
+fi
 if [[ $from != "$to" ]]; then
   for ((n = from; n <= to; n++)); do
     if ! "$0" "$n" "$@"; then

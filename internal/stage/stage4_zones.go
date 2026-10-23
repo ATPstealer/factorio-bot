@@ -54,7 +54,7 @@ type Resource struct {
 }
 
 func init() {
-	register(Stage{N: 4, Name: "зоны всей базы", Run: runRough, Check: checkRough})
+	register(Stage{N: 4, Name: "зоны всей базы", Run: runRough, Check: checkRough, Plan: true})
 }
 
 // LoadRough — прикидка базы этой карты (для следующих стадий).
