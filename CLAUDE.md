@@ -92,7 +92,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
   - `calc/tech/raw` работают без игры по кэшу `data/`.
 
 Пакеты:
-- `internal/rcon` — Source RCON (`Dial`, `Exec`).
+- `internal/rcon` — Source RCON (`Dial`, `Exec`; нет ответа 60 с — переподключение и повтор команды: однажды ответ не пришёл вовсе).
 - `internal/bridge` — `Call(method, args, &out)` + типизированные `Ping/Player/FindNearest/FindMinable/EntityAt/GetEntity/GetEntities/PollEvents/ListCharted/ScanChunks/Force/DumpPrototypes/Say`. JSON в Lua — длинными скобками `[=[...]=]`. Пустая Lua-таблица приходит как `{}`, не `[]` — массивы декодировать в `bridge.List[T]`, словари в моде делать `nil`, если пусты.
 - `internal/input` — XTEST на чистом Go (`github.com/jezek/xgb`): `KeyDown/KeyUp/Tap(key, mods...)/Type`, `Move/ButtonDown/ButtonUp/Click/Wheel`, `FindWindow(prefix)`, `Screenshot`. После каждого события round trip + `Delay` 20 мс.
 - `internal/camera` — мир ↔ пиксели: центр окна = позиция игрока, 1 тайл = 32 × zoom × display_scale (zoom 1.5 → 48 px).
