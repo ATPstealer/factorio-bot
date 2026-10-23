@@ -18,23 +18,23 @@ import (
 
 // Стадия 11 (stages.md): начало станции из плана стадии 5 — на её месте и по её раскладке:
 // помпа, бойлер, 2 паровых двигателя, столбы. Уголь пока не лентой: на месте ленты у бойлера —
-// сундук с s6Coal угля и электрический инсертер из него в бойлер (вместо burner-инсертера с
+// сундук с powerCoal угля и электрический инсертер из него в бойлер (вместо burner-инсертера с
 // ленты). Для запуска бойлер один раз наполнить углём руками.
 
 const (
-	s6Coal = 200
-	s6Tag  = "s4"
-	s6Plan = "state-stage6.json" // раскладка стадии: один раз на карту
+	powerCoal = 200
+	powerTag  = "s4"
+	powerFile = "state-power.json" // раскладка стадии: один раз на карту
 )
 
 func init() {
 	register(Stage{N: 11, Name: "электричество", Run: runPower, Check: checkPower})
 }
 
-// s6Layout — что строить: станция плана (бойлеры, двигатели, столбы, трубы), помпа с трубами,
+// powerLayout — что строить: станция плана (бойлеры, двигатели, столбы, трубы), помпа с трубами,
 // сундук и электрический инсертер к бойлеру, недостающие столбы (инсертер запитать).
-func s6Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s6Plan)); err == nil {
+func powerLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(powerFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -86,37 +86,37 @@ func s6Layout(h *act.Hands) ([]layout.Placement, error) {
 	if b := all.At(belt); b == nil || b.Name != "transport-belt" {
 		belt = layout.Step(t, (f.Dir+8)%16)
 	}
-	l.Add(layout.Placement{Name: chest, Pos: belt.Center(), Tag: s6Tag})
-	l.Add(layout.Placement{Name: "inserter", Pos: f.Pos, Dir: f.Dir, Tag: s6Tag})
-	l.Poles("small-electric-pole", s6Tag)
+	l.Add(layout.Placement{Name: chest, Pos: belt.Center(), Tag: powerTag})
+	l.Add(layout.Placement{Name: "inserter", Pos: f.Pos, Dir: f.Dir, Tag: powerTag})
+	l.Poles("small-electric-pole", powerTag)
 	data, err := json.MarshalIndent(l.List, "", " ")
 	if err != nil {
 		return nil, err
 	}
-	return l.List, os.WriteFile(runPath(s6Plan), data, 0o644)
+	return l.List, os.WriteFile(runPath(powerFile), data, 0o644)
 }
 
-// s6Order — порядок стройки: вода, бойлер, двигатели, столбы, сундук, инсертер.
-var s6Order = []string{"offshore-pump", "pipe-to-ground", "pipe", "boiler", "steam-engine", "small-electric-pole", chest, "inserter"}
+// powerOrder — порядок стройки: вода, бойлер, двигатели, столбы, сундук, инсертер.
+var powerOrder = []string{"offshore-pump", "pipe-to-ground", "pipe", "boiler", "steam-engine", "small-electric-pole", chest, "inserter"}
 
 func runPower(ctx context.Context, h *act.Hands) error {
-	list, err := s6Layout(h)
+	list, err := powerLayout(h)
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites}
+	s := &worker{h: h, sites: sites}
 	order := slices.Clone(list)
 	slices.SortStableFunc(order, func(a, b layout.Placement) int {
-		return slices.Index(s6Order, a.Name) - slices.Index(s6Order, b.Name)
+		return slices.Index(powerOrder, a.Name) - slices.Index(powerOrder, b.Name)
 	})
 	if err := s.build(ctx, order); err != nil {
 		return err
 	}
-	boiler, box := s6Find(list, "boiler"), s6Find(list, chest)
+	boiler, box := findPlaced(list, "boiler"), findPlaced(list, chest)
 	// запуск: бойлер полностью углём руками, потом сундук
 	if st, err := h.B.GetEntity("boiler", boiler.Pos); err != nil || st == nil {
 		return fmt.Errorf("нет бойлера: %v", err)
@@ -132,7 +132,7 @@ func runPower(ctx context.Context, h *act.Hands) error {
 	if err != nil || st == nil {
 		return fmt.Errorf("нет сундука: %v", err)
 	}
-	if n := s6Coal - st.Inventories["chest"]["coal"]; n > 0 {
+	if n := powerCoal - st.Inventories["chest"]["coal"]; n > 0 {
 		if err := s.have(ctx, "coal", n); err != nil {
 			return err
 		}
@@ -151,7 +151,7 @@ func runPower(ctx context.Context, h *act.Hands) error {
 	return nil
 }
 
-func s6Find(list []layout.Placement, name string) layout.Placement {
+func findPlaced(list []layout.Placement, name string) layout.Placement {
 	for _, pl := range list {
 		if pl.Name == name {
 			return pl
@@ -161,7 +161,7 @@ func s6Find(list []layout.Placement, name string) layout.Placement {
 }
 
 func checkPower(h *act.Hands) error {
-	list, err := s6Layout(h)
+	list, err := powerLayout(h)
 	if err != nil {
 		return err
 	}
@@ -182,8 +182,8 @@ func checkPower(h *act.Hands) error {
 	case count["offshore-pump"] < 1, count["boiler"] < 1, count["steam-engine"] < 2, count["small-electric-pole"] < 1:
 		return fmt.Errorf("станция неполная: %v", count)
 	}
-	if c := state[chest].Inventories["chest"]["coal"] + state["boiler"].Inventories["fuel"]["coal"]; c < s6Coal {
-		return fmt.Errorf("угля в сундуке и бойлере %d, нужно не меньше %d", c, s6Coal)
+	if c := state[chest].Inventories["chest"]["coal"] + state["boiler"].Inventories["fuel"]["coal"]; c < powerCoal {
+		return fmt.Errorf("угля в сундуке и бойлере %d, нужно не меньше %d", c, powerCoal)
 	}
 	ins := state["inserter"]
 	if ins.Network == 0 || ins.Status == "no_power" {

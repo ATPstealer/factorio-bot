@@ -18,20 +18,20 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 4 (stages.md): прикидочный план всей базы до запуска ракеты за s4Hours часов, конечные
+// Стадия 4 (stages.md): прикидочный план всей базы до запуска ракеты за roughHours часов, конечные
 // машины — AM2 и стальные печи. Без раскладок: блоки (кластеры по продукту) с машинами и
 // площадью, шина по уровням (ленты — красные), хватит ли ресурсов на всю игру, зоны на карте
 // (центр базы — место старта), картинка. Следующие стадии строят внутри зон.
 
 const (
-	s4Plan     = "state-stage4.json"
-	s4Hours    = 20.0
-	s4Research = 0.8  // доля времени на исследования (остальное — ракетные части)
-	s4Rocket   = 100  // ракетных частей на ракету
-	s4Belt     = 30.0 // лента шины — красная, шт/с
-	s4Explore  = 20   // нет места — разведать (сгенерировать ходьбой) и заново
-	s4Chunks   = 16   // за одну разведку — новых чанков
-	s4Margin   = 1.0  // запас роста в прикидке: план — уже под конечный темп
+	roughFile     = "state-zones.json"
+	roughHours    = 20.0
+	roughResearch = 0.8  // доля времени на исследования (остальное — ракетные части)
+	roughRocket   = 100  // ракетных частей на ракету
+	roughBelt     = 30.0 // лента шины — красная, шт/с
+	roughExplore  = 20   // нет места — разведать (сгенерировать ходьбой) и заново
+	roughChunks   = 16   // за одну разведку — новых чанков
+	roughMargin   = 1.0  // запас роста в прикидке: план — уже под конечный темп
 )
 
 // RoughPlan — прикидка базы: цели, блоки с зонами, ленты шины, ресурсы.
@@ -59,7 +59,7 @@ func init() {
 
 // LoadRough — прикидка базы этой карты (для следующих стадий).
 func LoadRough() (*RoughPlan, error) {
-	data, err := os.ReadFile(runPath(s4Plan))
+	data, err := os.ReadFile(runPath(roughFile))
 	if err != nil {
 		return nil, fmt.Errorf("нет прикидки базы (стадия 4): %w", err)
 	}
@@ -67,16 +67,16 @@ func LoadRough() (*RoughPlan, error) {
 	return &r, json.Unmarshal(data, &r)
 }
 
-// s4Targets — цели: пакеты науки по цене всех исследований до ракетной шахты за долю времени
-// s4Research, ракетные части — за остальное.
-func s4Targets(h *act.Hands) (map[string]float64, float64, error) {
+// roughTargets — цели: пакеты науки по цене всех исследований до ракетной шахты за долю времени
+// roughResearch, ракетные части — за остальное.
+func roughTargets(h *act.Hands) (map[string]float64, float64, error) {
 	techs, err := h.Protos.TechPath([]string{"rocket-silo"}, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 	cost := h.Protos.Cost(techs)
-	research := s4Hours * 3600 * s4Research
-	targets := map[string]float64{"rocket-part": s4Rocket / (s4Hours * 3600 * (1 - s4Research))}
+	research := roughHours * 3600 * roughResearch
+	targets := map[string]float64{"rocket-part": roughRocket / (roughHours * 3600 * (1 - roughResearch))}
 	units := 0.0
 	for pack, n := range cost.Packs {
 		targets[pack] = n / research
@@ -95,12 +95,12 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	for try := 0; ; try++ {
 		err := roughOnce(h)
 		var ns *cluster.NoSiteError
-		if !errors.As(err, &ns) || try >= s4Explore {
+		if !errors.As(err, &ns) || try >= roughExplore {
 			return err
 		}
 		n0 := len(h.World.Chunks)
 		h.Say("%v — иду, чтобы игра сгенерировала карту дальше", err)
-		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+s4Chunks }); err != nil {
+		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+roughChunks }); err != nil {
 			return err
 		}
 	}
@@ -108,7 +108,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 
 func roughOnce(h *act.Hands) error {
 	pr := h.Protos
-	targets, labSec, err := s4Targets(h)
+	targets, labSec, err := roughTargets(h)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func roughOnce(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	cs, err := cluster.Split(pr, plan, s4Margin, nil)
+	cs, err := cluster.Split(pr, plan, roughMargin, nil)
 	if err != nil {
 		return err
 	}
@@ -135,8 +135,8 @@ func roughOnce(h *act.Hands) error {
 			packs[it] = v
 		}
 	}
-	cs = append(cs, cluster.Labs(pr, packs, labSec, s4Margin), cluster.StorageCluster())
-	if cs, err = cluster.AddPower(pr, cs, s4Margin, nil); err != nil {
+	cs = append(cs, cluster.Labs(pr, packs, labSec, roughMargin), cluster.StorageCluster())
+	if cs, err = cluster.AddPower(pr, cs, roughMargin, nil); err != nil {
 		return err
 	}
 	// свои постройки (точки стадии 2) — не помеха: их разберут
@@ -149,7 +149,7 @@ func roughOnce(h *act.Hands) error {
 	restore := h.World.Hide(own)
 	defer restore()
 	saved := cluster.BeltRate
-	cluster.BeltRate = s4Belt
+	cluster.BeltRate = roughBelt
 	defer func() { cluster.BeltRate = saved }()
 	base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта (0, 0)
 	base.Log, base.Rough = h.Log, true
@@ -158,11 +158,11 @@ func roughOnce(h *act.Hands) error {
 	need := map[string]float64{}
 	for it, rate := range plan.Raw {
 		if it != "water" {
-			need[it] = rate * s4Hours * 3600
+			need[it] = rate * roughHours * 3600
 		}
 	}
 	base.MineZones(cs, need)
-	lay, err := base.PlaceLayered(cs, s4Belt)
+	lay, err := base.PlaceLayered(cs, roughBelt)
 	if err != nil {
 		return err
 	}
@@ -170,35 +170,35 @@ func roughOnce(h *act.Hands) error {
 	// ресурсы на всю игру: сколько нужно и сколько можно добыть в зонах добычи
 	res := map[string]Resource{}
 	for it, n := range need {
-		r := Resource{Rate: n / (s4Hours * 3600), Need: n}
+		r := Resource{Rate: n / (roughHours * 3600), Need: n}
 		for _, z := range zones {
 			r.Have += z.Resources[it]
 		}
 		r.Short = r.Have < r.Need
 		res[it] = r
 	}
-	rp := RoughPlan{Hours: s4Hours, Targets: targets, Zones: zones, Clusters: base.Sorted(), Resources: res, PowerMW: plan.PowerW / 1e6, Image: s4Image()}
+	rp := RoughPlan{Hours: roughHours, Targets: targets, Zones: zones, Clusters: base.Sorted(), Resources: res, PowerMW: plan.PowerW / 1e6, Image: roughImage()}
 	sort.Slice(rp.Zones, func(i, j int) bool { return rp.Zones[i].Name < rp.Zones[j].Name })
 	for _, z := range rp.Zones {
 		h.Log("зона %v", z)
 	}
 	for it, r := range res {
-		h.Log("сырьё %s: %.2f/с, на %.0f ч — %.0f, в зонах добычи %.0f%s", it, r.Rate, s4Hours, r.Need, r.Have, map[bool]string{true: " — НЕ ХВАТАЕТ"}[r.Short])
+		h.Log("сырьё %s: %.2f/с, на %.0f ч — %.0f, в зонах добычи %.0f%s", it, r.Rate, roughHours, r.Need, r.Have, map[bool]string{true: " — НЕ ХВАТАЕТ"}[r.Short])
 	}
-	if err := s4Draw(h, rp.Zones, rp.Image); err != nil {
+	if err := roughDraw(h, rp.Zones, rp.Image); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(rp, "", " ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(runPath(s4Plan), data, 0o644)
+	return os.WriteFile(runPath(roughFile), data, 0o644)
 }
 
-func s4Image() string { return filepath.Join("run/stages", "s4-"+seedOf()+".png") }
+func roughImage() string { return filepath.Join("run/stages", "s4-"+seedOf()+".png") }
 
-// s4Draw — картинка зон поверх карты.
-func s4Draw(h *act.Hands, zones []cluster.Zone, image string) error {
+// roughDraw — картинка зон поверх карты.
+func roughDraw(h *act.Hands, zones []cluster.Zone, image string) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, z := range zones {
 		minX, minY = min(minX, z.Rect.Min.X), min(minY, z.Rect.Min.Y)

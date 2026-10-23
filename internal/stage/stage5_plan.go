@@ -19,22 +19,22 @@ import (
 
 // Стадия 5 (stages.md): план первых кластеров «на бумаге» (cluster.md) внутри зон стадии 4
 // (zones.md) — добыча угля, железа, меди; плавка железа и меди; станция; шины; шестерни;
-// красная наука; лаборатории; хранение. Цель — красная наука s5Rate/с, без запаса роста
+// красная наука; лаборатории; хранение. Цель — красная наука redRate/с, без запаса роста
 // (запасы — в зонах). Картинка — зоны и кластеры с раскладкой поверх карты.
 // Постройки точек стадии 2 при разметке не мешают: их разберут (стадия 10).
 
 const (
-	s5Plan    = "state-stage5.json"
-	s5Rate    = 0.1 // красная наука, шт/с (вся наука до ракеты — 0.1/с, stages.md)
-	s5Reserve = 1   // без запаса роста: запасы — в зонах (zones.md)
-	s5LabSec  = 10  // секунд исследования на пакет (automation и т.п.)
-	// нет места — разведка: до s5Explore раз, каждый раз — пока не откроется s5ExploreChunks
-	s5Explore       = 20
-	s5ExploreChunks = 12
+	planFile    = "state-plan.json"
+	redRate     = 0.1 // красная наука, шт/с (вся наука до ракеты — 0.1/с, stages.md)
+	planReserve = 1   // без запаса роста: запасы — в зонах (zones.md)
+	planLabSec  = 10  // секунд исследования на пакет (automation и т.п.)
+	// нет места — разведка: до planExplore раз, каждый раз — пока не откроется planExploreChunks
+	planExplore       = 20
+	planExploreChunks = 12
 )
 
-// s5Kinds — какие кластеры должны быть в плане (имя без номера).
-var s5Kinds = []string{"coal", "iron-ore", "copper-ore", "iron-plate", "copper-plate", "power",
+// planKinds — какие кластеры должны быть в плане (имя без номера).
+var planKinds = []string{"coal", "iron-ore", "copper-ore", "iron-plate", "copper-plate", "power",
 	"bus", "gear", "red-science", "lab", "storage"}
 
 // ClusterPlan — план кластеров карты: кластеры с местами, размещений в раскладке, картинка.
@@ -51,7 +51,7 @@ func init() {
 
 // LoadPlan — план стадии 5 этой карты (для следующих стадий).
 func LoadPlan() (*ClusterPlan, error) {
-	data, err := os.ReadFile(runPath(s5Plan))
+	data, err := os.ReadFile(runPath(planFile))
 	if err != nil {
 		return nil, fmt.Errorf("нет плана кластеров (стадия 5): %w", err)
 	}
@@ -71,7 +71,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	pr := h.Protos
-	targets := map[string]float64{"automation-science-pack": s5Rate}
+	targets := map[string]float64{"automation-science-pack": redRate}
 	plan, err := calc.Solve(pr, targets, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
@@ -89,18 +89,18 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	avoid := map[world.Tile]bool{}
 	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток)
 	for try := 0; ; try++ {
-		cs, err := cluster.Split(pr, plan, s5Reserve, nil, "iron-gear-wheel")
+		cs, err := cluster.Split(pr, plan, planReserve, nil, "iron-gear-wheel")
 		if err != nil {
 			return err
 		}
-		cs = append(cs, cluster.Labs(pr, targets, s5LabSec, s5Reserve), cluster.StorageCluster())
-		if cs, err = cluster.AddPower(pr, cs, s5Reserve, nil); err != nil {
+		cs = append(cs, cluster.Labs(pr, targets, planLabSec, planReserve), cluster.StorageCluster())
+		if cs, err = cluster.AddPower(pr, cs, planReserve, nil); err != nil {
 			return err
 		}
 		base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта
 		base.Log = h.Log
 		base.Avoid = avoid
-		base.StorageNear, base.Keep = s5Start(own)
+		base.StorageNear, base.Keep = planStart(own)
 		buses, err := base.PlaceZoned(cs, rough.Zones)
 		if err != nil {
 			return err
@@ -124,18 +124,18 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			for _, c := range all {
 				h.Say("кластер %v", c)
 			}
-			if err := s5Draw(h, rough.Zones, base, l, s5Image()); err != nil {
+			if err := planDraw(h, rough.Zones, base, l, planImage()); err != nil {
 				return err
 			}
-			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: s5Image()}, "", " ")
+			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()}, "", " ")
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(runPath(s5Plan), data, 0o644)
+			return os.WriteFile(runPath(planFile), data, 0o644)
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			s5Draw(h, rough.Zones, base, l, s5Image()) // что вышло — на картинку
+			planDraw(h, rough.Zones, base, l, planImage()) // что вышло — на картинку
 			return err
 		}
 		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
@@ -148,8 +148,8 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	}
 }
 
-// s5Image — картинка плана: run/stages/s5-<сид>.png.
-func s5Image() string { return stageImage(5) }
+// planImage — картинка плана: run/stages/s5-<сид>.png.
+func planImage() string { return stageImage(5) }
 
 // stageImage — картинка стадии n: run/stages/s<n>-<сид>.png.
 func stageImage(n int) string {
@@ -162,8 +162,8 @@ func stageImage(n int) string {
 	return filepath.Join("run/stages", fmt.Sprintf("s%d-%d.png", n, m.Seed))
 }
 
-// s5Draw — картинка в файл path: карта, зоны, кластеры с бордюрами и раскладка.
-func s5Draw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, path string) error {
+// planDraw — картинка в файл path: карта, зоны, кластеры с бордюрами и раскладка.
+func planDraw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, path string) error {
 	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
 	for _, c := range base.Clusters {
 		r := c.Area.Grow(cluster.Corridor)
@@ -212,7 +212,7 @@ func checkPlan(h *act.Hands) error {
 			return fmt.Errorf("кластер %s без места", c.Name)
 		}
 	}
-	for _, k := range s5Kinds {
+	for _, k := range planKinds {
 		if have[k] == 0 {
 			return fmt.Errorf("в плане нет кластера %s", k)
 		}
@@ -223,9 +223,9 @@ func checkPlan(h *act.Hands) error {
 	return nil
 }
 
-// s5Start — середина стартовых буров (точки стадии 2) и места всех своих построек: хранение —
+// planStart — середина стартовых буров (точки стадии 2) и места всех своих построек: хранение —
 // рядом с ними (носить недалеко), но не на них (zones.md).
-func s5Start(own []world.Object) (*world.Tile, []cluster.Rect) {
+func planStart(own []world.Object) (*world.Tile, []cluster.Rect) {
 	var keep []cluster.Rect
 	var sx, sy float64
 	n := 0

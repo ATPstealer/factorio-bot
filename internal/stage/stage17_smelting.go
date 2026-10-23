@@ -20,15 +20,15 @@ import (
 // Буферы выхода (cluster.md 6а) — инсертер с фильтром на продукт берёт с выходной ленты
 // плавки в сундук: пластины для крафта и стройки бота.
 
-const s12Plan = "state-stage12.json"
+const smeltingFile = "state-smelting.json"
 
 func init() {
 	register(Stage{N: 17, Name: "добыча и плавка железа и меди", Run: runSmelting, Check: checkSmelting})
 }
 
-// s12Layout — кластеры и подводы к плавке из плана, буферы выхода плавки (один раз на карту).
-func s12Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s12Plan)); err == nil {
+// smeltingLayout — кластеры и подводы к плавке из плана, буферы выхода плавки (один раз на карту).
+func smeltingLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(smeltingFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -38,7 +38,7 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := s12Base(h, plan)
+	res := smeltingBase(h, plan)
 	var smelt []*cluster.Cluster
 	var allow []string
 	for _, c := range plan.Clusters {
@@ -56,7 +56,7 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 		all.Add(pl)
 	}
 	for _, c := range smelt {
-		buf, err := s12OutBuffer(h, all, c, s9OutBuffer[chest])
+		buf, err := outBuffer(h, all, c, outBufferItems[chest])
 		if err != nil {
 			return nil, err
 		}
@@ -72,14 +72,14 @@ func s12Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s12Plan), data, 0o644)
+	return res, os.WriteFile(runPath(smeltingFile), data, 0o644)
 }
 
-// s12OutBuffer — буфер выхода кластера c: сбоку от выходной ленты (от порта назад) pairs пар
+// outBuffer — буфер выхода кластера c: сбоку от выходной ленты (от порта назад) pairs пар
 // «инсертер с фильтром на продукт — сундук»; места — свободные от плана. Инсертер берёт с
 // ленты всё, что успевает (~0.8 шт/с): у сборщика с выходом ~1 шт/с два инсертера забирали
 // всё — на шину не шло ничего (стадия 14).
-func s12OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) ([]layout.Placement, error) {
+func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) ([]layout.Placement, error) {
 	var out *cluster.Port
 	for i := range c.Ports {
 		if !c.Ports[i].In {
@@ -130,15 +130,15 @@ func s12OutBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs in
 }
 
 func runSmelting(ctx context.Context, h *act.Hands) error {
-	list, err := s12Layout(h)
+	list, err := smeltingLayout(h)
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	// добыча и машины — потом ленты (подземки — парами по порядку плана), инсертеры, столбы
 	order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "transport-belt", "underground-belt", "splitter",
 		chest, "inserter", "long-handed-inserter", "burner-inserter", "small-electric-pole"}
@@ -176,7 +176,7 @@ func runSmelting(ctx context.Context, h *act.Hands) error {
 }
 
 func checkSmelting(h *act.Hands) error {
-	list, err := s12Layout(h)
+	list, err := smeltingLayout(h)
 	if err != nil {
 		return err
 	}

@@ -26,7 +26,7 @@ import (
 func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 	switch n {
 	case 2:
-		sites, err := s2Layout(h)
+		sites, err := outpostsLayout(h)
 		if err != nil {
 			return nil, err
 		}
@@ -36,37 +36,37 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		}
 		return res, nil
 	case 11:
-		return s6Layout(h)
+		return powerLayout(h)
 	case 12:
-		return s7Layout(h)
+		return researchLayout(h)
 	case 13:
-		return s8Layout()
+		return storageLayout()
 	case 16:
-		return s11Layout(h)
+		return coalLayout(h)
 	case 17:
-		return s12Layout(h)
+		return smeltingLayout(h)
 	case 18:
-		return s13Layout(h)
+		return busPlatesLayout(h)
 	case 19, 20, 24, 25, 26:
 		list, _, err := makeLayout(h, makeProduct[n])
 		return list, err
 	case 21:
-		return s16Layout(h)
+		return labsLayout(h)
 	case 23:
-		grow, err := s19GrowLayout(h)
+		grow, err := growLayout(h)
 		if err != nil {
 			return nil, err
 		}
-		list, _, err := makeLayout(h, s19Product)
+		list, _, err := makeLayout(h, circuitProduct)
 		return append(grow, list...), err
 	case 27:
-		return s23Layout(h)
+		return labsGreenLayout(h)
 	}
 	return nil, nil
 }
 
 // makeProduct — продукт завода с шины по стадии (makeLayout).
-var makeProduct = map[int]string{19: "iron-gear-wheel", 20: "automation-science-pack", 24: "inserter", 25: "transport-belt", 26: s18Green}
+var makeProduct = map[int]string{19: "iron-gear-wheel", 20: "automation-science-pack", 24: "inserter", 25: "transport-belt", 26: greenPack}
 
 // clearable — что расчищать (stages.md): легко устранимое — всегда; вода и скалы — когда есть
 // чем (засыпка, динамит в инвентаре или хранении; кластер, который их делает, — потом).
@@ -76,7 +76,7 @@ type clearable struct {
 
 func clearOptions(h *act.Hands) clearable {
 	stock := map[string]int{}
-	if s, err := s9Stock(h); err == nil {
+	if s, err := materialsStock(h); err == nil {
 		stock = s
 	} else if p, err := h.B.Player(); err == nil {
 		stock = p.Inventory
@@ -155,8 +155,8 @@ func prepClear(ctx context.Context, h *act.Hands, list []layout.Placement) error
 		return nil
 	}
 	h.Say("расчистка площади стадии: убрать %d (деревья, камни, обломки)", len(todo))
-	s := &s2{h: h}
-	if _, err := s8Layout(); err == nil {
+	s := &worker{h: h}
+	if _, err := storageLayout(); err == nil {
 		s.useStore = true
 	}
 	skipped := 0
@@ -179,7 +179,7 @@ func prepClear(ctx context.Context, h *act.Hands, list []layout.Placement) error
 			continue // уже убрано (срублено по дороге)
 		}
 		if s.useStore {
-			if err := s.store(ctx, s8Free, keepBuilt(p)...); err != nil {
+			if err := s.store(ctx, freeSlots, keepBuilt(p)...); err != nil {
 				return err
 			}
 		}
@@ -209,7 +209,7 @@ func prepClear(ctx context.Context, h *act.Hands, list []layout.Placement) error
 func keepBuilt(p bridge.Player) []string {
 	var keep []string
 	for it := range p.Inventory {
-		if !slices.Contains(s8Raw, it) {
+		if !slices.Contains(rawItems, it) {
 			keep = append(keep, it)
 		}
 	}
@@ -349,7 +349,7 @@ func prepRecipes(h *act.Hands, list []layout.Placement) []string {
 
 // prepStock — что есть: инвентарь и хранение (если построено).
 func prepStock(h *act.Hands) map[string]int {
-	if s, err := s9Stock(h); err == nil {
+	if s, err := materialsStock(h); err == nil {
 		return s
 	}
 	if p, err := h.B.Player(); err == nil {

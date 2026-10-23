@@ -20,18 +20,18 @@ import (
 // шестерни внутри парами, зелёная наука) встают в свои зоны, лаборатории получают второй вход.
 
 const (
-	s18Rate = 0.1 // зелёная наука, шт/с
-	// s18Base — план стадии 5 до дописывания: перезапуск стадии — с него, не с дописанного
-	s18Base  = "state-stage18-base.json"
-	s18Green = "logistic-science-pack"
+	greenRate = 0.1 // зелёная наука, шт/с
+	// greenBaseFile — план стадии 5 до дописывания: перезапуск стадии — с него, не с дописанного
+	greenBaseFile = "state-plan-base.json"
+	greenPack     = "logistic-science-pack"
 )
 
-// s18Separate — отдельными кластерами (не внутрь потребителя): у каждого своя лента шины.
-var s18Separate = []string{"electronic-circuit", "inserter", "transport-belt"}
+// greenSeparate — отдельными кластерами (не внутрь потребителя): у каждого своя лента шины.
+var greenSeparate = []string{"electronic-circuit", "inserter", "transport-belt"}
 
-// s18Order — порядок новых кластеров: поставщики раньше потребителей (схемы — инсертерам с шины
+// greenOrder — порядок новых кластеров: поставщики раньше потребителей (схемы — инсертерам с шины
 // над этажом: инсертеры правее).
-var s18Order = []string{"electronic-circuit", "transport-belt", "inserter", s18Green}
+var greenOrder = []string{"electronic-circuit", "transport-belt", "inserter", greenPack}
 
 func init() {
 	register(Stage{N: 6, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan, Plan: true})
@@ -50,18 +50,18 @@ func loadPlanFile(path string) (*ClusterPlan, error) {
 	return &s, nil
 }
 
-// s18Old — план до дописывания (при первом запуске — копия плана стадии 5).
-func s18Old() (*ClusterPlan, error) {
-	if _, err := os.Stat(runPath(s18Base)); err != nil {
-		data, err := os.ReadFile(runPath(s5Plan))
+// greenBase — план до дописывания (при первом запуске — копия плана стадии 5).
+func greenBase() (*ClusterPlan, error) {
+	if _, err := os.Stat(runPath(greenBaseFile)); err != nil {
+		data, err := os.ReadFile(runPath(planFile))
 		if err != nil {
 			return nil, fmt.Errorf("нет плана кластеров (стадия 5): %w", err)
 		}
-		if err := os.WriteFile(runPath(s18Base), data, 0o644); err != nil {
+		if err := os.WriteFile(runPath(greenBaseFile), data, 0o644); err != nil {
 			return nil, err
 		}
 	}
-	return loadPlanFile(runPath(s18Base))
+	return loadPlanFile(runPath(greenBaseFile))
 }
 
 func runGreenPlan(ctx context.Context, h *act.Hands) error {
@@ -73,12 +73,12 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	pr := h.Protos
-	plan, err := calc.Solve(pr, map[string]float64{s18Green: s18Rate}, calc.Options{All: true,
+	plan, err := calc.Solve(pr, map[string]float64{greenPack: greenRate}, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
 		return err
 	}
-	old, err := s18Old()
+	old, err := greenBase()
 	if err != nil {
 		return err
 	}
@@ -116,26 +116,26 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 	}
 	// потребность всей базы — красная и зелёная наука вместе (с запасом): по ней рост старых
 	// кластеров
-	targets := map[string]float64{s7Pack: s5Rate, s18Green: s18Rate}
+	targets := map[string]float64{redPack: redRate, greenPack: greenRate}
 	whole, err := calc.Solve(pr, targets, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
 		return err
 	}
-	needs, err := cluster.Split(pr, whole, s5Reserve, nil, append([]string{"iron-gear-wheel"}, s18Separate...)...)
+	needs, err := cluster.Split(pr, whole, planReserve, nil, append([]string{"iron-gear-wheel"}, greenSeparate...)...)
 	if err != nil {
 		return err
 	}
-	needs = append(needs, cluster.Labs(pr, targets, s5LabSec, s5Reserve))
-	if needs, err = cluster.AddPower(pr, needs, s5Reserve, nil); err != nil {
+	needs = append(needs, cluster.Labs(pr, targets, planLabSec, planReserve))
+	if needs, err = cluster.AddPower(pr, needs, planReserve, nil); err != nil {
 		return err
 	}
 	for try := 0; ; try++ {
-		old, err := loadPlanFile(runPath(s18Base)) // заново: прошлая попытка меняла кластеры
+		old, err := loadPlanFile(runPath(greenBaseFile)) // заново: прошлая попытка меняла кластеры
 		if err != nil {
 			return err
 		}
-		cs, err := cluster.Split(pr, plan, s5Reserve, nil, s18Separate...)
+		cs, err := cluster.Split(pr, plan, planReserve, nil, greenSeparate...)
 		if err != nil {
 			return err
 		}
@@ -146,7 +146,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 		slices.SortStableFunc(fresh, func(a, b *cluster.Cluster) int {
-			return slices.Index(s18Order, a.Product) - slices.Index(s18Order, b.Product)
+			return slices.Index(greenOrder, a.Product) - slices.Index(greenOrder, b.Product)
 		})
 		base := cluster.NewBase(pr, h.World, world.Tile{})
 		base.Log = h.Log
@@ -233,8 +233,8 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 		extra := map[*cluster.Cluster][]cluster.Port{}
-		if lab != nil && !slices.ContainsFunc(lab.In, func(f cluster.Flow) bool { return f.Item == s18Green }) {
-			p, err := cluster.AddInput(l, lab, s18Green, s18Rate*cluster.Margin, cluster.Tag(lab.Name))
+		if lab != nil && !slices.ContainsFunc(lab.In, func(f cluster.Flow) bool { return f.Item == greenPack }) {
+			p, err := cluster.AddInput(l, lab, greenPack, greenRate*cluster.Margin, cluster.Tag(lab.Name))
 			if err != nil {
 				return err
 			}
@@ -250,19 +250,19 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			for _, c := range fresh {
 				h.Say("кластер %v", c)
 			}
-			if err := s5Draw(h, rough.Zones, base, l, stageImage(18)); err != nil {
+			if err := planDraw(h, rough.Zones, base, l, stageImage(18)); err != nil {
 				return err
 			}
 			all := append(base.Sorted(), buses...)
-			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: s5Image()}, "", " ")
+			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()}, "", " ")
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(runPath(s5Plan), data, 0o644)
+			return os.WriteFile(runPath(planFile), data, 0o644)
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			s5Draw(h, rough.Zones, base, l, stageImage(18)) // что вышло — на картинку
+			planDraw(h, rough.Zones, base, l, stageImage(18)) // что вышло — на картинку
 			return err
 		}
 		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
@@ -282,15 +282,15 @@ func checkGreenPlan(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	for _, p := range s18Order {
+	for _, p := range greenOrder {
 		if !slices.ContainsFunc(s.Clusters, func(c *cluster.Cluster) bool { return c.Product == p && c.Area.W() > 0 }) {
 			return fmt.Errorf("в плане нет кластера %s", p)
 		}
 	}
 	if !slices.ContainsFunc(s.Clusters, func(c *cluster.Cluster) bool {
-		return c.Kind == cluster.Lab && slices.ContainsFunc(c.In, func(f cluster.Flow) bool { return f.Item == s18Green })
+		return c.Kind == cluster.Lab && slices.ContainsFunc(c.In, func(f cluster.Flow) bool { return f.Item == greenPack })
 	}) {
-		return fmt.Errorf("у лабораторий нет входа %s", s18Green)
+		return fmt.Errorf("у лабораторий нет входа %s", greenPack)
 	}
 	if st, err := os.Stat(stageImage(18)); err != nil || st.Size() == 0 {
 		return fmt.Errorf("нет картинки %s", stageImage(18))

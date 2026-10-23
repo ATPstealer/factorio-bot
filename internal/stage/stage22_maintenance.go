@@ -21,8 +21,8 @@ import (
 
 const ironChest = "iron-chest"
 
-// s17Keep — что не класть в хранение: понадобится на следующих стадиях (стройка кластеров).
-var s17Keep = []string{"transport-belt", "underground-belt", "splitter", "inserter", "small-electric-pole",
+// keepItems — что не класть в хранение: понадобится на следующих стадиях (стройка кластеров).
+var keepItems = []string{"transport-belt", "underground-belt", "splitter", "inserter", "small-electric-pole",
 	"medium-electric-pole", "assembling-machine-1", "assembling-machine-2", ironChest, "electric-mining-drill",
 	// сырьё крафта стройки
 	"iron-plate", "copper-plate", "iron-gear-wheel", "copper-cable", "electronic-circuit"}
@@ -31,9 +31,9 @@ func init() {
 	register(Stage{N: 22, Name: "обслуживание", Run: runMaintenance, Check: checkMaintenance})
 }
 
-// s17Techs — нужные для ракеты исследования на одной красной науке, ещё не изученные, по
+// rocketRedTechs — нужные для ракеты исследования на одной красной науке, ещё не изученные, по
 // порядку пути (предпосылки раньше).
-func s17Techs(h *act.Hands) ([]string, error) {
+func rocketRedTechs(h *act.Hands) ([]string, error) {
 	f, err := h.B.Force()
 	if err != nil {
 		return nil, err
@@ -49,17 +49,17 @@ func s17Techs(h *act.Hands) ([]string, error) {
 	var res []string
 	for _, t := range path {
 		tech := h.Protos.Technologies[t]
-		if tech.Trigger == nil && len(tech.UnitIngredients) == 1 && tech.UnitIngredients[0].Name == s7Pack {
+		if tech.Trigger == nil && len(tech.UnitIngredients) == 1 && tech.UnitIngredients[0].Name == redPack {
 			res = append(res, t)
 		}
 	}
 	return res, nil
 }
 
-// s17Queue — доставить в очередь исследований, сколько влезет (очередь игры — 7 с текущим).
+// queueResearch — доставить в очередь исследований, сколько влезет (очередь игры — 7 с текущим).
 // Не встало (предпосылки не изучены и не в очереди) — следующее по порядку.
-func s17Queue(ctx context.Context, h *act.Hands) error {
-	techs, err := s17Techs(h)
+func queueResearch(ctx context.Context, h *act.Hands) error {
+	techs, err := rocketRedTechs(h)
 	if err != nil {
 		return err
 	}
@@ -90,14 +90,14 @@ func s17Queue(ctx context.Context, h *act.Hands) error {
 
 func runMaintenance(ctx context.Context, h *act.Hands) error {
 	// в самом начале — очередь исследований: лаборатории учат, пока идёт остальное
-	if err := s17Queue(ctx, h); err != nil {
+	if err := queueResearch(ctx, h); err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	// деревянные сундуки — на железные
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return err
@@ -131,20 +131,20 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 				return fmt.Errorf("сундук в (%.1f, %.1f): %w", o.Pos.X, o.Pos.Y, err)
 			}
 			if i%10 == 9 { // по ходу — доставить очередь исследований
-				if err := s17Queue(ctx, h); err != nil {
+				if err := queueResearch(ctx, h); err != nil {
 					return err
 				}
 			}
 		}
-		if err := s17RenameChests(); err != nil {
+		if err := renameChests(); err != nil {
 			return err
 		}
 	}
 	// сверка с планом: недостроенное — достроить, стоящее не так — исправить
-	if err := s17Fix(ctx, h, s); err != nil {
+	if err := planFix(ctx, h, s); err != nil {
 		return err
 	}
-	if err := s17Queue(ctx, h); err != nil {
+	if err := queueResearch(ctx, h); err != nil {
 		return err
 	}
 	// лишнее — в хранение (все сундуки хранения теперь железные)
@@ -152,45 +152,45 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	keep := append([]string(nil), s17Keep...)
+	keep := append([]string(nil), keepItems...)
 	h.Say("обслуживание: лишнее из инвентаря — в хранение")
 	if err := s.store(ctx, p.InventorySize, keep...); err != nil {
 		return err
 	}
-	return s17Queue(ctx, h)
+	return queueResearch(ctx, h)
 }
 
-// s17Diff — расхождение плана и построенного: чего нет (st == nil) или что стоит не так.
-type s17Diff struct {
+// planDiff — расхождение плана и построенного: чего нет (st == nil) или что стоит не так.
+type planDiff struct {
 	pl  layout.Placement
 	st  *bridge.EntityState
 	why string
 }
 
-func (d s17Diff) String() string {
+func (d planDiff) String() string {
 	return fmt.Sprintf("%s в (%.1f, %.1f): %s", d.pl.Name, d.pl.Pos.X, d.pl.Pos.Y, d.why)
 }
 
-// s17Directed — у постройки важно направление (ленты, подземки, делители, инсертеры).
-func s17Directed(name string) bool {
+// directed — у постройки важно направление (ленты, подземки, делители, инсертеры).
+func directed(name string) bool {
 	return name == "transport-belt" || name == "underground-belt" || name == "splitter" || name == "inserter" || name == "burner-inserter"
 }
 
-// s17Audit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр
+// planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр
 // инсертера.
-func s17Audit(h *act.Hands) ([]s17Diff, error) {
+func planAudit(h *act.Hands) ([]planDiff, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
 	// дописанное проектом зелёной науки (стадия 6) строят стадии после обслуживания — не сверять
 	later := map[layout.Placement]bool{}
-	if added, _, err := s18Added(); err == nil {
+	if added, _, err := greenAdded(); err == nil {
 		for _, pl := range added {
 			later[pl] = true
 		}
 	}
-	var res []s17Diff
+	var res []planDiff
 	for _, pl := range plan.Layout {
 		if later[pl] {
 			continue
@@ -201,21 +201,21 @@ func s17Audit(h *act.Hands) ([]s17Diff, error) {
 		}
 		switch {
 		case st == nil:
-			res = append(res, s17Diff{pl, nil, "нет"})
-		case s17Directed(pl.Name) && st.Direction != nil && *st.Direction != pl.Dir:
-			res = append(res, s17Diff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
+			res = append(res, planDiff{pl, nil, "нет"})
+		case directed(pl.Name) && st.Direction != nil && *st.Direction != pl.Dir:
+			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
 		case strings.HasPrefix(pl.Name, "assembling-machine") && pl.Recipe != "" && st.Recipe != pl.Recipe:
-			res = append(res, s17Diff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
+			res = append(res, planDiff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
 		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe):
-			res = append(res, s17Diff{pl, st, "нет фильтра " + pl.Recipe})
+			res = append(res, planDiff{pl, st, "нет фильтра " + pl.Recipe})
 		}
 	}
 	return res, nil
 }
 
-// s17Fix — достроить недостающее и исправить стоящее не так.
-func s17Fix(ctx context.Context, h *act.Hands, s *s2) error {
-	diffs, err := s17Audit(h)
+// planFix — достроить недостающее и исправить стоящее не так.
+func planFix(ctx context.Context, h *act.Hands, s *worker) error {
+	diffs, err := planAudit(h)
 	if err != nil {
 		return err
 	}
@@ -249,7 +249,7 @@ func s17Fix(ctx context.Context, h *act.Hands, s *s2) error {
 			if err = h.Pickup(ctx, d.st.Entity); err == nil {
 				_, err = h.PlaceDirs(ctx, d.pl.Name, []bridge.Pos{d.pl.Pos}, []int{d.pl.Dir})
 			}
-		case s17Directed(d.pl.Name):
+		case directed(d.pl.Name):
 			err = h.Rotate(ctx, d.st.Entity, d.pl.Dir)
 		case strings.HasPrefix(d.pl.Name, "assembling-machine"):
 			err = h.SetRecipe(ctx, d.st.Entity, d.pl.Recipe)
@@ -263,9 +263,9 @@ func s17Fix(ctx context.Context, h *act.Hands, s *s2) error {
 	return nil
 }
 
-// s17RenameChests — в файлах раскладок (план, стадии) деревянные сундуки — железные: стоят
+// renameChests — в файлах раскладок (план, стадии) деревянные сундуки — железные: стоят
 // теперь они (проверки и хранение ищут сундук по имени и месту).
-func s17RenameChests() error {
+func renameChests() error {
 	files, err := filepath.Glob(runPath("state*.json"))
 	if err != nil {
 		return err
@@ -295,14 +295,14 @@ func checkMaintenance(h *act.Hands) error {
 			return fmt.Errorf("деревянный сундук в (%.1f, %.1f)", o.Pos.X, o.Pos.Y)
 		}
 	}
-	diffs, err := s17Audit(h)
+	diffs, err := planAudit(h)
 	if err != nil {
 		return err
 	}
 	if len(diffs) > 0 {
 		return fmt.Errorf("сверка с планом: %d расхождений, первое — %v", len(diffs), diffs[0])
 	}
-	techs, err := s17Techs(h)
+	techs, err := rocketRedTechs(h)
 	if err != nil {
 		return err
 	}

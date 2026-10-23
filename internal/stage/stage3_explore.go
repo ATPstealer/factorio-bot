@@ -15,24 +15,24 @@ import (
 // зоны стадии 4). Дальше план базы — по открытой карте.
 
 const (
-	s3Half    = 24   // чанков от центра: квадрат 48×48 чанков = 1536×1536 тайлов
-	s3MaxHalf = 32   // не дойти до части квадрата — разведка шире, до 64×64 чанков
-	s3Need    = 2198 // открыть не меньше площади 1500×1500 тайлов (2198 чанков)
+	exploreHalf    = 24   // чанков от центра: квадрат 48×48 чанков = 1536×1536 тайлов
+	exploreMaxHalf = 32   // не дойти до части квадрата — разведка шире, до 64×64 чанков
+	exploreNeed    = 2198 // открыть не меньше площади 1500×1500 тайлов (2198 чанков)
 )
 
 func init() {
 	register(Stage{N: 3, Name: "разведка", Run: runExplore, Check: checkExplore})
 }
 
-// s3In — чанк в квадрате half чанков от центра.
-func s3In(half int) func(bridge.ChunkPos) bool {
+// exploreIn — чанк в квадрате half чанков от центра.
+func exploreIn(half int) func(bridge.ChunkPos) bool {
 	return func(c bridge.ChunkPos) bool { return c.X >= -half && c.X < half && c.Y >= -half && c.Y < half }
 }
 
-// s3Charted — открытых чанков в квадрате half и всего в нём.
-func s3Charted(h *act.Hands, half int) (int, int) {
+// exploreCharted — открытых чанков в квадрате half и всего в нём.
+func exploreCharted(h *act.Hands, half int) (int, int) {
 	n := 0
-	in := s3In(half)
+	in := exploreIn(half)
 	for c := range h.World.Chunks {
 		if in(c) {
 			n++
@@ -46,17 +46,17 @@ func runExplore(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	// квадрат 1536×1536; часть недоступна — шире, пока не откроется 1500×1500 тайлов
-	for half := s3Half; half <= s3MaxHalf; half += 4 {
-		n, all := s3Charted(h, half)
+	for half := exploreHalf; half <= exploreMaxHalf; half += 4 {
+		n, all := exploreCharted(h, half)
 		h.Say("разведка: квадрат %d×%d тайлов, открыто %d из %d чанков", 2*half*32, 2*half*32, n, all)
-		err := h.ExploreWhere(ctx, s3In(half), func() bool {
-			n, all := s3Charted(h, half)
-			return n == all || half > s3Half && n >= s3Need
+		err := h.ExploreWhere(ctx, exploreIn(half), func() bool {
+			n, all := exploreCharted(h, half)
+			return n == all || half > exploreHalf && n >= exploreNeed
 		})
 		if err != nil && !errors.Is(err, act.ErrNothingToExplore) {
 			return err
 		}
-		if n, _ := s3Charted(h, half); n >= s3Need {
+		if n, _ := exploreCharted(h, half); n >= exploreNeed {
 			return nil
 		}
 	}
@@ -67,8 +67,8 @@ func checkExplore(h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return err
 	}
-	if n, _ := s3Charted(h, s3MaxHalf); n < s3Need {
-		return fmt.Errorf("открыто %d чанков вокруг старта, нужно %d (1500×1500 тайлов)", n, s3Need)
+	if n, _ := exploreCharted(h, exploreMaxHalf); n < exploreNeed {
+		return fmt.Errorf("открыто %d чанков вокруг старта, нужно %d (1500×1500 тайлов)", n, exploreNeed)
 	}
 	return nil
 }

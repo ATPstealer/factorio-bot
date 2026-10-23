@@ -16,8 +16,8 @@ func init() {
 	register(Stage{N: 15, Name: "разбор временных точек", Run: runDismantle, Check: checkDismantle})
 }
 
-// s10Standing — постройки точек стадии 2, которые ещё стоят.
-func (s *s2) standing() ([]bridge.Entity, error) {
+// standing — постройки точек стадии 2, которые ещё стоят.
+func (s *worker) standing() ([]bridge.Entity, error) {
 	var res []bridge.Entity
 	for _, site := range s.sites {
 		for _, pl := range site.Items {
@@ -34,11 +34,11 @@ func (s *s2) standing() ([]bridge.Entity, error) {
 }
 
 func runDismantle(ctx context.Context, h *act.Hands) error {
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites}
+	s := &worker{h: h, sites: sites}
 	for tries := 0; ; tries++ {
 		es, err := s.standing()
 		if err != nil {
@@ -71,7 +71,7 @@ func runDismantle(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	// разобранное — в хранение; печи — кроме нужных кластерам плавки (стадия 12)
-	need, err := s9Need(h)
+	need, err := materialsNeed(h)
 	if err != nil {
 		return err
 	}
@@ -80,8 +80,8 @@ func runDismantle(ctx context.Context, h *act.Hands) error {
 }
 
 // stash — из инвентаря в сундуки хранения: предмет → сколько.
-func (s *s2) stash(ctx context.Context, items map[string]int) error {
-	list, err := s8Layout()
+func (s *worker) stash(ctx context.Context, items map[string]int) error {
+	list, err := storageLayout()
 	if err != nil {
 		return err
 	}
@@ -117,11 +117,11 @@ func (s *s2) stash(ctx context.Context, items map[string]int) error {
 }
 
 func checkDismantle(h *act.Hands) error {
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites}
+	s := &worker{h: h, sites: sites}
 	es, err := s.standing()
 	if err != nil {
 		return err
@@ -129,7 +129,7 @@ func checkDismantle(h *act.Hands) error {
 	if len(es) > 0 {
 		return fmt.Errorf("точки стадии 2 не разобраны: %d построек (%s в (%.1f, %.1f) …)", len(es), es[0].Name, es[0].Position.X, es[0].Position.Y)
 	}
-	stock, err := s9Stock(h)
+	stock, err := materialsStock(h)
 	if err != nil {
 		return err
 	}
@@ -156,8 +156,8 @@ func checkDismantle(h *act.Hands) error {
 
 // fromStorage — item лежит в сундуке хранения: забрать содержимое этого сундука (Ctrl+клик
 // берёт всё, что влезет). false — в хранении нет.
-func (s *s2) fromStorage(ctx context.Context, item string) (bool, error) {
-	list, err := s8Layout()
+func (s *worker) fromStorage(ctx context.Context, item string) (bool, error) {
+	list, err := storageLayout()
 	if err != nil {
 		return false, err
 	}

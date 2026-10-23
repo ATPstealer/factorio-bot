@@ -22,7 +22,7 @@ description: Разбор падения стадии или плана на ж�
   машин (`defines.entity_status`), содержимое сундуков и лент (`get_transport_line`), топливо,
   исследования. Никаких команд, меняющих игру.
 - `bin/bot player`, `bin/bot insert …` и т.п. — действия руками бота (это ввод, честно).
-- Раскладки стадий — `run/iN/state-stage*.json`, план — `state-stage5.json`.
+- Раскладки стадий — `run/iN/state-*.json` (по смыслу: `state-power.json`, `state-make-<продукт>.json`…), план — `state-plan.json`, зоны — `state-zones.json`.
 
 ## Схема раскладки
 

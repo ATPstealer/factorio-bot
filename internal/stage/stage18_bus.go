@@ -17,15 +17,15 @@ import (
 // Стадия 18 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 5).
 // Больше ничего.
 
-const s13Plan = "state-stage13.json"
+const busPlatesFile = "state-bus-plates.json"
 
 func init() {
 	register(Stage{N: 18, Name: "пластины на шину", Run: runBusPlates, Check: checkBusPlates})
 }
 
-// s13Layout — s13Base; один раз на карту (файл).
-func s13Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s13Plan)); err == nil {
+// busPlatesLayout — busPlatesBase; один раз на карту (файл).
+func busPlatesLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(busPlatesFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -35,7 +35,7 @@ func s13Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := s13Base(h, plan)
+	res := busPlatesBase(h, plan)
 	if len(res) == 0 {
 		return nil, fmt.Errorf("в плане нет лент пластин шины")
 	}
@@ -43,19 +43,19 @@ func s13Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s13Plan), data, 0o644)
+	return res, os.WriteFile(runPath(busPlatesFile), data, 0o644)
 }
 
 func runBusPlates(ctx context.Context, h *act.Hands) error {
-	list, err := s13Layout(h)
+	list, err := busPlatesLayout(h)
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	order := []string{"transport-belt", "underground-belt", "splitter"}
 	sorted := slices.Clone(list)
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
@@ -76,7 +76,7 @@ func runBusPlates(ctx context.Context, h *act.Hands) error {
 
 // checkBusPlates — всё стоит; на последней ленте каждой ленты пластин шины — её пластины.
 func checkBusPlates(h *act.Hands) error {
-	list, err := s13Layout(h)
+	list, err := busPlatesLayout(h)
 	if err != nil {
 		return err
 	}

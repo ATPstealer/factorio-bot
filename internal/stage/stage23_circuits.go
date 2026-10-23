@@ -15,21 +15,21 @@ import (
 // продление лент, столбы), потом кластер провода и схем как кластеры 14–15 (makeLayout/runMake).
 
 const (
-	s19Grow    = "state-stage19-grow.json"
-	s19Product = "electronic-circuit"
+	growFile       = "state-grow.json"
+	circuitProduct = "electronic-circuit"
 )
 
 func init() {
 	register(Stage{N: 23, Name: "рост и кластер схем", Run: runCircuits, Check: checkCircuits})
 }
 
-// s18Added — что стадия 18 дописала в план (нет в плане до неё).
-func s18Added() ([]layout.Placement, *ClusterPlan, error) {
+// greenAdded — что стадия 18 дописала в план (нет в плане до неё).
+func greenAdded() ([]layout.Placement, *ClusterPlan, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, nil, err
 	}
-	base, err := loadPlanFile(runPath(s18Base))
+	base, err := loadPlanFile(runPath(greenBaseFile))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -46,17 +46,17 @@ func s18Added() ([]layout.Placement, *ClusterPlan, error) {
 	return res, plan, nil
 }
 
-// s19GrowLayout — рост из плана стадии 18: дописанное в старые кластеры добычи, плавки и
+// growLayout — рост из плана стадии 18: дописанное в старые кластеры добычи, плавки и
 // станции и в их логистику, продление лент шин их продуктов, делители на них, столбы к сети;
 // один раз на карту (файл).
-func s19GrowLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s19Grow)); err == nil {
+func growLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(growFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil {
 			return list, nil
 		}
 	}
-	added, plan, err := s18Added()
+	added, plan, err := greenAdded()
 	if err != nil {
 		return nil, err
 	}
@@ -95,17 +95,17 @@ func s19GrowLayout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s19Grow), data, 0o644)
+	return res, os.WriteFile(runPath(growFile), data, 0o644)
 }
 
 // buildSorted — построить list (уже стоящее пропускается) в порядке order (машины — раньше лент
 // и инсертеров), брать из хранения.
 func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, order []string) error {
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	sorted := slices.Clone(list)
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
 		ia, ib := slices.Index(order, a.Name), slices.Index(order, b.Name)
@@ -121,7 +121,7 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 }
 
 func runCircuits(ctx context.Context, h *act.Hands) error {
-	grow, err := s19GrowLayout(h)
+	grow, err := growLayout(h)
 	if err != nil {
 		return err
 	}
@@ -133,16 +133,16 @@ func runCircuits(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
-	return runMake(ctx, h, s19Product)
+	return runMake(ctx, h, circuitProduct)
 }
 
 func checkCircuits(h *act.Hands) error {
-	grow, err := s19GrowLayout(h)
+	grow, err := growLayout(h)
 	if err != nil {
 		return err
 	}
 	if err := checkBuilt(h, grow); err != nil {
 		return err
 	}
-	return checkMake(h, s19Product)
+	return checkMake(h, circuitProduct)
 }

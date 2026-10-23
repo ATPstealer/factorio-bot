@@ -15,21 +15,21 @@ import (
 
 // Стадия 14 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
 // меди по плану стадии 5 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
-// сверх расчёта — запас s9Extra; не влезает в инвентарь — в кластер хранения. Только
+// сверх расчёта — запас materialsExtra; не влезает в инвентарь — в кластер хранения. Только
 // материалы: строят стадии 13–12.
 
-// s9Extra — запас сверх расчёта.
-var s9Extra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 30, "wood": 50, "coal": 1000}
+// materialsExtra — запас сверх расчёта.
+var materialsExtra = map[string]int{"iron-plate": 1200, "copper-plate": 100, "stone": 30, "wood": 50, "coal": 1000}
 
-// s9OutBuffer — буфер выхода плавки (стадия 12: пластины копятся в контейнерах).
-var s9OutBuffer = map[string]int{"inserter": 2, chest: 2}
+// outBufferItems — буфер выхода плавки (стадия 12: пластины копятся в контейнерах).
+var outBufferItems = map[string]int{"inserter": 2, chest: 2}
 
 func init() {
 	register(Stage{N: 14, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})
 }
 
-// s9Clusters — кластеры стадий 13–12: добыча угля, железа, меди; плавка железа и меди.
-func s9Clusters(plan *ClusterPlan) []*cluster.Cluster {
+// materialsClusters — кластеры стадий 13–12: добыча угля, железа, меди; плавка железа и меди.
+func materialsClusters(plan *ClusterPlan) []*cluster.Cluster {
 	var res []*cluster.Cluster
 	for _, c := range plan.Clusters {
 		switch {
@@ -41,16 +41,16 @@ func s9Clusters(plan *ClusterPlan) []*cluster.Cluster {
 	return res
 }
 
-// s9Layout — что построят стадии 13–12 (s11Base, s12Base) и столбы: по столбам логистики
+// materialsLayout — что построят стадии 13–12 (coalBase, smeltingBase) и столбы: по столбам логистики
 // плана (цепочки по коридорам выйдут не длиннее).
-func s9Layout(h *act.Hands) ([]layout.Placement, error) {
+func materialsLayout(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
 	seen := map[layout.Placement]bool{}
 	var res []layout.Placement
-	for _, pl := range append(append(s11Base(h, plan), s12Base(h, plan)...), tagged(plan, cluster.LogisticsTag)...) {
+	for _, pl := range append(append(coalBase(h, plan), smeltingBase(h, plan)...), tagged(plan, cluster.LogisticsTag)...) {
 		if !seen[pl] {
 			seen[pl] = true
 			res = append(res, pl)
@@ -59,9 +59,9 @@ func s9Layout(h *act.Hands) ([]layout.Placement, error) {
 	return res, nil
 }
 
-// s9Need — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
-func s9Need(h *act.Hands) (map[string]int, error) {
-	list, err := s9Layout(h)
+// materialsNeed — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
+func materialsNeed(h *act.Hands) (map[string]int, error) {
+	list, err := materialsLayout(h)
 	if err != nil {
 		return nil, err
 	}
@@ -76,9 +76,9 @@ func s9Need(h *act.Hands) (map[string]int, error) {
 		}
 	}
 	plan, _ := LoadPlan()
-	for _, c := range s9Clusters(plan) {
+	for _, c := range materialsClusters(plan) {
 		if c.Kind == cluster.Smelt {
-			for it, n := range s9OutBuffer {
+			for it, n := range outBufferItems {
 				need[it] += n
 			}
 		}
@@ -86,8 +86,8 @@ func s9Need(h *act.Hands) (map[string]int, error) {
 	return need, nil
 }
 
-// s9Stock — что есть: инвентарь и сундуки хранения.
-func s9Stock(h *act.Hands) (map[string]int, error) {
+// materialsStock — что есть: инвентарь и сундуки хранения.
+func materialsStock(h *act.Hands) (map[string]int, error) {
 	p, err := h.B.Player()
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func s9Stock(h *act.Hands) (map[string]int, error) {
 	for it, n := range p.Inventory {
 		res[it] += n
 	}
-	list, err := s8Layout()
+	list, err := storageLayout()
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func s9Stock(h *act.Hands) (map[string]int, error) {
 }
 
 func runMaterials(ctx context.Context, h *act.Hands) error {
-	need, err := s9Need(h)
+	need, err := materialsNeed(h)
 	if err != nil {
 		return err
 	}
@@ -127,11 +127,11 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		fmt.Fprintf(&b, " %s ×%d", it, need[it])
 	}
 	h.Say("материалы на добычу и плавку:%s", b.String())
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites}
+	s := &worker{h: h, sites: sites}
 	// сначала то, что тратит другие нужные предметы (подземки, делители — ленты), иначе
 	// их крафт съест уже готовое; на всякий случай — несколько проходов
 	uses := func(a, b string) bool {
@@ -146,7 +146,7 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 	for pass := 0; pass < 3; pass++ {
 		short := false
 		for _, it := range names {
-			stock, err := s9Stock(h)
+			stock, err := materialsStock(h)
 			if err != nil {
 				return err
 			}
@@ -165,12 +165,12 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	for _, it := range []string{"wood", "stone", "copper-plate", "iron-plate", "coal"} {
-		stock, err := s9Stock(h)
+		stock, err := materialsStock(h)
 		if err != nil {
 			return err
 		}
 		// сверх расчёта: сырьё — тоже из запаса (на крафт уже ушло своё)
-		for lack := s9Extra[it] - stock[it]; lack > 0; lack = s9Extra[it] - stock[it] {
+		for lack := materialsExtra[it] - stock[it]; lack > 0; lack = materialsExtra[it] - stock[it] {
 			if err := s.store(ctx, 8); err != nil {
 				return err
 			}
@@ -178,7 +178,7 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 			if err := s.have(ctx, it, s.inv(it)+step); err != nil {
 				return fmt.Errorf("%s: %w", it, err)
 			}
-			if stock, err = s9Stock(h); err != nil {
+			if stock, err = materialsStock(h); err != nil {
 				return err
 			}
 		}
@@ -189,7 +189,7 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 // store — свободных ячеек инвентаря меньше free — в хранение то, что не нужно для крафта
 // сейчас: сначала готовые постройки, потом запас (уголь, пластины); need — что ещё ставить
 // (не убирать).
-func (s *s2) store(ctx context.Context, free int, need ...string) error {
+func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	p, err := s.h.B.Player()
 	if err != nil {
 		return err
@@ -197,7 +197,7 @@ func (s *s2) store(ctx context.Context, free int, need ...string) error {
 	if p.InventorySize-len(p.InventorySlots) >= free {
 		return nil
 	}
-	list, err := s8Layout()
+	list, err := storageLayout()
 	if err != nil {
 		return err
 	}
@@ -244,11 +244,11 @@ func (s *s2) store(ctx context.Context, free int, need ...string) error {
 }
 
 func checkMaterials(h *act.Hands) error {
-	need, err := s9Need(h)
+	need, err := materialsNeed(h)
 	if err != nil {
 		return err
 	}
-	stock, err := s9Stock(h)
+	stock, err := materialsStock(h)
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func checkMaterials(h *act.Hands) error {
 			return fmt.Errorf("%s: есть %d, нужно %d", it, stock[it], n)
 		}
 	}
-	for it, n := range s9Extra {
+	for it, n := range materialsExtra {
 		if stock[it] < n {
 			return fmt.Errorf("запас %s: есть %d, нужно %d", it, stock[it], n)
 		}

@@ -103,9 +103,9 @@ func withSplitters(h *act.Hands, plan *ClusterPlan, res []layout.Placement) []la
 	return res
 }
 
-// s11Base — стадия 11 из плана: добыча угля, её подвод и лента угля шины, отвод угля на станцию
+// coalBase — стадия 11 из плана: добыча угля, её подвод и лента угля шины, отвод угля на станцию
 // (лента, буфер, burner-инсертер у бойлера), делители на этих лентах.
-func s11Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+func coalBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	coal, power := clusterOf(plan, cluster.Mine, "coal"), clusterOf(plan, cluster.Power, "")
 	if coal == nil || power == nil {
 		return nil
@@ -124,10 +124,10 @@ func s11Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// s12Base — стадия 12 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
+// smeltingBase — стадия 12 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
 // добычи, отводы руды и угля в плавку (с буферами входа), делители на этих лентах. Пластины на
 // шину — стадия 13.
-func s12Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+func smeltingBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var res []layout.Placement
 	var srcs []string
 	for _, it := range []string{"iron", "copper"} {
@@ -142,9 +142,9 @@ func s12Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// s13Base — стадия 13 из плана: ленты пластин шины, подводы в них от плавки, делители на них
+// busPlatesBase — стадия 13 из плана: ленты пластин шины, подводы в них от плавки, делители на них
 // (отводы будущих потребителей стоят в разрыве ленты).
-func s13Base(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+func busPlatesBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var srcs []string
 	for _, it := range []string{"iron-plate", "copper-plate"} {
 		if c := clusterOf(plan, cluster.Smelt, it); c != nil {

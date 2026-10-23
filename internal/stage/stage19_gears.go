@@ -90,7 +90,7 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 		}
 	}
 	if end == nil {
-		return s12OutBuffer(h, all, c, 1) // продукт выше не нужен — буфер на выходной ленте
+		return outBuffer(h, all, c, 1) // продукт выше не нужен — буфер на выходной ленте
 	}
 	tag := "outbuf/" + c.Name
 	t := world.TileOf(end.Pos)
@@ -124,11 +124,11 @@ func runMake(ctx context.Context, h *act.Hands, product string) error {
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	order := []string{"assembling-machine-1", "transport-belt", "underground-belt", "splitter", chest, "inserter", "small-electric-pole"}
 	sorted := slices.Clone(list)
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {

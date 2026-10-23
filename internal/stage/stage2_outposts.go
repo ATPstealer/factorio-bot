@@ -24,20 +24,20 @@ import (
 // печей. Подошёл к точке — забрать со всех её печей. Уголь — с пар, пока их нет — руками.
 
 const (
-	drill   = "burner-mining-drill"
-	furnace = "stone-furnace"
-	s2Plan  = "state-stage2.json"
-	s2Fuel  = 20 // угля в бур или печь: доливать до стольких
-	s2Full  = 50 // в конце стадии — до стольких в каждый бур и печь
-	s2Low   = 3  // когда топлива меньше — доливать
-	s2Back  = 5  // забрав уголь с пары, вернуть каждому буру
+	drill        = "burner-mining-drill"
+	furnace      = "stone-furnace"
+	outpostsFile = "state-outposts.json"
+	fuelLevel    = 20 // угля в бур или печь: доливать до стольких
+	fuelFull     = 50 // в конце стадии — до стольких в каждый бур и печь
+	fuelLow      = 3  // когда топлива меньше — доливать
+	coalBack     = 5  // забрав уголь с пары, вернуть каждому буру
 )
 
 // chest — сундук стадий: деревянный до обслуживания, с него (стадия 17) — железный (stage.Do).
 var chest = "wooden-chest"
 
-// s2Site — точка: вид (coal, iron-ore, copper-ore, stone) и её постройки по порядку стройки.
-type s2Site struct {
+// outpostSite — точка: вид (coal, iron-ore, copper-ore, stone) и её постройки по порядку стройки.
+type outpostSite struct {
 	Ore   string             `json:"ore"`
 	Items []layout.Placement `json:"items"`
 }
@@ -46,10 +46,10 @@ func init() {
 	register(Stage{N: 2, Name: "добывающие точки на твердотопливных бурах", Run: runOutposts, Check: checkOutposts})
 }
 
-// s2Layout — раскладка всех точек у ближайших месторождений; один раз на карту (файл).
-func s2Layout(h *act.Hands) ([]s2Site, error) {
-	if data, err := os.ReadFile(runPath(s2Plan)); err == nil {
-		var sites []s2Site
+// outpostsLayout — раскладка всех точек у ближайших месторождений; один раз на карту (файл).
+func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
+	if data, err := os.ReadFile(runPath(outpostsFile)); err == nil {
+		var sites []outpostSite
 		if json.Unmarshal(data, &sites) == nil && len(sites) > 0 {
 			return sites, nil
 		}
@@ -79,7 +79,7 @@ func s2Layout(h *act.Hands) ([]s2Site, error) {
 		return best, nil
 	}
 	l := layout.New(h.Protos, h.World)
-	var sites []s2Site
+	var sites []outpostSite
 	add := func(ore string, build func(tiles []world.Tile, at world.Tile) error, n int) error {
 		tiles, err := patch(ore, 60)
 		if err != nil {
@@ -93,7 +93,7 @@ func s2Layout(h *act.Hands) ([]s2Site, error) {
 			// в паре «бур → печь» — сначала печь (в неё руками руда, пока бура нет)
 			items := append([]layout.Placement(nil), l.List[mark:]...)
 			sort.SliceStable(items, func(a, b int) bool { return items[a].Name != drill && items[b].Name == drill })
-			sites = append(sites, s2Site{Ore: ore, Items: items})
+			sites = append(sites, outpostSite{Ore: ore, Items: items})
 		}
 		return nil
 	}
@@ -116,14 +116,14 @@ func s2Layout(h *act.Hands) ([]s2Site, error) {
 		return nil, err
 	}
 	if data, err := json.MarshalIndent(sites, "", " "); err == nil {
-		os.WriteFile(runPath(s2Plan), data, 0o644)
+		os.WriteFile(runPath(outpostsFile), data, 0o644)
 	}
 	return sites, nil
 }
 
-// s2Order — порядок стройки: 3 железные пары (железо на остальное), угольные пары, остальное
+// outpostOrder — порядок стройки: 3 железные пары (железо на остальное), угольные пары, остальное
 // железо, камень, медь.
-func s2Order(sites []s2Site) []int {
+func outpostOrder(sites []outpostSite) []int {
 	var iron, coal, stone, copper []int
 	for i, s := range sites {
 		switch s.Ore {
@@ -145,17 +145,17 @@ func s2Order(sites []s2Site) []int {
 	return append(res, copper...)
 }
 
-type s2 struct {
+type worker struct {
 	h        *act.Hands
-	sites    []s2Site
+	sites    []outpostSite
 	useStore bool // брать из кластера хранения (стадии после 8)
 }
 
-func (s *s2) entity(pl layout.Placement) (*bridge.Entity, error) {
+func (s *worker) entity(pl layout.Placement) (*bridge.Entity, error) {
 	return s.h.B.EntityAt(pl.Name, pl.Pos)
 }
 
-func (s *s2) inv(item string) int {
+func (s *worker) inv(item string) int {
 	p, err := s.h.B.Player()
 	if err != nil {
 		return 0
@@ -164,12 +164,12 @@ func (s *s2) inv(item string) int {
 }
 
 func runOutposts(ctx context.Context, h *act.Hands) error {
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites}
-	for _, si := range s2Order(sites) {
+	s := &worker{h: h, sites: sites}
+	for _, si := range outpostOrder(sites) {
 		for _, pl := range sites[si].Items {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -196,8 +196,8 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	// ранние точки за время стройки сожгли топливо — в конце обойти все и долить до полного
-	// (пользователь: по 50); во время стройки — по s2Fuel, угля в начале мало
-	for _, si := range s2Order(sites) {
+	// (пользователь: по 50); во время стройки — по fuelLevel, угля в начале мало
+	for _, si := range outpostOrder(sites) {
 		for _, pl := range sites[si].Items {
 			if pl.Name == chest {
 				continue
@@ -207,7 +207,7 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 				return err
 			}
 			if e != nil {
-				if err := s.fuelTo(ctx, *e, s2Full, s2Full); err != nil {
+				if err := s.fuelTo(ctx, *e, fuelFull, fuelFull); err != nil {
 					return err
 				}
 			}
@@ -216,13 +216,13 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 	return nil
 }
 
-// fuel — в бур или печь уголь: меньше s2Low — долить до s2Fuel.
-func (s *s2) fuel(ctx context.Context, e bridge.Entity) error {
-	return s.fuelTo(ctx, e, s2Low, s2Fuel)
+// fuel — в бур или печь уголь: меньше fuelLow — долить до fuelLevel.
+func (s *worker) fuel(ctx context.Context, e bridge.Entity) error {
+	return s.fuelTo(ctx, e, fuelLow, fuelLevel)
 }
 
 // fuelTo — в бур или печь уголь: меньше low — долить до to.
-func (s *s2) fuelTo(ctx context.Context, e bridge.Entity, low, to int) error {
+func (s *worker) fuelTo(ctx context.Context, e bridge.Entity, low, to int) error {
 	st, err := s.h.B.GetEntity(e.Name, e.Position)
 	if err != nil || st == nil {
 		return err
@@ -251,7 +251,7 @@ func (s *s2) fuelTo(ctx context.Context, e bridge.Entity, low, to int) error {
 
 // have — довести предмет в инвентаре до n: сырьё — добыть (уголь и камень — с точек, если
 // есть), пластины — с печей точек или руда руками в печи, остальное — скрафтить.
-func (s *s2) have(ctx context.Context, item string, n int) error {
+func (s *worker) have(ctx context.Context, item string, n int) error {
 	for tries := 0; s.inv(item) < n; tries++ {
 		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
@@ -293,7 +293,7 @@ func (s *s2) have(ctx context.Context, item string, n int) error {
 
 // craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в
 // очереди крафта — только дождаться.
-func (s *s2) craft(ctx context.Context, item string, n int) error {
+func (s *worker) craft(ctx context.Context, item string, n int) error {
 	if s.queued(item)*s.perCraft(item) >= n {
 		return s.waitInv(ctx, item, s.inv(item)+n, s.craftLimit(item, 0))
 	}
@@ -348,7 +348,7 @@ func (s *s2) craft(ctx context.Context, item string, n int) error {
 }
 
 // craftLimit — сколько ждать крафта: вся очередь (с item) и ещё n item, с запасом.
-func (s *s2) craftLimit(item string, n int) time.Duration {
+func (s *worker) craftLimit(item string, n int) time.Duration {
 	p, err := s.h.B.Player()
 	f, ferr := s.h.B.Force()
 	if err != nil || ferr != nil {
@@ -365,7 +365,7 @@ func (s *s2) craftLimit(item string, n int) time.Duration {
 }
 
 // perCraft — предметов за один крафт (подземная труба — 2).
-func (s *s2) perCraft(item string) int {
+func (s *worker) perCraft(item string) int {
 	for _, pr := range s.h.Protos.Recipes[item].Products {
 		if pr.Name == item && pr.Mean() > 1 {
 			return int(pr.Mean())
@@ -375,7 +375,7 @@ func (s *s2) perCraft(item string) int {
 }
 
 // waitInv — дождаться, пока item в инвентаре станет не меньше n.
-func (s *s2) waitInv(ctx context.Context, item string, n int, limit time.Duration) error {
+func (s *worker) waitInv(ctx context.Context, item string, n int, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
 	for s.inv(item) < n {
 		if time.Now().After(deadline) {
@@ -389,7 +389,7 @@ func (s *s2) waitInv(ctx context.Context, item string, n int, limit time.Duratio
 }
 
 // missing — сколько item ещё не стоит на точках (и на буры: печь в рецепте бура).
-func (s *s2) missing(item string) int {
+func (s *worker) missing(item string) int {
 	n := 0
 	for _, site := range s.sites {
 		for _, pl := range site.Items {
@@ -407,7 +407,7 @@ func (s *s2) missing(item string) int {
 }
 
 // queued — сколько item уже в очереди крафта.
-func (s *s2) queued(item string) int {
+func (s *worker) queued(item string) int {
 	p, err := s.h.B.Player()
 	if err != nil {
 		return 0
@@ -422,7 +422,7 @@ func (s *s2) queued(item string) int {
 }
 
 // built — постройки name на точках руды ore, которые уже стоят.
-func (s *s2) built(ore, name string) []bridge.Entity {
+func (s *worker) built(ore, name string) []bridge.Entity {
 	var res []bridge.Entity
 	for _, site := range s.sites {
 		if site.Ore != ore {
@@ -441,7 +441,7 @@ func (s *s2) built(ore, name string) []bridge.Entity {
 }
 
 // takeAll — забрать со всех построек точки (печи, сундук), где что-то есть; подошёл — со всех.
-func (s *s2) takeAll(ctx context.Context, es []bridge.Entity, inv string) (int, error) {
+func (s *worker) takeAll(ctx context.Context, es []bridge.Entity, inv string) (int, error) {
 	got := 0
 	for _, e := range es {
 		st, err := s.h.B.GetEntity(e.Name, e.Position)
@@ -468,7 +468,7 @@ func (s *s2) takeAll(ctx context.Context, es []bridge.Entity, inv string) (int, 
 
 // plates — пластины: забрать со всех печей точки; мало — руду руками в печи точки (с углём),
 // подождать и забрать. Печей ещё нет — поставить первую печь точки.
-func (s *s2) plates(ctx context.Context, plate string, lack int) error {
+func (s *worker) plates(ctx context.Context, plate string, lack int) error {
 	ore := map[string]string{"iron-plate": "iron-ore", "copper-plate": "copper-ore"}[plate]
 	fs := s.built(ore, furnace)
 	if got, err := s.takeAll(ctx, fs, "crafter_output"); err != nil || got >= lack {
@@ -525,7 +525,7 @@ func (s *s2) plates(ctx context.Context, plate string, lack int) error {
 	return err
 }
 
-func (s *s2) firstMissing(ore, name string) (layout.Placement, bool) {
+func (s *worker) firstMissing(ore, name string) (layout.Placement, bool) {
 	for _, site := range s.sites {
 		if site.Ore != ore {
 			continue
@@ -543,17 +543,17 @@ func (s *s2) firstMissing(ore, name string) (layout.Placement, bool) {
 }
 
 // coal — уголь: с угольных пар (топливо буров), нет пар — с больших камней или руками.
-func (s *s2) coal(ctx context.Context, lack int) error {
+func (s *worker) coal(ctx context.Context, lack int) error {
 	if ds := s.built("coal", drill); len(ds) > 0 {
 		got, err := s.takeAll(ctx, ds, "fuel")
 		if err != nil {
 			return err
 		}
 		if got > 0 { // пары без топлива встанут — каждому буру немного назад (поровну из того,
-			// что есть: забрали мало — меньше s2Back каждому, хоть по одному)
+			// что есть: забрали мало — меньше coalBack каждому, хоть по одному)
 			have := s.inv("coal")
 			for i, d := range ds {
-				back := min(s2Back, have/len(ds))
+				back := min(coalBack, have/len(ds))
 				if back == 0 && i < have {
 					back = 1
 				}
@@ -575,7 +575,7 @@ func (s *s2) coal(ctx context.Context, lack int) error {
 }
 
 // stone — камень: из сундука каменной точки, нет — с камней.
-func (s *s2) stone(ctx context.Context, lack int) error {
+func (s *worker) stone(ctx context.Context, lack int) error {
 	if cs := s.built("stone", chest); len(cs) > 0 {
 		got, err := s.takeAll(ctx, cs, "chest")
 		if err != nil || got >= lack {
@@ -599,7 +599,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 func checkOutposts(h *act.Hands) error {
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
@@ -638,8 +638,8 @@ func checkOutposts(h *act.Hands) error {
 
 // fromBuffers — пластины из буферов выхода плавки (стадия 12): забрать со всех, где есть;
 // нигде нет — подождать.
-func (s *s2) fromBuffers(ctx context.Context, plate string) error {
-	data, err := os.ReadFile(runPath(s12Plan))
+func (s *worker) fromBuffers(ctx context.Context, plate string) error {
+	data, err := os.ReadFile(runPath(smeltingFile))
 	if err != nil {
 		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 12): %w", plate, err)
 	}

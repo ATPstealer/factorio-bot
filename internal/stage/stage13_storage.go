@@ -16,22 +16,22 @@ import (
 
 // Стадия 13 (stages.md): кластер хранения (склад бота) из плана стадии 5.
 
-// s8Free — свободных ячеек инвентаря перед постройкой не меньше (стадии с хранением): место
+// freeSlots — свободных ячеек инвентаря перед постройкой не меньше (стадии с хранением): место
 // под срубленное на месте постройки (стадия 11: «дерево не поднять — инвентарь полон»).
-const s8Free = 5
+const freeSlots = 5
 
-// s8Batch — сколько одинаковых построек ставить одним вызовом (рука не меняется).
-const s8Batch = 40
+// buildBatch — сколько одинаковых построек ставить одним вызовом (рука не меняется).
+const buildBatch = 40
 
-// s8Raw — что убирать в хранение при постройке: сырьё с вырубки и руда.
-var s8Raw = []string{"wood", "stone", "iron-ore", "copper-ore"}
+// rawItems — что убирать в хранение при постройке: сырьё с вырубки и руда.
+var rawItems = []string{"wood", "stone", "iron-ore", "copper-ore"}
 
 func init() {
 	register(Stage{N: 13, Name: "хранение", Run: runStorage, Check: checkStorage})
 }
 
-// s8Layout — постройки кластера хранения из плана.
-func s8Layout() ([]layout.Placement, error) {
+// storageLayout — постройки кластера хранения из плана.
+func storageLayout() ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
@@ -54,20 +54,20 @@ func s8Layout() ([]layout.Placement, error) {
 }
 
 func runStorage(ctx context.Context, h *act.Hands) error {
-	list, err := s8Layout()
+	list, err := storageLayout()
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	return (&s2{h: h, sites: sites}).build(ctx, list)
+	return (&worker{h: h, sites: sites}).build(ctx, list)
 }
 
 // build — поставить недостающее из list: по видам в порядке первого появления, каждый вид —
 // скрафтить разом и поставить.
-func (s *s2) build(ctx context.Context, list []layout.Placement) error {
+func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 	var names []string
 	for _, pl := range list {
 		if !slices.Contains(names, pl.Name) {
@@ -96,9 +96,9 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 			return err
 		}
 		// одинаковое — подряд одним вызовом (рука не меняется между постановками), пачками по
-		// s8Batch: между пачками — место в инвентаре под срубленное
+		// buildBatch: между пачками — место в инвентаре под срубленное
 		for len(todo) > 0 {
-			batch := todo[:min(len(todo), s8Batch)]
+			batch := todo[:min(len(todo), buildBatch)]
 			todo = todo[len(batch):]
 			if s.useStore { // место под срубленное на месте постройки (деревья, камни): в
 				// хранение — только сырьё с вырубки, постройки и запас стадии остаются
@@ -106,7 +106,7 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 				if err != nil {
 					return err
 				}
-				if err := s.store(ctx, s8Free, keepBuilt(p)...); err != nil {
+				if err := s.store(ctx, freeSlots, keepBuilt(p)...); err != nil {
 					return err
 				}
 			}
@@ -123,7 +123,7 @@ func (s *s2) build(ctx context.Context, list []layout.Placement) error {
 }
 
 func checkStorage(h *act.Hands) error {
-	list, err := s8Layout()
+	list, err := storageLayout()
 	if err != nil {
 		return err
 	}

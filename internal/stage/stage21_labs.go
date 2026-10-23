@@ -18,16 +18,16 @@ import (
 // науки отводом с шины, буфер входа, инсертеры в лаборатории, питание по коридорам. Бот
 // только запускает исследование; критерий — оно идёт само (пакеты приходят лентой).
 
-const s16Plan = "state-stage16.json"
+const labsFile = "state-labs.json"
 
 func init() {
 	register(Stage{N: 21, Name: "кластер лабораторий", Run: runLabs, Check: checkLabs})
 }
 
-// s16Layout — внутренность кластера лабораторий, отводы к нему, делители, столбы; один раз
+// labsLayout — внутренность кластера лабораторий, отводы к нему, делители, столбы; один раз
 // на карту (файл).
-func s16Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s16Plan)); err == nil {
+func labsLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(labsFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -57,13 +57,13 @@ func s16Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s16Plan), data, 0o644)
+	return res, os.WriteFile(runPath(labsFile), data, 0o644)
 }
 
-// s16Tech — исследование на одной красной науке, доступное (предпосылки изучены), не
+// labsTech — исследование на одной красной науке, доступное (предпосылки изучены), не
 // изученное; самое дорогое: дешёвое (gun-turret) кончалось из буфера пакетов раньше проверки
 // «исследование идёт».
-func s16Tech(h *act.Hands) (string, error) {
+func labsTech(h *act.Hands) (string, error) {
 	f, err := h.B.Force()
 	if err != nil {
 		return "", err
@@ -74,7 +74,7 @@ func s16Tech(h *act.Hands) (string, error) {
 	var cands []string
 	for name, t := range h.Protos.Technologies {
 		if t.Hidden || !t.Enabled || t.Trigger != nil || slices.Contains(f.Researched, name) || len(t.UnitIngredients) != 1 ||
-			t.UnitIngredients[0].Name != s7Pack {
+			t.UnitIngredients[0].Name != redPack {
 			continue
 		}
 		ok := true
@@ -99,15 +99,15 @@ func s16Tech(h *act.Hands) (string, error) {
 }
 
 func runLabs(ctx context.Context, h *act.Hands) error {
-	list, err := s16Layout(h)
+	list, err := labsLayout(h)
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	order := []string{"lab", "transport-belt", "underground-belt", "splitter", chest, "inserter", "small-electric-pole"}
 	sorted := slices.Clone(list)
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
@@ -130,7 +130,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	tech, err := s16Tech(h)
+	tech, err := labsTech(h)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 	for checkLabs(h) != nil && time.Now().Before(deadline) {
 		// исследование кончилось — следующее
 		if f, err := h.B.Force(); err == nil && f.Current == "" {
-			if tech, err := s16Tech(h); err == nil {
+			if tech, err := labsTech(h); err == nil {
 				if err := h.StartResearch(ctx, tech); err != nil {
 					return err
 				}
@@ -157,7 +157,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 // checkLabs — всё стоит, фильтры заданы; исследование идёт само: за 30 с без бота прогресс
 // растёт (или изучено новое), в лабораториях — пакеты с ленты.
 func checkLabs(h *act.Hands) error {
-	list, err := s16Layout(h)
+	list, err := labsLayout(h)
 	if err != nil {
 		return err
 	}
@@ -173,7 +173,7 @@ func checkLabs(h *act.Hands) error {
 		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		}
-		if pl.Name == "lab" && st.Count(s7Pack) > 0 {
+		if pl.Name == "lab" && st.Count(redPack) > 0 {
 			fed++
 		}
 	}

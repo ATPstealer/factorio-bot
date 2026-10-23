@@ -16,15 +16,15 @@ import (
 // станция берёт уголь отводом с шины вместо сундука стадии 6 (у бойлера — burner-инсертер с
 // ленты, как в плане). Питание — столбами по коридорам от сети (connectPower).
 
-const s11Plan = "state-stage11.json" // раскладка стадии: один раз на карту
+const coalFile = "state-coal.json" // раскладка стадии: один раз на карту
 
 func init() {
 	register(Stage{N: 16, Name: "добыча угля", Run: runCoal, Check: checkCoal})
 }
 
-// s11Layout — s11Base и столбы питания; один раз на карту (файл).
-func s11Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s11Plan)); err == nil {
+// coalLayout — coalBase и столбы питания; один раз на карту (файл).
+func coalLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(coalFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
@@ -34,7 +34,7 @@ func s11Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := s11Base(h, plan)
+	res := coalBase(h, plan)
 	if len(res) == 0 {
 		return nil, fmt.Errorf("в плане нет добычи угля или станции")
 	}
@@ -51,25 +51,25 @@ func s11Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s11Plan), data, 0o644)
+	return res, os.WriteFile(runPath(coalFile), data, 0o644)
 }
 
 func runCoal(ctx context.Context, h *act.Hands) error {
-	list, err := s11Layout(h)
+	list, err := coalLayout(h)
 	if err != nil {
 		return err
 	}
-	station, err := s6Layout(h)
+	station, err := powerLayout(h)
 	if err != nil {
 		return err
 	}
-	sites, err := s2Layout(h)
+	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
-	s := &s2{h: h, sites: sites, useStore: true}
+	s := &worker{h: h, sites: sites, useStore: true}
 	// сундук и электроинсертер стадии 6 стоят на месте ленты и burner-инсертера — их в конце
-	tmp := []layout.Placement{s6Find(station, chest), s6Find(station, "inserter")}
+	tmp := []layout.Placement{findPlaced(station, chest), findPlaced(station, "inserter")}
 	var first []layout.Placement
 	for _, pl := range list {
 		if pl.Pos == tmp[0].Pos || pl.Pos == tmp[1].Pos {
@@ -125,18 +125,18 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 }
 
 func checkCoal(h *act.Hands) error {
-	list, err := s11Layout(h)
+	list, err := coalLayout(h)
 	if err != nil {
 		return err
 	}
 	if err := checkBuilt(h, list); err != nil {
 		return err
 	}
-	station, err := s6Layout(h)
+	station, err := powerLayout(h)
 	if err != nil {
 		return err
 	}
-	if e, err := h.B.EntityAt(chest, s6Find(station, chest).Pos); err != nil || e != nil {
+	if e, err := h.B.EntityAt(chest, findPlaced(station, chest).Pos); err != nil || e != nil {
 		return fmt.Errorf("сундук стадии 6 у бойлера ещё стоит (%v)", err)
 	}
 	working := 0
@@ -151,7 +151,7 @@ func checkCoal(h *act.Hands) error {
 		return fmt.Errorf("буры угля не работают")
 	}
 	// лента у бойлера несёт уголь
-	belt := s6Find(station, chest).Pos
+	belt := findPlaced(station, chest).Pos
 	st, err := h.B.GetEntity("transport-belt", belt)
 	if err != nil || st == nil {
 		return fmt.Errorf("нет ленты угля у бойлера: %v", err)

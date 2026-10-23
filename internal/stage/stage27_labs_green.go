@@ -18,26 +18,26 @@ import (
 // (по плану стадии 18: лента сбоку в ленту входа лабораторий), фильтры инсертеров буфера — как
 // были (на красную). Критерий — исследование на красной и зелёной науке идёт само.
 
-const s23Plan = "state-stage23.json"
+const labsGreenFile = "state-labs-green.json"
 
 func init() {
 	register(Stage{N: 27, Name: "зелёная наука в лаборатории", Run: runLabsGreen, Check: checkLabsGreen})
 }
 
-// s23Layout — дописанное стадией 18 в кластер лабораторий и его отводы, лента зелёной науки
+// labsGreenLayout — дописанное стадией 18 в кластер лабораторий и его отводы, лента зелёной науки
 // шины конечных с подводом, делители, столбы; один раз на карту (файл).
-func s23Layout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(s23Plan)); err == nil {
+func labsGreenLayout(h *act.Hands) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(labsGreenFile)); err == nil {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil
 		}
 	}
-	added, plan, err := s18Added()
+	added, plan, err := greenAdded()
 	if err != nil {
 		return nil, err
 	}
-	lab, green := clusterOf(plan, cluster.Lab, ""), clusterOf(plan, cluster.Make, s18Green)
+	lab, green := clusterOf(plan, cluster.Lab, ""), clusterOf(plan, cluster.Make, greenPack)
 	if lab == nil || green == nil {
 		return nil, fmt.Errorf("в плане нет лабораторий или зелёной науки")
 	}
@@ -47,7 +47,7 @@ func s23Layout(h *act.Hands) ([]layout.Placement, error) {
 			res = append(res, pl)
 		}
 	}
-	res = withSplitters(h, plan, append(res, busParts(plan, []string{s18Green}, []string{green.Name})...))
+	res = withSplitters(h, plan, append(res, busParts(plan, []string{greenPack}, []string{green.Name})...))
 	allow := []string{lab.Name}
 	for _, o := range plan.Clusters {
 		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
@@ -63,12 +63,12 @@ func s23Layout(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return res, os.WriteFile(runPath(s23Plan), data, 0o644)
+	return res, os.WriteFile(runPath(labsGreenFile), data, 0o644)
 }
 
-// s23Techs — доступные (предпосылки изучены), не изученные исследования на красной и зелёной
+// greenTechs — доступные (предпосылки изучены), не изученные исследования на красной и зелёной
 // науке; сначала нужные для ракеты, потом самые дорогие.
-func s23Techs(h *act.Hands) ([]string, error) {
+func greenTechs(h *act.Hands) ([]string, error) {
 	f, err := h.B.Force()
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func s23Techs(h *act.Hands) ([]string, error) {
 		}
 		ok := true
 		for _, in := range t.UnitIngredients {
-			ok = ok && (in.Name == s7Pack || in.Name == s18Green)
+			ok = ok && (in.Name == redPack || in.Name == greenPack)
 		}
 		for _, p := range t.Prerequisites {
 			ok = ok && done[p]
@@ -111,10 +111,10 @@ func s23Techs(h *act.Hands) ([]string, error) {
 	return cands, nil
 }
 
-// s23Green — исследование t требует зелёную науку.
-func s23Green(h *act.Hands, t string) bool {
+// usesGreen — исследование t требует зелёную науку.
+func usesGreen(h *act.Hands, t string) bool {
 	for _, in := range h.Protos.Technologies[t].UnitIngredients {
-		if in.Name == s18Green {
+		if in.Name == greenPack {
 			return true
 		}
 	}
@@ -122,7 +122,7 @@ func s23Green(h *act.Hands, t string) bool {
 }
 
 func runLabsGreen(ctx context.Context, h *act.Hands) error {
-	list, err := s23Layout(h)
+	list, err := labsGreenLayout(h)
 	if err != nil {
 		return err
 	}
@@ -151,11 +151,11 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 		for _, t := range append([]string{f.Current}, f.Queue...) {
-			if t != "" && s23Green(h, t) {
+			if t != "" && usesGreen(h, t) {
 				return nil
 			}
 		}
-		techs, err := s23Techs(h)
+		techs, err := greenTechs(h)
 		if err != nil {
 			return err
 		}
@@ -182,7 +182,7 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 // checkLabsGreen — всё стоит; в лабораториях зелёная наука (пришла лентой); идёт исследование
 // на зелёной и за 30 с продвигается.
 func checkLabsGreen(h *act.Hands) error {
-	list, err := s23Layout(h)
+	list, err := labsGreenLayout(h)
 	if err != nil {
 		return err
 	}
@@ -207,18 +207,18 @@ func checkLabsGreen(h *act.Hands) error {
 		if pl.Name != "lab" {
 			continue
 		}
-		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(s18Green) > 0 {
+		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(greenPack) > 0 {
 			fed++
 		}
 	}
 	if fed == 0 {
-		return fmt.Errorf("в лабораториях нет %s", s18Green)
+		return fmt.Errorf("в лабораториях нет %s", greenPack)
 	}
 	f0, err := h.B.Force()
 	if err != nil {
 		return err
 	}
-	if f0.Current == "" || !s23Green(h, f0.Current) {
+	if f0.Current == "" || !usesGreen(h, f0.Current) {
 		return fmt.Errorf("не идёт исследование на зелёной науке (идёт %q)", f0.Current)
 	}
 	time.Sleep(30 * time.Second)
