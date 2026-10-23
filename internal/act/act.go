@@ -400,15 +400,8 @@ const mineReach = 1.5
 // collisionBox — рамка коллизии сущности из справочника (нет справочника — рамка выделения).
 func (h *Hands) collisionBox(e bridge.Entity) *bridge.Box {
 	if h.Protos != nil {
-		if pe, ok := h.Protos.Entities[e.Name]; ok {
-			b := h.footprint(e.Name, e.Position, dirOf(e))
-			if e.Direction != nil && (*e.Direction == East || *e.Direction == West) && pe.TileWidth != pe.TileHeight {
-				c := e.Position
-				b = bridge.Box{
-					LeftTop:     bridge.Pos{X: c.X - (b.RightBottom.Y - c.Y), Y: c.Y + (b.LeftTop.X - c.X)},
-					RightBottom: bridge.Pos{X: c.X + (c.Y - b.LeftTop.Y), Y: c.Y + (b.RightBottom.X - c.X)},
-				}
-			}
+		if _, ok := h.Protos.Entities[e.Name]; ok {
+			b := h.footprint(e.Name, e.Position, dirOf(e)) // уже повёрнута по направлению
 			return &b
 		}
 	}

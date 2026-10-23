@@ -1,10 +1,12 @@
 package act
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/knowledge"
 )
 
 func TestWalkKeys(t *testing.T) {
@@ -71,6 +73,40 @@ func TestClosestOnBox(t *testing.T) {
 	for p, want := range cases {
 		if got := closestOnBox(p, b); got != want {
 			t.Errorf("closestOnBox(%v) = %v, ждали %v", p, got, want)
+		}
+	}
+}
+
+// TestCollisionBoxRotated — рамка коллизии прямоугольной постройки по направлению: делитель
+// (2×1 при «север») на восток — 1 по X и 2 по Y; паровой двигатель (3×5 при «север») на
+// восток — 5 по X и 3 по Y. Рамка поворачивалась дважды — выходила поперёк настоящей.
+func TestCollisionBoxRotated(t *testing.T) {
+	p, err := knowledge.Load("../knowledge/testdata/prototypes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Hands{Protos: p}
+	cases := []struct {
+		name string
+		dir  int
+		w, h float64 // ширина по X и высота по Y, тайлов (с округлением)
+	}{
+		{"splitter", North, 2, 1},
+		{"splitter", East, 1, 2},
+		{"splitter", South, 2, 1},
+		{"splitter", West, 1, 2},
+		{"steam-engine", North, 3, 5},
+		{"steam-engine", East, 5, 3},
+	}
+	for _, c := range cases {
+		d := c.dir
+		b := h.collisionBox(bridge.Entity{Name: c.name, Position: bridge.Pos{}, Direction: &d})
+		if b == nil {
+			t.Fatalf("%s: нет рамки", c.name)
+		}
+		w, hh := math.Round(b.RightBottom.X-b.LeftTop.X), math.Round(b.RightBottom.Y-b.LeftTop.Y)
+		if w != c.w || hh != c.h {
+			t.Errorf("%s на %d: рамка %v×%v, ждали %v×%v", c.name, c.dir, w, hh, c.w, c.h)
 		}
 	}
 }
