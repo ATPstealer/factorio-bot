@@ -38,6 +38,40 @@ func TestCraft(t *testing.T) {
 	clean(t, h)
 }
 
+// Крафт за очередью с полуфабрикатами (стадия 2 на 859088572: «крафт stone-furnace не
+// закончился (есть 0, ждали 1)»): в очереди буры, печи для них — полуфабрикатами; печь,
+// поставленная в очередь после них, должна оказаться в инвентаре.
+func TestCraftBehindQueue(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "iron-plate", 18)
+	have(t, h, "stone", 15)
+	ctx := ctxT(t, 2*time.Minute)
+	p0, _ := h.B.Player()
+	if err := h.Craft(ctx, "burner-mining-drill", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Craft(ctx, "stone-furnace", 1); err != nil {
+		t.Fatal(err)
+	}
+	var p1 bridge.Player
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		if p1, _ = h.B.Player(); len(p1.CraftingQueue) == 0 {
+			break
+		}
+	}
+	if len(p1.CraftingQueue) > 0 {
+		t.Fatalf("очередь не закончилась: %+v", p1.CraftingQueue)
+	}
+	f0 := p0.Inventory["stone-furnace"]
+	want := f0 - min(f0, 2) + 1 // печи из инвентаря уходят в буры, своя — +1
+	if got := p1.Inventory["stone-furnace"]; got != want {
+		t.Errorf("stone-furnace: %d, ждали %d (было %d)", got, want, f0)
+	}
+	if d := p1.Inventory["burner-mining-drill"] - p0.Inventory["burner-mining-drill"]; d != 2 {
+		t.Errorf("burner-mining-drill +%d, ждали +2", d)
+	}
+}
+
 // Сценарий: добыть камень → скрафтить печь → поставить → уголь и руда → забрать пластины.
 func TestFurnaceScenario(t *testing.T) {
 	h := handsT(t)
