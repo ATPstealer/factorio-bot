@@ -21,6 +21,7 @@ type Stage struct {
 	Run   func(ctx context.Context, h *act.Hands) error
 	Check func(h *act.Hands) error
 	Plan  bool // стадия планирования (только «на бумаге»: зоны, план кластеров, проекты)
+	Empty bool // пустая (резерв): прогон только копирует снимок прошлой стадии (scripts/stage.sh)
 }
 
 var all = map[int]Stage{}

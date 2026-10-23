@@ -51,6 +51,7 @@ const usage = `bot — бот Factorio: действует только мышь
   research ТЕХНОЛОГИЯ   запустить исследование (окно технологий, T)
   stage N               выполнить стадию N (stages.md) на текущей карте и проверить её критерии
   plans ОТ ДО           только стадии планирования ОТ…ДО подряд (план прошлых — построен)
+  empty N               код 0 — стадия N пустая (резерв): прогон только копирует снимок
   pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
@@ -124,6 +125,15 @@ func main() {
 		return
 	case "raw":
 		runRaw(args[1:], *addr, *pass)
+		return
+	case "empty":
+		// пустая стадия (резерв) — код 0: scripts/stage.sh только копирует снимок
+		if len(args) < 2 {
+			log.Fatal("bot empty N")
+		}
+		if s, err := stage.Get(atoi(args[1])); err != nil || !s.Empty {
+			os.Exit(1)
+		}
 		return
 	}
 	b, rc, err := bridge.Dial(*addr, *pass)

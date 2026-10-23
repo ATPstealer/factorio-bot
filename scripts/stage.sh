@@ -7,6 +7,7 @@
 #                                прошлую; не выполнена хоть на одной — стоп (чинить, потом
 #                                продолжить с неё же: scripts/stage.sh K-M …)
 #   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
+#   пустая стадия (резерв, bin/bot empty N) — без игры: снимок <сид>-(N-1) копируется в <сид>-N
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 0); после — он остановлен
 #   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 180)
 #   PLAN=1 scripts/stage.sh N-M СИД… — только стадии планирования N…M подряд (bin/bot plans), со
@@ -77,6 +78,21 @@ for seed in "$@"; do
   log=run/stages/s$n-$seed.log
   rm -f "run/stages/ok-$n-$seed"
   echo "== стадия $n, $seed $(date +%T)" | tee -a run/stages/summary.txt
+  # пустая стадия (резерв) — игру не запускать: снимок прошлой стадии под её номером
+  if bin/bot empty "$n" 2> /dev/null; then
+    if [[ -d run/snapshots/$seed-$((n - 1)) ]]; then
+      rm -rf "run/snapshots/$seed-$n"
+      cp -r "run/snapshots/$seed-$((n - 1))" "run/snapshots/$seed-$n"
+      echo "сид $seed: после стадии $n (пустая — копия $seed-$((n - 1)))" > "run/snapshots/$seed-$n/NOTE.txt"
+      echo "пустая стадия: снимок $seed-$((n - 1)) скопирован" > "$log"
+      touch "run/stages/ok-$n-$seed"
+      echo "   выполнена за 0 мин (пустая), снимок $seed-$n" | tee -a run/stages/summary.txt
+    else
+      code=1
+      echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt
+    fi
+    continue
+  fi
   if [[ $n == 1 && ! -f run/snapshots/$seed-0/bot.zip ]]; then
     rm -f "$R"/state*.json
     SEED=$seed timeout 600 scripts/newmap.sh > /dev/null 2>&1 || { echo "   карта $seed не создалась" | tee -a run/stages/summary.txt; code=1; continue; }
