@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -880,6 +882,7 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		item string
 		pos  bridge.Pos
 		dir  int
+		in   map[string]int // что лежало внутри — вернуть
 	}
 	var back []lifted
 	for _, e := range near {
@@ -895,10 +898,11 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		if e.Direction != nil {
 			d = *e.Direction
 		}
+		in := h.contents(e)
 		if err := h.Pickup(ctx, e); err != nil {
 			return err
 		}
-		back = append(back, lifted{item, e.Position, d})
+		back = append(back, lifted{item, e.Position, d, in})
 		if _, err := h.World.Sync(h.B, false); err != nil {
 			return err
 		}
@@ -953,8 +957,45 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		}
 	}
 	for i := len(back) - 1; i >= 0; i-- {
-		if _, err := h.PlaceAll(ctx, back[i].item, []bridge.Pos{back[i].pos}, back[i].dir); err != nil {
+		es, err := h.PlaceAll(ctx, back[i].item, []bridge.Pos{back[i].pos}, back[i].dir)
+		if err != nil {
 			return err
+		}
+		if err := h.refill(ctx, es, back[i].in); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// contents — что лежит в постройке e, чтобы вернуть после подбора и постановки назад (печь
+// поставили пустой — без топлива): топливо, сырьё, ящик; готовое (результат) — не возвращать.
+func (h *Hands) contents(e bridge.Entity) map[string]int {
+	st, err := h.B.GetEntity(e.Name, e.Position)
+	if err != nil || st == nil {
+		return nil
+	}
+	res := map[string]int{}
+	for name, inv := range st.Inventories {
+		if strings.Contains(name, "result") || strings.Contains(name, "output") {
+			continue
+		}
+		for it, n := range inv {
+			res[it] += n
+		}
+	}
+	return res
+}
+
+// refill — положить в поставленную назад постройку (первая из es) то, что в ней лежало.
+func (h *Hands) refill(ctx context.Context, es []bridge.Entity, in map[string]int) error {
+	if len(es) == 0 || len(in) == 0 {
+		return nil
+	}
+	items := slices.Sorted(maps.Keys(in))
+	for _, it := range items {
+		if err := h.Insert(ctx, es[0], it, in[it]); err != nil {
+			return fmt.Errorf("вернуть %s ×%d в %s: %w", it, in[it], es[0].Name, err)
 		}
 	}
 	return nil
@@ -1032,12 +1073,14 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 		h.Log("пролом: из %d своих построек рядом ни одна (и пары, тройки) не открывает путь", len(objs))
 		return false, nil
 	}
-	for _, o := range set {
+	ins := make([]map[string]int, len(set))
+	for i, o := range set {
 		e, err := h.B.EntityAt(o.Name, o.Pos)
 		if err != nil || e == nil {
 			return false, err
 		}
 		h.Say("путь закрыт своими постройками — поднимаю %s, пройду и поставлю назад", o.Name)
+		ins[i] = h.contents(*e)
 		if err := h.Pickup(ctx, *e); err != nil {
 			return false, err
 		}
@@ -1080,7 +1123,11 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 	}
 	for i := len(set) - 1; i >= 0; i-- {
 		o := set[i]
-		if _, err := h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction); err != nil {
+		es, err := h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction)
+		if err != nil {
+			return false, err
+		}
+		if err := h.refill(ctx, es, ins[i]); err != nil {
 			return false, err
 		}
 	}

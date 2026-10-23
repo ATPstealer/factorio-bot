@@ -92,6 +92,59 @@ func TestUnstuck(t *testing.T) {
 	clean(t, h)
 }
 
+// Выход из ловушки не теряет содержимое (стадия 2 на 859088572: «stone-furnace точки iron-ore
+// без топлива» — печь подняли, чтобы выйти, поставили назад пустой): в каждом сундуке кольца —
+// уголь; после выхода у каждого сундука на месте — его уголь.
+func TestUnstuckKeepsContents(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 5*time.Minute)
+	have(t, h, "wooden-chest", 8)
+	have(t, h, "coal", 8)
+	c := freeArea(t, h, 2*(8+2)+1)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	var ring []bridge.Pos
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx != 0 || dy != 0 {
+				ring = append(ring, world.Tile{X: ct.X + dx, Y: ct.Y + dy}.Center())
+			}
+		}
+	}
+	es, err := h.PlaceAll(ctx, "wooden-chest", ring, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range es {
+		if err := h.Insert(ctx, e, "coal", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); !h.World.Enclosed(p.Position) {
+		t.Fatalf("кольцо не замкнуто: персонаж в (%.2f, %.2f)", p.Position.X, p.Position.Y)
+	}
+	if err := h.WalkTo(ctx, bridge.Pos{X: ct.Center().X + 8, Y: ct.Center().Y}, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	for _, pos := range ring {
+		st, err := h.B.GetEntity("wooden-chest", pos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st == nil {
+			t.Errorf("сундука в (%.1f, %.1f) нет", pos.X, pos.Y)
+		} else if n := st.Count("coal"); n != 1 {
+			t.Errorf("в сундуке (%.1f, %.1f) угля %d, ждали 1", pos.X, pos.Y, n)
+		}
+	}
+}
+
 // Путь A* в обход ближайшего к игроку водоёма (не меньше 100 тайлов, открыт целиком): точки по разные
 // стороны воды, путь с поворотами, дойти по нему.
 func TestPathAroundLake(t *testing.T) {
