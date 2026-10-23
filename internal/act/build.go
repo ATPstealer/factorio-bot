@@ -292,6 +292,13 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 				}
 				hand = want
 			}
+			// прямоугольная, вставшая поперёк, накрывает соседей (ленты заменяет), а при
+			// перестановке уносит их — свои постройки рядом запомнить, пропавшие — назад
+			// (стадия 21 на 859088572: лента отвода у делителя)
+			var near []bridge.Entity
+			if pe := h.Protos.Entities[it.PlaceResult]; pe.TileWidth != pe.TileHeight {
+				near, _ = h.B.FindNearest(bridge.FindArgs{Radius: 2.5, Limit: 30, Position: &pos})
+			}
 			e, err := h.clickBuild(ctx, it.PlaceResult, pos)
 			if errors.Is(err, ErrPlace) {
 				// бывает, клик приходится на момент, когда камера ещё едет за персонажем, — ещё раз
@@ -335,6 +342,15 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 					return built, err
 				}
 				held = false
+			}
+			if len(near) > 0 {
+				n, err := h.restoreNear(ctx, near, nil, &e, nil)
+				if err != nil {
+					return built, err
+				}
+				if n > 0 {
+					held = false
+				}
 			}
 			if stock--; stock <= 0 {
 				held = false
@@ -438,7 +454,10 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 		tries = 4
 	}
 	for try := 0; ; try++ {
-		if err := h.Pickup(ctx, e); err != nil {
+		h.noRestore = true
+		err := h.Pickup(ctx, e)
+		h.noRestore = false
+		if err != nil {
 			return e, err
 		}
 		if err := h.Pick(ctx, item); err != nil {
@@ -788,6 +807,52 @@ func (h *Hands) Pickup(ctx context.Context, e bridge.Entity) error {
 	return h.PickupAll(ctx, []bridge.Entity{e})
 }
 
+// restoreNear — свои постройки из near (до действия), которых теперь нет, — поставить назад;
+// кроме skip (их и убирали) и того, что под now (новая постройка встала на их место).
+// Возвращает, сколько поставлено.
+func (h *Hands) restoreNear(ctx context.Context, near, skip []bridge.Entity, now *bridge.Entity, release func()) (int, error) {
+	var box *bridge.Box
+	if now != nil {
+		box = now.SelectionBox // настоящая рамка из игры (у делителя на восток расчётная — поперёк)
+		if box == nil {
+			box = h.collisionBox(*now)
+		}
+	}
+	n := 0
+	for _, o := range near {
+		if !slices.Contains(builtTypes, o.Type) || slices.ContainsFunc(skip, func(x bridge.Entity) bool { return x.Name == o.Name && x.Position == o.Position }) {
+			continue
+		}
+		if box != nil && box.Contains(o.Position, 0) {
+			continue
+		}
+		if got, err := h.B.EntityAt(o.Name, o.Position); err != nil || got != nil {
+			continue
+		}
+		// на месте другая своя постройка (делитель поперёк ещё стоит) — не задето, а накрыто
+		pos := o.Position
+		if here, _ := h.B.FindNearest(bridge.FindArgs{Radius: 1.5, Limit: 10, Position: &pos}); slices.ContainsFunc(here, func(x bridge.Entity) bool {
+			b := h.collisionBox(x)
+			return slices.Contains(builtTypes, x.Type) && b != nil && b.Contains(pos, 0)
+		}) {
+			continue
+		}
+		if release != nil {
+			release()
+		}
+		h.Say("задел %s в (%.1f, %.1f) — ставлю назад", o.Name, o.Position.X, o.Position.Y)
+		dir := 0
+		if o.Direction != nil {
+			dir = *o.Direction
+		}
+		if _, err := h.Place(ctx, o.Name, o.Position, dir); err != nil {
+			return n, fmt.Errorf("поставить назад %s: %w", o.Name, err)
+		}
+		n++
+	}
+	return n, nil
+}
+
 // builtTypes — типы построек бота (рядом с подбираемой: задетые — ставить назад).
 var builtTypes = []string{"transport-belt", "underground-belt", "splitter", "inserter", "electric-pole", "assembling-machine",
 	"furnace", "mining-drill", "lab", "boiler", "generator", "pipe", "pipe-to-ground"}
@@ -852,27 +917,16 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 		t1 := time.Now()
 		// свои постройки рядом: зажатая ПКМ после цели добывает то, что оказалось под курсором
 		// (лента у делителя пропала, стадия 21 на 859088572) — задетое ставится назад
-		near, _ := h.B.FindNearest(bridge.FindArgs{Radius: 2.5, Limit: 30, Position: &e.Position})
+		var near []bridge.Entity
+		if !h.noRestore {
+			near, _ = h.B.FindNearest(bridge.FindArgs{Radius: 2.5, Limit: 30, Position: &e.Position})
+		}
 		if err := h.mineHeld(ctx, e, nil, &held); err != nil {
 			return err
 		}
 		h.Log("подбор: ходьба %.2f, добыча %.2f", t1.Sub(t0).Seconds(), time.Since(t1).Seconds())
-		for _, o := range near {
-			if !slices.Contains(builtTypes, o.Type) || o.Position == e.Position && o.Name == e.Name || slices.ContainsFunc(es, func(x bridge.Entity) bool { return x.Name == o.Name && x.Position == o.Position }) {
-				continue
-			}
-			if got, err := h.B.EntityAt(o.Name, o.Position); err != nil || got != nil {
-				continue
-			}
-			release()
-			h.Say("задел %s в (%.1f, %.1f) — ставлю назад", o.Name, o.Position.X, o.Position.Y)
-			dir := 0
-			if o.Direction != nil {
-				dir = *o.Direction
-			}
-			if _, err := h.Place(ctx, o.Name, o.Position, dir); err != nil {
-				return fmt.Errorf("поставить назад %s: %w", o.Name, err)
-			}
+		if _, err := h.restoreNear(ctx, near, es, nil, release); err != nil {
+			return err
 		}
 	}
 	return nil
