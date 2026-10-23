@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -28,8 +29,8 @@ const (
 	outpostIron   = 30
 	outpostCopper = 6
 	outpostCoal   = 8 // пар (по 2 бура)
-	// outpostReach — точки на пятнах в пределах стольких тайлов от старта (по близости: не
-	// влезло на ближнее — следующее); дальше — только если в пределах места нет вообще
+	// outpostReach — точки на пятнах не дальше стольких тайлов (между краями) от уже занятых: не
+	// влезло на ближнее — следующее по близости; дальше — только если в пределах места нет вообще
 	outpostReach = 150
 )
 
@@ -78,15 +79,32 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 	// patches — пятна ore (не меньше min тайлов) по близости к старту: сначала в пределах
 	// outpostReach (на бег между точками время не терять), дальше — только если в них не влезло
 	type patchAt struct {
-		tiles []world.Tile
-		d     float64 // от старта
+		world.Patch
+		d float64 // до ближайшего занятого пятна (по краям), пока их нет — до старта
 	}
+	var used []world.Patch // пятна, где уже стоят точки
+	// gap — расстояние между краями пятен a и b (0 — касаются)
+	gap := func(a, b world.Patch) float64 {
+		dx := max(0, max(a.Min.X-b.Max.X, b.Min.X-a.Max.X))
+		dy := max(0, max(a.Min.Y-b.Max.Y, b.Min.Y-a.Max.Y))
+		return math.Hypot(float64(dx), float64(dy))
+	}
+	// patches — пятна ore (не меньше min тайлов) по близости к уже занятым: точки — кучно, чтобы
+	// между ними бегать недалеко
 	patches := func(ore string, min int) []patchAt {
 		var all []patchAt
 		for _, pt := range h.World.Patches() {
-			if pt.Name == ore && len(pt.Tiles) >= min {
-				all = append(all, patchAt{pt.Tiles, math.Hypot(pt.Center.X-p.Position.X, pt.Center.Y-p.Position.Y)})
+			if pt.Name != ore || len(pt.Tiles) < min {
+				continue
 			}
+			d := math.Hypot(pt.Center.X-p.Position.X, pt.Center.Y-p.Position.Y)
+			if len(used) > 0 {
+				d = math.Inf(1)
+				for _, u := range used {
+					d = math.Min(d, gap(pt, u))
+				}
+			}
+			all = append(all, patchAt{pt, d})
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].d < all[j].d })
 		return all
@@ -102,8 +120,11 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 		for i := 0; i < n; i++ {
 			mark := len(l.List)
 			for {
-				err := build(ps[k].tiles, near)
+				err := build(ps[k].Tiles, near)
 				if err == nil {
+					if !slices.ContainsFunc(used, func(u world.Patch) bool { return u.Min == ps[k].Min && u.Name == ps[k].Name }) {
+						used = append(used, ps[k].Patch)
+					}
 					break
 				}
 				if k+1 >= len(ps) {
@@ -111,7 +132,7 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 				}
 				k++
 				if ps[k].d > outpostReach && ps[k-1].d <= outpostReach {
-					h.Say("точки %s: в пределах %d тайлов места нет — дальше (%.0f)", ore, outpostReach, ps[k].d)
+					h.Say("точки %s: в %d тайлах от занятых пятен места нет — дальше (%.0f)", ore, outpostReach, ps[k].d)
 				}
 			}
 			// в паре «бур → печь» — сначала печь (в неё руками руда, пока бура нет)
