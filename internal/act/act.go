@@ -590,6 +590,14 @@ func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) e
 		if d <= stop || len(keys) == 0 {
 			return nil
 		}
+		// на прямой до цели — лента: короткое нажатие ставит на неё, она сносит назад (по
+		// кругу лент — снова сюда; стадия 17 на 859088572) — держать клавиши, пока не перейдёт
+		if h.World != nil && h.beltBetween(p.Position, target) {
+			if err := h.crossBelt(ctx, target, keys); err != nil {
+				return err
+			}
+			continue
+		}
 		for k := range keys {
 			if err := h.In.KeyDown(k); err != nil {
 				return err
@@ -621,6 +629,47 @@ func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) e
 		return nil
 	}
 	return fmt.Errorf("%w до (%.1f, %.1f): стою в (%.2f, %.2f)", ErrNotReached, target.X, target.Y, p.Position.X, p.Position.Y)
+}
+
+// beltBetween — на отрезке a–b (без концов) есть лента.
+func (h *Hands) beltBetween(a, b bridge.Pos) bool {
+	n := int(dist(a, b) / 0.2)
+	for i := 1; i < n; i++ {
+		f := float64(i) / float64(n)
+		if h.World.OnBelt(bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f}) {
+			return true
+		}
+	}
+	return false
+}
+
+// crossBelt — перейти ленту к target, не отпуская keys: до схода с неё (или до цели), не
+// дольше 1.5 с; потом дождаться остановки (дальше — обычная доводка).
+func (h *Hands) crossBelt(ctx context.Context, target bridge.Pos, keys map[string]bool) error {
+	for k := range keys {
+		if err := h.In.KeyDown(k); err != nil {
+			return err
+		}
+	}
+	on := false
+	for deadline := time.Now().Add(1500 * time.Millisecond); time.Now().Before(deadline); {
+		if err := sleep(ctx, 30*time.Millisecond); err != nil {
+			break
+		}
+		q, err := h.B.Player()
+		if err != nil {
+			break
+		}
+		if h.World.OnBelt(q.Position) {
+			on = true
+		} else if on || !h.beltBetween(q.Position, target) {
+			break // сошёл за ленту
+		}
+	}
+	for k := range keys {
+		h.In.KeyUp(k)
+	}
+	return h.waitStill(ctx)
 }
 
 // inputLatency — через сколько ввод клиента доходит до сервера (1–3 тика) с запасом.

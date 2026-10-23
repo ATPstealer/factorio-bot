@@ -92,6 +92,59 @@ func TestUnstuck(t *testing.T) {
 	clean(t, h)
 }
 
+// Дойти до точки за лентами, которые несут по кругу назад (стадия 17 на 859088572: «не дошёл
+// до (46.7, -26.8): стою в (48.61, -27.02)», доводка 11.5 с). Раскладка у места — от тайла
+// персонажа C (48,-28): на запад (C-1,0) лента на юг, под ней (C-1,+1) — на восток, (C,+1) и
+// (C+1,+1) — на север (обратно в C); над ним ряды лент на восток (y C-1 и C-2), делитель на
+// восток на (C-2, -1..0); цель — под делителем, (C-2,+1) + (0.7, 0.2).
+func TestWalkAgainstBelt(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "transport-belt", 16)
+	have(t, h, "splitter", 1)
+	c := freeArea(t, h, 14)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	at := func(dx, dy int) bridge.Pos { return world.Tile{X: ct.X + dx, Y: ct.Y + dy}.Center() }
+	// ряды на восток над персонажем (делитель — вместо лент на x = -2)
+	var east []bridge.Pos
+	for dx := -4; dx <= 2; dx++ {
+		if dx != -2 {
+			east = append(east, at(dx, -1), at(dx, -2))
+		}
+	}
+	east = append(east, at(-1, 1))
+	if _, err := h.PlaceAll(ctx, "transport-belt", east, act.East); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceAll(ctx, "transport-belt", []bridge.Pos{at(-1, 0)}, act.South); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceAll(ctx, "transport-belt", []bridge.Pos{at(0, 1), at(1, 1)}, act.North); err != nil {
+		t.Fatal(err)
+	}
+	sp := at(-2, -1)
+	if _, err := h.Place(ctx, "splitter", bridge.Pos{X: sp.X, Y: sp.Y + 0.5}, act.East); err != nil {
+		t.Fatal(err)
+	}
+	// персонаж — как в игре: (C) + (0.61, 0.98); цель — (C-2, +1) + (0.7, 0.2)
+	start := bridge.Pos{X: float64(ct.X) + 0.61, Y: float64(ct.Y) + 0.98}
+	if err := h.WalkTo(ctx, start, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	target := bridge.Pos{X: float64(ct.X-2) + 0.7, Y: float64(ct.Y+1) + 0.2}
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = h.B.Player()
+	if d := math.Hypot(p.Position.X-target.X, p.Position.Y-target.Y); d > 0.5 {
+		t.Errorf("до цели осталось %.2f", d)
+	}
+}
+
 // Выход из ловушки не теряет содержимое (стадия 2 на 859088572: «stone-furnace точки iron-ore
 // без топлива» — печь подняли, чтобы выйти, поставили назад пустой): в каждом сундуке кольца —
 // уголь; после выхода у каждого сундука на месте — его уголь.
