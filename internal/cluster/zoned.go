@@ -138,6 +138,9 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			}
 			r := power.Grow(4)
 			c.Zone = &r
+			// ряд — на всю зону станции (место под все бойлеры), строятся Count (cluster.md §2а
+			// «Станция»)
+			c.Room = max(c.Count, (max(power.W(), power.H())-c.Head)/c.Pitch)
 		case f > 0:
 			// не левее поставщиков своих входов с этажей ниже (и своего — сборка берёт и с шины
 			// над собой): продукт кладётся в ленту шины у столбца поставщика, отвод — только ниже

@@ -138,6 +138,8 @@ func roughOnce(h *act.Hands) error {
 	if cs, err = cluster.AddPower(pr, cs, roughMargin, nil); err != nil {
 		return err
 	}
+	// станция и её зона — под одну помпу (cluster.md §2а «Станция»)
+	cluster.SizePower(pr, cs)
 	// свои постройки (точки стадии 2) — не помеха: их разберут
 	var own []world.Object
 	for _, o := range h.World.Objects() {

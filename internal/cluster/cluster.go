@@ -319,6 +319,38 @@ func AddPower(p *knowledge.Prototypes, cs []*Cluster, reserve float64, have map[
 	return cs, nil
 }
 
+// PumpBoilers — сколько бойлеров кормит одна помпа (вода: помпа / расход бойлера).
+func PumpBoilers(p *knowledge.Prototypes) int {
+	one := calc.SteamFor(p, p.Entities["steam-engine"].MaxEnergyProduction*60*2) // бойлер = 2 двигателя
+	if one.Pumps <= 0 {
+		return 20
+	}
+	return int(math.Floor(one.Boilers/one.Pumps + 1e-9))
+}
+
+// SizePower — станция cs — под одну помпу (cluster.md §2а «Станция»): столько бойлеров, сколько
+// она кормит водой, по 2 двигателя; дальше — вторая станция.
+func SizePower(p *knowledge.Prototypes, cs []*Cluster) {
+	n := float64(PumpBoilers(p))
+	st := calc.SteamFor(p, n*p.Entities["boiler"].MaxEnergyUsage*60)
+	W := st.Engines * p.Entities["steam-engine"].MaxEnergyProduction * 60
+	for _, c := range cs {
+		if c.Kind != Power {
+			continue
+		}
+		c.PowerW = W
+		for i := range c.Units {
+			switch c.Units[i].Machine {
+			case "boiler":
+				c.Units[i].Machines = st.Boilers
+			case "steam-engine":
+				c.Units[i].Machines = st.Engines
+			}
+		}
+		shape(p, c)
+	}
+}
+
 // coalJ — энергия угля, Дж.
 const coalJ = 4e6
 
