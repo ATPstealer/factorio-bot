@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -186,6 +187,9 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 	return nil
 }
 
+// errNoStorage — инвентарь полон, а хранения ещё нет (до стадии 13).
+var errNoStorage = errors.New("инвентарь полон, а хранения нет")
+
 // store — свободных ячеек инвентаря меньше free — в хранение то, что не нужно для крафта
 // сейчас: сначала готовые постройки, потом запас (уголь, пластины); need — что ещё ставить
 // (не убирать).
@@ -199,7 +203,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	}
 	list, err := storageLayout()
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errNoStorage, err) // плана ещё нет (до стадии 5)
 	}
 	var chests []bridge.Entity
 	for _, pl := range list {
@@ -208,7 +212,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 		}
 	}
 	if len(chests) == 0 {
-		return fmt.Errorf("инвентарь полон, а хранения нет")
+		return errNoStorage
 	}
 	keep := map[string]bool{"wood": true, "stone": true, "iron-plate": true, "copper-plate": true, "coal": true,
 		"iron-gear-wheel": true, "copper-cable": true, "electronic-circuit": true}

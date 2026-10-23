@@ -44,6 +44,7 @@ const (
 	fuelLevel    = 20 // угля в бур или печь: доливать до стольких
 	fuelFull     = 50 // в конце стадии — до стольких в каждый бур и печь
 	fuelLow      = 3  // когда топлива меньше — доливать
+	craftFree    = 4  // свободных ячеек при ожидании крафта: меньше — ненужное в хранение
 )
 
 // chest — сундук стадий: деревянный до обслуживания, с него (стадия 17) — железный (stage.Do).
@@ -427,6 +428,13 @@ func (s *worker) perCraft(item string) int {
 func (s *worker) waitInv(ctx context.Context, item string, n int, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
 	for s.inv(item) < n {
+		// готовое некуда класть — крафт стоит («inventory full»): ненужное сейчас — в хранение
+		// (крафтящееся — нет); хранения ещё нет — ждать как есть
+		t0 := time.Now()
+		if err := s.store(ctx, craftFree, item); err != nil && !errors.Is(err, errNoStorage) {
+			return err
+		}
+		deadline = deadline.Add(time.Since(t0)) // пока носил — крафт шёл, но лимит не тратить
 		if time.Now().After(deadline) {
 			return fmt.Errorf("крафт %s не закончился (есть %d, ждали %d)", item, s.inv(item), n)
 		}
