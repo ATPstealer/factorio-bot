@@ -89,8 +89,6 @@ type Cluster struct {
 	Need int `json:"-"`
 	// MinX — место не левее (в зоне — ниже по течению шины, чем поставщики входов; zones.md)
 	MinX *int `json:"-"`
-	// Bus — у шины: ленты и разметка клиентов
-	Bus *BusInfo `json:"bus,omitempty"`
 	// Near — куда тянуть кластер при выборе места (nil — к поставщикам или центру базы)
 	Near *world.Tile `json:"-"`
 	// Zone — зона (zones.md), в которой кластер: место — только внутри неё, бордюр — ZoneBorder
@@ -469,16 +467,6 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 	return c
 }
 
-// SupplyCluster — снабжение стройки: доля пластин (шт/с) с линий плавки — инсертерами в
-// ящики; бот берёт оттуда на крафт (стройка не ждёт точек нулевого этапа).
-func SupplyCluster(p *knowledge.Prototypes, in map[string]float64) *Cluster {
-	c := &Cluster{Kind: Supply, Product: "supply", Reserve: 1, In: toFlows(in),
-		Units: []Unit{{Recipe: "store", Machine: "iron-chest", Machines: 6}}}
-	shape(p, c)
-	c.Count, c.Room = 6, 6
-	return c
-}
-
 // StorageCluster — склад мусора бота.
 func StorageCluster() *Cluster {
 	c := &Cluster{Kind: Storage, Product: "storage", Reserve: 1, Units: []Unit{{Recipe: "store", Machine: layout.Chest, Machines: 8}}}
@@ -663,38 +651,4 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		c.Room = max(labRoom, c.Count)
 		c.Head = 2*bufferChests(p, c) + 2
 	}
-}
-
-// Grow — нарастить кластер old на add (тот же вид и продукт) в пределах запаса роста
-// (Room): больше машин, потоки складываются. false — не тот кластер или нет места.
-func Grow(old, add *Cluster) bool {
-	if old.Kind != add.Kind || old.Product != add.Product || old.Sub != add.Sub || old.Kind == Storage {
-		return false
-	}
-	if old.Count+add.Count > old.Room {
-		return false
-	}
-	old.Count += add.Count
-	merge := func(dst *[]Flow, src []Flow) {
-		for _, f := range src {
-			addFlow(dst, f.Item, f.Rate)
-		}
-	}
-	merge(&old.In, add.In)
-	merge(&old.Out, add.Out)
-	merge(&old.Internal, add.Internal)
-	old.PowerW += add.PowerW
-	for _, u := range add.Units {
-		found := false
-		for i := range old.Units {
-			if old.Units[i].Recipe == u.Recipe && old.Units[i].Machine == u.Machine {
-				old.Units[i].Machines += u.Machines
-				found = true
-			}
-		}
-		if !found {
-			old.Units = append(old.Units, u)
-		}
-	}
-	return true
 }

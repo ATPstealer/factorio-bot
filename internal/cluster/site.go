@@ -439,35 +439,6 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 		}
 		bs, _ := g.count(g.solid, belt)
 		return bs == 0 && a*3 <= area && n*100 >= area*b.oreShare
-	case Bus:
-		// клиентам — свободная полоса сбоку (за коридорами шины и клиента) на всю длину
-		if bi := c.Bus; bi != nil && bi.Side > 0 {
-			// на длину под нынешних клиентов (Count), запас роста — потом: по одну сторону
-			// целиком или по обе — по половине
-			d := 2*Corridor + bi.Side + Corridor // коридор шины, клиента, клиент, его коридор
-			strip := func(n, side int) Rect {
-				if !vertical {
-					if side > 0 {
-						return Rect{world.Tile{X: r.Min.X, Y: r.Max.Y}, world.Tile{X: r.Min.X + n, Y: r.Max.Y + d}}
-					}
-					return Rect{world.Tile{X: r.Min.X, Y: r.Min.Y - d}, world.Tile{X: r.Min.X + n, Y: r.Min.Y}}
-				}
-				if side > 0 {
-					return Rect{world.Tile{X: r.Max.X, Y: r.Min.Y}, world.Tile{X: r.Max.X + d, Y: r.Min.Y + n}}
-				}
-				return Rect{world.Tile{X: r.Min.X - d, Y: r.Min.Y}, world.Tile{X: r.Min.X, Y: r.Min.Y + n}}
-			}
-			free := func(sd Rect) bool {
-				bad, out := g.count(g.bad, sd)
-				ring, _ := g.count(g.ring, sd)
-				unk, _ := g.count(g.unknown, sd)
-				return bad == 0 && out == 0 && ring == 0 && unk == 0
-			}
-			n := min(c.Count, max(r.W(), r.H()))
-			if !free(strip(n, 1)) && !free(strip(n, -1)) && !(free(strip((n+1)/2, 1)) && free(strip((n+1)/2, -1))) {
-				return false
-			}
-		}
 	case Power:
 		// станция у воды: вода в коридоре
 		if n, _ := g.count(g.water, ring); n == 0 {
@@ -520,32 +491,6 @@ func ringOffsets(r int) []world.Tile {
 		}
 	}
 	return res
-}
-
-// PlaceAll — имена (<продукт>-N) и места всем кластерам по порядку.
-func (b *Base) PlaceAll(cs []*Cluster) error {
-	// по зависимостям: добыча → плавка → сборка → лаборатории → станция (к потребителям)
-	order := map[Kind]int{Mine: 0, Smelt: 1, Make: 2, Lab: 3, Supply: 4, Power: 5, Storage: 6}
-	cs = append([]*Cluster(nil), cs...)
-	sort.SliceStable(cs, func(i, j int) bool { return order[cs[i].Kind] < order[cs[j].Kind] })
-	// клиенты шины — на шину (после плавки: шина — у неё)
-	var clients []*Cluster
-	for _, c := range cs {
-		if c.Name == "" {
-			c.Name = b.name(c.Product)
-		}
-		if OnBus(c) {
-			clients = append(clients, c)
-			continue
-		}
-		if err := b.Place(c); err != nil {
-			return err
-		}
-	}
-	if len(clients) > 0 {
-		return b.placeOnBus(clients)
-	}
-	return nil
 }
 
 // scaleCluster — копия кластера с машинами, потоками и мощностью ×k.
@@ -603,9 +548,6 @@ func (b *Base) Sorted() []*Cluster {
 	return res
 }
 
-// Reset — пересчитать разметку (после правки Avoid или списка кластеров).
-func (b *Base) Reset() { b.g = nil }
-
 // Tag — тег размещений кластера в раскладке (стройка — plan.Built с этим тегом).
 func Tag(name string) string { return "c/" + name }
 
@@ -634,14 +576,13 @@ func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
 	}
 	for _, c := range b.Clusters {
 		if c.Kind == Bus {
-			b.reserveBus(l, c) // свободны голова, зазоры, полоса — для подводов
-			continue
+			continue // ленты шины — в ConnectZoned
 		}
 		area(c, true)
 	}
 	for _, c := range fresh {
 		if c.Kind == Bus {
-			continue // ленты шины — в Connect (по потребителям)
+			continue // ленты шины — в ConnectZoned (по потребителям)
 		}
 		area(c, false)
 		if err := Interior(l, c, Tag(c.Name)); err != nil {
