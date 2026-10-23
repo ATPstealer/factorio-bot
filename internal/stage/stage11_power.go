@@ -116,16 +116,21 @@ func runPower(ctx context.Context, h *act.Hands) error {
 	if err := s.build(ctx, order); err != nil {
 		return err
 	}
-	boiler, box := findPlaced(list, "boiler"), findPlaced(list, chest)
-	// запуск: бойлер полностью углём руками, потом сундук
-	if st, err := h.B.GetEntity("boiler", boiler.Pos); err != nil || st == nil {
-		return fmt.Errorf("нет бойлера: %v", err)
-	} else if fuel := st.Inventories["fuel"]["coal"]; fuel < 50 {
-		if err := s.have(ctx, "coal", 50-fuel); err != nil {
-			return err
+	box := findPlaced(list, chest)
+	// запуск: каждый бойлер полностью углём руками (с сундука кормится первый), потом сундук
+	for _, boiler := range list {
+		if boiler.Name != "boiler" {
+			continue
 		}
-		if _, err := h.InsertAll(ctx, st.Entity, "coal"); err != nil {
-			return err
+		if st, err := h.B.GetEntity("boiler", boiler.Pos); err != nil || st == nil {
+			return fmt.Errorf("нет бойлера: %v", err)
+		} else if fuel := st.Inventories["fuel"]["coal"]; fuel < 50 {
+			if err := s.have(ctx, "coal", 50-fuel); err != nil {
+				return err
+			}
+			if _, err := h.InsertAll(ctx, st.Entity, "coal"); err != nil {
+				return err
+			}
 		}
 	}
 	st, err := h.B.GetEntity(chest, box.Pos)

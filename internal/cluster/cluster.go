@@ -319,6 +319,9 @@ func AddPower(p *knowledge.Prototypes, cs []*Cluster, reserve float64, have map[
 	return cs, nil
 }
 
+// PowerStart — бойлеров станции с начала (по 2 двигателя).
+const PowerStart = 3
+
 // PumpBoilers — сколько бойлеров кормит одна помпа (вода: помпа / расход бойлера).
 func PumpBoilers(p *knowledge.Prototypes) int {
 	one := calc.SteamFor(p, p.Entities["steam-engine"].MaxEnergyProduction*60*2) // бойлер = 2 двигателя
@@ -644,6 +647,8 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		c.Count = min(max(c.Count, MinUnits), MaxUnits)
 	case Lab:
 		c.Count = max(c.Count, MinUnits)
+	case Power: // с начала — не меньше PowerStart бойлеров (cluster.md §2а «Станция»)
+		c.Count = max(c.Count, PowerStart)
 	case Mine:
 		// размер добычи — по объёму руды (cluster.md §2а «Добыча»), пока не сделано — ряд не
 		// короче MinUnits пар: на коротком ряду буры не находят руды

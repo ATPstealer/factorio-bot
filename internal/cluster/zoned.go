@@ -629,7 +629,8 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			return err == nil
 		})
 		if err != nil {
-			return fmt.Errorf("вода к %s: %w", c.Name, err)
+			// помпа не дотянулась — станцию в другое место у воды (план перекладывается)
+			return &ConnectError{c, fmt.Errorf("вода к %s: %w", c.Name, err)}
 		}
 	}
 	for _, t := range keep {
