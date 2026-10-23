@@ -423,39 +423,52 @@ func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (brid
 // replace — поднять e, довернуть предмет в руке до dir и поставить в pos снова.
 func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos bridge.Pos, dir int) (bridge.Entity, error) {
 	h.Say("%s встал не тем направлением — переставляю", e.Name)
-	if err := h.Pickup(ctx, e); err != nil {
-		return e, err
-	}
-	if err := h.Pick(ctx, item); err != nil {
-		return e, err
-	}
+	ug := h.Protos.Entities[e.Name].Type == "underground-belt"
 	// игра помнит поворот руки и для заново взятого предмета (не «всегда север», стадия 13:
-	// «не встал направлением 0»): рука смотрит, как встала неверная — R от него до dir
+	// «не встал направлением 0»), и между запусками бота (стадия 23 на 794457638): рука
+	// смотрит, как встала неверная — R от него до dir. Подземка: вход или выход решает игра
+	// (по паре), направление руки по ней не узнать наверняка (вход встал задом наперёд,
+	// стадия 19) — не встала точно по ходу — ещё R и снова, до четырёх раз
 	hand := h.handDir[item]
-	if e.Direction != nil && h.Protos.Entities[e.Name].Type != "underground-belt" {
-		hand = *e.Direction // у подземки-выхода направление — не поворот руки
-	} else if e.Direction != nil && *e.Direction%8 != dir%8 {
-		// подземка встала поперёк: рука повёрнута так (или назад — вход/выход), а не как помнит
-		// бот — поворот руки игра хранит и между запусками бота (стадия 23 на 794457638)
+	if e.Direction != nil {
 		hand = *e.Direction
 	}
-	for k := ((dir-hand)/4%4 + 4) % 4; k > 0; k-- {
-		if err := h.In.Tap("r"); err != nil {
+	tries := 1
+	if ug {
+		tries = 4
+	}
+	for try := 0; ; try++ {
+		if err := h.Pickup(ctx, e); err != nil {
 			return e, err
 		}
+		if err := h.Pick(ctx, item); err != nil {
+			return e, err
+		}
+		k := ((dir-hand)/4%4 + 4) % 4
+		if try > 0 {
+			k = 1
+		}
+		for ; k > 0; k-- {
+			if err := h.In.Tap("r"); err != nil {
+				return e, err
+			}
+		}
+		h.setHand(item, dir)
+		if err := sleep(ctx, inputLatency); err != nil {
+			return e, err
+		}
+		ne, err := h.clickBuild(ctx, e.Name, pos)
+		if err != nil {
+			return e, err
+		}
+		if ne.Direction == nil || *ne.Direction == dir || !ug && *ne.Direction%8 == dir%8 {
+			return ne, nil
+		}
+		if try+1 >= tries {
+			return ne, fmt.Errorf("act: %s не встал направлением %d", e.Name, dir)
+		}
+		e = ne
 	}
-	h.setHand(item, dir)
-	if err := sleep(ctx, inputLatency); err != nil {
-		return e, err
-	}
-	ne, err := h.clickBuild(ctx, e.Name, pos)
-	if err != nil {
-		return e, err
-	}
-	if ne.Direction != nil && *ne.Direction%8 != dir%8 {
-		return ne, fmt.Errorf("act: %s не встал направлением %d", e.Name, dir)
-	}
-	return ne, nil
 }
 
 // clickBuild — ЛКМ по точке с постройкой в руке и ожидание события built_entity.
