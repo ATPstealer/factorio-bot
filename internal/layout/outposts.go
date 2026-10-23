@@ -29,6 +29,72 @@ func (l *Layout) onOre(pl Placement, ore string) bool {
 	return true
 }
 
+// spaced — вокруг построек одной точки pls — тайл без чужих построек: проход между точками
+// (stages.md, стадия 2: иначе бот то и дело зажат своими печами и бурами).
+func (l *Layout) spaced(pls ...Placement) bool {
+	own := map[world.Tile]bool{}
+	for _, p := range pls {
+		for _, t := range Tiles(l.P, p) {
+			own[t] = true
+		}
+	}
+	for t := range own {
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				if n := (world.Tile{X: t.X + dx, Y: t.Y + dy}); !own[n] && l.At(n) != nil {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// snug — сколько тайлов сразу за зазором вокруг точки pls занято (чужой постройкой) или не
+// на руде ore: точка прижата к соседям и краю пятна — пятно заполняется без дыр.
+func (l *Layout) snug(ore string, pls ...Placement) int {
+	own := map[world.Tile]bool{}
+	for _, p := range pls {
+		for _, t := range Tiles(l.P, p) {
+			own[t] = true
+		}
+	}
+	near := func(t world.Tile) bool { // в зазоре (рядом со своей)
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				if own[world.Tile{X: t.X + dx, Y: t.Y + dy}] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	seen := map[world.Tile]bool{}
+	n := 0
+	for t := range own {
+		for dy := -2; dy <= 2; dy++ {
+			for dx := -2; dx <= 2; dx++ {
+				q := world.Tile{X: t.X + dx, Y: t.Y + dy}
+				if seen[q] || own[q] || near(q) {
+					continue
+				}
+				seen[q] = true
+				if l.At(q) != nil {
+					n++
+				} else if l.W != nil {
+					if r, ok := l.W.ResourceAt(q); !ok || r.Name != ore {
+						n++
+					}
+				}
+			}
+		}
+	}
+	return n
+}
+
+// snugTries — из скольких ближних к цели мест точки выбирать самое прижатое (snug).
+const snugTries = 40
+
 func contains(ts []world.Tile, t world.Tile) bool {
 	for _, x := range ts {
 		if x == t {
@@ -49,10 +115,15 @@ func byDistance(tiles []world.Tile, near world.Tile) []world.Tile {
 	return ts
 }
 
-// CoalPair — два бура на руде ore выходами друг в друга (каждый заправляет другого);
-// ближайшее к near место на патче.
+// CoalPair — два бура на руде ore выходами друг в друга (каждый заправляет другого); из
+// ближних к near мест на патче — самое прижатое (snug).
 func (l *Layout) CoalPair(patch []world.Tile, ore, drill string, near world.Tile, tag string) error {
+	var best []Placement
+	bs, tries := -1, 0
 	for _, a := range byDistance(patch, near) {
+		if tries >= snugTries {
+			break
+		}
 		for _, d := range []int{E, S} {
 			pa := Placement{Name: drill, Pos: CenterAt(l.P, drill, d, a), Dir: d, Tag: tag}
 			w, h := Size(l.P, drill, d)
@@ -64,20 +135,33 @@ func (l *Layout) CoalPair(patch []world.Tile, ore, drill string, near world.Tile
 			if !contains(Tiles(l.P, pb), DrillOutput(l.P, pa)) || !contains(Tiles(l.P, pa), DrillOutput(l.P, pb)) {
 				continue
 			}
-			if l.onOre(pa, ore) && l.onOre(pb, ore) {
-				l.Add(pa)
-				l.Add(pb)
-				return nil
+			if l.onOre(pa, ore) && l.onOre(pb, ore) && l.spaced(pa, pb) {
+				tries++
+				if s := l.snug(ore, pa, pb); s > bs {
+					best, bs = []Placement{pa, pb}, s
+				}
 			}
 		}
 	}
-	return fmt.Errorf("layout: нет места под пару буров на %s", ore)
+	if best == nil {
+		return fmt.Errorf("layout: нет места под пару буров на %s", ore)
+	}
+	for _, p := range best {
+		l.Add(p)
+	}
+	return nil
 }
 
-// DrillFurnace — бур на руде ore выходом в печь (печь рядом, не на буре).
+// DrillFurnace — бур на руде ore выходом в печь (печь рядом, не на буре); из ближних к near
+// мест — самое прижатое (snug).
 func (l *Layout) DrillFurnace(patch []world.Tile, ore, drill, furnace string, near world.Tile, tag string) error {
 	fw, fh := Size(l.P, furnace, N)
+	var best []Placement
+	bs, tries := -1, 0
 	for _, a := range byDistance(patch, near) {
+		if tries >= snugTries {
+			break
+		}
 		for _, d := range []int{N, E, S, W} {
 			pd := Placement{Name: drill, Pos: CenterAt(l.P, drill, d, a), Dir: d, Tag: tag}
 			if !l.onOre(pd, ore) {
@@ -88,17 +172,24 @@ func (l *Layout) DrillFurnace(patch []world.Tile, ore, drill, furnace string, ne
 			for dy := -(fh - 1); dy <= 0; dy++ {
 				for dx := -(fw - 1); dx <= 0; dx++ {
 					pf := Placement{Name: furnace, Pos: CenterAt(l.P, furnace, N, world.Tile{X: out.X + dx, Y: out.Y + dy}), Tag: tag}
-					if !l.CanPlace(pf, AnyLand) || overlaps(l, pf, pd) {
+					if !l.CanPlace(pf, AnyLand) || overlaps(l, pf, pd) || !l.spaced(pd, pf) {
 						continue
 					}
-					l.Add(pd)
-					l.Add(pf)
-					return nil
+					tries++
+					if s := l.snug(ore, pd, pf); s > bs {
+						best, bs = []Placement{pd, pf}, s
+					}
 				}
 			}
 		}
 	}
-	return fmt.Errorf("layout: нет места под бур с печью на %s", ore)
+	if best == nil {
+		return fmt.Errorf("layout: нет места под бур с печью на %s", ore)
+	}
+	for _, p := range best {
+		l.Add(p)
+	}
+	return nil
 }
 
 // StoneChest — n буров на руде ore выходами в один сундук.
@@ -129,7 +220,15 @@ func (l *Layout) StoneChest(patch []world.Tile, ore, drill, chest string, n int,
 			}
 		}
 		if got == n {
-			return nil
+			pls := append([]Placement(nil), l.List[mark:]...)
+			l.Rollback(mark) // проверка зазора — без своих построек в раскладке
+			if l.spaced(pls...) {
+				for _, p := range pls {
+					l.Add(p)
+				}
+				return nil
+			}
+			continue
 		}
 		l.Rollback(mark)
 	}

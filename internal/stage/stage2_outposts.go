@@ -44,7 +44,6 @@ const (
 	fuelLevel    = 20 // угля в бур или печь: доливать до стольких
 	fuelFull     = 50 // в конце стадии — до стольких в каждый бур и печь
 	fuelLow      = 3  // когда топлива меньше — доливать
-	coalBack     = 5  // забрав уголь с пары, вернуть каждому буру
 )
 
 // chest — сундук стадий: деревянный до обслуживания, с него (стадия 17) — железный (stage.Do).
@@ -223,7 +222,8 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 			if err != nil {
 				return err
 			}
-			if e == nil {
+			fresh := e == nil
+			if fresh {
 				if err := s.have(ctx, pl.Name, 1); err != nil {
 					return err
 				}
@@ -233,7 +233,8 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 				}
 				e = &placed
 			}
-			if pl.Name != chest {
+			// угольные пары — только при постановке: дальше заправляют друг друга
+			if pl.Name != chest && (fresh || sites[si].Ore != "coal") {
 				if err := s.fuel(ctx, *e); err != nil {
 					return err
 				}
@@ -243,6 +244,9 @@ func runOutposts(ctx context.Context, h *act.Hands) error {
 	// ранние точки за время стройки сожгли топливо — в конце обойти все и долить до полного
 	// (пользователь: по 50); во время стройки — по fuelLevel, угля в начале мало
 	for _, si := range outpostOrder(sites) {
+		if sites[si].Ore == "coal" {
+			continue // угольные пары заправляют друг друга
+		}
 		for _, pl := range sites[si].Items {
 			if pl.Name == chest {
 				continue
@@ -591,25 +595,13 @@ func (s *worker) firstMissing(ore, name string) (layout.Placement, bool) {
 // coal — уголь: с угольных пар (топливо буров), нет пар — с больших камней или руками.
 func (s *worker) coal(ctx context.Context, lack int) error {
 	if ds := s.built("coal", drill); len(ds) > 0 {
+		// назад не класть (stages.md): у каждого бура горит свой уголь, сосед докладывает ему
+		// новый быстрее, чем он сгорает
 		got, err := s.takeAll(ctx, ds, "fuel")
 		if err != nil {
 			return err
 		}
-		if got > 0 { // пары без топлива встанут — каждому буру немного назад (поровну из того,
-			// что есть: забрали мало — меньше coalBack каждому, хоть по одному)
-			have := s.inv("coal")
-			for i, d := range ds {
-				back := min(coalBack, have/len(ds))
-				if back == 0 && i < have {
-					back = 1
-				}
-				if back == 0 {
-					continue
-				}
-				if err := s.h.Insert(ctx, d, "coal", back); err != nil {
-					return err
-				}
-			}
+		if got > 0 {
 			return nil
 		}
 	}
