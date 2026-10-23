@@ -316,7 +316,9 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 			})
 			l.Rollback(-1) // пересчитать занятость
 			mark = l.Mark()
-			if _, err = l.RouteBelt(gp.a, layout.E, b, layout.E, gp.tag); err == nil {
+			// въезд в a — откуда на самом деле (прошлый обход кончился въездом снизу: подземка в
+			// начале нового легла боком к ленте — пакеты вставали, стадия 23 на 851731946)
+			if _, err = l.RouteBelt(gp.a, feedDir(l, gp.a), b, layout.E, gp.tag); err == nil {
 				break
 			}
 			// вернуть ленты ряда и попробовать дальше
@@ -349,6 +351,18 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 		}
 	}
 	return nil
+}
+
+// feedDir — куда едет лента, въезжающая в t (лента или выход подземки, смотрящие в t); нет —
+// восток (вдоль шины).
+func feedDir(l *layout.Layout, t world.Tile) int {
+	for _, d := range []int{layout.E, layout.N, layout.S, layout.W} {
+		p := l.At(layout.Step(t, (d+8)%16))
+		if p != nil && p.Dir == d && (p.Name == "transport-belt" || p.Name == "underground-belt" && p.Recipe == "output") {
+			return d
+		}
+	}
+	return layout.E
 }
 
 // zLaneBelts — ленты ряда ln шины bus на x0..x1-1.

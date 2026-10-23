@@ -664,3 +664,52 @@ func TestPickupSplitterKeepsNeighbors(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// TestPlaceUndergroundHandFromLastRun — поворот руки с подземкой игра помнит и между запусками
+// бота: прошлый запуск ставил подземку на восток, новый (руки заново, память пуста) ставит на
+// север — подземка встаёт на север (стадия 23 на 794457638: «не встал направлением 0»).
+func TestPlaceUndergroundHandFromLastRun(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "underground-belt") {
+		t.Skip("подземки не открыты (logistics)")
+	}
+	have(t, h, "underground-belt", 4)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y - 25}, 10, 10, 60, &p0.Position)
+	if !ok {
+		t.Skip("нет свободной площадки 10×10")
+	}
+	x, y := math.Floor(c.X)+0.5, math.Floor(c.Y)+0.5
+	ctx := ctxT(t, 4*time.Minute)
+	// прошлый запуск: подземка на восток
+	if _, err := h.Place(ctx, "underground-belt", bridge.Pos{X: x - 3, Y: y - 3}, layout.E); err != nil {
+		t.Fatal(err)
+	}
+	// новый запуск: руки заново — память руки пуста (ввод, справочник и карта те же)
+	h2, err := act.New(h.B, h.In)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2.Protos, h2.World, h2.Log, h2.DebugDir, h2.Console = h.Protos, h.World, h.Log, h.DebugDir, h.Console
+	pos := []bridge.Pos{{X: x, Y: y + 2}, {X: x, Y: y - 1}}
+	if _, err := h2.PlaceDirs(ctx, "underground-belt", pos, []int{layout.N, layout.N}); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range pos {
+		st, err := h2.B.GetEntity("underground-belt", p)
+		if err != nil || st == nil {
+			t.Fatalf("подземка %d в (%.1f, %.1f) не стоит (%v)", i+1, p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction%8 != layout.N%8 {
+			t.Errorf("подземка %d: направление %v, ждали север", i+1, st.Direction)
+		}
+	}
+	clean(t, h2)
+}

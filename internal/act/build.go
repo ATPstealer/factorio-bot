@@ -434,6 +434,10 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 	hand := h.handDir[item]
 	if e.Direction != nil && h.Protos.Entities[e.Name].Type != "underground-belt" {
 		hand = *e.Direction // у подземки-выхода направление — не поворот руки
+	} else if e.Direction != nil && *e.Direction%8 != dir%8 {
+		// подземка встала поперёк: рука повёрнута так (или назад — вход/выход), а не как помнит
+		// бот — поворот руки игра хранит и между запусками бота (стадия 23 на 794457638)
+		hand = *e.Direction
 	}
 	for k := ((dir-hand)/4%4 + 4) % 4; k > 0; k-- {
 		if err := h.In.Tap("r"); err != nil {
