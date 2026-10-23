@@ -12,7 +12,7 @@
 #   PLAN=1 scripts/stage.sh N-M СИД… — только стадии планирования N…M подряд (bin/bot plans), со
 #                                снимка <сид>-(N-1), без стройки между ними: план прошлых
 #                                считается построенным; снимки не сохраняются (новые картинки —
-#                                run/stages/s<стадия>-<сид>.png); карты — параллельно
+#                                run/stages/zones-, plan-, plan-green-<сид>.png); карты — параллельно
 # Лог: run/stages/sN-<сид>.log, итог — run/stages/summary.txt; код 0 — выполнена на всех картах.
 set -uo pipefail
 cd "$(dirname "$0")/.."

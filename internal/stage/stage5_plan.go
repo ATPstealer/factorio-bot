@@ -148,19 +148,11 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	}
 }
 
-// planImage — картинка плана: run/stages/s5-<сид>.png.
-func planImage() string { return stageImage(5) }
+// planImage — картинка плана кластеров: run/stages/plan-<сид>.png.
+func planImage() string { return image("plan") }
 
-// stageImage — картинка стадии n: run/stages/s<n>-<сид>.png.
-func stageImage(n int) string {
-	var m struct {
-		Seed int64 `json:"seed"`
-	}
-	if data, err := os.ReadFile(runPath("map.json")); err == nil {
-		json.Unmarshal(data, &m)
-	}
-	return filepath.Join("run/stages", fmt.Sprintf("s%d-%d.png", n, m.Seed))
-}
+// image — картинка name карты: run/stages/<name>-<сид>.png (по смыслу, без номера стадии).
+func image(name string) string { return filepath.Join("run/stages", name+"-"+seedOf()+".png") }
 
 // planDraw — картинка в файл path: карта, зоны, кластеры с бордюрами и раскладка.
 func planDraw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, path string) error {

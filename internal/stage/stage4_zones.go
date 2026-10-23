@@ -8,7 +8,6 @@ import (
 	"image/png"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -195,7 +194,8 @@ func roughOnce(h *act.Hands) error {
 	return os.WriteFile(runPath(roughFile), data, 0o644)
 }
 
-func roughImage() string { return filepath.Join("run/stages", "s4-"+seedOf()+".png") }
+// roughImage — картинка зон: run/stages/zones-<сид>.png.
+func roughImage() string { return image("zones") }
 
 // roughDraw — картинка зон поверх карты.
 func roughDraw(h *act.Hands, zones []cluster.Zone, image string) error {

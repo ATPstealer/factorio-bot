@@ -50,6 +50,9 @@ func loadPlanFile(path string) (*ClusterPlan, error) {
 	return &s, nil
 }
 
+// greenImage — картинка плана с проектом зелёной науки: run/stages/plan-green-<сид>.png.
+func greenImage() string { return image("plan-green") }
+
 // greenBase — план до дописывания (при первом запуске — копия плана стадии 5).
 func greenBase() (*ClusterPlan, error) {
 	if _, err := os.Stat(runPath(greenBaseFile)); err != nil {
@@ -250,7 +253,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			for _, c := range fresh {
 				h.Say("кластер %v", c)
 			}
-			if err := planDraw(h, rough.Zones, base, l, stageImage(18)); err != nil {
+			if err := planDraw(h, rough.Zones, base, l, greenImage()); err != nil {
 				return err
 			}
 			all := append(base.Sorted(), buses...)
@@ -262,7 +265,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
-			planDraw(h, rough.Zones, base, l, stageImage(18)) // что вышло — на картинку
+			planDraw(h, rough.Zones, base, l, greenImage()) // что вышло — на картинку
 			return err
 		}
 		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
@@ -292,8 +295,8 @@ func checkGreenPlan(h *act.Hands) error {
 	}) {
 		return fmt.Errorf("у лабораторий нет входа %s", greenPack)
 	}
-	if st, err := os.Stat(stageImage(18)); err != nil || st.Size() == 0 {
-		return fmt.Errorf("нет картинки %s", stageImage(18))
+	if st, err := os.Stat(greenImage()); err != nil || st.Size() == 0 {
+		return fmt.Errorf("нет картинки %s", greenImage())
 	}
 	return nil
 }
