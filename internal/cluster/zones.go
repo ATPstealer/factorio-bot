@@ -21,6 +21,7 @@ const (
 	ZoneProcessing ZoneKind = "processing"
 	ZoneSupply     ZoneKind = "supply"
 	ZoneFinal      ZoneKind = "final"
+	ZoneLab        ZoneKind = "lab" // верхний этаж: лаборатории и ракетная шахта
 	ZonePower      ZoneKind = "power"
 )
 
@@ -107,7 +108,7 @@ func (b *Base) Zones(lay *Layered) []Zone {
 			byFloor[f] = append(byFloor[f], c)
 		}
 	}
-	kinds := map[int]ZoneKind{1: ZoneProcessing, 2: ZoneSupply, 3: ZoneFinal, 4: ZoneFinal}
+	kinds := map[int]ZoneKind{1: ZoneProcessing, 2: ZoneSupply, 3: ZoneFinal, 4: ZoneLab}
 	n := map[ZoneKind]int{}
 	for f := 1; f < len(lay.Floors); f++ {
 		if len(byFloor[f]) == 0 {

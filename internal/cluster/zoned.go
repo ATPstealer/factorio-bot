@@ -60,7 +60,7 @@ func floorOfZone(z Zone) int {
 		return 1
 	case z.Kind == ZoneSupply:
 		return 2
-	case z.Kind == ZoneFinal && strings.HasSuffix(z.Name, "-2"):
+	case z.Kind == ZoneLab, z.Kind == ZoneFinal && strings.HasSuffix(z.Name, "-2"):
 		return 4
 	case z.Kind == ZoneFinal:
 		return 3
