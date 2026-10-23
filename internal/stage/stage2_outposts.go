@@ -28,6 +28,9 @@ const (
 	outpostIron   = 30
 	outpostCopper = 6
 	outpostCoal   = 8 // пар (по 2 бура)
+	// outpostReach — точки на пятнах в пределах стольких тайлов от старта (по близости: не
+	// влезло на ближнее — следующее); дальше — только если в пределах места нет вообще
+	outpostReach = 150
 )
 
 // Железо на буры вначале — руками: руда в печи будущих пар; дальше итеративно — пластины с
@@ -72,33 +75,44 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 		return nil, err
 	}
 	near := world.TileOf(p.Position)
-	patch := func(ore string, min int) ([]world.Tile, error) {
-		var best []world.Tile
-		bd := math.Inf(1)
+	// patches — пятна ore (не меньше min тайлов) по близости к старту: сначала в пределах
+	// outpostReach (на бег между точками время не терять), дальше — только если в них не влезло
+	type patchAt struct {
+		tiles []world.Tile
+		d     float64 // от старта
+	}
+	patches := func(ore string, min int) []patchAt {
+		var all []patchAt
 		for _, pt := range h.World.Patches() {
-			if pt.Name != ore || len(pt.Tiles) < min {
-				continue
-			}
-			if d := math.Hypot(pt.Center.X-p.Position.X, pt.Center.Y-p.Position.Y); d < bd {
-				best, bd = pt.Tiles, d
+			if pt.Name == ore && len(pt.Tiles) >= min {
+				all = append(all, patchAt{pt.Tiles, math.Hypot(pt.Center.X-p.Position.X, pt.Center.Y-p.Position.Y)})
 			}
 		}
-		if best == nil {
-			return nil, fmt.Errorf("на открытой карте нет месторождения %s", ore)
-		}
-		return best, nil
+		sort.Slice(all, func(i, j int) bool { return all[i].d < all[j].d })
+		return all
 	}
 	l := layout.New(h.Protos, h.World)
 	var sites []outpostSite
 	add := func(ore string, build func(tiles []world.Tile, at world.Tile) error, n int) error {
-		tiles, err := patch(ore, 60)
-		if err != nil {
-			return err
+		ps := patches(ore, 60)
+		if len(ps) == 0 {
+			return fmt.Errorf("на открытой карте нет месторождения %s", ore)
 		}
+		k := 0 // пятно, на которое ставим; не влезло — следующее по близости
 		for i := 0; i < n; i++ {
 			mark := len(l.List)
-			if err := build(tiles, near); err != nil {
-				return fmt.Errorf("%s: %w", ore, err)
+			for {
+				err := build(ps[k].tiles, near)
+				if err == nil {
+					break
+				}
+				if k+1 >= len(ps) {
+					return fmt.Errorf("%s: %w", ore, err)
+				}
+				k++
+				if ps[k].d > outpostReach && ps[k-1].d <= outpostReach {
+					h.Say("точки %s: в пределах %d тайлов места нет — дальше (%.0f)", ore, outpostReach, ps[k].d)
+				}
 			}
 			// в паре «бур → печь» — сначала печь (в неё руками руда, пока бура нет)
 			items := append([]layout.Placement(nil), l.List[mark:]...)
