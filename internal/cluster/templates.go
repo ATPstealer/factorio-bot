@@ -38,8 +38,8 @@ func geometry(k Kind) (cross, pitch, head int) {
 		return 8, 3, 1
 	case Make:
 		return 9, 4, 1
-	case Lab:
-		return 7, 3, 1
+	case Lab: // блок (cluster.md §6в): поперёк — 4 ряда лент и буферов + столбцы лабораторий
+		return 4 + 4*labCols - 1, 4, 1
 	case Supply:
 		return 5, 2, 1
 	case Power:
@@ -48,8 +48,25 @@ func geometry(k Kind) (cross, pitch, head int) {
 	return 3, 1, 0 // склад
 }
 
-// Len — длина Area вдоль ряда.
-func (c *Cluster) Len() int { return c.Head + c.Room*c.Pitch }
+// Len — длина Area вдоль ряда (у блока лабораторий Room — лабораторий, ряд — labCols штук).
+func (c *Cluster) Len() int {
+	if c.Kind == Lab {
+		return c.Head + (c.Room+labCols-1)/labCols*c.Pitch
+	}
+	return c.Head + c.Room*c.Pitch
+}
+
+// Блок лабораторий (cluster.md §6в): labCols столбцов, всего не меньше labRoom; поперёк: 0 —
+// сундуки буфера второго пакета ленты A, 1 — его инсертеры (в голове) / лента B (вдоль
+// лабораторий), 2 — лента A, 3 — инсертеры буфера первого пакета (в голове) / инсертеры в
+// лаборатории левого столбца (короткий с A, длинный с B), 4 — сундуки буфера первого пакета
+// (в голове) / лаборатории. Вдоль: голова (подачи — u=0, буферы — 1…), лента C, её инсертеры,
+// ряды лабораторий через 4 (зазоры — инсертеры лаборатория → лаборатория).
+const (
+	labCols = 5
+	labRoom = 30
+	labA    = 2 // ряд ленты A
+)
 
 type frame struct {
 	r        Rect
@@ -163,7 +180,61 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 		l.AllowEnd(f.tile(-1, 3)) // выход: дальше — лента к потребителю (или её ещё нет)
 		c.Ports = append(c.Ports, Port{T: f.tile(-1, 3), Dir: f.dir(layout.W), Item: c.Product})
-	case Smelt, Make, Lab, Supply:
+	case Lab:
+		// блок лабораторий (cluster.md §6в): с левого нижнего угла по рядам; левый столбец — с
+		// ленты A, остальные — от соседа слева и снизу (пакеты из лаборатории в лабораторию)
+		labU := func(i int) int { return c.Head + 4*i }
+		labV := func(j int) int { return 4 + 4*j }
+		along := func(u, v, fromU int) layout.Placement { // инсертер вдоль ряда: из (fromU, v)
+			a := f.tile(u, v)
+			return layout.Placement{Name: "inserter", Pos: a.Center(), Dir: layout.InserterDir(l.P, "inserter", a, f.tile(fromU, v)), Tag: tag}
+		}
+		rows := 0
+		for k := 0; k < c.Count; k++ {
+			i, j := k/labCols, k%labCols
+			rows = i + 1
+			if err := add(f.at(l, "lab", labU(i), labV(j), layout.N, tag)); err != nil {
+				return err
+			}
+			mid := labU(i) + 1
+			if j == 0 { // с ленты A
+				if err := add(f.inserter(l, "inserter", mid, labA+1, labA, tag)); err != nil {
+					return err
+				}
+			} else if err := add(f.inserter(l, "inserter", mid, labV(j)-1, labV(j)-2, tag)); err != nil {
+				return err
+			}
+			if i > 0 { // от лаборатории снизу
+				if err := add(along(labU(i)-1, labV(j)+1, labU(i)-2)); err != nil {
+					return err
+				}
+			}
+		}
+		if err := sideIn(labA); err != nil {
+			return err
+		}
+		blen := labU(rows-1) + 3 // лента A — до верха последнего ряда лабораторий
+		if err := row(labA, 1, blen, layout.E); err != nil {
+			return err
+		}
+		deadEnd(labA, blen)
+		if len(c.In) >= 1 {
+			if err := bufferAt(l, f, c, labA, labA+1, labA+2, (c.Head-2)/2, c.In[0].Item, tag); err != nil {
+				return err
+			}
+		}
+		if len(c.In) >= 2 {
+			if err := bufferAt(l, f, c, labA, labA-1, labA-2, (c.Head-2)/2, c.In[1].Item, tag); err != nil {
+				return err
+			}
+		}
+		// место под второй вход ленты A, ленты B и C с инсертерами — не под столбы (§6в)
+		for _, t := range labReserve(f, c) {
+			if l.At(t) == nil {
+				l.Reserved[t] = true
+			}
+		}
+	case Smelt, Make, Supply:
 		mach, mh := "stone-furnace", 2
 		ins := "inserter"
 		belts := 2
@@ -395,23 +466,26 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 	return nil
 }
 
-// buffer — буфер входа вдоль ленты ряда v в начале ряда (до первой машины: Head), ящики — с
-// дальней от машин стороны: инсертер с ленты в ящик 1 → инсертеры по ящикам → из последнего
-// обратно на ленту ниже по ходу, но выше всех машин (иначе предмет обходит машины в ящики).
-// Ёмкость — на 10 минут входа кластера.
+// buffer — буфер входа вдоль ленты ряда v в начале ряда (до первой машины: Head): инсертер с
+// ленты в ящик 1 → инсертеры по ящикам → из последнего обратно на ленту ниже по ходу, но выше
+// всех машин (иначе предмет обходит машины в ящики). Ящики — напротив подачи (вход — сверху,
+// буфер — снизу): инсертер возврата кладёт на дальнюю полосу — ту, куда предмет и пришёл
+// (cluster.md §6б). Ёмкость — на 10 минут входа кластера.
 func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
-	insV, chestV := v-1, v-2
-	ins := "inserter"
-	if c.Kind == Power {
-		// станция без электричества стоит — буфер угля должен отдавать его и тогда
-		insV, chestV, ins = v+1, v+2, "burner-inserter"
-	}
-	// ящики на нечётных u (1, 3, …, Head-1), между ними перекладывающие инсертеры
-	n := c.Head / 2
 	// что брать — вход кластера (буфер только у одного входа): по ленте может приехать чужое
 	item := ""
 	if len(c.In) > 0 {
 		item = c.In[0].Item
+	}
+	return bufferAt(l, f, c, v, v+1, v+2, c.Head/2, item, tag)
+}
+
+// bufferAt — цепочка буфера item у ленты ряда v: инсертеры в ряду insV, n ящиков в ряду chestV
+// (на нечётных u 1, 3, …, 2n−1, между ними перекладывающие инсертеры).
+func bufferAt(l *layout.Layout, f frame, c *Cluster, v, insV, chestV, n int, item, tag string) error {
+	ins := "inserter"
+	if c.Kind == Power {
+		ins = "burner-inserter" // станция без электричества стоит — буфер угля отдаёт его и тогда
 	}
 	for i := 0; i < n; i++ {
 		u := 1 + 2*i
@@ -430,6 +504,44 @@ func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 	l.Add(first) // с ленты в ящик 1
 	l.Add(last)  // из последнего — на ленту
 	return nil
+}
+
+// labReserve — место блока лабораторий под будущее (cluster.md §6в): подача и буфер второго
+// пакета ленты A, лента B и длинные инсертеры с неё, лента C и её инсертеры, лаборатории
+// сверх Count и инсертеры к ним; столбы — только в зазорах.
+func labReserve(f frame, c *Cluster) []world.Tile {
+	var res []world.Tile
+	n := (c.Head - 2) / 2
+	for v := labA + 1; v < c.Cross; v++ { // подача второго пакета A — снизу, вдоль u=0
+		res = append(res, f.tile(0, v))
+	}
+	for u := 1; u <= 2*n-1; u++ { // его буфер — сверху
+		res = append(res, f.tile(u, labA-1), f.tile(u, labA-2))
+	}
+	L := c.Len()
+	for u := c.Head - 2; u < L; u++ { // лента B
+		res = append(res, f.tile(u, labA-1))
+	}
+	for v := 4; v < c.Cross; v++ { // лента C и её инсертеры
+		res = append(res, f.tile(c.Head-2, v), f.tile(c.Head-1, v))
+	}
+	for k := 0; k < c.Room; k++ {
+		i, j := k/labCols, k%labCols
+		u0, v0 := c.Head+4*i, 4+4*j
+		res = append(res, f.tile(u0, labA+1), f.tile(u0+2, labA+1)) // длинные с B (и запас)
+		res = append(res, f.tile(u0+1, v0-1))                      // инсертер слева
+		if i > 0 {
+			res = append(res, f.tile(u0-1, v0+1)) // инсертер снизу
+		}
+		if k >= c.Count { // будущая лаборатория
+			for du := 0; du < 3; du++ {
+				for dv := 0; dv < 3; dv++ {
+					res = append(res, f.tile(u0+du, v0+dv))
+				}
+			}
+		}
+	}
+	return res
 }
 
 // bufferChests — ящиков в буфере входа: на BufferSeconds входа (деревянный ящик — 16 стопок

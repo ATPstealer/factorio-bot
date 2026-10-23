@@ -130,6 +130,20 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
+	for _, pl := range list { // фильтры буфера зелёного
+		if pl.Name != "inserter" || pl.Recipe == "" {
+			continue
+		}
+		st, err := h.B.GetEntity(pl.Name, pl.Pos)
+		if err != nil || st == nil {
+			return fmt.Errorf("нет инсертера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
+		}
+		if !slices.Contains(st.Filters, pl.Recipe) {
+			if err := h.SetFilter(ctx, st.Entity, pl.Recipe); err != nil {
+				return err
+			}
+		}
+	}
 	// исследование на зелёной — в очередь (очередь красных из обслуживания идёт впереди)
 	start := func() error {
 		f, err := h.B.Force()
@@ -174,6 +188,14 @@ func checkLabsGreen(h *act.Hands) error {
 	}
 	if err := checkBuilt(h, list); err != nil {
 		return err
+	}
+	for _, pl := range list {
+		if pl.Name != "inserter" || pl.Recipe == "" {
+			continue
+		}
+		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && !slices.Contains(st.Filters, pl.Recipe) {
+			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
+		}
 	}
 	plan, err := LoadPlan()
 	if err != nil {

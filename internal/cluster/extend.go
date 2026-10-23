@@ -165,22 +165,27 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 	return nil
 }
 
-// AddInput — второй вход уже построенного кластера с одним входом (лаборатории — зелёная наука):
-// лента с другой стороны ряда — боком в столбец u=0 ленты входа (как второй вход шаблона),
-// порт — у края Area. Построенное не трогает; поток item rate — во входы кластера.
+// AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §6в): подача
+// с другой стороны ленты — боком в её голову (на свою полосу), буфер — напротив подачи, на
+// оставленных шаблоном местах. Построенное не трогает; поток item rate — во входы кластера.
 func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag string) (Port, error) {
-	if len(c.In) != 1 {
-		return Port{}, fmt.Errorf("cluster %s: второй вход — только к одному (входов %d)", c.Name, len(c.In))
+	if c.Kind != Lab || len(c.In) != 1 {
+		return Port{}, fmt.Errorf("cluster %s: второй вход — только у блока лабораторий с одним пакетом", c.Name)
 	}
 	f := c.frame()
-	const belts = 2 // ряд ленты входа (Interior)
-	for v := c.Cross - 1; v > belts; v-- {
+	for _, t := range labReserve(f, c) {
+		delete(l.Reserved, t)
+	}
+	for v := c.Cross - 1; v > labA; v-- {
 		p := f.at(l, "transport-belt", 0, v, layout.N, tag)
 		t := world.TileOf(p.Pos)
 		if ok, _ := l.W.Buildable(t); !ok || l.At(t) != nil {
 			return Port{}, fmt.Errorf("cluster %s: второй вход не встаёт (%s)", c.Name, p)
 		}
 		l.Add(p)
+	}
+	if err := bufferAt(l, f, c, labA, labA-1, labA-2, (c.Head-2)/2, item, tag); err != nil {
+		return Port{}, err
 	}
 	port := Port{T: f.tile(0, c.Cross), Dir: f.dir(layout.N), Item: item, In: true}
 	c.Ports = append(c.Ports, port)

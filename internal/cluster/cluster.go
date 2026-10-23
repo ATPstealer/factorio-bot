@@ -554,6 +554,10 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	}
 	room := c.Reserve / upgrade(p, m)
 	c.Room = max(int(math.Ceil(float64(c.Count)*math.Max(room, 1)-1e-9)), c.Count)
+	if c.Kind == Lab { // блок сразу на все места (cluster.md §6в); в голове — ещё лента C и её инсертеры
+		c.Room = max(labRoom, c.Count)
+		c.Head = 2*bufferChests(p, c) + 2
+	}
 }
 
 // Grow — нарастить кластер old на add (тот же вид и продукт) в пределах запаса роста
