@@ -12,6 +12,7 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Стадия 14 (stages.md): кластер шестерён по плану стадии 5, сразу как положено — отвод железа
@@ -50,7 +51,7 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 		all.Add(pl)
 	}
 	if !isScience(product) { // у науки буфера выхода нет — всё на шину (cluster.md §6а)
-		buf, err := s12OutBuffer(h, all, c, 1)
+		buf, err := endBuffer(h, all, plan, c, product)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -72,6 +73,45 @@ func makeLayout(h *act.Hands, product string, n int) ([]layout.Placement, *clust
 		return nil, nil, err
 	}
 	return res, c, os.WriteFile(file, data, 0o644)
+}
+
+// endBuffer — буфер выхода сборки в конце ленты продукта на шине (самый дальний её конец):
+// туда доходит только излишек, мимо потребителей. На выходной ленте кластера инсертер буфера
+// (~0.8 шт/с) забирал весь выход (схемы 0.12/с) — на шину не шло ничего (стадия 20).
+func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.Cluster, product string) ([]layout.Placement, error) {
+	buses := map[string]bool{}
+	for _, b := range busNames(plan) {
+		buses[cluster.Tag(b)] = true
+	}
+	var end *layout.Placement
+	for i, pl := range plan.Layout {
+		if buses[pl.Tag] && pl.Recipe == product && pl.Name == "transport-belt" && (end == nil || pl.Pos.X > end.Pos.X) {
+			end = &plan.Layout[i]
+		}
+	}
+	if end == nil {
+		return s12OutBuffer(h, all, c, 1) // продукт выше не нужен — буфер на выходной ленте
+	}
+	tag := "outbuf/" + c.Name
+	t := world.TileOf(end.Pos)
+	for k := 0; k < 12; k++ {
+		if b := all.At(t); b == nil || b.Name != "transport-belt" || b.Recipe != product {
+			break
+		}
+		for _, side := range []int{(end.Dir + 4) % 16, (end.Dir + 12) % 16} {
+			ins, box := layout.Step(t, side), layout.Step(layout.Step(t, side), side)
+			if !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
+				continue
+			}
+			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: product, Tag: tag}
+			pc := layout.Placement{Name: chest, Pos: box.Center(), Tag: tag}
+			all.Add(pi)
+			all.Add(pc)
+			return []layout.Placement{pi, pc}, nil
+		}
+		t = layout.Step(t, (end.Dir+8)%16) // назад по ленте
+	}
+	return nil, fmt.Errorf("у конца ленты %s нет места под буфер выхода %s", product, c.Name)
 }
 
 // isScience — пакет науки (у кластеров науки нет буфера выхода).

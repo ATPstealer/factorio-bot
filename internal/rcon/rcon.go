@@ -24,24 +24,40 @@ const (
 var ErrAuth = errors.New("rcon: неверный пароль")
 
 type Client struct {
-	mu     sync.Mutex
-	conn   net.Conn
-	r      *bufio.Reader
-	nextID int32
+	mu       sync.Mutex
+	conn     net.Conn
+	r        *bufio.Reader
+	nextID   int32
+	addr     string
+	password string
+	timeout  time.Duration
 }
+
+// execTimeout — ответа на команду дольше нет — соединение заново и повтор (ответ однажды не
+// пришёл вовсе: бот ждал 34 минуты, стадия 20 на 859088572).
+const execTimeout = 60 * time.Second
 
 // Dial подключается и авторизуется.
 func Dial(addr, password string, timeout time.Duration) (*Client, error) {
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return nil, err
-	}
-	c := &Client{conn: conn, r: bufio.NewReader(conn), nextID: 1}
-	if err := c.auth(password); err != nil {
-		conn.Close()
+	c := &Client{addr: addr, password: password, timeout: timeout}
+	if err := c.connect(); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+func (c *Client) connect() error {
+	conn, err := net.DialTimeout("tcp", c.addr, c.timeout)
+	if err != nil {
+		return err
+	}
+	c.conn, c.r, c.nextID = conn, bufio.NewReader(conn), 1
+	conn.SetDeadline(time.Now().Add(execTimeout))
+	if err := c.auth(c.password); err != nil {
+		conn.Close()
+		return err
+	}
+	return nil
 }
 
 func (c *Client) Close() error { return c.conn.Close() }
@@ -74,6 +90,21 @@ func (c *Client) auth(password string) error {
 func (c *Client) Exec(cmd string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	res, err := c.exec(cmd)
+	var ne net.Error
+	if err != nil && (errors.As(err, &ne) && ne.Timeout() || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
+		// соединение заново и ещё раз (команды бота — только чтение и сообщения в консоль)
+		c.conn.Close()
+		if cerr := c.connect(); cerr != nil {
+			return "", fmt.Errorf("rcon: %v; переподключение: %w", err, cerr)
+		}
+		res, err = c.exec(cmd)
+	}
+	return res, err
+}
+
+func (c *Client) exec(cmd string) (string, error) {
+	c.conn.SetDeadline(time.Now().Add(execTimeout))
 	id := c.id()
 	if err := c.write(id, typeExec, cmd); err != nil {
 		return "", err
