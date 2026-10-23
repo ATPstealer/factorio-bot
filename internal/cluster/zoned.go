@@ -578,20 +578,12 @@ func sortedItems(need map[string]bool, on map[string]int, k int) []string {
 func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 	on := b.zoneSources(len(buses))
 	need := b.zoneNeed(on, len(buses))
-	var gaps []laneGap
-	for k, bus := range buses {
+	for k := range buses {
 		for _, it := range sortedItems(need[k], on, k) {
-			j := len(bus.Lanes)
-			v := laneV(j)
-			if v >= bus.Rect.H() {
-				return fmt.Errorf("cluster: %s: нет ряда под ленту %s", bus.Name, it)
+			if err := b.newLane(l, buses, k, it, b.laneEnd(buses, k, it)); err != nil {
+				return err
 			}
-			bus.Lanes = append(bus.Lanes, ZoneLane{Item: it, Y: bus.Rect.Min.Y + v, Start: bus.Rect.Min.X})
-			b.layLane(l, buses, k, j, bus.Rect.Min.X, b.laneEnd(buses, k, it), -1, false, &gaps)
 		}
-	}
-	if err := fixGaps(l, buses, gaps); err != nil {
-		return err
 	}
 	g := guardPorts(l, b.Clusters)
 	// вода станции — первой (потом ленты не замуруют вход); подход ко входу угля (4 тайла) —

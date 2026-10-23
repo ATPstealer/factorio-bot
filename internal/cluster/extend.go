@@ -61,6 +61,34 @@ func FillLanes(buses []*ZBus, list []layout.Placement) {
 	}
 }
 
+// newLane — новая лента it шины k до end — в свободный ряд; обход неровности не проводится
+// (там обходы других лент, утёс у самого ряда) — в следующий свободный.
+func (b *Base) newLane(l *layout.Layout, buses []*ZBus, k int, it string, end int) error {
+	bus := buses[k]
+	used := map[int]bool{}
+	for _, ln := range bus.Lanes {
+		used[ln.Y-bus.Rect.Min.Y] = true
+	}
+	var err error = fmt.Errorf("cluster: %s: нет ряда под ленту %s", bus.Name, it)
+	for j := 0; laneV(j) < bus.Rect.H(); j++ {
+		v := laneV(j)
+		if used[v] {
+			continue
+		}
+		saved := slices.Clone(l.List)
+		bus.Lanes = append(bus.Lanes, ZoneLane{Item: it, Y: bus.Rect.Min.Y + v, Start: bus.Rect.Min.X})
+		var gaps []laneGap
+		b.layLane(l, buses, k, len(bus.Lanes)-1, bus.Rect.Min.X, end, -1, false, &gaps)
+		if err = fixGaps(l, buses, gaps); err == nil {
+			return nil
+		}
+		bus.Lanes = bus.Lanes[:len(bus.Lanes)-1]
+		l.List = saved
+		l.Rollback(-1)
+	}
+	return err
+}
+
 // laneLast — X последней ленты ряда ln шины bus.
 func laneLast(l *layout.Layout, bus *ZBus, ln *ZoneLane) int {
 	last := ln.Start
@@ -95,30 +123,7 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 				}
 				continue
 			}
-			// новая — в свободный ряд; обход неровности не проводится (там обходы старых лент) —
-			// в следующий
-			used := map[int]bool{}
-			for _, ln := range bus.Lanes {
-				used[ln.Y-bus.Rect.Min.Y] = true
-			}
-			var err error = fmt.Errorf("cluster: %s: нет ряда под ленту %s", bus.Name, it)
-			for j := 0; laneV(j) < bus.Rect.H(); j++ {
-				v := laneV(j)
-				if used[v] {
-					continue
-				}
-				saved := slices.Clone(l.List)
-				bus.Lanes = append(bus.Lanes, ZoneLane{Item: it, Y: bus.Rect.Min.Y + v, Start: bus.Rect.Min.X})
-				var gaps []laneGap
-				b.layLane(l, buses, k, len(bus.Lanes)-1, bus.Rect.Min.X, end, -1, false, &gaps)
-				if err = fixGaps(l, buses, gaps); err == nil {
-					break
-				}
-				bus.Lanes = bus.Lanes[:len(bus.Lanes)-1]
-				l.List = saved
-				l.Rollback(-1)
-			}
-			if err != nil {
+			if err := b.newLane(l, buses, k, it, end); err != nil {
 				return err
 			}
 		}
