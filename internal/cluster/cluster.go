@@ -566,7 +566,8 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		return
 	}
 	// один вход — буфер в начале ряда, до первой машины: ящики на u = 1, 3, …, 2n−1
-	if len(c.In) == 1 && c.Kind != Mine {
+	if len(c.In) == 1 && c.Kind != Mine || len(c.In) == 2 && c.Kind == Make {
+		// буферы входов — в голове ряда, по разные стороны ленты (cluster.md §6б)
 		c.Head = 2 * bufferChests(p, c)
 	}
 	m := c.machine()

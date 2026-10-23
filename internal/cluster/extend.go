@@ -176,14 +176,14 @@ func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 	for _, t := range labReserve(f, c) {
 		delete(l.Reserved, t)
 	}
-	for v := c.Cross - 1; v > labA; v-- {
-		p := f.at(l, "transport-belt", 0, v, layout.N, tag)
-		t := world.TileOf(p.Pos)
-		if ok, _ := l.W.Buildable(t); !ok || l.At(t) != nil {
-			return Port{}, fmt.Errorf("cluster %s: второй вход не встаёт (%s)", c.Name, p)
-		}
-		l.Add(p)
+	// подача — с торца снизу в ряду A+1 и поворотом боком в голову ленты A (cluster.md §6б)
+	p := f.at(l, "transport-belt", 0, labA+1, layout.N, tag)
+	if t := world.TileOf(p.Pos); l.At(t) != nil {
+		return Port{}, fmt.Errorf("cluster %s: второй вход не встаёт (%s)", c.Name, p)
+	} else if ok, _ := l.W.Buildable(t); !ok {
+		return Port{}, fmt.Errorf("cluster %s: второй вход не встаёт (%s)", c.Name, p)
 	}
+	l.Add(p)
 	if err := bufferAt(l, f, c, labA, labA-1, labA-2, (c.Head-2)/2, item, tag); err != nil {
 		return Port{}, err
 	}
@@ -210,7 +210,7 @@ func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 			l.Reserved[t] = true
 		}
 	}
-	port := Port{T: f.tile(0, c.Cross), Dir: f.dir(layout.N), Item: item, In: true}
+	port := Port{T: f.tile(-1, labA+1), Dir: f.dir(layout.E), Item: item, In: true}
 	c.Ports = append(c.Ports, port)
 	addFlow(&c.In, item, rate)
 	return port, nil

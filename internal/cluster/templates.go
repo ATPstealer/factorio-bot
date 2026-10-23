@@ -137,6 +137,8 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		return nil
 	}
 	// sideIn — вход ленты в ряд v: первый предмет сверху, второй снизу — боком в столбец u=0
+	// sideIn — входы ленты ряда v (cluster.md §6б): снизу, у головы ряда, рядом — вход 1 с торца
+	// в ряду v−1 и поворотом боком в голову ленты (на свою полосу), вход 2 — так же в ряду v+1
 	sideIn := func(v int) error {
 		if err := belt(0, v, layout.E); err != nil {
 			return err
@@ -145,21 +147,14 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			if i > 1 {
 				return fmt.Errorf("cluster %s: больше двух входов (%v) — шаблона нет", c.Name, flows(c.In))
 			}
-			if i == 0 {
-				for y := 0; y < v; y++ {
-					if err := belt(0, y, layout.S); err != nil {
-						return err
-					}
-				}
-				c.Ports = append(c.Ports, Port{T: f.tile(0, -1), Dir: f.dir(layout.S), Item: in.Item, In: true})
-			} else {
-				for y := c.Cross - 1; y > v; y-- {
-					if err := belt(0, y, layout.N); err != nil {
-						return err
-					}
-				}
-				c.Ports = append(c.Ports, Port{T: f.tile(0, c.Cross), Dir: f.dir(layout.N), Item: in.Item, In: true})
+			fv, d := v-1, layout.S
+			if i == 1 {
+				fv, d = v+1, layout.N
 			}
+			if err := belt(0, fv, d); err != nil {
+				return err
+			}
+			c.Ports = append(c.Ports, Port{T: f.tile(-1, fv), Dir: f.dir(layout.E), Item: in.Item, In: true})
 		}
 		return nil
 	}
@@ -298,6 +293,14 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		// у каждого свой буфер на его входящей ленте (Connect)
 		if len(c.In) == 1 && c.Head > 1 {
 			if err := buffer(l, f, c, belts, tag); err != nil {
+				return err
+			}
+		}
+		if len(c.In) == 2 && c.Kind == Make && c.Head > 1 { // вход 1 — снизу ленты, вход 2 — сверху
+			if err := bufferAt(l, f, c, belts, belts+1, belts+2, c.Head/2, c.In[0].Item, tag); err != nil {
+				return err
+			}
+			if err := bufferAt(l, f, c, belts, belts-1, belts-2, c.Head/2, c.In[1].Item, tag); err != nil {
 				return err
 			}
 		}
@@ -586,9 +589,7 @@ func bufferAt(l *layout.Layout, f frame, c *Cluster, v, insV, chestV, n int, ite
 func labReserve(f frame, c *Cluster) []world.Tile {
 	var res []world.Tile
 	n := (c.Head - 2) / 2
-	for v := labA + 1; v < c.Cross; v++ { // подача второго пакета A — снизу, вдоль u=0
-		res = append(res, f.tile(0, v))
-	}
+	res = append(res, f.tile(0, labA+1)) // подача второго пакета A — снизу, рядом с первой (§6б)
 	for u := 1; u <= 2*n-1; u++ { // его буфер — сверху
 		res = append(res, f.tile(u, labA-1), f.tile(u, labA-2))
 	}
