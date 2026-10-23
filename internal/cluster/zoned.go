@@ -123,15 +123,14 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			if z.Resources[c.Product] == 0 {
 				continue
 			}
-			r := z.Rect
-			c.Zone, c.Near = &r, &head
-			if err := b.Place(c); err == nil {
+			// блок на пятно (cluster.md §2а «Добыча»): по объёму руды, а не по темпу
+			if b.placeMineBlock(c, z, head) {
 				placed = true
 				break
 			}
 		}
 		if !placed {
-			return nil, &NoSiteError{c, fmt.Errorf("cluster: в зонах добычи %s нет места под %s", c.Product, c.Name)}
+			return nil, mineError(c)
 		}
 	}
 	// этажи снизу вверх: поставщики входов стоят раньше потребителей
@@ -533,26 +532,44 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 // feedMine — выход добычи c — в голову своей ленты шины ресурсов, есть поставщик — боком у
 // головы.
 func feedMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
-	op, ok := outPort(c)
-	if !ok {
-		return nil
-	}
+	return feedMinePorts(l, buses, c, 0)
+}
+
+// feedMinePorts — выходы добычи c, начиная с from-го (у блока их два — две ленты в bus-1), —
+// в голову своей ленты шины ресурсов или боком у головы.
+func feedMinePorts(l *layout.Layout, buses []*ZBus, c *Cluster, from int) error {
 	ln := buses[0].lane(c.Product)
 	if ln == nil {
 		return nil
 	}
 	bus := buses[0]
-	var to []Port
-	if !ln.Fed {
-		to = append(to, Port{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true})
+	for i, op := range outPorts(c) {
+		if i < from {
+			continue
+		}
+		var to []Port
+		if !ln.Fed {
+			to = append(to, Port{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true})
+		}
+		to = append(to, zSidePorts(l, bus, ln, bus.Rect.Min.X, bus.Rect.Min.X+24)...)
+		p, err := zRoute(l, op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
+		if err != nil {
+			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
+		}
+		ln.feed(p.T.X)
 	}
-	to = append(to, zSidePorts(l, bus, ln, bus.Rect.Min.X, bus.Rect.Min.X+12)...)
-	p, err := zRoute(l, op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
-	if err != nil {
-		return fmt.Errorf("добыча %s → %s (%s): %w", c.Name, bus.Name, c.Product, err)
-	}
-	ln.feed(p.T.X)
 	return nil
+}
+
+// outPorts — все выходы кластера.
+func outPorts(c *Cluster) []Port {
+	var res []Port
+	for _, p := range c.Ports {
+		if !p.In {
+			res = append(res, p)
+		}
+	}
+	return res
 }
 
 // sortedItems — предметы лент шины k: сначала свои (этажа под шиной), потом сквозные.
@@ -672,6 +689,10 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		}
 		if err != nil {
 			return fmt.Errorf("уголь %s → %s (отвод со станции): %w", m.Name, bus.Name, err)
+		}
+		// второй выход блока — сразу на шину
+		if err := feedMinePorts(l, buses, m, 1); err != nil {
+			return err
 		}
 	}
 	for _, c := range b.Clusters {

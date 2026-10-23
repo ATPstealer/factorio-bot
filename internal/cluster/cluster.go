@@ -75,6 +75,10 @@ type Cluster struct {
 	Rect     Rect `json:"rect"`
 	Area     Rect `json:"area"`
 	Vertical bool `json:"vertical,omitempty"` // ряд вдоль Y
+	// Ore — добыча блоком на пятно (cluster.md §2а «Добыча»): предел руды под бурами (0 — один
+	// ряд по темпу, старое размещение); OreUnder — сколько руды под поставленными
+	Ore      int `json:"ore,omitempty"`
+	OreUnder int `json:"ore_under,omitempty"`
 	// Upright — ряд только вдоль Y, головой вниз (в зоне производства — поперёк шин, входы — к
 	// шине снизу, выход — к шине сверху; zones.md)
 	Upright bool `json:"upright,omitempty"`

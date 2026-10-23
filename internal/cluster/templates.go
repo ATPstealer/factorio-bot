@@ -165,6 +165,12 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 	}
 	switch c.Kind {
 	case Mine:
+		if c.Ore > 0 {
+			if err := mineBlock(l, f, c, tag, belt); err != nil {
+				return err
+			}
+			break
+		}
 		last, err := mineRow(l, f, c, L, tag)
 		if err != nil {
 			return err
@@ -456,6 +462,128 @@ func pair(l *layout.Layout, f frame, c *Cluster, u, belts int, mach, ins, tag st
 	}
 	ov := mv + 3 // выход основного
 	return add(f.inserter(l, ins, u+5, ov, ov-1, tag))
+}
+
+// mineBlock — добыча блоком на пятно (cluster.md §2а «Добыча»): ряды по 7 поперёк (буры сверху
+// смотрят вниз, лента, буры снизу смотрят вверх), буры шагом 3 от головы (u = 0 — сбор) — где
+// под буром больше половины своего ресурса и нет чужого, пока руды под ними меньше c.Ore. Ленты
+// рядов — к голове, боком в ленту сбора: ряды первой половины — к v = −1 (порт 1), второй —
+// к v = Cross (порт 2).
+func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v, d int) error) error {
+	drill := c.Units[0].Machine
+	L := c.Area.W()
+	if c.Vertical {
+		L = c.Area.H()
+	}
+	rows := c.Cross / 7
+	counted := map[world.Tile]bool{}
+	ore := 0
+	last := make([]int, rows) // u последнего бура ряда (−1 — ряд пуст)
+	for r := range last {
+		last[r] = -1
+	}
+	placed := 0
+	// буры парами вдоль ряда (u = 1+7k и 5+7k), между ними зазор (4+7k) — столбы: малый столб
+	// (±2) достаёт оба бура пары, соседние столбы — через 7 (провод — 7.5); зона добычи 5×5
+	// захватывает и зазор
+	var us []int
+	for k := 0; ; k++ {
+		if 1+7*k+3 > L {
+			break
+		}
+		us = append(us, 1+7*k)
+		if 5+7*k+3 <= L {
+			us = append(us, 5+7*k)
+		}
+	}
+	for _, u := range us {
+		if ore >= c.Ore {
+			break
+		}
+		for r := 0; r < rows && ore < c.Ore; r++ {
+			for _, s := range []struct{ v, d int }{{7 * r, layout.S}, {7*r + 4, layout.N}} {
+				if ore >= c.Ore {
+					break
+				}
+				p := f.at(l, drill, u, s.v, s.d, tag)
+				n, mixed := l.OreUnder(p, c.Product)
+				area := layout.MiningArea(l.P, p)
+				if mixed || n*2 < len(area) || !l.CanPlace(p, layout.AnyLand) {
+					continue
+				}
+				l.Add(p)
+				placed++
+				last[r] = u
+				for _, t := range area {
+					if res, ok := l.W.ResourceAt(t); ok && res.Name == c.Product && !counted[t] {
+						counted[t] = true
+						ore += res.Amount
+					}
+				}
+			}
+		}
+	}
+	if placed == 0 {
+		return fmt.Errorf("cluster %s: ни одного бура на %s", c.Name, c.Product)
+	}
+	// столбы — в зазорах пар, в середине полос буров (сверху и снизу ленты ряда)
+	pole := "small-electric-pole"
+	for r := 0; r < rows; r++ {
+		for g := 4; g <= last[r]+3; g += 7 {
+			for _, v := range []int{7*r + 1, 7*r + 5} {
+				if p := f.at(l, pole, g, v, layout.N, tag); l.CanPlace(p, layout.AnyLand) {
+					l.Add(p)
+				}
+			}
+		}
+	}
+	// ленты рядов — к голове; сбор — по u = 0, две половины к разным краям
+	half := (rows + 1) / 2
+	lo, hi := -1, -1 // крайние занятые ряды каждой половины
+	for r := 0; r < rows; r++ {
+		if last[r] < 0 {
+			continue
+		}
+		v := 7*r + 3
+		for u := last[r] + 2; u >= 1; u-- {
+			if err := belt(u, v, layout.W); err != nil {
+				return err
+			}
+		}
+		if r < half {
+			lo = max(lo, v)
+		} else if hi < 0 {
+			hi = v
+		}
+	}
+	if lo >= 0 {
+		for v := lo; v >= 0; v-- {
+			if err := belt(0, v, layout.N); err != nil {
+				return err
+			}
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(0, -1), Dir: f.dir(layout.N), Item: c.Product})
+		l.AllowEnd(f.tile(0, -1))
+	}
+	if hi >= 0 {
+		for v := hi; v < c.Cross; v++ {
+			if err := belt(0, v, layout.S); err != nil {
+				return err
+			}
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(0, c.Cross), Dir: f.dir(layout.S), Item: c.Product})
+		l.AllowEnd(f.tile(0, c.Cross))
+	}
+	c.Units[0].Machines = float64(placed)
+	c.Count, c.OreUnder = (placed+1)/2, ore
+	rate := 0.0 // руда/с: бур 0.5/с (скорость добычи / время добычи руды)
+	if e := l.P.Entities[drill]; e.MiningSpeed > 0 {
+		if r := l.P.Entities[c.Product]; r.Mineable != nil && r.Mineable.MiningTime > 0 {
+			rate = float64(placed) * e.MiningSpeed / r.Mineable.MiningTime
+		}
+	}
+	c.Out = []Flow{{c.Product, rate}}
+	return nil
 }
 
 // mineRow — буры по обе стороны ленты ряда 3 (сверху смотрят S, снизу N), только где под

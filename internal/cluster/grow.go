@@ -66,6 +66,10 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 		return &NoSiteError{c, fmt.Errorf("cluster: %s не растёт вдоль ряда до %d: %w", c.Name, n, err)}
 	}
 	room := 0
+	switch {
+	case c.Kind == Mine && c.Ore > 0: // блок на пятно уже взял руду до предела — новое пятно
+		return fail(fmt.Errorf("блок добычи — на пределе руды, нужно новое пятно"))
+	}
 	switch c.Kind {
 	case Mine: // буры парами по обе стороны ленты; ряд — на руде, сколько встанет
 		c.Units[0].Machines = float64(n)
@@ -124,9 +128,8 @@ func Extra(p *knowledge.Prototypes, cs []*Cluster, c *Cluster, built, n int) (*C
 		x := scaleCluster(o, float64(n-built)/m)
 		x.Name, x.Area, x.Rect, x.Ports, x.Zone = "", Rect{}, Rect{}, nil, nil
 		shape(p, x)
-		if x.Kind == Mine { // соседняя руда того же месторождения — на недостающие буры, без минимума мест
-			x.Count = max((n-built+1)/2, 1)
-			x.Room = x.Count
+		if x.Kind == Mine { // новое пятно — блоком, вторая итерация (cluster.md §2а «Добыча»)
+			x.Ore = OreNext
 		}
 		return x, nil
 	}
