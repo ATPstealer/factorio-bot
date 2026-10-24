@@ -98,10 +98,14 @@ func labsTech(h *act.Hands) (string, error) {
 	return cands[0], nil
 }
 
+// filterHold — фильтр-заглушка, пока нужный предмет не открыт: инсертер с ним стоит (уголь на
+// лентах пакетов не бывает); без фильтра он перекладывал бы всё подряд. Нужный фильтр
+// добавляется позже (белый список «уголь + предмет» — берёт только предмет).
+const filterHold = "coal"
+
 // lockedItems — предметы, чей рецепт ещё не открыт: в 2.1 окно выбора фильтра их не показывает
-// («Nothing found» — стадия 21 на 859088572, фильтр зелёных пакетов до исследования). Фильтр на
-// них — не ставить и не требовать, пока не откроют (поставит стадия, которая их вводит, или
-// обслуживание).
+// («Nothing found» — стадия 21 на 859088572, фильтр зелёных пакетов до исследования). Вместо
+// фильтра на них — заглушка filterHold; настоящий ставит стадия, которая их вводит (27).
 func lockedItems(h *act.Hands) (map[string]bool, error) {
 	f, err := h.B.Force()
 	if err != nil {
@@ -146,8 +150,13 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 		if err != nil || st == nil {
 			return fmt.Errorf("нет инсертера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
 		}
-		if !slices.Contains(st.Filters, pl.Recipe) && !locked[pl.Recipe] {
-			if err := h.SetFilter(ctx, st.Entity, pl.Recipe); err != nil {
+		item := pl.Recipe
+		if locked[item] { // ещё не открыт — заглушка, чтобы инсертер стоял (иначе без фильтра
+			// перекладывает всё подряд)
+			item = filterHold
+		}
+		if !slices.Contains(st.Filters, item) && !slices.Contains(st.Filters, pl.Recipe) {
+			if err := h.SetFilter(ctx, st.Entity, item); err != nil {
 				return err
 			}
 		}
@@ -196,7 +205,8 @@ func checkLabs(h *act.Hands) error {
 		if err != nil || st == nil {
 			continue
 		}
-		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) && !locked[pl.Recipe] {
+		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
+			!(locked[pl.Recipe] && slices.Contains(st.Filters, filterHold)) {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		}
 		if pl.Name == "lab" && st.Count(redPack) > 0 {

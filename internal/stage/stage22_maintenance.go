@@ -318,7 +318,8 @@ func planAudit(h *act.Hands) ([]planDiff, error) {
 			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
 		case strings.HasPrefix(pl.Name, "assembling-machine") && pl.Recipe != "" && st.Recipe != pl.Recipe:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
-		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) && !locked[pl.Recipe]:
+		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
+			!(locked[pl.Recipe] && slices.Contains(st.Filters, filterHold)):
 			res = append(res, planDiff{pl, st, "нет фильтра " + pl.Recipe})
 		}
 	}
@@ -366,7 +367,11 @@ func planFix(ctx context.Context, h *act.Hands, s *worker) error {
 		case strings.HasPrefix(d.pl.Name, "assembling-machine"):
 			err = h.SetRecipe(ctx, d.st.Entity, d.pl.Recipe)
 		default:
-			err = h.SetFilter(ctx, d.st.Entity, d.pl.Recipe)
+			item := d.pl.Recipe
+			if locked, lerr := lockedItems(h); lerr == nil && locked[item] {
+				item = filterHold // не открыт — заглушка, чтобы инсертер стоял
+			}
+			err = h.SetFilter(ctx, d.st.Entity, item)
 		}
 		if err != nil {
 			return fmt.Errorf("сверка: %v: %w", d, err)
