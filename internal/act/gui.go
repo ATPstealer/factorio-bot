@@ -637,6 +637,9 @@ func craftSlot(protos *knowledge.Prototypes, available []string, shown func(know
 		name string
 		r    knowledge.Recipe
 	}
+	if !slices.Contains(available, recipe) {
+		return 0, 0, fmt.Errorf("act: рецепт %s не открыт", recipe)
+	}
 	key := strings.ReplaceAll(text, " ", "-")
 	var match []rec
 	for _, name := range available {

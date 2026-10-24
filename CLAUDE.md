@@ -46,6 +46,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Окно Xephyr `factorio-bot-N` (N — экземпляр), после запуска свёрнуто (`SHOW=1` — нет); смотреть — `scripts/view.sh N` (видео без ввода). Ввод бота — только в дисплей своего экземпляра.
 - `scripts/map-gen-settings.json` — без кусак (`enemy-base` frequency 0, `peaceful_mode`), утёсы обычные (`richness` 1). Огонь у места крушения (`crash-site-fire-flame`) — сила enemy, но не кусаки.
 - `scripts/map-gen-wild.json` (`MAPGEN=…` у `newmap.sh`/`run.sh`) — максимум леса (`trees` 600%) и утёсов (частота и непрерывность 600%): карта бенча, чтобы погонять тесты в тяжёлом рельефе.
+- `scripts/map-gen-water.json` — максимум воды (`water` частота и размер 600%): карта бенча с озёрами и узкими перешейками.
 - `scripts/server-settings.json` — `auto_pause: false`, `require_user_verification: false`, не публичный.
 
 ## Снимки

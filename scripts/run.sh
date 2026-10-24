@@ -13,7 +13,7 @@ echo $$ > "$R/run.pid"
 # новая карта: SEED не задан — случайный; сид пишется в run/map.json, состояние бота
 # (run/state.json — реестр построек и цели) относится к карте и сбрасывается; MAPGEN — файл
 # настроек генерации (по умолчанию scripts/map-gen-settings.json; дикий лес и утёсы —
-# scripts/map-gen-wild.json)
+# scripts/map-gen-wild.json, много воды — scripts/map-gen-water.json)
 if [[ ! -f $SAVE || ${NEW_MAP:-0} == 1 ]]; then
   SEED=${SEED:-$(( (RANDOM << 15 | RANDOM) % 4000000000 ))}
   "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \

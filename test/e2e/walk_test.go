@@ -414,3 +414,50 @@ func TestWalkDenseForest(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Рубка подряд в густом лесу (стадия 1 на 1067809293, карта с максимумом леса: «персонаж не
+// добывает: tree-08» — подход застрял в чаще, дерево вне досягаемости): у края самого густого
+// места леса в 200 тайлах — срубить 20 деревьев подряд, как стадия 1 (Gather по одному).
+func TestGatherDenseForest(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	const cell = 12
+	count := map[[2]int]int{}
+	for _, c := range h.World.Chunks {
+		for _, o := range c.Objects {
+			if o.Type == "tree" && dist(o.Pos, p.Position) < 200 {
+				count[[2]int{int(math.Floor(o.Pos.X / cell)), int(math.Floor(o.Pos.Y / cell))}]++
+			}
+		}
+	}
+	best, bn := [2]int{}, 0
+	for k, n := range count {
+		if n > bn || n == bn && (k[0] < best[0] || k[0] == best[0] && k[1] < best[1]) {
+			best, bn = k, n
+		}
+	}
+	if bn < 40 {
+		t.Skipf("густого леса рядом нет (самое густое — %d деревьев на %d×%d)", bn, cell, cell)
+	}
+	mid := bridge.Pos{X: float64(best[0]*cell + cell/2), Y: float64(best[1]*cell + cell/2)}
+	t.Logf("лес: %d деревьев у (%.0f, %.0f)", bn, mid.X, mid.Y)
+	ctx := ctxT(t, 6*time.Minute)
+	if err := h.WalkTo(ctx, mid, 3); err != nil && !errors.Is(err, act.ErrNotReached) {
+		t.Fatal(err)
+	}
+	w0 := 0
+	if q, err := h.B.Player(); err == nil {
+		w0 = q.Inventory["wood"]
+	}
+	for i := 0; i < 20; i++ {
+		if _, err := h.Gather(ctx, "tree", 1, 30); err != nil {
+			t.Fatalf("дерево %d: %v", i+1, err)
+		}
+	}
+	if q, err := h.B.Player(); err == nil {
+		t.Logf("дерева: %d → %d", w0, q.Inventory["wood"])
+	}
+}
