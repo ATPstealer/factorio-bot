@@ -130,7 +130,13 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
-	for _, pl := range list { // фильтры буфера зелёного
+	// фильтры буфера зелёного и отложенные фильтры лабораторий стадии 21 (зелёные пакеты до
+	// исследования в окне фильтра не выбрать — 2.1)
+	labs, err := labsLayout(h)
+	if err != nil {
+		return err
+	}
+	for _, pl := range append(slices.Clone(list), labs...) {
 		if pl.Name != "inserter" || pl.Recipe == "" {
 			continue
 		}

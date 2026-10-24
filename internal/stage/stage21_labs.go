@@ -98,6 +98,24 @@ func labsTech(h *act.Hands) (string, error) {
 	return cands[0], nil
 }
 
+// lockedItems — предметы, чей рецепт ещё не открыт: в 2.1 окно выбора фильтра их не показывает
+// («Nothing found» — стадия 21 на 859088572, фильтр зелёных пакетов до исследования). Фильтр на
+// них — не ставить и не требовать, пока не откроют (поставит стадия, которая их вводит, или
+// обслуживание).
+func lockedItems(h *act.Hands) (map[string]bool, error) {
+	f, err := h.B.Force()
+	if err != nil {
+		return nil, err
+	}
+	res := map[string]bool{}
+	for name := range h.Protos.Recipes {
+		if _, item := h.Protos.Items[name]; item && !slices.Contains(f.Recipes, name) {
+			res[name] = true
+		}
+	}
+	return res, nil
+}
+
 func runLabs(ctx context.Context, h *act.Hands) error {
 	list, err := labsLayout(h)
 	if err != nil {
@@ -116,6 +134,10 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 	if err := s.build(ctx, sorted); err != nil {
 		return err
 	}
+	locked, err := lockedItems(h)
+	if err != nil {
+		return err
+	}
 	for _, pl := range list {
 		if pl.Name != "inserter" || pl.Recipe == "" {
 			continue
@@ -124,7 +146,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 		if err != nil || st == nil {
 			return fmt.Errorf("нет инсертера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
 		}
-		if !slices.Contains(st.Filters, pl.Recipe) {
+		if !slices.Contains(st.Filters, pl.Recipe) && !locked[pl.Recipe] {
 			if err := h.SetFilter(ctx, st.Entity, pl.Recipe); err != nil {
 				return err
 			}
@@ -164,13 +186,17 @@ func checkLabs(h *act.Hands) error {
 	if err := checkBuilt(h, list); err != nil {
 		return err
 	}
+	locked, err := lockedItems(h)
+	if err != nil {
+		return err
+	}
 	fed := 0
 	for _, pl := range list {
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
 		if err != nil || st == nil {
 			continue
 		}
-		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) {
+		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) && !locked[pl.Recipe] {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		}
 		if pl.Name == "lab" && st.Count(redPack) > 0 {

@@ -298,6 +298,10 @@ func planAudit(h *act.Hands) ([]planDiff, error) {
 			later[pl] = true
 		}
 	}
+	locked, err := lockedItems(h)
+	if err != nil {
+		return nil, err
+	}
 	var res []planDiff
 	for _, pl := range plan.Layout {
 		if later[pl] {
@@ -314,7 +318,7 @@ func planAudit(h *act.Hands) ([]planDiff, error) {
 			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
 		case strings.HasPrefix(pl.Name, "assembling-machine") && pl.Recipe != "" && st.Recipe != pl.Recipe:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
-		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe):
+		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) && !locked[pl.Recipe]:
 			res = append(res, planDiff{pl, st, "нет фильтра " + pl.Recipe})
 		}
 	}
