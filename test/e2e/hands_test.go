@@ -535,7 +535,7 @@ func TestPlaceBeltRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y - 25}, 12, 12, 60, &p0.Position)
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y - 25}, 12, 12, 60)
 	if !ok {
 		t.Skip("нет свободной площадки 12×12")
 	}
@@ -618,7 +618,7 @@ func TestPlaceUndergroundAfterTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y + 25}, 10, 10, 60, &p0.Position)
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y + 25}, 10, 10, 60)
 	if !ok {
 		t.Skip("нет свободной площадки 10×10")
 	}
@@ -665,7 +665,7 @@ func TestPickupSplitterKeepsNeighbors(t *testing.T) {
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y + 25}, 10, 10, 60, &p0.Position)
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y + 25}, 10, 10, 60)
 	if !ok {
 		t.Skip("нет свободной площадки 10×10")
 	}
@@ -716,7 +716,7 @@ func TestPlaceUndergroundHandFromLastRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y - 25}, 10, 10, 60, &p0.Position)
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y - 25}, 10, 10, 60)
 	if !ok {
 		t.Skip("нет свободной площадки 10×10")
 	}
@@ -766,7 +766,7 @@ func TestPlaceSplitterCrosswiseKeepsNeighbors(t *testing.T) {
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y - 25}, 10, 10, 60, &p0.Position)
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y - 25}, 10, 10, 60)
 	if !ok {
 		t.Skip("нет свободной площадки 10×10")
 	}
@@ -813,7 +813,7 @@ func keepNeighborsSpot(t *testing.T, h *act.Hands, d bridge.Pos) (float64, float
 		t.Fatal(err)
 	}
 	p0, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(bridge.Pos{X: p0.Position.X + d.X, Y: p0.Position.Y + d.Y}, 10, 10, 60, &p0.Position)
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + d.X, Y: p0.Position.Y + d.Y}, 10, 10, 60)
 	if !ok {
 		t.Skip("нет свободной площадки 10×10")
 	}

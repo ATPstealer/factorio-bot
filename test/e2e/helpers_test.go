@@ -111,11 +111,45 @@ func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
 		t.Fatal(err)
 	}
 	p, _ := h.B.Player()
-	c, ok := h.World.FreeSpot(p.Position, size, size, 60, &p.Position)
+	c, ok := spot(h, p.Position, size, size, 60)
 	if !ok {
 		t.Skipf("нет свободной площадки %d×%d", size, size)
 	}
 	return c
+}
+
+// spot — World.FreeSpot у near (обходя персонажа), но только достижимая от него по суше
+// площадка (заливка по суше и мелководью, деревья и свои постройки — не помеха: их убирают):
+// на водной карте площадка бывала за водой — «пути нет» (PickupUndergroundKeepsNeighbors).
+func spot(h *act.Hands, near bridge.Pos, w, hh, r int) (bridge.Pos, bool) {
+	p, _ := h.B.Player()
+	from := world.TileOf(p.Position)
+	lim := r + w + hh + int(dist(near, p.Position))
+	reach := map[world.Tile]bool{from: true}
+	queue := []world.Tile{from}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			n := world.Tile{X: c.X + d[0], Y: c.Y + d[1]}
+			if reach[n] || abs(n.X-from.X) > lim || abs(n.Y-from.Y) > lim {
+				continue
+			}
+			if tt := h.World.TileAt(n); tt != world.Land && tt != world.Shallow {
+				continue
+			}
+			reach[n] = true
+			queue = append(queue, n)
+		}
+	}
+	return h.World.FreeSpotWhere(near, w, hh, r, &p.Position, func(t world.Tile) bool { return reach[t] })
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 const gameVersion = "2.1.23"

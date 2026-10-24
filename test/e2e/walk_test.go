@@ -25,7 +25,7 @@ func TestWalk(t *testing.T) {
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
-	far, ok := h.World.FreeSpot(bridge.Pos{X: start.Position.X + 6, Y: start.Position.Y + 3}, 1, 1, 10, nil)
+	far, ok := spot(h, bridge.Pos{X: start.Position.X + 6, Y: start.Position.Y + 3}, 1, 1, 10)
 	if !ok {
 		t.Skip("рядом нет, где стоять")
 	}
