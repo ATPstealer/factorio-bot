@@ -138,13 +138,16 @@ func (b *Base) Zones(lay *Layered) []Zone {
 }
 
 // MineZones — зоны добычи по месторождениям (zones.md): на каждый ресурс need (сколько нужно
-// за игру) — пятна от ближних к центру базы, пока запаса хватит; зона — пятно целиком;
+// за игру) — пятна от ближних ко входу bus-1 (MineFrom; нет — к центру базы), пока запаса хватит; зона — пятно целиком;
 // пересекающиеся — в одну, соседние (до patchNear) — в одну, только если плотно (ресурса не
 // меньше minOre площади). Машины и выход добычи (кластеры добычи прикидки) — по зонам
 // пропорционально запасу. Нужно до PlaceLayered (станция — по зонам угля).
 func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 	g := b.grid()
 	ox, oy := float64(b.Origin.X), float64(b.Origin.Y)
+	if b.MineFrom != nil { // ближние ко входу bus-1 (zones.md)
+		ox, oy = float64(b.MineFrom.X), float64(b.MineFrom.Y)
+	}
 	pts := b.W.Patches()
 	sort.Slice(pts, func(i, j int) bool {
 		return math.Hypot(pts[i].Center.X-ox, pts[i].Center.Y-oy) < math.Hypot(pts[j].Center.X-ox, pts[j].Center.Y-oy)

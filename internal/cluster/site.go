@@ -49,6 +49,8 @@ type Base struct {
 	P        *knowledge.Prototypes
 	W        *world.World
 	Origin   world.Tile // центр базы (старт, станция)
+	// MineFrom — от чего «ближние» пятна зон добычи (MineZones): голова bus-1; nil — Origin
+	MineFrom *world.Tile
 	Clusters []*Cluster
 	MaxR     int // радиус поиска места от якоря, тайлов
 	// Avoid — занятые тайлы (раскладки прошлых задач): ни кластеров, ни логистики
