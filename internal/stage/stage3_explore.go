@@ -175,7 +175,13 @@ func runExplore(ctx context.Context, h *act.Hands) error {
 		h.Say("разведка: центр базы у (%d, %d) — открываю место вокруг и пятна за краем", center.X, center.Y)
 		in := scoutBoxAround(h, center, need)
 		err := h.ExploreWhere(ctx, in, func() bool { return !scoutMore(h, center, need) })
-		if err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+		if errors.Is(err, act.ErrNothingToExplore) {
+			// в рамке дойти больше некуда (за водой, утёсами) — место открыто, сколько можно
+			// (иначе те же недоступные чанки — по кругу до лимита стадии: 238178543)
+			h.Say("разведка: место под базу у (%d, %d) открыто (остальное недоступно)", center.X, center.Y)
+			return nil
+		}
+		if err != nil {
 			return err
 		}
 	}
