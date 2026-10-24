@@ -100,8 +100,8 @@ func TestUnstuck(t *testing.T) {
 func TestWalkAgainstBelt(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "splitter", 1) // до лент: крафт делителя ест ленты
 	have(t, h, "transport-belt", 16)
-	have(t, h, "splitter", 1)
 	c := freeArea(t, h, 14)
 	if err := h.WalkTo(ctx, c, 0.2); err != nil {
 		t.Fatal(err)
