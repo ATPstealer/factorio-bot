@@ -675,9 +675,19 @@ func checkOutposts(h *act.Hands) error {
 				count[site.Ore]++
 			}
 			if pl.Name != chest {
-				st, err := h.B.GetEntity(pl.Name, pl.Pos)
-				if err != nil {
-					return err
+				// угольная пара сразу после того, как с неё забрали уголь: слот пуст, пока сосед
+				// не доложит (или бур ждёт места) — ждать до 30 с, а не падать (729989868)
+				var st *bridge.EntityState
+				for wait := 0; wait <= 30; wait += 5 {
+					if wait > 0 {
+						time.Sleep(5 * time.Second)
+					}
+					if st, err = h.B.GetEntity(pl.Name, pl.Pos); err != nil {
+						return err
+					}
+					if st != nil && (len(st.Inventories["fuel"]) > 0 || st.Status == "working") {
+						break
+					}
 				}
 				if st == nil || len(st.Inventories["fuel"]) == 0 && st.Status != "working" {
 					return fmt.Errorf("%s точки %s в (%.1f, %.1f) без топлива", pl.Name, site.Ore, pl.Pos.X, pl.Pos.Y)
