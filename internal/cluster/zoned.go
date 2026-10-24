@@ -207,7 +207,14 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			}
 			c.Near = &near
 		}
-		if err := b.Place(c); err != nil {
+		err := b.Place(c)
+		// станция: ряд на всю зону не влез (зона у воды вплотную к соседям, 264771462) —
+		// короче, вплоть до бойлеров, нужных сейчас (cluster.md §2а «Станция»: строится Count)
+		for c.Kind == Power && err != nil && c.Room > c.Count {
+			c.Room = max(c.Count, c.Room*2/3)
+			err = b.Place(c)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
