@@ -1138,35 +1138,6 @@ func (h *Hands) reachMine(ctx context.Context, e bridge.Entity) error {
 	return err
 }
 
-// LeaveArea — если персонаж внутри рамки a (с полем 0.5), выйти к ближайшей свободной
-// точке снаружи (в досягаемости стройки).
-func (h *Hands) LeaveArea(ctx context.Context, a bridge.Box) error {
-	p, err := h.B.Player()
-	if err != nil || !inBox(p.Position, a, 0.5) || h.World == nil {
-		return err
-	}
-	best, spot := math.Inf(1), bridge.Pos{}
-	for _, d := range []float64{1.2, 2, 3} {
-		cands := []bridge.Pos{
-			{X: a.LeftTop.X - d, Y: p.Position.Y}, {X: a.RightBottom.X + d, Y: p.Position.Y},
-			{X: p.Position.X, Y: a.LeftTop.Y - d}, {X: p.Position.X, Y: a.RightBottom.Y + d},
-		}
-		for _, q := range cands {
-			if h.World.Standable(q) && dist(p.Position, q) < best {
-				best, spot = dist(p.Position, q), q
-			}
-		}
-		if !math.IsInf(best, 1) {
-			break
-		}
-	}
-	if math.IsInf(best, 1) {
-		return nil
-	}
-	h.Say("выхожу с площадки стройки")
-	return h.WalkTo(ctx, spot, 0.5)
-}
-
 // ugExitBehind — позади pos (против dir, в пределах дальности) свой непарный вход подземки
 // entity, смотрящий в dir: подземка в pos — его выход.
 func (h *Hands) ugExitBehind(entity string, pos bridge.Pos, dir int) bool {
@@ -1257,33 +1228,6 @@ func (h *Hands) clickable(p bridge.Player, stand, target bridge.Pos) bool {
 		return false
 	}
 	return !h.underPanel(x, y)
-}
-
-// StandFor — где встать, чтобы ставить из places (сущность и место) больше всего разом,
-// и что оттуда ставится сейчас (стоя на месте): индексы places.
-func (h *Hands) StandFor(ctx context.Context, entities []string, places []bridge.Pos, dirs []int) (here []int, stand bridge.Pos, err error) {
-	p, err := h.B.Player()
-	if err != nil {
-		return nil, bridge.Pos{}, err
-	}
-	fps := make([]bridge.Box, len(places))
-	left := make([]int, len(places))
-	for i := range places {
-		fps[i], left[i] = h.footprint(entities[i], places[i], dirs[i]), i
-	}
-	for _, i := range left {
-		if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach-0.5 && h.clickable(p, p.Position, fps[i].Center()) {
-			here = append(here, i)
-		}
-	}
-	if len(here) > 0 {
-		return here, p.Position, nil
-	}
-	stand, ok := h.buildStand(p, fps, left)
-	if !ok {
-		return nil, fps[0].Center(), nil
-	}
-	return nil, stand, nil
 }
 
 // nearBelt — рядом с точкой (соседние тайлы) лента: стоять там — в щели между бурами у
