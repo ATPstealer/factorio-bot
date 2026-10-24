@@ -461,6 +461,12 @@ func (h *Hands) run(ctx context.Context, target bridge.Pos, until float64, final
 // drive держит клавиши, которые возвращает steer, пока он не скажет done. Не идём —
 // проверка карты/меню, затем обход в сторону; больше maxStucks застреваний — ErrStuck.
 // Клавиши отпускаются при выходе.
+// roamR, roamLimit — drive: не ушёл дальше roamR тайлов за roamLimit — застрял (качается).
+const (
+	roamR     = 3.0
+	roamLimit = 25 * time.Second
+)
+
 func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos) (map[string]bool, bool)) error {
 	held := map[string]bool{}
 	release := func() {
@@ -478,6 +484,10 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		side      map[string]bool
 		stucks    int
 		cuts      int // срублено застряв (деревья впереди)
+		// топчется на месте: идёт, но за roamLimit не ушёл дальше roamR от точки (качался у
+		// упавшего ствола час без единой записи в логе — стадия 3 на 954176679)
+		roamAt    bridge.Pos
+		roamSince = time.Now()
 	)
 	const maxCuts = 40
 	for {
@@ -497,6 +507,22 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		if dist(p.Position, last) > 0.05 {
 			last, lastMove = p.Position, time.Now()
 		}
+		if dist(p.Position, roamAt) > roamR {
+			roamAt, roamSince = p.Position, time.Now()
+		} else if time.Since(roamSince) > roamLimit {
+			release()
+			if h.World != nil { // не идти этой щелью снова
+				var dx, dy float64
+				for k, v := range map[string][2]float64{"d": {1, 0}, "a": {-1, 0}, "s": {0, 1}, "w": {0, -1}} {
+					if ahead[k] {
+						dx, dy = dx+v[0], dy+v[1]
+					}
+				}
+				h.World.MarkStuck(p.Position, dx, dy)
+			}
+			h.debugShot(fmt.Sprintf("roam-%.0f_%.0f", p.Position.X, p.Position.Y))
+			return fmt.Errorf("%w: топчется у (%.1f, %.1f) %v", ErrStuck, p.Position.X, p.Position.Y, roamLimit)
+		}
 		switch {
 		case time.Now().Before(sideUntil):
 			want = side
@@ -508,7 +534,7 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 				if err := h.guard(ctx); err != nil {
 					return err
 				}
-				lastMove = time.Now()
+				lastMove, roamSince = time.Now(), time.Now()
 				continue
 			}
 			// застрял в лесу (щели уже модели, стадия 12 на 859088572) — срубить дерево впереди
@@ -523,7 +549,7 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 							return err
 						}
 					}
-					lastMove = time.Now()
+					lastMove, roamSince = time.Now(), time.Now() // рубка — не топтание
 					continue
 				}
 			}
