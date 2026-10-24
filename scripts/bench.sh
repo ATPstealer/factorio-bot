@@ -2,7 +2,9 @@
 # Бенч: все e2e на каждой карте-эталоне — снимках run/snapshots/<сид>-0 (снимок грузится,
 # тесты — scripts/test.sh). Лог карты — run/bench/<снимок>.log, итог — run/bench/summary.txt,
 # статистика — test/e2e/stats.tsv (в «Когда» — снимок).
-#   scripts/bench.sh            — все карты по очереди (основной экземпляр)
+#   Карт — MAPS (по умолчанию 4) случайных из всех -0 (решение пользователя: не все каждый раз);
+#   MAPS=all — все; MAPS="сид-0 сид-0" — эти
+#   scripts/bench.sh            — карты по очереди (основной экземпляр)
 #   scripts/bench.sh Walk       — только тесты по шаблону
 #   PAR=4 scripts/bench.sh      — параллельно: карты по экземплярам 1–PAR (scripts/inst.sh),
 #                                 каждый в своём окне, запуск через 8 с; после — остановлены
@@ -12,7 +14,12 @@ mkdir -p run/bench
 : > run/bench/summary.txt
 PAR=${PAR:-0}
 snaps=()
-for d in run/snapshots/*-0/; do snaps+=("$(basename "$d")"); done
+case ${MAPS:-4} in
+  all) for d in run/snapshots/*-0/; do snaps+=("$(basename "$d")"); done ;;
+  *[!0-9]*) read -ra snaps <<< "$MAPS" ;;
+  *) mapfile -t snaps < <(for d in run/snapshots/*-0/; do basename "$d"; done | shuf -n "${MAPS:-4}") ;;
+esac
+echo "== карты: ${snaps[*]}" >> run/bench/summary.txt
 
 # one ИНСТ СНИМОК [шаблон] — прогон карты на экземпляре, строка итога
 one() {
