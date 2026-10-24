@@ -6,6 +6,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/calc"
@@ -19,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -296,6 +298,9 @@ func have(t *testing.T, h *act.Hands, item string, n int) {
 				break
 			}
 			if _, err := h.Gather(ctx, base, min(need-q.Inventory[base], 10), 64); err != nil {
+				if errors.Is(err, act.ErrNoTargets) { // нет на карте рядом — рельеф (CLAUDE.md)
+					t.Skipf("нет %s рядом: %v", base, err)
+				}
 				t.Fatalf("добыть %s: %v", base, err)
 			}
 		}
@@ -464,12 +469,18 @@ func checkMap(t *testing.T) {
 	if m.Seed != mj.Seed {
 		t.Errorf("seed = %d, в run/map.json %d", m.Seed, mj.Seed)
 	}
-	var file struct {
-		CliffSettings struct{ Richness float64 } `json:"cliff_settings"`
+	// утёсы — как в одном из файлов настроек генерации (обычная карта, лес, вода)
+	var cliffs []float64
+	files, _ := filepath.Glob(path("scripts", "map-gen-*.json"))
+	for _, f := range files {
+		var file struct {
+			CliffSettings struct{ Richness float64 } `json:"cliff_settings"`
+		}
+		readJSON(t, f, &file)
+		cliffs = append(cliffs, file.CliffSettings.Richness)
 	}
-	readJSON(t, path("scripts", "map-gen-settings.json"), &file)
-	if m.Cliff != file.CliffSettings.Richness || m.Enemy != 0 {
-		t.Errorf("настройки карты: cliff=%v (в файле %v), enemy=%v", m.Cliff, file.CliffSettings.Richness, m.Enemy)
+	if !slices.Contains(cliffs, m.Cliff) || m.Enemy != 0 {
+		t.Errorf("настройки карты: cliff=%v (в файлах %v), enemy=%v", m.Cliff, cliffs, m.Enemy)
 	}
 	t.Logf("карта: сид %d", m.Seed)
 	if m.Enemies != 0 {

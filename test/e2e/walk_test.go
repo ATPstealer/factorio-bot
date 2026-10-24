@@ -21,10 +21,15 @@ func TestWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := ctxT(t, 30*time.Second)
-	for _, target := range []bridge.Pos{
-		{X: start.Position.X + 6, Y: start.Position.Y + 3},
-		start.Position,
-	} {
+	// цель — ближайшая к (+6, +3), где можно стоять (на водной карте точка бывала в воде)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	far, ok := h.World.FreeSpot(bridge.Pos{X: start.Position.X + 6, Y: start.Position.Y + 3}, 1, 1, 10, nil)
+	if !ok {
+		t.Skip("рядом нет, где стоять")
+	}
+	for _, target := range []bridge.Pos{far, start.Position} {
 		if err := h.WalkTo(ctx, target, 0.5); err != nil {
 			t.Fatal(err)
 		}

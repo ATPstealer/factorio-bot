@@ -612,8 +612,8 @@ func TestPlaceUndergroundAfterTurn(t *testing.T) {
 	if !slices.Contains(f.Recipes, "underground-belt") {
 		t.Skip("подземки не открыты (logistics)")
 	}
+	have(t, h, "underground-belt", 4) // до ленты: крафт подземок ест ленты
 	have(t, h, "transport-belt", 1)
-	have(t, h, "underground-belt", 4)
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		t.Fatal(err)
 	}
