@@ -183,22 +183,9 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 	}
 	switch c.Kind {
 	case Mine:
-		if c.Ore > 0 {
-			if err := mineBlock(l, f, c, tag, belt); err != nil {
-				return err
-			}
-			break
-		}
-		last, err := mineRow(l, f, c, L, tag)
-		if err != nil {
+		if err := mineBlock(l, f, c, tag, belt); err != nil {
 			return err
 		}
-		// лента к началу ряда (←), выход — в коридор перед ним: рост ряда выход не двигает
-		if err := row(3, 0, last+3, layout.W); err != nil {
-			return err
-		}
-		l.AllowEnd(f.tile(-1, 3)) // выход: дальше — лента к потребителю (или её ещё нет)
-		c.Ports = append(c.Ports, Port{T: f.tile(-1, 3), Dir: f.dir(layout.W), Item: c.Product})
 	case Lab:
 		// блок лабораторий (cluster.md §2а «Лаборатории»): с левого нижнего угла по рядам; левый столбец — с
 		// ленты A, остальные — от соседа слева и снизу (пакеты из лаборатории в лабораторию)
@@ -627,35 +614,6 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 	}
 	c.Out = []Flow{{c.Product, rate}}
 	return nil
-}
-
-// mineRow — буры по обе стороны ленты ряда 3 (сверху смотрят S, снизу N), только где под
-// зоной добычи не меньше половины — руда и нет другого ресурса; сколько нужно (Units) или сколько встанет.
-// last — u последнего поставленного бура.
-func mineRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) (last int, err error) {
-	drill := c.Units[0].Machine
-	need := int(math.Ceil(c.Units[0].Machines - 1e-9))
-	placed := 0
-	for u := 0; u+3 <= L && placed < need; u += c.Pitch {
-		for _, s := range []struct{ v, d int }{{0, layout.S}, {4, layout.N}} {
-			if placed >= need {
-				break
-			}
-			p := f.at(l, drill, u, s.v, s.d, tag)
-			n, mixed := l.OreUnder(p, c.Product)
-			if mixed || n*2 < len(layout.MiningArea(l.P, p)) || !l.CanPlace(p, layout.AnyLand) {
-				continue
-			}
-			l.Add(p)
-			placed++
-			last = u
-		}
-	}
-	if placed == 0 {
-		return 0, fmt.Errorf("cluster %s: ни одного бура на %s", c.Name, c.Product)
-	}
-	c.Count = (placed + 1) / 2
-	return last, nil
 }
 
 // powerRow — бойлеры в ряд (вода — по нижнему ряду бойлеров, трубой через промежуток),

@@ -75,8 +75,8 @@ type Cluster struct {
 	Rect     Rect `json:"rect"`
 	Area     Rect `json:"area"`
 	Vertical bool `json:"vertical,omitempty"` // ряд вдоль Y
-	// Ore — добыча блоком на пятно (cluster.md §2а «Добыча»): предел руды под бурами (0 — один
-	// ряд по темпу, старое размещение); OreUnder — сколько руды под поставленными
+	// Ore — добыча блоком на пятно (cluster.md §2а «Добыча»): предел руды под бурами (0 — ещё
+	// не размещена: OreFirst); OreUnder — сколько руды под поставленными
 	Ore      int `json:"ore,omitempty"`
 	OreUnder int `json:"ore_under,omitempty"`
 	// Back — ряд в обратную сторону (голова — у Max: снизу у вертикального, справа у
@@ -640,10 +640,6 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		c.Count = max(c.Count, MinUnits)
 	case Power: // с начала — не меньше PowerStart бойлеров (cluster.md §2а «Станция»)
 		c.Count = max(c.Count, PowerStart)
-	case Mine:
-		// размер добычи — по объёму руды (cluster.md §2а «Добыча», mine.go), но ряд не короче
-		// MinUnits пар: на коротком ряду буры не находят руды
-		c.Count = max(c.Count, MinUnits)
 	}
 	room := c.Reserve / upgrade(p, m)
 	c.Room = max(int(math.Ceil(float64(c.Count)*math.Max(room, 1)-1e-9)), c.Count)

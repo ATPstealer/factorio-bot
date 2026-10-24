@@ -66,43 +66,27 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 		return &NoSiteError{c, fmt.Errorf("cluster: %s не растёт вдоль ряда до %d: %w", c.Name, n, err)}
 	}
 	room := 0
-	switch {
-	case c.Kind == Mine && c.Ore > 0: // блок на пятно уже взял руду до предела — новое пятно
-		return fail(fmt.Errorf("блок добычи — на пределе руды, нужно новое пятно"))
-	}
 	switch c.Kind {
-	case Mine: // буры парами по обе стороны ленты; ряд — на руде, сколько встанет
-		c.Units[0].Machines = float64(n)
-		room = (n + 1) / 2
+	case Mine: // блок на пятно уже взял руду до предела — новое пятно
+		return fail(fmt.Errorf("блок добычи — на пределе руды, нужно новое пятно"))
 	case Smelt, Power:
 		c.Count, room = n, n
 	default:
 		return fail(fmt.Errorf("вид %s так не растёт", c.Kind))
 	}
-	var last error
-	for extra := 0; extra <= 8; extra++ {
-		c.Room = max(old.Room, room+extra)
-		c.Area = grown(old.Area, c)
-		c.Rect = c.Area
-		if err := b.extFree(l, c, old.Area); err != nil {
-			if last != nil {
-				err = fmt.Errorf("%w (до того: %v)", err, last)
-			}
-			return fail(err)
-		}
-		err := b.growInterior(l, c, n)
-		last = err
-		if err == nil {
-			if b.g != nil {
-				b.g.mark(b.occupied(c))
-			}
-			return nil
-		}
-		if c.Kind != Mine { // у добычи руда кончилась — длиннее ряд; прочим длиннее не поможет
-			return fail(err)
-		}
+	c.Room = max(old.Room, room)
+	c.Area = grown(old.Area, c)
+	c.Rect = c.Area
+	if err := b.extFree(l, c, old.Area); err != nil {
+		return fail(err)
 	}
-	return fail(fmt.Errorf("руды под рядом не хватает"))
+	if err := b.growInterior(l, c, n); err != nil {
+		return fail(err)
+	}
+	if b.g != nil {
+		b.g.mark(b.occupied(c))
+	}
+	return nil
 }
 
 // Extra — новый кластер того же продукта, что c, на недостающие n−Built машин (рост вдоль ряда

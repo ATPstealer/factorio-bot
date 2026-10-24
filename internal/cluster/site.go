@@ -68,8 +68,7 @@ type Base struct {
 	mineZones []Zone // прикидка: зоны добычи (MineZones)
 	zoneRects []Rect // зоны (PlaceZoned): кластеры без зоны — вне их
 
-	g        *grid
-	oreShare int // добыча: доля руды под Area, %
+	g *grid
 }
 
 func NewBase(p *knowledge.Prototypes, w *world.World, origin world.Tile) *Base {
@@ -85,7 +84,6 @@ type grid struct {
 	ore          map[string][]int32 // руда по ресурсу
 	unknown      []int32            // неоткрыто
 	avoid        []int32            // Base.Avoid
-	solid        []int32            // не построить (вода, неубираемое, свои постройки) — без зон руды
 	zone         []int32            // зона месторождения (руда + Corridor)
 	thick        []int32            // непроходимое (вода, утёсы…) подряд больше maxGap — подземкой не пройти
 }
@@ -150,7 +148,6 @@ func (b *Base) grid() *grid {
 		}
 	}
 	g.avoid = prefix(avoid, g.w, g.h)
-	g.solid = prefix(bad, g.w, g.h)
 	g.zone = prefix(zone, g.w, g.h)
 	g.thick = prefix(thickRuns(bad, g.w, g.h), g.w, g.h)
 	for i := range bad {
@@ -257,38 +254,17 @@ func size(c *Cluster, horizontal bool) (int, int) {
 	return c.Cross, l
 }
 
-// Place — место кластеру: добыча — на своём месторождении, станция — у воды, прочие — на
-// свободной суше вне зон месторождений; ближе к якорю (центр входов; лаборатории — у науки).
-// Добыча: длинный ряд с запасом может не влезть в ближнее месторождение — тогда короче (рост
-// добычи — и новым кластером), если это ближе: каждое укорочение вдвое «стоит» shrinkCost тайлов.
+// Place — место кластеру (не добыче — она блоками на пятна, placeMines): в зоне — по
+// столбцам (pack), станция — у воды, прочие — на свободной суше вне зон; ближе к якорю (Near
+// или центр поставщиков).
 func (b *Base) Place(c *Cluster) error {
 	if b.grid().w == 0 {
 		return fmt.Errorf("cluster: карта пуста")
 	}
-	rooms := []int{c.Room}
-	if c.Kind == Mine { // шина — с запасом ×5 всегда (не урезается)
-		for r := c.Room / 2; r > c.Count; r /= 2 {
-			rooms = append(rooms, r)
-		}
-		if c.Room > c.Count {
-			rooms = append(rooms, c.Count)
-		}
-	}
-	room := c.Room
-	var best *cand
-	bestRoom := 0
-	for k, r := range rooms {
-		c.Room = r
-		if f := b.find(c); f != nil && (best == nil || f.d+float64(k)*shrinkCost < best.d) {
-			f.d += float64(k) * shrinkCost
-			best, bestRoom = f, r
-		}
-	}
+	best := b.find(c)
 	if best == nil {
-		c.Room = room
 		return &NoSiteError{c, fmt.Errorf("cluster: нет места под %s (%d×%d в %d тайлах)", c.Name, c.Cross, c.Len(), b.MaxR)}
 	}
-	c.Room = bestRoom
 	c.Area, c.Rect, c.Vertical = best.r, best.r, best.v
 	// занято сейчас — начало ряда
 	l := c.Head + c.Count*c.Pitch
@@ -306,7 +282,7 @@ func (b *Base) Place(c *Cluster) error {
 
 // border — коридор вокруг кластера: внутри зоны — бордюр ZoneBorder, иначе Corridor.
 func (b *Base) border(c *Cluster) int {
-	if c.Kind == Mine && c.Ore > 0 {
+	if c.Kind == Mine {
 		return MineBorder // блок добычи (cluster.md §2а «Добыча»)
 	}
 	if c.Zone != nil {
@@ -323,9 +299,6 @@ type NoSiteError struct {
 }
 
 func (e *NoSiteError) Error() string { return e.Err.Error() }
-
-// shrinkCost — «цена» укорочения ряда добычи вдвое, тайлов расстояния.
-const shrinkCost = 15
 
 type cand struct {
 	r Rect
@@ -354,12 +327,7 @@ func (b *Base) find(c *Cluster) *cand {
 		}
 		best = &cand{r, d, vertical}
 	}
-	b.oreShare = 95
 	for rr := 0; rr <= b.MaxR; rr++ {
-		if c.Kind == Mine && best == nil && rr == b.MaxR && b.oreShare > 70 {
-			// целиком на руде не нашлось — хоть на 70%
-			b.oreShare, rr = 70, 0
-		}
 		if best != nil && float64(rr) > best.d+1 {
 			break
 		}
@@ -420,36 +388,15 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 	if n, _ := g.count(g.unknown, ring); n > 0 {
 		return false
 	}
-	area := r.W() * r.H()
-	switch c.Kind {
-	case Mine:
-		// на руде своего ресурса: не меньше 70% площади (буры ставятся, где есть руда)
-		ore := g.ore[c.Product]
-		if ore == nil {
-			return false
-		}
-		// постройки на месторождении (точки нулевого этапа) — буры встанут рядом; свободной
-		// должна быть лента ряда (v = 3) и хоть две трети площади
-		n, _ := g.count(ore, r)
-		a, _ := g.count(g.solid, r)
-		// лента ряда и выход из него в коридор (2 тайла перед началом)
-		belt := Rect{world.Tile{X: r.Min.X - 2, Y: r.Min.Y + 3}, world.Tile{X: r.Max.X, Y: r.Min.Y + 4}}
-		if vertical {
-			belt = Rect{world.Tile{X: r.Min.X + 3, Y: r.Min.Y - 2}, world.Tile{X: r.Min.X + 4, Y: r.Max.Y}}
-		}
-		bs, _ := g.count(g.solid, belt)
-		return bs == 0 && a*3 <= area && n*100 >= area*b.oreShare
-	case Power:
-		// станция у воды: вода в коридоре
-		if n, _ := g.count(g.water, ring); n == 0 {
-			return false
-		}
+	// станция у воды: вода в коридоре
+	if n, _ := g.count(g.water, ring); c.Kind == Power && n == 0 {
+		return false
 	}
 	n, _ := g.count(g.bad, r)
 	return n == 0
 }
 
-// anchor — куда тянуть кластер: добыча — к центру базы; лаборатории — к кластерам науки;
+// anchor — куда тянуть кластер: Near; лаборатории — к кластерам науки;
 // прочие (и станция — к углю: лента дороже столбов) — к центру своих поставщиков (по
 // потоку), без них — к центру базы.
 func (b *Base) anchor(c *Cluster) (float64, float64) {
@@ -472,7 +419,7 @@ func (b *Base) anchor(c *Cluster) (float64, float64) {
 			sx, sy, sw = sx+x*w, sy+y*w, sw+w
 		}
 	}
-	if c.Kind == Mine || sw == 0 {
+	if sw == 0 {
 		return ox, oy
 	}
 	return sx / sw, sy / sw
