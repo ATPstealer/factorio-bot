@@ -84,21 +84,28 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
 		layout.Chest, chest = ironChest, ironChest
 	}
-	// добыча упёрлась в полный инвентарь (взял из хранения сундук целиком — стадия 23 на
-	// 859088572) — в хранение сырьё, пластины, уголь; постройки — при себе (их ставить)
+	// нужное текущей стадии — по её плану (inventory.go)
+	curStage, needCache.items = n, nil
+	// добыча упёрлась в полный инвентарь (стадия 23 на 859088572) — в хранение ненужное; не
+	// хватило — и запас (сырьё, пластины, уголь); постройки — при себе (их ставить)
 	h.OnFull = func(ctx context.Context) error {
-		p, err := h.B.Player()
-		if err != nil {
-			return err
-		}
-		bulk := map[string]bool{"iron-plate": true, "copper-plate": true, "steel-plate": true, "stone-brick": true, "coal": true}
-		var keep []string
-		for it := range p.Inventory {
-			if !bulk[it] && !slices.Contains(rawItems, it) {
-				keep = append(keep, it)
+		s := &worker{h: h, useStore: true}
+		err := s.store(ctx, craftFree+5)
+		if err == nil {
+			p, perr := h.B.Player()
+			if perr != nil || p.InventorySize-len(p.InventorySlots) >= craftFree {
+				return perr
 			}
+			bulk := map[string]bool{"iron-plate": true, "copper-plate": true, "steel-plate": true, "stone-brick": true, "coal": true}
+			var keep []string
+			for it := range p.Inventory {
+				if !bulk[it] && !slices.Contains(rawItems, it) {
+					keep = append(keep, it)
+				}
+			}
+			s.any = true
+			err = s.store(ctx, craftFree+5, keep...)
 		}
-		err = (&worker{h: h, useStore: true}).store(ctx, craftFree+5, keep...)
 		if errors.Is(err, errNoStorage) {
 			return nil // хранения ещё нет — как есть
 		}

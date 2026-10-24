@@ -25,6 +25,7 @@ type point struct{ X, Y int }
 type Layout struct {
 	InvSlot1   point     // центр первой ячейки инвентаря (окно E)
 	CraftSlot1 point     // центр первой ячейки крафта (окно E, после поиска)
+	ChestSlot1 point     // центр первой ячейки сундука (окно сундука, справа; по Cols в строке)
 	SlotStep   int       // шаг ячеек
 	Cols       int       // ячеек в строке (инвентарь и крафт)
 	Quickbar   [10]point // ряд 1 быстрой панели: клавиши 1..0
@@ -63,6 +64,7 @@ type rect struct{ X, Y, W, H int }
 var Layout1856 = Layout{
 	InvSlot1:   point{530, 350},
 	CraftSlot1: point{966, 390},
+	ChestSlot1: point{966, 505},
 	SlotStep:   40,
 	Cols:       10,
 	Quickbar: [10]point{{745, 946}, {785, 946}, {826, 946}, {866, 946}, {906, 946},
@@ -1185,6 +1187,83 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 
 // SearchText — что набирать в поиске: английское название ≈ имя без дефисов.
 func SearchText(name string) string { return strings.ReplaceAll(name, "-", " ") }
+
+// TakeItem — взять из сундука e не меньше n предмета item (пачками; меньше есть — всё, что есть),
+// остальное содержимое — в сундуке: окно сундука, Shift+клик по ячейкам с item (ячейки — от
+// мода), пока у игрока не прибавится n. Не Take (Ctrl+клик по сундуку — всё содержимое:
+// инвентарь забивался, стадия 23 на 859088572).
+func (h *Hands) TakeItem(ctx context.Context, e bridge.Entity, item string, n int) error {
+	st, err := h.B.GetEntity(e.Name, e.Position)
+	if err != nil {
+		return err
+	}
+	if st == nil {
+		return fmt.Errorf("act: %s пропал", e.Name)
+	}
+	var slots []bridge.Slot
+	total := 0
+	for _, s := range st.Slots {
+		if s.Name == item {
+			slots, total = append(slots, s), total+s.Count
+		}
+	}
+	if total == 0 {
+		return fmt.Errorf("act: в %s нет %s", e.Name, item)
+	}
+	n = min(n, total)
+	h.Say("беру %s ×%d из %s", item, n, e.Name)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	if err := h.openEntity(ctx, e, "chest-open"); err != nil {
+		return err
+	}
+	p0, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	got := func(p bridge.Player) int { return p.Inventory[item] - p0.Inventory[item] }
+	L := h.Layout
+	before := 0
+	for _, s := range slots {
+		i := s.Slot - 1
+		if err := h.at(point{L.ChestSlot1.X + (i%L.Cols)*L.SlotStep, L.ChestSlot1.Y + (i/L.Cols)*L.SlotStep}); err != nil {
+			return err
+		}
+		if err := h.In.KeyDown("shift"); err != nil {
+			return err
+		}
+		err := h.In.Click(input.Left)
+		h.In.KeyUp("shift")
+		if err != nil {
+			return err
+		}
+		// пачка перешла к игроку (не дошёл клик — следующая ячейка, итог проверится в конце)
+		p, err := h.waitFor(ctx, time.Second, func(p bridge.Player) bool { return got(p) > before })
+		if err != nil && !errors.Is(err, errTimeout) {
+			return err
+		}
+		if before = got(p); before >= n {
+			return nil
+		}
+	}
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	if got(p) < n {
+		h.debugShot("chest-take")
+		return fmt.Errorf("act: из %s взято %s ×%d из %d", e.Name, item, got(p), n)
+	}
+	return nil
+}
 
 // openEntity — открыть окно постройки e кликом. Не открылось, а под курсором дерево (крона
 // закрывает постройку: стадия 14 на 794457638, фильтр инсертера) — срубить деревья, чья рамка

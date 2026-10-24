@@ -194,6 +194,9 @@ var errNoStorage = errors.New("инвентарь полон, а хранени�
 // сейчас: сначала готовые постройки, потом запас (уголь, пластины); need — что ещё ставить
 // (не убирать).
 func (s *worker) store(ctx context.Context, free int, need ...string) error {
+	if !s.any {
+		need = keepList(s.h, need...) // нужное стадии и запас ходового — при себе (inventory.go)
+	}
 	p, err := s.h.B.Player()
 	if err != nil {
 		return err
@@ -240,7 +243,8 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 				return err
 			}
 		}
-		if p.InventorySize-len(p.InventorySlots) >= free+10 || k >= len(chests) {
+		// после визита к хранению — свободна хотя бы четверть инвентаря (stages.md, инвентарь)
+		if p.InventorySize-len(p.InventorySlots) >= max(free+10, p.InventorySize/4) || k >= len(chests) {
 			break
 		}
 	}

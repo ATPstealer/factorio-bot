@@ -990,3 +990,47 @@ func TestReplaceUndergroundKeepsNeighbors(t *testing.T) {
 	}
 	clean(t, h2)
 }
+
+// Взять из сундука только нужное (дело на будущее из questions.md: из хранения бот забирал сундук
+// целиком — Ctrl+клик, инвентарь забивался, на стадии 23 на 859088572 дерево не срубить): в
+// сундуке пачки двух предметов, взять 100 одного — у бота его +100…150 (пачками), другого —
+// ничего, остальное — в сундуке.
+func TestTakeItemFromChest(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "wooden-chest", 1)
+	have(t, h, "coal", 200) // уголь и камень на картах есть с запасом (дерево — рубить)
+	have(t, h, "stone", 150)
+	spot := freeArea(t, h, 2)
+	ch, err := h.Place(ctx, "wooden-chest", spot, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Insert(ctx, ch, "coal", 200); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Insert(ctx, ch, "stone", 150); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	if err := h.TakeItem(ctx, ch, "coal", 100); err != nil {
+		t.Fatal(err)
+	}
+	p1, _ := h.B.Player()
+	if d := p1.Inventory["coal"] - p0.Inventory["coal"]; d < 100 || d > 150 {
+		t.Errorf("coal +%d, ждали 100…150", d)
+	}
+	if d := p1.Inventory["stone"] - p0.Inventory["stone"]; d != 0 {
+		t.Errorf("stone +%d, ждали 0", d)
+	}
+	st, err := h.B.GetEntity(ch.Name, ch.Position)
+	if err != nil || st == nil {
+		t.Fatalf("сундук: %v", err)
+	}
+	if n := st.Count("stone"); n != 150 {
+		t.Errorf("в сундуке stone %d, ждали 150", n)
+	}
+	if p, _ := h.B.Player(); p.OpenedGUI != "" && p.OpenedGUI != "none" {
+		t.Errorf("окно не закрыто: %q", p.OpenedGUI)
+	}
+}

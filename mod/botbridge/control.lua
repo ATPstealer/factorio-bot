@@ -204,6 +204,19 @@ local function entity_state(p, name, position)
     end
   end
   r.inventories = util.nonempty(r.inventories)
+  -- ячейки сундука (1-based): по ним бот кликает в окне сундука (взять только нужное)
+  if e.type == "container" then
+    local inv = e.get_inventory(defines.inventory.chest)
+    if inv then
+      local s = {}
+      for i = 1, #inv do
+        local st = inv[i]
+        if st.valid_for_read then s[#s + 1] = { slot = i, name = st.name, count = st.count } end
+      end
+      if #s > 0 then r.slots = s end
+      r.slots_size = #inv
+    end
+  end
   if e.type == "assembling-machine" or e.type == "furnace" then
     local rec = e.get_recipe()
     r.recipe = rec and rec.name or nil

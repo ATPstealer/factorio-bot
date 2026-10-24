@@ -194,6 +194,7 @@ type worker struct {
 	h        *act.Hands
 	sites    []outpostSite
 	useStore bool // брать из кластера хранения (стадии после 8)
+	any      bool // store — и нужное текущей стадии (полный инвентарь посреди дела)
 }
 
 func (s *worker) entity(pl layout.Placement) (*bridge.Entity, error) {
@@ -306,14 +307,15 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
 		}
-		// инвентарь почти полон — добытое некуда класть (4000 пластин и готовые постройки
-		// забили его на стадии 14): ненужное сейчас — в хранение; хранения ещё нет — как есть
-		if err := s.store(ctx, craftFree, item); err != nil && !errors.Is(err, errNoStorage) {
+		// перед добычей — не меньше freeBefore свободных ячеек (stages.md, инвентарь; 4000
+		// пластин и готовые постройки забивали его на стадии 14): ненужное — в хранение;
+		// хранения ещё нет — как есть
+		if err := s.store(ctx, freeBefore, item); err != nil && !errors.Is(err, errNoStorage) {
 			return err
 		}
 		lack := n - s.inv(item)
 		if s.useStore {
-			if got, err := s.fromStorage(ctx, item); err != nil || got {
+			if got, err := s.fromStorage(ctx, item, lack); err != nil || got {
 				if err != nil {
 					return err
 				}

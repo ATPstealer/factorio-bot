@@ -359,7 +359,9 @@ type EntityState struct {
 	UGPaired         bool                      `json:"ug_paired,omitempty"` // у подземки есть пара
 	Filters          List[string]              `json:"filters,omitempty"`   // фильтр инсертера (включён)
 	Fluids           map[string]float64        `json:"fluids,omitempty"`    // жидкости в ящиках
-	I                int                       `json:"i,omitempty"`         // номер в запросе GetEntities (с 1)
+	Slots            List[Slot]                `json:"slots,omitempty"`     // ячейки сундука (с 1)
+	SlotsSize        int                       `json:"slots_size,omitempty"`
+	I                int                       `json:"i,omitempty"` // номер в запросе GetEntities (с 1)
 }
 
 // Count — сколько предмета во всех инвентарях сущности.

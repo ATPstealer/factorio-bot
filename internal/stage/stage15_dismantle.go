@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"factorio-bot/internal/act"
@@ -154,9 +155,10 @@ func checkDismantle(h *act.Hands) error {
 	return nil
 }
 
-// fromStorage — item лежит в сундуке хранения: забрать содержимое этого сундука (Ctrl+клик
-// берёт всё, что влезет). false — в хранении нет.
-func (s *worker) fromStorage(ctx context.Context, item string) (bool, error) {
+// fromStorage — item лежит в сундуке хранения: взять оттуда n (только его, пачками — не
+// сундук целиком) и, раз стоим у хранения, выложить ненужное (stages.md, инвентарь). false — в
+// хранении нет.
+func (s *worker) fromStorage(ctx context.Context, item string, n int) (bool, error) {
 	list, err := storageLayout()
 	if err != nil {
 		return false, err
@@ -166,8 +168,11 @@ func (s *worker) fromStorage(ctx context.Context, item string) (bool, error) {
 		if err != nil || st == nil || st.Inventories["chest"][item] == 0 {
 			continue
 		}
+		if err := s.tidy(ctx); err != nil && !errors.Is(err, errNoStorage) {
+			return false, err
+		}
 		before := s.inv(item)
-		if _, err := s.h.Take(ctx, st.Entity); err != nil {
+		if err := s.h.TakeItem(ctx, st.Entity, item, n); err != nil {
 			return false, err
 		}
 		return s.inv(item) > before, nil
