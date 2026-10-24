@@ -620,10 +620,15 @@ func (s *worker) coal(ctx context.Context, lack int) error {
 		// попытки have кончались на крохах с пар — «не набрать coal ×20», 208708719)
 		lack -= got
 	}
-	if _, err := s.h.Gather(ctx, "huge-rock", 1, 60); err == nil {
-		return nil
-	}
+	// руками — сначала руда (ближе к точкам), нет — большие камни так же далеко, как для камня
+	// (в 60 тайлах их не было, ближайший — в 217: 208708719)
 	_, err := s.h.Gather(ctx, "coal", lack, 300)
+	if !errors.Is(err, act.ErrNoTargets) {
+		return err
+	}
+	if _, err = s.h.Gather(ctx, "huge-rock", 1, 300); errors.Is(err, act.ErrNoTargets) {
+		return fmt.Errorf("угля нет: ни с пар, ни руды, ни больших камней в 300 тайлах")
+	}
 	return err
 }
 
