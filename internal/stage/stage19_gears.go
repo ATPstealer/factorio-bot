@@ -195,7 +195,22 @@ func checkMake(h *act.Hands, product string) error {
 		return fmt.Errorf("%s (%s) не на шине", product, c.Name)
 	}
 	if !inBuf && !isScience(product) {
-		return fmt.Errorf("в буфере выхода %s нет %s", c.Name, product)
+		// буфер — в конце ленты продукта: потребитель выше по ходу (зелёная наука берёт
+		// инсертеры) забирает всё, а излишка при слабом выпуске нет (стадия 24 на 859088572) —
+		// тогда достаточно, что кластер производит: выпуск предмета за минуту растёт (бот стоит
+		// — руками не крафтит)
+		f0, err := h.B.Force()
+		if err != nil {
+			return err
+		}
+		time.Sleep(time.Minute)
+		f1, err := h.B.Force()
+		if err != nil {
+			return err
+		}
+		if f1.Produced[product] <= f0.Produced[product] {
+			return fmt.Errorf("в буфере выхода %s нет %s, и за минуту не произведено ни одного", c.Name, product)
+		}
 	}
 	return nil
 }
