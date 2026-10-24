@@ -370,8 +370,13 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 		} else if err != nil {
 			return fmt.Errorf("cluster: %s: лента %s не обходит неровность (%d, %d)–(%d, %d): %w", gp.tag, gp.item, gp.a.X, gp.a.Y, gp.b.X, gp.b.Y, err)
 		}
+		// предмет ленты — обычным лентам; у подземки в Recipe — вход/выход: затёртый — следующий
+		// обход той же ленты не видел, откуда в него въезжают (feedDir), и ставил вход подземки
+		// боком к потоку — лента стояла (лента инсертеров bus-3, стадия 26 на 859088572)
 		for i := mark; i < len(l.List); i++ {
-			l.List[i].Recipe = gp.item
+			if l.List[i].Name == "transport-belt" {
+				l.List[i].Recipe = gp.item
+			}
 		}
 	}
 	return nil
