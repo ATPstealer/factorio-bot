@@ -123,6 +123,38 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	}
 }
 
+// roughAnchor — центр базы по всей открытой карте (zones.md): у какого пятна угля, железа или
+// меди меньше всего сумма расстояний до ближайших крупных (не меньше трети нужного на игру)
+// пятен каждого из трёх ресурсов; к месту старта не тянется.
+func roughAnchor(h *act.Hands, need map[string]float64) world.Tile {
+	res := []string{"coal", "iron-ore", "copper-ore"}
+	big := map[string][]world.Patch{}
+	for _, p := range h.World.Patches() {
+		for _, r := range res {
+			if p.Name == r && float64(p.Amount) >= need[r]/3 {
+				big[r] = append(big[r], p)
+			}
+		}
+	}
+	best, bd := world.Tile{}, math.Inf(1)
+	for _, r := range res {
+		for _, c := range big[r] {
+			d := 0.0
+			for _, r2 := range res {
+				m := math.Inf(1)
+				for _, p := range big[r2] {
+					m = math.Min(m, math.Hypot(p.Center.X-c.Center.X, p.Center.Y-c.Center.Y))
+				}
+				d += m
+			}
+			if d < bd {
+				best, bd = world.TileOf(c.Center), d
+			}
+		}
+	}
+	return best
+}
+
 // roughUnknown — у зон базы (без добычи; рамка + roughMarginTiles) есть неоткрытые чанки, до
 // которых можно дойти (рядом — открытый); in — чанк в этой рамке.
 func roughUnknown(h *act.Hands) (func(bridge.ChunkPos) bool, bool) {
@@ -167,29 +199,12 @@ func roughUnknown(h *act.Hands) (func(bridge.ChunkPos) bool, bool) {
 	return in, false
 }
 
-// roughOnce — прикидка базы и разметка зон: сначала зоны добычи от места старта; база встала —
-// пятна заново от головы её bus-1 и разметка ещё раз (zones.md: добыча — ближняя ко входу bus-1).
+// roughOnce — прикидка базы и разметка зон; центр базы — по всей открытой карте (roughAnchor).
 func roughOnce(h *act.Hands) error {
-	head, err := roughPass(h, nil)
-	if err != nil || head == nil {
-		return err
-	}
-	h.Log("зоны добычи — заново от головы bus-1 (%d, %d)", head.X, head.Y)
-	if _, err := roughPass(h, head); err != nil {
-		h.Log("разметка от головы bus-1 не встала (%v) — остаётся от места старта", err)
-		_, err = roughPass(h, nil)
-		return err
-	}
-	return nil
-}
-
-// roughPass — одна разметка; from — от чего ближние пятна добычи (nil — от старта). Возвращает
-// голову bus-1 (левый край, середина по высоте).
-func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	pr := h.Protos
 	targets, labSec, err := roughTargets(h)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var names []string
 	for it := range targets {
@@ -202,11 +217,11 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	plan, err := calc.Solve(pr, targets, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "steel-furnace", "crafting": "assembling-machine-2"}})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cs, err := cluster.Split(pr, plan, roughMargin, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	packs := map[string]float64{}
 	for it, v := range targets {
@@ -216,7 +231,7 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	}
 	cs = append(cs, cluster.Labs(pr, packs, labSec, roughMargin), cluster.StorageCluster())
 	if cs, err = cluster.AddPower(pr, cs, roughMargin, nil); err != nil {
-		return nil, err
+		return err
 	}
 	// станция и её зона — под одну помпу (cluster.md §2а «Станция»)
 	cluster.SizePower(pr, cs)
@@ -232,9 +247,6 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	saved := cluster.BeltRate
 	cluster.BeltRate = roughBelt
 	defer func() { cluster.BeltRate = saved }()
-	base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта (0, 0)
-	base.Log, base.Rough, base.MineFrom = h.Log, true, from
-	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
 	// зоны добычи — по месторождениям: на каждый ресурс — пятна, пока запаса хватит на игру
 	need := map[string]float64{}
 	for it, rate := range plan.Raw {
@@ -242,10 +254,15 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 			need[it] = rate * roughHours * 3600
 		}
 	}
+	origin := roughAnchor(h, need)
+	h.Log("центр базы — у крупных пятен угля, железа и меди: (%d, %d)", origin.X, origin.Y)
+	base := cluster.NewBase(pr, h.World, origin)
+	base.Log, base.Rough = h.Log, true
+	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
 	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, roughBelt)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	zones := base.Zones(lay)
 	// ресурсы на всю игру: сколько нужно и сколько можно добыть в зонах добычи
@@ -267,16 +284,9 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 		h.Log("сырьё %s: %.2f/с, на %.0f ч — %.0f, в зонах добычи %.0f%s", it, r.Rate, roughHours, r.Need, r.Have, map[bool]string{true: " — НЕ ХВАТАЕТ"}[r.Short])
 	}
 	if err := roughDraw(h, rp.Zones, rp.Image); err != nil {
-		return nil, err
+		return err
 	}
-	var head *world.Tile
-	for _, z := range rp.Zones {
-		if z.Name == "bus-1" {
-			_, y := z.Rect.Center()
-			head = &world.Tile{X: z.Rect.Min.X, Y: int(y)}
-		}
-	}
-	return head, writeState(roughFile, rp)
+	return writeState(roughFile, rp)
 }
 
 // roughImage — картинка зон: run/stages/zones-<сид>.png.
