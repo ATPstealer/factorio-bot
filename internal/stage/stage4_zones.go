@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/calc"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/world"
@@ -23,14 +24,16 @@ import (
 // (центр базы — место старта), картинка. Следующие стадии строят внутри зон.
 
 const (
-	roughFile     = "state-zones.json"
-	roughHours    = 20.0
-	roughResearch = 0.8  // доля времени на исследования (остальное — ракетные части)
-	roughRocket   = 100  // ракетных частей на ракету
-	roughBelt     = 30.0 // лента шины — красная, шт/с
-	roughExplore  = 20   // нет места — разведать (сгенерировать ходьбой) и заново
-	roughChunks   = 16   // за одну разведку — новых чанков
-	roughMargin   = 1.0  // запас роста в прикидке: план — уже под конечный темп
+	roughFile        = "state-zones.json"
+	roughHours       = 20.0
+	roughResearch    = 0.8  // доля времени на исследования (остальное — ракетные части)
+	roughRocket      = 100  // ракетных частей на ракету
+	roughBelt        = 30.0 // лента шины — красная, шт/с
+	roughExplore     = 20   // нет места — разведать (сгенерировать ходьбой) и заново
+	roughChunks      = 16   // за одну разведку — новых чанков
+	roughReopen      = 3    // дооткрыть землю у базы и разметить заново — до стольких раз
+	roughMarginTiles = 64   // у базы: рамка зон + столько тайлов — должно быть открыто
+	roughMargin      = 1.0  // запас роста в прикидке: план — уже под конечный темп
 )
 
 // RoughPlan — прикидка базы: цели, блоки с зонами, ленты шины, ресурсы.
@@ -91,9 +94,24 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {
 		return err
 	}
+	opened := 0 // дооткрытий у базы (stages.md, стадия 4)
 	for try := 0; ; try++ {
 		err := roughOnce(h)
 		var ns *cluster.NoSiteError
+		if err == nil {
+			// у базы неоткрытая земля — открыть и разметить заново: база жмётся к краю
+			// открытого (264771462, начало bus-1 у неоткрытого)
+			in, ok := roughUnknown(h)
+			if !ok || opened >= roughReopen {
+				return nil
+			}
+			opened++
+			h.Say("у базы неоткрытая земля — иду открыть и размечу зоны заново (%d из %d)", opened, roughReopen)
+			if err := h.ExploreWhere(ctx, in, func() bool { _, more := roughUnknown(h); return !more }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+				return err
+			}
+			continue
+		}
 		if !errors.As(err, &ns) || try >= roughExplore {
 			return err
 		}
@@ -103,6 +121,50 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
+}
+
+// roughUnknown — у зон базы (без добычи; рамка + roughMarginTiles) есть неоткрытые чанки, до
+// которых можно дойти (рядом — открытый); in — чанк в этой рамке.
+func roughUnknown(h *act.Hands) (func(bridge.ChunkPos) bool, bool) {
+	rp, err := LoadRough()
+	if err != nil {
+		return nil, false
+	}
+	var box *cluster.Rect
+	for _, z := range rp.Zones {
+		if z.Kind == cluster.ZoneMine {
+			continue
+		}
+		r := z.Rect
+		if box == nil {
+			box = &r
+			continue
+		}
+		box.Min.X, box.Min.Y = min(box.Min.X, r.Min.X), min(box.Min.Y, r.Min.Y)
+		box.Max.X, box.Max.Y = max(box.Max.X, r.Max.X), max(box.Max.Y, r.Max.Y)
+	}
+	if box == nil {
+		return nil, false
+	}
+	g := box.Grow(roughMarginTiles)
+	in := func(c bridge.ChunkPos) bool {
+		x, y := c.X*32, c.Y*32
+		return x+32 > g.Min.X && x < g.Max.X && y+32 > g.Min.Y && y < g.Max.Y
+	}
+	for cy := g.Min.Y >> 5; cy <= g.Max.Y>>5; cy++ {
+		for cx := g.Min.X >> 5; cx <= g.Max.X>>5; cx++ {
+			c := bridge.ChunkPos{X: cx, Y: cy}
+			if h.World.Chunks[c] != nil {
+				continue
+			}
+			for _, n := range []bridge.ChunkPos{{X: cx + 1, Y: cy}, {X: cx - 1, Y: cy}, {X: cx, Y: cy + 1}, {X: cx, Y: cy - 1}} {
+				if h.World.Chunks[n] != nil {
+					return in, true
+				}
+			}
+		}
+	}
+	return in, false
 }
 
 func roughOnce(h *act.Hands) error {
