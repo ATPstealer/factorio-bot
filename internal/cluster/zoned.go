@@ -214,6 +214,14 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			c.Room = max(c.Count, c.Room*2/3)
 			err = b.Place(c)
 		}
+		if c.Kind == Power && err != nil && power != nil {
+			// и так не встала (в зону залез коридор соседней добычи) — другое место у воды
+			// рядом с зоной, вне зон (cluster.md §2а «Станция»)
+			x, y := power.Center()
+			near := world.Tile{X: int(x), Y: int(y)}
+			c.Zone, c.Near = nil, &near
+			err = b.Place(c)
+		}
 		if err != nil {
 			return nil, err
 		}
