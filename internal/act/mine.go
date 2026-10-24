@@ -24,20 +24,7 @@ const notMiningGrace = 1500 * time.Millisecond
 var ErrFull = errors.New("act: инвентарь полон")
 
 // MineUntil наводит курсор на e и держит ПКМ, пока сущность не исчезнет или done не вернёт true.
-// Инвентарь полон — освободить место (OnFull: стадии — в хранение) и ещё раз.
 func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
-	err := h.mineUntil(ctx, e, done)
-	if errors.Is(err, ErrFull) && h.OnFull != nil {
-		h.Say("инвентарь полон — освобождаю место")
-		if ferr := h.OnFull(ctx); ferr != nil {
-			return fmt.Errorf("%w (освободить место: %v)", err, ferr)
-		}
-		err = h.mineUntil(ctx, e, done)
-	}
-	return err
-}
-
-func (h *Hands) mineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
 	held := false
 	defer func() {
 		if held {
@@ -219,8 +206,22 @@ func (h *Hands) Mine(ctx context.Context, e bridge.Entity, timeout time.Duration
 	return err
 }
 
-// mineOnce — добыть e целиком за отведённое время, одной попыткой наведения.
+// mineOnce — добыть e целиком за отведённое время, одной попыткой наведения. Инвентарь полон —
+// освободить место (OnFull: стадии — в хранение; без таймаута добычи — до хранения идти) и
+// ещё раз со своим временем.
 func (h *Hands) mineOnce(ctx context.Context, e bridge.Entity, timeout time.Duration) error {
+	err := h.mineTimed(ctx, e, timeout)
+	if errors.Is(err, ErrFull) && h.OnFull != nil {
+		h.Say("инвентарь полон — освобождаю место")
+		if ferr := h.OnFull(ctx); ferr != nil {
+			return fmt.Errorf("%w (освободить место: %v)", err, ferr)
+		}
+		err = h.mineTimed(ctx, e, timeout)
+	}
+	return err
+}
+
+func (h *Hands) mineTimed(ctx context.Context, e bridge.Entity, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err := h.MineUntil(ctx, e, nil)
