@@ -506,6 +506,17 @@ func (w *World) Standable(p bridge.Pos) bool {
 	return free && !w.TouchesBelt(p)
 }
 
+// Roomy — можно стоять в p и в 0.15 вокруг: точку вплотную к ленте ходьба проскакивает, и
+// персонаж снова на ленте (TestStandBetweenBelts, TestPlaceAmongBelts).
+func (w *World) Roomy(p bridge.Pos) bool {
+	for _, d := range [][2]float64{{0, 0}, {-0.15, 0}, {0.15, 0}, {0, -0.15}, {0, 0.15}} {
+		if !w.Standable(bridge.Pos{X: p.X + d[0], Y: p.Y + d[1]}) {
+			return false
+		}
+	}
+	return true
+}
+
 // beltReach — полуширина рамки персонажа (0.2) с запасом 0.05: задевает ленту — лента уносит
 // (0.3 — слишком: точку в 0.3 от края ленты бот обходил стороной, TestWalkAgainstBelt).
 const beltReach = 0.25

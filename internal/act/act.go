@@ -175,14 +175,6 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	// Допуск — от исходной цели (ниже)
 	goal, tol := target, stop // исходные цель и допуск
 	if h.World != nil && h.World.TouchesBelt(target) {
-		roomy := func(q bridge.Pos) bool {
-			for _, d := range [][2]float64{{0, 0}, {-0.15, 0}, {0.15, 0}, {0, -0.15}, {0, 0.15}} {
-				if !h.World.Standable(bridge.Pos{X: q.X + d[0], Y: q.Y + d[1]}) {
-					return false
-				}
-			}
-			return true
-		}
 		nearest := func(maxR float64, ok func(bridge.Pos) bool) (bridge.Pos, bool) {
 			for r := 0.05; r <= maxR; r += 0.05 {
 				n := max(8, int(2*math.Pi*r/0.05))
@@ -195,7 +187,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 			}
 			return goal, false
 		}
-		q, ok := nearest(stop, roomy)
+		q, ok := nearest(stop, h.World.Roomy)
 		if !ok {
 			q, _ = nearest(2, h.World.Standable)
 		}
@@ -1247,6 +1239,9 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 				}
 				if h.nearBelt(q) {
 					d += 3 // щель у ленты (коридор между бурами) — снова снесёт
+				}
+				if !h.World.Roomy(q) {
+					d += 6 // вплотную к ленте — проскочит обратно на ленту (сильнее, чем ближе к цели)
 				}
 				cs = append(cs, cand{q, d})
 			}
