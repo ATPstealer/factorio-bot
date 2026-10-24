@@ -61,7 +61,7 @@ func smeltingLayout(h *act.Hands) ([]layout.Placement, error) {
 // outBuffer — буфер выхода кластера c: сбоку от выходной ленты (от порта назад) pairs пар
 // «инсертер с фильтром на продукт — сундук»; места — свободные от плана. Инсертер берёт с
 // ленты всё, что успевает (~0.8 шт/с): у сборщика с выходом ~1 шт/с два инсертера забирали
-// всё — на шину не шло ничего (стадия 14).
+// всё — на шину не шло ничего (стадия 19).
 func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) ([]layout.Placement, error) {
 	var out *cluster.Port
 	for i := range c.Ports {

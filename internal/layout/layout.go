@@ -58,7 +58,7 @@ func New(p *knowledge.Prototypes, w *world.World) *Layout {
 }
 
 // Chest — сундук раскладок (буферы, хранение): деревянный до первого обслуживания, после —
-// железный (cluster.md, раздел 6; стадия 17).
+// железный (cluster.md, раздел 6; стадия 22).
 var Chest = "wooden-chest"
 
 // Rule — что можно под постройкой.

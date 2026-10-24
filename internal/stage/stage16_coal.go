@@ -50,7 +50,7 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	s := &worker{h: h, sites: sites, useStore: true}
-	// сундук и электроинсертер стадии 6 стоят на месте ленты и burner-инсертера — их в конце
+	// сундук и электроинсертер стадии 11 стоят на месте ленты и burner-инсертера — их в конце
 	tmp := []layout.Placement{findPlaced(station, chest), findPlaced(station, "inserter")}
 	var first []layout.Placement
 	for _, pl := range list {
@@ -69,7 +69,7 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 		if e, err := s.entity(pl); err != nil {
 			return err
 		} else if e != nil {
-			h.Say("убираю %s стадии 6 — уголь пойдёт лентой", pl.Name)
+			h.Say("убираю %s стадии 11 — уголь пойдёт лентой", pl.Name)
 			if err := h.Pickup(ctx, *e); err != nil {
 				return err
 			}
@@ -119,7 +119,7 @@ func checkCoal(h *act.Hands) error {
 		return err
 	}
 	if e, err := h.B.EntityAt(chest, findPlaced(station, chest).Pos); err != nil || e != nil {
-		return fmt.Errorf("сундук стадии 6 у бойлера ещё стоит (%v)", err)
+		return fmt.Errorf("сундук стадии 11 у бойлера ещё стоит (%v)", err)
 	}
 	working := 0
 	for _, pl := range list {

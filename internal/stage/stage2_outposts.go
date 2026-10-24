@@ -47,7 +47,7 @@ const (
 	craftFree    = 4  // свободных ячеек при ожидании крафта: меньше — ненужное в хранение
 )
 
-// chest — сундук стадий: деревянный до обслуживания, с него (стадия 17) — железный (stage.Do).
+// chest — сундук стадий: деревянный до обслуживания, с него (стадия 22) — железный (stage.Do).
 var chest = "wooden-chest"
 
 // outpostSite — точка: вид (coal, iron-ore, copper-ore, stone) и её постройки по порядку стройки.
@@ -686,7 +686,7 @@ func checkOutposts(h *act.Hands) error {
 	return nil
 }
 
-// fromBuffers — пластины из буферов выхода плавки (стадия 12): забрать со всех, где есть;
+// fromBuffers — пластины из буферов выхода плавки (стадия 17): забрать со всех, где есть;
 // нигде нет — подождать.
 func (s *worker) fromBuffers(ctx context.Context, plate string) error {
 	data, err := os.ReadFile(runPath(smeltingFile))

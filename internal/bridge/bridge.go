@@ -276,7 +276,7 @@ func (b *Bridge) PollEvents(after int) (events []Event, seq int, err error) {
 	return r.Events, r.Seq, err
 }
 
-// Сенсоры карты (стадия 2) ---------------------------------------------------
+// Сенсоры карты -------------------------------------------------------------
 
 type ChunkPos struct {
 	X int `json:"x"`

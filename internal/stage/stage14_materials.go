@@ -22,7 +22,7 @@ import (
 // materialsExtra — запас сверх расчёта: стройке 16 и 17 — до дохода с её же цепочек.
 var materialsExtra = map[string]int{"iron-plate": 1500, "copper-plate": 1000, "coal": 1000}
 
-// outBufferItems — буфер выхода плавки (стадия 12: пластины копятся в контейнерах).
+// outBufferItems — буфер выхода плавки (стадия 17: пластины копятся в контейнерах).
 var outBufferItems = map[string]int{"inserter": 2, chest: 2}
 
 func init() {
