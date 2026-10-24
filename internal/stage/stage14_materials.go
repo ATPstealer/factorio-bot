@@ -248,6 +248,17 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 			break
 		}
 	}
+	// все сундуки полны — хранение сразу до 4×8, как на обслуживании (8 сундуков забивались к
+	// стадии 15: разбор точек не помещался — 238178543), и ещё раз
+	if k >= len(chests) && len(chests) < storageChests && !s.growing {
+		s.growing = true
+		defer func() { s.growing = false }()
+		s.h.Say("хранение полно — расширяю до %d сундуков", storageChests)
+		if err := growStorage(ctx, s.h, s); err != nil {
+			return err
+		}
+		return s.store(ctx, free, need...)
+	}
 	return nil
 }
 
