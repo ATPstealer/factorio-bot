@@ -23,7 +23,7 @@ func init() {
 	register(Stage{N: 23, Name: "рост и кластер схем", Run: runCircuits, Check: checkCircuits})
 }
 
-// greenAdded — что стадия 18 дописала в план (нет в плане до неё).
+// greenAdded — что стадия 6 дописала в план (нет в плане до неё).
 func greenAdded() ([]layout.Placement, *ClusterPlan, error) {
 	plan, err := LoadPlan()
 	if err != nil {
@@ -46,7 +46,7 @@ func greenAdded() ([]layout.Placement, *ClusterPlan, error) {
 	return res, plan, nil
 }
 
-// growLayout — рост из плана стадии 18: дописанное в старые кластеры добычи, плавки и
+// growLayout — рост из плана стадии 6: дописанное в старые кластеры добычи, плавки и
 // станции и в их логистику, продление лент шин их продуктов, делители на них, столбы к сети;
 // один раз на карту (файл).
 func growLayout(h *act.Hands) ([]layout.Placement, error) {
@@ -126,7 +126,7 @@ func runCircuits(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	if len(grow) > 0 {
-		h.Say("рост: %d построек по плану стадии 18", len(grow))
+		h.Say("рост: %d построек по плану стадии 6", len(grow))
 		order := []string{"electric-mining-drill", "stone-furnace", "boiler", "steam-engine", "transport-belt", "underground-belt",
 			"splitter", chest, "inserter", "burner-inserter", "small-electric-pole"}
 		if err := buildSorted(ctx, h, grow, order); err != nil {

@@ -43,6 +43,8 @@ RCON и мод `botbridge` (только чтение, ничего в игре 
    F=/путь/к/Factorio/bin/x64/factorio
    ```
 
+   С 2.1 это скрипт-обёртка; `inst.sh` сам запускает файл игры `bin/x64_/factorio`, если он есть.
+
 2. **Конфиги игры** — `run/server/config.ini` и `run/client/config.ini` (в git): в разделе
    `[path]` поправить `read-data` (папка `data` игры) и `write-data` (папка `run/server` и
    `run/client` в вашем клоне):

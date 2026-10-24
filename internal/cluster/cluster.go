@@ -641,8 +641,8 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	case Power: // с начала — не меньше PowerStart бойлеров (cluster.md §2а «Станция»)
 		c.Count = max(c.Count, PowerStart)
 	case Mine:
-		// размер добычи — по объёму руды (cluster.md §2а «Добыча»), пока не сделано — ряд не
-		// короче MinUnits пар: на коротком ряду буры не находят руды
+		// размер добычи — по объёму руды (cluster.md §2а «Добыча», mine.go), но ряд не короче
+		// MinUnits пар: на коротком ряду буры не находят руды
 		c.Count = max(c.Count, MinUnits)
 	}
 	room := c.Reserve / upgrade(p, m)
