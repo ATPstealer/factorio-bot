@@ -31,7 +31,8 @@ function dump.recipes()
   local res = {}
   for name, r in pairs(prototypes.recipe) do
     res[name] = {
-      category = r.category,
+      -- 2.1: category → список categories (в base у каждого рецепта одна) — первая
+      category = r.categories and r.categories[1] or nil,
       energy = r.energy,
       ingredients = amounts(r.ingredients),
       products = amounts(r.products),
@@ -56,7 +57,8 @@ function dump.items()
       stack_size = it.stack_size,
       place_result = it.place_result and it.place_result.name or nil,
       fuel_value = it.fuel_value > 0 and it.fuel_value or nil,
-      fuel_category = it.fuel_category,
+      -- 2.1: fuel_category → список fuel_categories — первая
+      fuel_category = it.fuel_categories and it.fuel_categories[1] or nil,
       burnt_result = it.burnt_result and it.burnt_result.name or nil,
       hidden = it.hidden,
     }

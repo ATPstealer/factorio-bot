@@ -1,6 +1,6 @@
 # Factorio Bot
 
-Бот играет в Factorio 2.0.77 (base) до запуска ракеты. Сейчас — фундамент (связь с игрой, ввод, ходьба, руки, знания, раскладки «на бумаге»); планировщик, кластерная база и прохождение пишутся заново мелкими задачами. Прежняя версия целиком — тег `v1`.
+Бот играет в Factorio 2.1.23 (base; до 24.10 — 2.0.77, Steam обновил сам) до запуска ракеты. Сейчас — фундамент (связь с игрой, ввод, ходьба, руки, знания, раскладки «на бумаге»); планировщик, кластерная база и прохождение пишутся заново мелкими задачами. Прежняя версия целиком — тег `v1`.
 
 Документы:
 - `capabilities.md` — что умеет бот (общими словами).
@@ -21,7 +21,8 @@
 
 ## Игра
 
-- Игра: `/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio`. Пользовательский `~/.factorio` не трогать.
+- Игра: `/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio` — с 2.1 это скрипт-обёртка, скрипты запускают сам файл `bin/x64_/factorio` (`scripts/inst.sh`, иначе процесс не находится по командной строке). Пользовательский `~/.factorio` не трогать.
+- 2.1 против 2.0 для мода: `LuaRecipePrototype::category` → список `categories` (в base одна), `fuel_category` → список `fuel_categories`, `LuaEntity::neighbours` убран (подземка — `underground_belt_neighbour`), `get_quick_bar_slot(страница, ячейка)` отдаёт `{type="filter", filter={name…}}`; клавиша пустой ячейки панели — «быстрая пипетка».
 - `run/server/` — write-data сервера (`config.ini`, `mods/`, `saves/bot.zip`); `run/client/` — клиента (`config.ini`, `mods/`, `player-data.json`, `steam_appid.txt`, `home/`).
 - Логи: `run/server.log`, `run/client.log`, `run/xephyr.log`. Сид текущей карты — `run/map.json`. У экземпляра N (`INST=N`, 1–4) — то же в `run/iN/`.
 

@@ -4,6 +4,9 @@
 # Снимки (run/snapshots), логи стадий и бенча — общие.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 F=/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio
+# с 2.1 bin/x64/factorio — скрипт-обёртка (exec bin/x64_/factorio): запускать сам файл игры,
+# иначе процесс не находится по «^$F --config …» (stop.sh не останавливал сервер)
+[[ -x ${F%/x64/factorio}/x64_/factorio ]] && F=${F%/x64/factorio}/x64_/factorio
 INST=${INST:-0}
 if [[ $INST == 0 ]]; then R=$ROOT/run; else R=$ROOT/run/i$INST; fi
 DISPLAY_NUM=${DISPLAY_NUM:-:$((INST + 1))}

@@ -1,5 +1,5 @@
 {
- "game_version": "2.0.77",
+ "game_version": "2.1.23",
  "recipes": {
   "accumulator": {
    "category": "crafting",
@@ -1018,7 +1018,7 @@
    "group_order": "b",
    "subgroup": "space-related",
    "subgroup_order": "g",
-   "order": "c[cargo-landing-pad]"
+   "order": "c-a[cargo-landing-pad]"
   },
   "cargo-wagon": {
    "category": "crafting",
@@ -4603,12 +4603,12 @@
     {
      "type": "item",
      "name": "copper-plate",
-     "amount": 5
+     "amount": 2
     },
     {
      "type": "item",
      "name": "steel-plate",
-     "amount": 2
+     "amount": 1
     },
     {
      "type": "item",
@@ -4620,7 +4620,7 @@
     {
      "type": "item",
      "name": "piercing-shotgun-shell",
-     "amount": 1
+     "amount": 2
     }
    ],
    "main_product": "piercing-shotgun-shell",
@@ -6997,14 +6997,12 @@
     {
      "type": "item",
      "name": "uranium-235",
-     "amount": 1,
-     "probability": 0.007000000000000001
+     "amount": 1
     },
     {
      "type": "item",
      "name": "uranium-238",
-     "amount": 1,
-     "probability": 0.993
+     "amount": 1
     }
    ],
    "enabled": false,
@@ -7228,7 +7226,7 @@
    "hidden": false
   },
   "automation-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 200,
    "hidden": false
@@ -7368,7 +7366,7 @@
   "centrifuge": {
    "type": "item",
    "subgroup": "production-machine",
-   "stack_size": 50,
+   "stack_size": 10,
    "place_result": "centrifuge",
    "hidden": false
   },
@@ -7380,7 +7378,7 @@
    "hidden": false
   },
   "chemical-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 200,
    "hidden": false
@@ -7558,6 +7556,12 @@
    "subgroup": "other",
    "stack_size": 50,
    "place_result": "electric-energy-interface",
+   "hidden": true
+  },
+  "electric-energy-interface-equipment": {
+   "type": "item",
+   "subgroup": "other",
+   "stack_size": 1,
    "hidden": true
   },
   "electric-engine-unit": {
@@ -7959,7 +7963,7 @@
    "hidden": false
   },
   "logistic-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 200,
    "hidden": false
@@ -7991,7 +7995,7 @@
    "hidden": false
   },
   "military-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 200,
    "hidden": false
@@ -8218,7 +8222,7 @@
    "hidden": false
   },
   "production-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 200,
    "hidden": false
@@ -8467,7 +8471,7 @@
    "hidden": false
   },
   "space-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 2000,
    "hidden": false
@@ -8732,7 +8736,7 @@
    "hidden": false
   },
   "utility-science-pack": {
-   "type": "tool",
+   "type": "item",
    "subgroup": "science-pack",
    "stack_size": 200,
    "hidden": false
@@ -9034,7 +9038,6 @@
    "crafting_speed": 0.5,
    "crafting_categories": [
     "advanced-crafting",
-    "basic-crafting",
     "crafting",
     "parameters"
    ],
@@ -9089,7 +9092,6 @@
    "crafting_speed": 0.75,
    "crafting_categories": [
     "advanced-crafting",
-    "basic-crafting",
     "crafting",
     "crafting-with-fluid",
     "parameters"
@@ -9162,7 +9164,6 @@
    "crafting_speed": 1.25,
    "crafting_categories": [
     "advanced-crafting",
-    "basic-crafting",
     "crafting",
     "crafting-with-fluid",
     "parameters"
@@ -9410,6 +9411,7 @@
     "effectivity": 1,
     "fuel_inventory_size": 1
    },
+   "max_wire_distance": 9,
    "pipe_connections": [
     {
      "x": -1,
@@ -9747,7 +9749,7 @@
    },
    "max_wire_distance": 9,
    "vector_to_place_result": [
-    -0.5,
+    -0.35,
     -1.3
    ]
   },
@@ -9980,7 +9982,8 @@
    ],
    "crafting_speed": 1,
    "crafting_categories": [
-    "crafting"
+    "crafting",
+    "hand-crafting"
    ],
    "mining_speed": 0.5,
    "resource_categories": [
@@ -11916,11 +11919,11 @@
    "tile_height": 3,
    "collision_box": {
     "left_top": {
-     "x": -0.69921875,
+     "x": -0.71875,
      "y": -1.19921875
     },
     "right_bottom": {
-     "x": 0.69921875,
+     "x": 0.71875,
      "y": 1.19921875
     }
    },
@@ -11935,6 +11938,7 @@
     }
    },
    "flags": [
+    "building-direction-8-way",
     "placeable-player",
     "player-creation"
    ],
@@ -12184,6 +12188,7 @@
     ]
    },
    "max_energy_usage": 166666.66666666666,
+   "max_wire_distance": 9,
    "pipe_connections": [
     {
      "x": -1,
@@ -12293,7 +12298,8 @@
       "amount": 1
      }
     ]
-   }
+   },
+   "max_wire_distance": 9
   },
   "huge-rock": {
    "type": "simple-entity",
@@ -12469,6 +12475,7 @@
      }
     ]
    },
+   "max_wire_distance": 9,
    "pipe_connections": [
     {
      "x": 0,
@@ -12681,6 +12688,7 @@
    "energy_usage": 1000,
    "max_energy_usage": 1000,
    "electric": true,
+   "max_wire_distance": 9,
    "researching_speed": 1,
    "lab_inputs": [
     "automation-science-pack",
@@ -12736,7 +12744,8 @@
       "amount": 1
      }
     ]
-   }
+   },
+   "max_wire_distance": 9
   },
   "lane-splitter": {
    "type": "lane-splitter",
@@ -13353,12 +13362,12 @@
    "tile_height": 5,
    "collision_box": {
     "left_top": {
-     "x": -2.3984375,
-     "y": -2.3984375
+     "x": -2.19921875,
+     "y": -2.19921875
     },
     "right_bottom": {
-     "x": 2.3984375,
-     "y": 2.3984375
+     "x": 2.19921875,
+     "y": 2.19921875
     }
    },
    "selection_box": {
@@ -13576,7 +13585,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-1": {
    "type": "simple-entity",
@@ -13601,7 +13613,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-2": {
    "type": "simple-entity",
@@ -13626,7 +13641,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-3": {
    "type": "simple-entity",
@@ -13651,7 +13669,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-4": {
    "type": "simple-entity",
@@ -13676,7 +13697,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-5": {
    "type": "simple-entity",
@@ -13701,7 +13725,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-6": {
    "type": "simple-entity",
@@ -13726,7 +13753,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-7": {
    "type": "simple-entity",
@@ -13751,7 +13781,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-8": {
    "type": "simple-entity",
@@ -13776,7 +13809,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "parameter-9": {
    "type": "simple-entity",
@@ -13801,7 +13837,10 @@
      "x": 0,
      "y": 0
     }
-   }
+   },
+   "flags": [
+    "always-show"
+   ]
   },
   "passive-provider-chest": {
    "type": "logistic-container",
@@ -13887,6 +13926,7 @@
      }
     ]
    },
+   "max_wire_distance": 9,
    "pipe_connections": [
     {
      "x": 0,
@@ -13959,6 +13999,7 @@
      }
     ]
    },
+   "max_wire_distance": 9,
    "max_underground_distance": 10,
    "pipe_connections": [
     {
@@ -14507,8 +14548,8 @@
    "max_energy_usage": 66500,
    "electric": true,
    "drain": 138.88888888888889,
-   "module_slots": 4,
-   "fixed_recipe": "rocket-part"
+   "max_wire_distance": 9,
+   "module_slots": 4
   },
   "selector-combinator": {
    "type": "selector-combinator",
@@ -14736,12 +14777,12 @@
    "tile_height": 3,
    "collision_box": {
     "left_top": {
-     "x": -1.3984375,
-     "y": -1.3984375
+     "x": -1.34765625,
+     "y": -1.34765625
     },
     "right_bottom": {
-     "x": 1.3984375,
-     "y": 1.3984375
+     "x": 1.34765625,
+     "y": 1.34765625
     }
    },
    "selection_box": {
@@ -19192,7 +19233,7 @@
    "unlocks": [
     "poison-capsule",
     "slowdown-capsule",
-    "combat-shotgun"
+    "piercing-shotgun-shell"
    ],
    "hidden": false,
    "enabled": true
@@ -19228,8 +19269,8 @@
     }
    ],
    "unlocks": [
-    "piercing-shotgun-shell",
-    "cluster-grenade"
+    "cluster-grenade",
+    "combat-shotgun"
    ],
    "hidden": false,
    "enabled": true
@@ -19525,8 +19566,7 @@
    "unit_time": 0,
    "unit_ingredients": null,
    "trigger": {
-    "type": "mine-entity",
-    "entity": "crude-oil"
+    "type": "mine-entity"
    },
    "unlocks": [
     "oil-refinery",
@@ -21170,8 +21210,7 @@
    "unit_time": 0,
    "unit_ingredients": null,
    "trigger": {
-    "type": "mine-entity",
-    "entity": "uranium-ore"
+    "type": "mine-entity"
    },
    "unlocks": [
     "centrifuge",

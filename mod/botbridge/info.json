@@ -1,9 +1,9 @@
 {
   "name": "botbridge",
-  "version": "0.27.0",
+  "version": "0.28.2",
   "title": "Bot Bridge",
   "author": "mav",
   "description": "Read-only сенсоры для внешнего бота через RCON.",
-  "factorio_version": "2.0",
-  "dependencies": ["base >= 2.0.77"]
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.1.23"]
 }

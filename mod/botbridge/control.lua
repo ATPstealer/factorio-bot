@@ -13,10 +13,12 @@ local pos, bot_player, entity_info, visible = util.pos, util.bot_player, util.en
 require("prototypes")(methods)
 require("scan")(methods)
 
--- В 2.0 get_quick_bar_slot возвращает прототип или пару {name, quality} — берём имя.
+-- get_quick_bar_slot: в 2.0 — прототип или пара {name, quality}; в 2.1 — {type = "filter",
+-- filter = {name, quality, comparator}} (бывают и другие виды ячеек — у них имени нет) — берём имя.
 local function slot_name(v)
   if v == nil then return nil end
   if type(v) == "string" then return v end
+  if v.filter then return v.filter.name end
   return v.name
 end
 
@@ -71,7 +73,7 @@ function methods.get_player()
     r.inventory_size = #inv
   end
   for i = 1, 10 do
-    local ok, v = pcall(p.get_quick_bar_slot, i)
+    local ok, v = pcall(p.get_quick_bar_slot, 1, i) -- 2.1: (страница, ячейка)
     r.quickbar[i] = ok and slot_name(v) or ""
   end
   -- без персонажа (заставка в начале новой карты) очереди крафта нет — обращение к ней ошибка
@@ -218,7 +220,7 @@ local function entity_state(p, name, position)
   end
   if e.type == "underground-belt" then -- input/output, есть ли пара
     r.ug_type = e.belt_to_ground_type
-    r.ug_paired = e.neighbours ~= nil or nil
+    r.ug_paired = e.underground_belt_neighbour ~= nil or nil -- 2.1: neighbours убрали
   end
   if e.type == "transport-belt" then -- что лежит на ленте (обе полосы)
     local items = {}
