@@ -23,7 +23,7 @@ const (
 	floorDepth = 40             // кластер длиннее — несколькими столбцами
 	layerHead  = 10             // начало шин: головы лент, подвод с добычи
 	layerSlack = 24             // запас ширины базы: зонам — сдвигаться влево-вправо
-	maxShift   = 12             // зазор между шиной снизу и зоной — до стольких тайлов
+	maxShift   = 24             // зазор шина — зона сверх коридора 6 (снизу и сверху от зоны): всего 6…30 (zones.md)
 	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
 	busLanes   = 16             // лент шин 2 и 3, не меньше
 	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
@@ -443,29 +443,38 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				shifts = []float64{floorShift, floorShiftMin}
 			}
 			placed := false
-			for _, sh := range shifts {
-				l := prevL + int(sh*float64(prevW))
-				for gap := 0; gap <= maxShift && !placed; gap += 2 {
-					ps := parts(f, l, l+span, y-gap-depths[f], y-gap, f == floors)
-					if ps == nil {
-						continue
-					}
-					left := busL
-					if f == 1 { // шина ресурсов — от головы (layerHead левее переработки)
-						left = ps[0].Min.X - layerHead
-					}
-					bus := Rect{world.Tile{X: left, Y: busY.Min.Y}, world.Tile{X: ps[len(ps)-1].Max.X, Y: busY.Max.Y}}
-					// шине ресурсов — зазор от добычи: в головы слева входят подводы (zones.md)
-					if !freeBus(bus) || f == 1 && b.nearMine(bus) {
-						continue
-					}
-					lo.buses[f-1], lo.floors[f] = bus, ps
-					area = union(union(area, bus), union(ps[0], ps[len(ps)-1]))
-					y, placed = y-gap-depths[f]-2*ZoneBorder, true
-					busL, prevL, prevW = ps[0].Min.X, ps[0].Min.X, ps[len(ps)-1].Max.X-ps[0].Min.X
-				}
-				if placed {
+			// шина над этажом ниже — выше коридора ещё на 0…maxShift (bus-1 — на месте)
+			low := busY.Max.Y // нижний край шины без зазора (Y растёт вниз)
+			for bg := 0; bg <= maxShift && !placed; bg += 2 {
+				if f == 1 && bg > 0 {
 					break
+				}
+				busY = Rect{world.Tile{Y: low - bg - widths[f-1]}, world.Tile{Y: low - bg}}
+				y = busY.Min.Y - 2*ZoneBorder
+				for _, sh := range shifts {
+					l := prevL + int(sh*float64(prevW))
+					for gap := 0; gap <= maxShift && !placed; gap += 2 {
+						ps := parts(f, l, l+span, y-gap-depths[f], y-gap, f == floors)
+						if ps == nil {
+							continue
+						}
+						left := busL
+						if f == 1 { // шина ресурсов — от головы (layerHead левее переработки)
+							left = ps[0].Min.X - layerHead
+						}
+						bus := Rect{world.Tile{X: left, Y: busY.Min.Y}, world.Tile{X: ps[len(ps)-1].Max.X, Y: busY.Max.Y}}
+						// шине ресурсов — зазор от добычи: в головы слева входят подводы (zones.md)
+						if !freeBus(bus) || f == 1 && b.nearMine(bus) {
+							continue
+						}
+						lo.buses[f-1], lo.floors[f] = bus, ps
+						area = union(union(area, bus), union(ps[0], ps[len(ps)-1]))
+						y, placed = y-gap-depths[f]-2*ZoneBorder, true
+						busL, prevL, prevW = ps[0].Min.X, ps[0].Min.X, ps[len(ps)-1].Max.X-ps[0].Min.X
+					}
+					if placed {
+						break
+					}
 				}
 			}
 			if !placed {
