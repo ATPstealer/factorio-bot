@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -16,9 +14,9 @@ import (
 )
 
 // Стадия 17 (stages.md): кластеры добычи и плавки железа и меди по плану стадии 5 с буферами
-// входа; руда — в ленты шины, плавка берёт руду и уголь с шины, пластины — в ленты шины.
-// Буферы выхода (cluster.md 6а) — инсертер с фильтром на продукт берёт с выходной ленты
-// плавки в сундук: пластины для крафта и стройки бота.
+// входа; руда — в ленты шины, плавка берёт руду и уголь с шины, пластины пока не на шину
+// (стадия 18). Буферы выхода (cluster.md 6а) — инсертер с фильтром на продукт берёт с выходной
+// ленты плавки в сундук: пластины для крафта и стройки бота.
 
 const smeltingFile = "state-smelting.json"
 
@@ -28,51 +26,37 @@ func init() {
 
 // smeltingLayout — кластеры и подводы к плавке из плана, буферы выхода плавки (один раз на карту).
 func smeltingLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(smeltingFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
-		}
-	}
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, err
-	}
-	res := smeltingBase(h, plan)
-	var smelt []*cluster.Cluster
-	var allow []string
-	for _, c := range plan.Clusters {
-		switch {
-		case c.Kind == cluster.Smelt && (c.Product == "iron-plate" || c.Product == "copper-plate"):
-			smelt = append(smelt, c)
-			allow = append(allow, c.Name)
-		case c.Kind == cluster.Mine && (c.Product == "iron-ore" || c.Product == "copper-ore" || c.Product == "coal"),
-			c.Kind == cluster.Power, c.Kind == cluster.Bus:
-			allow = append(allow, c.Name)
-		}
-	}
-	all := layout.New(h.Protos, h.World)
-	for _, pl := range plan.Layout {
-		all.Add(pl)
-	}
-	for _, c := range smelt {
-		buf, err := outBuffer(h, all, c, outBufferItems[chest])
+	return onceLayout(smeltingFile, func() ([]layout.Placement, error) {
+		plan, err := LoadPlan()
 		if err != nil {
 			return nil, err
 		}
-		res = append(res, buf...)
-	}
-	// питание — столбами по коридорам от сети
-	poles, err := connectPower(h, plan, res, allow)
-	if err != nil {
-		return nil, err
-	}
-	res = append(res, poles...)
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return res, os.WriteFile(runPath(smeltingFile), data, 0o644)
+		res := smeltingBase(h, plan)
+		var smelt []*cluster.Cluster
+		var allow []string
+		for _, c := range plan.Clusters {
+			switch {
+			case c.Kind == cluster.Smelt && (c.Product == "iron-plate" || c.Product == "copper-plate"):
+				smelt = append(smelt, c)
+				allow = append(allow, c.Name)
+			case c.Kind == cluster.Mine && (c.Product == "iron-ore" || c.Product == "copper-ore" || c.Product == "coal"):
+				allow = append(allow, c.Name)
+			}
+		}
+		all := layout.New(h.Protos, h.World)
+		for _, pl := range plan.Layout {
+			all.Add(pl)
+		}
+		for _, c := range smelt {
+			buf, err := outBuffer(h, all, c, outBufferItems[chest])
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, buf...)
+		}
+		poles, err := connectPower(h, plan, res, allow)
+		return append(res, poles...), err
+	})
 }
 
 // outBuffer — буфер выхода кластера c: сбоку от выходной ленты (от порта назад) pairs пар

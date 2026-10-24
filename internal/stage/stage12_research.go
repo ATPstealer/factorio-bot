@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -34,12 +32,10 @@ func init() {
 // researchLayout — лаборатории и столбы до них: кратчайшая цепочка столбов плана (логистика,
 // станция, лаборатории) от столбов станции до столба, питающего каждую лабораторию.
 func researchLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(researchFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
-		}
-	}
+	return onceLayout(researchFile, func() ([]layout.Placement, error) { return researchBuild(h) })
+}
+
+func researchBuild(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
@@ -84,12 +80,7 @@ func researchLayout(h *act.Hands) ([]layout.Placement, error) {
 			start = append(start, pl.Pos)
 		}
 	}
-	list = append(list, labs...)
-	data, err := json.MarshalIndent(list, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return list, os.WriteFile(runPath(researchFile), data, 0o644)
+	return append(list, labs...), nil
 }
 
 func runResearch(ctx context.Context, h *act.Hands) error {

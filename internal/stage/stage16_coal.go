@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -13,10 +11,10 @@ import (
 )
 
 // Стадия 16 (stages.md): первый кластер добычи угля по плану стадии 5 — уголь в ленту шины;
-// станция берёт уголь отводом с шины вместо сундука стадии 6 (у бойлера — burner-инсертер с
-// ленты, как в плане). Питание — столбами по коридорам от сети (connectPower).
+// станция — отдельной лентой прямо с добычи вместо сундука стадии 11 (у бойлера —
+// burner-инсертер с ленты, как в плане). Питание — столбами по коридорам от сети (connectPower).
 
-const coalFile = "state-coal.json" // раскладка стадии: один раз на карту
+const coalFile = "state-coal.json"
 
 func init() {
 	register(Stage{N: 16, Name: "добыча угля", Run: runCoal, Check: checkCoal})
@@ -24,34 +22,18 @@ func init() {
 
 // coalLayout — coalBase и столбы питания; один раз на карту (файл).
 func coalLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(coalFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
+	return onceLayout(coalFile, func() ([]layout.Placement, error) {
+		plan, err := LoadPlan()
+		if err != nil {
+			return nil, err
 		}
-	}
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, err
-	}
-	res := coalBase(h, plan)
-	if len(res) == 0 {
-		return nil, fmt.Errorf("в плане нет добычи угля или станции")
-	}
-	coal, power := clusterOf(plan, cluster.Mine, "coal"), clusterOf(plan, cluster.Power, "")
-	allow := []string{coal.Name, power.Name}
-	allow = append(allow, busNames(plan)...)
-	// питание кластера — столбами по коридорам от сети
-	poles, err := connectPower(h, plan, res, allow)
-	if err != nil {
-		return nil, err
-	}
-	res = append(res, poles...)
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return res, os.WriteFile(runPath(coalFile), data, 0o644)
+		res := coalBase(h, plan)
+		if len(res) == 0 {
+			return nil, fmt.Errorf("в плане нет добычи угля или станции")
+		}
+		poles, err := connectPower(h, plan, res, []string{clusterOf(plan, cluster.Mine, "coal").Name})
+		return append(res, poles...), err
+	})
 }
 
 func runCoal(ctx context.Context, h *act.Hands) error {

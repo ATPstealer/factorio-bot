@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -37,42 +35,24 @@ func makeLayout(h *act.Hands, product string) ([]layout.Placement, *cluster.Clus
 	if c == nil {
 		return nil, nil, fmt.Errorf("в плане нет кластера %s", product)
 	}
-	file := runPath(fmt.Sprintf("state-make-%s.json", product))
-	if data, err := os.ReadFile(file); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, c, nil
+	list, err := onceLayout(fmt.Sprintf("state-make-%s.json", product), func() ([]layout.Placement, error) {
+		res := tagged(plan, cluster.Tag(c.Name), cluster.LogisticsTag+"/"+c.Name)
+		res = withSplitters(h, plan, append(res, busParts(plan, []string{product}, []string{c.Name})...))
+		all := layout.New(h.Protos, h.World)
+		for _, pl := range plan.Layout {
+			all.Add(pl)
 		}
-	}
-	res := tagged(plan, cluster.Tag(c.Name), cluster.LogisticsTag+"/"+c.Name)
-	res = withSplitters(h, plan, append(res, busParts(plan, []string{product}, []string{c.Name})...))
-	all := layout.New(h.Protos, h.World)
-	for _, pl := range plan.Layout {
-		all.Add(pl)
-	}
-	if !isScience(product) { // у науки буфера выхода нет — всё на шину (cluster.md §6а)
-		buf, err := endBuffer(h, all, plan, c, product)
-		if err != nil {
-			return nil, nil, err
+		if !isScience(product) { // у науки буфера выхода нет — всё на шину (cluster.md §6а)
+			buf, err := endBuffer(h, all, plan, c, product)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, buf...)
 		}
-		res = append(res, buf...)
-	}
-	allow := []string{c.Name}
-	for _, o := range plan.Clusters {
-		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
-			allow = append(allow, o.Name)
-		}
-	}
-	poles, err := connectPower(h, plan, res, allow)
-	if err != nil {
-		return nil, nil, err
-	}
-	res = append(res, poles...)
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, nil, err
-	}
-	return res, c, os.WriteFile(file, data, 0o644)
+		poles, err := connectPower(h, plan, res, []string{c.Name})
+		return append(res, poles...), err
+	})
+	return list, c, err
 }
 
 // endBuffer — буфер выхода сборки в конце ленты продукта на шине (самый дальний её конец):

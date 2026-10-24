@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -34,12 +32,10 @@ func init() {
 // powerLayout — что строить: станция плана (бойлеры, двигатели, столбы, трубы), помпа с трубами,
 // сундук и электрический инсертер к бойлеру, недостающие столбы (инсертер запитать).
 func powerLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(powerFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
-		}
-	}
+	return onceLayout(powerFile, func() ([]layout.Placement, error) { return powerBuild(h) })
+}
+
+func powerBuild(h *act.Hands) ([]layout.Placement, error) {
 	s, err := LoadPlan()
 	if err != nil {
 		return nil, err
@@ -89,11 +85,7 @@ func powerLayout(h *act.Hands) ([]layout.Placement, error) {
 	l.Add(layout.Placement{Name: chest, Pos: belt.Center(), Tag: powerTag})
 	l.Add(layout.Placement{Name: "inserter", Pos: f.Pos, Dir: f.Dir, Tag: powerTag})
 	l.Poles("small-electric-pole", powerTag)
-	data, err := json.MarshalIndent(l.List, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return l.List, os.WriteFile(runPath(powerFile), data, 0o644)
+	return l.List, nil
 }
 
 // powerOrder — порядок стройки: вода, бойлер, двигатели, столбы, сундук, инсертер.

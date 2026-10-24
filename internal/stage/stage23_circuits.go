@@ -2,8 +2,6 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"slices"
 
 	"factorio-bot/internal/act"
@@ -12,7 +10,7 @@ import (
 )
 
 // Стадия 23 (stages.md): сначала — рост старых кластеров по плану стадии 6 (новые машины,
-// продление лент, столбы), потом кластер провода и схем как кластеры 14–15 (makeLayout/runMake).
+// продление лент, столбы), потом кластер провода и схем как кластеры 19–20 (makeLayout/runMake).
 
 const (
 	growFile       = "state-grow.json"
@@ -50,22 +48,18 @@ func greenAdded() ([]layout.Placement, *ClusterPlan, error) {
 // станции и в их логистику, продление лент шин их продуктов, делители на них, столбы к сети;
 // один раз на карту (файл).
 func growLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(growFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil {
-			return list, nil
+	return onceLayout(growFile, func() ([]layout.Placement, error) {
+		added, plan, err := greenAdded()
+		if err != nil {
+			return nil, err
 		}
-	}
-	added, plan, err := greenAdded()
-	if err != nil {
-		return nil, err
-	}
-	tags := map[string]bool{}
-	items := map[string]bool{}
-	allow := []string{}
-	for _, c := range plan.Clusters {
-		switch c.Kind {
-		case cluster.Mine, cluster.Smelt, cluster.Power:
+		tags := map[string]bool{}
+		items := map[string]bool{}
+		var allow []string
+		for _, c := range plan.Clusters {
+			if c.Kind != cluster.Mine && c.Kind != cluster.Smelt && c.Kind != cluster.Power {
+				continue
+			}
 			tags[cluster.Tag(c.Name)], tags[cluster.LogisticsTag+"/"+c.Name] = true, true
 			for _, bus := range busNames(plan) {
 				tags[cluster.LogisticsTag+"/"+bus+"/"+c.Name] = true
@@ -74,28 +68,18 @@ func growLayout(h *act.Hands) ([]layout.Placement, error) {
 				items[o.Item] = true
 			}
 			allow = append(allow, c.Name)
-		case cluster.Bus:
-			allow = append(allow, c.Name)
 		}
-	}
-	var res []layout.Placement
-	for _, pl := range added {
-		onBus := items[pl.Recipe] && slices.ContainsFunc(busNames(plan), func(b string) bool { return pl.Tag == cluster.Tag(b) })
-		if tags[pl.Tag] || onBus {
-			res = append(res, pl)
+		var res []layout.Placement
+		for _, pl := range added {
+			onBus := items[pl.Recipe] && slices.ContainsFunc(busNames(plan), func(b string) bool { return pl.Tag == cluster.Tag(b) })
+			if tags[pl.Tag] || onBus {
+				res = append(res, pl)
+			}
 		}
-	}
-	res = withSplitters(h, plan, res)
-	poles, err := connectPower(h, plan, res, allow)
-	if err != nil {
-		return nil, err
-	}
-	res = append(res, poles...)
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return res, os.WriteFile(runPath(growFile), data, 0o644)
+		res = withSplitters(h, plan, res)
+		poles, err := connectPower(h, plan, res, allow)
+		return append(res, poles...), err
+	})
 }
 
 // buildSorted — построить list (уже стоящее пропускается) в порядке order (машины — раньше лент

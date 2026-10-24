@@ -127,11 +127,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			if err := planDraw(h, rough.Zones, base, l, planImage()); err != nil {
 				return err
 			}
-			data, err := json.MarshalIndent(ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()}, "", " ")
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(runPath(planFile), data, 0o644)
+			return writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})
 		}
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {

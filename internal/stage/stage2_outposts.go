@@ -160,10 +160,7 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 	}, outpostCopper); err != nil {
 		return nil, err
 	}
-	if data, err := json.MarshalIndent(sites, "", " "); err == nil {
-		os.WriteFile(runPath(outpostsFile), data, 0o644)
-	}
-	return sites, nil
+	return sites, writeState(outpostsFile, sites)
 }
 
 // outpostOrder — порядок стройки: 3 железные пары (железо на остальное), угольные пары, остальное

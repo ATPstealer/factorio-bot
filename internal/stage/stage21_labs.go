@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"time"
@@ -27,37 +25,19 @@ func init() {
 // labsLayout — внутренность кластера лабораторий, отводы к нему, делители, столбы; один раз
 // на карту (файл).
 func labsLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(labsFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
+	return onceLayout(labsFile, func() ([]layout.Placement, error) {
+		plan, err := LoadPlan()
+		if err != nil {
+			return nil, err
 		}
-	}
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, err
-	}
-	c := clusterOf(plan, cluster.Lab, "")
-	if c == nil {
-		return nil, fmt.Errorf("в плане нет кластера лабораторий")
-	}
-	res := withSplitters(h, plan, tagged(plan, cluster.Tag(c.Name), cluster.LogisticsTag+"/"+c.Name))
-	allow := []string{c.Name}
-	for _, o := range plan.Clusters {
-		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
-			allow = append(allow, o.Name)
+		c := clusterOf(plan, cluster.Lab, "")
+		if c == nil {
+			return nil, fmt.Errorf("в плане нет кластера лабораторий")
 		}
-	}
-	poles, err := connectPower(h, plan, res, allow)
-	if err != nil {
-		return nil, err
-	}
-	res = append(res, poles...)
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return res, os.WriteFile(runPath(labsFile), data, 0o644)
+		res := withSplitters(h, plan, tagged(plan, cluster.Tag(c.Name), cluster.LogisticsTag+"/"+c.Name))
+		poles, err := connectPower(h, plan, res, []string{c.Name})
+		return append(res, poles...), err
+	})
 }
 
 // labsTech — исследование на одной красной науке, доступное (предпосылки изучены), не

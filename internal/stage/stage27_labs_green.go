@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -29,43 +28,25 @@ func init() {
 // labsGreenLayout — дописанное стадией 6 в кластер лабораторий и его отводы, лента зелёной науки
 // шины конечных с подводом, делители, столбы; один раз на карту (файл).
 func labsGreenLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(labsGreenFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
+	return onceLayout(labsGreenFile, func() ([]layout.Placement, error) {
+		added, plan, err := greenAdded()
+		if err != nil {
+			return nil, err
 		}
-	}
-	added, plan, err := greenAdded()
-	if err != nil {
-		return nil, err
-	}
-	lab, green := clusterOf(plan, cluster.Lab, ""), clusterOf(plan, cluster.Make, greenPack)
-	if lab == nil || green == nil {
-		return nil, fmt.Errorf("в плане нет лабораторий или зелёной науки")
-	}
-	var res []layout.Placement
-	for _, pl := range added {
-		if pl.Tag == cluster.Tag(lab.Name) || pl.Tag == cluster.LogisticsTag+"/"+lab.Name {
-			res = append(res, pl)
+		lab, green := clusterOf(plan, cluster.Lab, ""), clusterOf(plan, cluster.Make, greenPack)
+		if lab == nil || green == nil {
+			return nil, fmt.Errorf("в плане нет лабораторий или зелёной науки")
 		}
-	}
-	res = withSplitters(h, plan, append(res, busParts(plan, []string{greenPack}, []string{green.Name})...))
-	allow := []string{lab.Name}
-	for _, o := range plan.Clusters {
-		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
-			allow = append(allow, o.Name)
+		var res []layout.Placement
+		for _, pl := range added {
+			if pl.Tag == cluster.Tag(lab.Name) || pl.Tag == cluster.LogisticsTag+"/"+lab.Name {
+				res = append(res, pl)
+			}
 		}
-	}
-	poles, err := connectPower(h, plan, res, allow)
-	if err != nil {
-		return nil, err
-	}
-	res = append(res, poles...)
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return res, os.WriteFile(runPath(labsGreenFile), data, 0o644)
+		res = withSplitters(h, plan, append(res, busParts(plan, []string{greenPack}, []string{green.Name})...))
+		poles, err := connectPower(h, plan, res, []string{lab.Name})
+		return append(res, poles...), err
+	})
 }
 
 // greenTechs — доступные (предпосылки изучены), не изученные исследования на красной и зелёной

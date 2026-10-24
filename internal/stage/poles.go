@@ -146,9 +146,14 @@ func powers(p *act.Hands, pole bridge.Pos, pl layout.Placement) bool {
 
 // connectPower — столбы, чтобы всё электрическое из list было в сети: стоящие свои столбы —
 // сеть; группы столбов list, не достающие до сети, — цепочкой по коридорам к ней; что
-// после этого не запитано — своим столбом по коридорам. allow — кластеры, через площадь
-// которых можно идти (свои и станция).
+// после этого не запитано — своим столбом по коридорам. allow — свои кластеры, через площадь
+// которых можно идти (шины и станция — всегда).
 func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow []string) ([]layout.Placement, error) {
+	for _, o := range plan.Clusters {
+		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
+			allow = append(allow, o.Name)
+		}
+	}
 	const pole = "small-electric-pole"
 	reach := h.Protos.Entities[pole].MaxWireDistance
 	p, err := h.B.Player()

@@ -53,6 +53,31 @@ func runPath(name string) string {
 	return filepath.Join(dir, name)
 }
 
+// writeState — v в файл состояния стадий file (runPath).
+func writeState(file string, v any) error {
+	data, err := json.MarshalIndent(v, "", " ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(runPath(file), data, 0o644)
+}
+
+// onceLayout — раскладка стадии один раз на карту: есть файл file — из него, нет — build и в
+// файл (стройка, проверка и перезапуск стадии видят одну и ту же раскладку).
+func onceLayout(file string, build func() ([]layout.Placement, error)) ([]layout.Placement, error) {
+	if data, err := os.ReadFile(runPath(file)); err == nil {
+		var list []layout.Placement
+		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
+			return list, nil
+		}
+	}
+	list, err := build()
+	if err != nil {
+		return nil, err
+	}
+	return list, writeState(file, list)
+}
+
 func register(s Stage) { all[s.N] = s }
 
 // Get — стадия N.

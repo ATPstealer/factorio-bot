@@ -189,11 +189,7 @@ func roughOnce(h *act.Hands) error {
 	if err := roughDraw(h, rp.Zones, rp.Image); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(rp, "", " ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(runPath(roughFile), data, 0o644)
+	return writeState(roughFile, rp)
 }
 
 // roughImage — картинка зон: run/stages/zones-<сид>.png.

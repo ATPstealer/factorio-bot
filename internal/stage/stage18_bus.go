@@ -2,9 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -25,25 +23,17 @@ func init() {
 
 // busPlatesLayout — busPlatesBase; один раз на карту (файл).
 func busPlatesLayout(h *act.Hands) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(busPlatesFile)); err == nil {
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
-			return list, nil
+	return onceLayout(busPlatesFile, func() ([]layout.Placement, error) {
+		plan, err := LoadPlan()
+		if err != nil {
+			return nil, err
 		}
-	}
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, err
-	}
-	res := busPlatesBase(h, plan)
-	if len(res) == 0 {
-		return nil, fmt.Errorf("в плане нет лент пластин шины")
-	}
-	data, err := json.MarshalIndent(res, "", " ")
-	if err != nil {
-		return nil, err
-	}
-	return res, os.WriteFile(runPath(busPlatesFile), data, 0o644)
+		res := busPlatesBase(h, plan)
+		if len(res) == 0 {
+			return nil, fmt.Errorf("в плане нет лент пластин шины")
+		}
+		return res, nil
+	})
 }
 
 func runBusPlates(ctx context.Context, h *act.Hands) error {

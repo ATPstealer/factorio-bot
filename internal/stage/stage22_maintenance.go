@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -281,11 +280,7 @@ func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
 		if err != nil {
 			return err
 		}
-		data, err := json.MarshalIndent(extra, "", " ")
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(runPath(storageExtraFile), data, 0o644); err != nil {
+		if err := writeState(storageExtraFile, extra); err != nil {
 			return err
 		}
 		if list, err = storageLayout(); err != nil {
