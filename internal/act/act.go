@@ -170,17 +170,24 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	defer func() { h.goal = nil }()
 	// конечная точка на ленте или у её края (рамка задевает) — нельзя (унесёт): ближайшая, где
 	// можно стоять
+	// (кольцами по 0.05 тайла: сетка в полтайла уводила на 0.6 от цели у делителя — e2e
+	// TestWalkAgainstBelt); допуск — от исходной цели (ниже)
+	goal, tol := target, stop // исходные цель и допуск
 	if h.World != nil && h.World.TouchesBelt(target) {
-		best := math.Inf(1)
 		t0 := target
-		for dy := -2.0; dy <= 2; dy += 0.5 {
-			for dx := -2.0; dx <= 2; dx += 0.5 {
-				q := bridge.Pos{X: t0.X + dx, Y: t0.Y + dy}
-				if d := dist(t0, q); d < best && h.World.Standable(q) {
-					best, target = d, q
+	rings:
+		for r := 0.05; r <= 2; r += 0.05 {
+			n := max(8, int(2*math.Pi*r/0.05))
+			for k := 0; k < n; k++ {
+				a := 2 * math.Pi * float64(k) / float64(n)
+				if q := (bridge.Pos{X: t0.X + r*math.Cos(a), Y: t0.Y + r*math.Sin(a)}); h.World.Standable(q) {
+					target = q
+					break rings
 				}
 			}
 		}
+		// допуск — от исходной цели: сдвинутую — точнее (иначе встал бы до stop+сдвиг от цели)
+		stop = max(stop-dist(t0, target), 0.15)
 	}
 	if p, err := h.B.Player(); err == nil && dist(p.Position, target) > 8 {
 		h.Say("иду к (%.0f, %.0f), %.0f тайлов", target.X, target.Y, dist(p.Position, target))
@@ -285,6 +292,12 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	t2 := time.Now()
 	err := h.approach(ctx, target, stop)
 	h.Log("ходьба: маршрут %.1f с, остановка %.1f с, доводка %.1f с", t1.Sub(t0).Seconds(), t2.Sub(t1).Seconds(), time.Since(t2).Seconds())
+	if errors.Is(err, ErrNotReached) && target != goal {
+		// к сдвинутой цели — точнее, но годится и исходный допуск от исходной цели
+		if p, perr := h.B.Player(); perr == nil && dist(p.Position, goal) <= tol {
+			return nil
+		}
+	}
 	return err
 }
 
@@ -1055,6 +1068,11 @@ func (h *Hands) refill(ctx context.Context, es []bridge.Entity, in map[string]in
 	items := slices.Sorted(maps.Keys(in))
 	for _, it := range items {
 		if err := h.Insert(ctx, es[0], it, in[it]); err != nil {
+			// сундук под буром, пока стоял, уже наполнился сам — остаток держать при себе
+			if st, gerr := h.B.GetEntity(es[0].Name, es[0].Position); gerr == nil && st != nil && st.SlotsSize > 0 && len(st.Slots) >= st.SlotsSize {
+				h.Log("%s полон — остаток %s при себе", es[0].Name, it)
+				continue
+			}
 			return fmt.Errorf("вернуть %s ×%d в %s: %w", it, in[it], es[0].Name, err)
 		}
 	}
