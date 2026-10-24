@@ -329,6 +329,42 @@ func prepRecipes(h *act.Hands, list []layout.Placement) []string {
 		return []string{err.Error()}
 	}
 	stock := prepStock(h)
+	hand := map[string]bool{}
+	if ch, ok := h.Protos.Entities["character"]; ok {
+		for _, c := range ch.CraftingCategories {
+			hand[c] = true
+		}
+	}
+	// можно получить: есть; сырьё (рецепта нет); открыт рецепт не для рук (печь, сборщик) или
+	// для рук — и всё, из чего он, тоже можно получить (закрытый ингредиент — крафт встанет
+	// посреди стадии: inserter без electronics)
+	memo := map[string]bool{}
+	var can func(item string, depth int) bool
+	can = func(item string, depth int) bool {
+		if v, ok := memo[item]; ok {
+			return v
+		}
+		if stock[item] > 0 || depth > 8 {
+			return true
+		}
+		rs := h.Protos.RecipesFor(item)
+		ok := len(rs) == 0
+		for _, name := range rs {
+			r := h.Protos.Recipes[name]
+			if ok || !slices.Contains(f.Recipes, name) {
+				continue
+			}
+			ok = !hand[r.Category]
+			if !ok {
+				ok = true
+				for _, in := range r.Ingredients {
+					ok = ok && can(in.Name, depth+1)
+				}
+			}
+		}
+		memo[item] = ok
+		return ok
+	}
 	var res []string
 	seen := map[string]bool{}
 	for _, pl := range list {
@@ -337,15 +373,8 @@ func prepRecipes(h *act.Hands, list []layout.Placement) []string {
 			continue
 		}
 		seen[item] = true
-		if stock[item] > 0 {
-			continue
-		}
-		ok := false
-		for _, r := range h.Protos.RecipesFor(item) {
-			ok = ok || slices.Contains(f.Recipes, r)
-		}
-		if !ok {
-			res = append(res, fmt.Sprintf("%s нет и рецепт не открыт", item))
+		if !can(item, 0) {
+			res = append(res, fmt.Sprintf("%s нет, и не скрафтить: рецепт (или рецепт ингредиента) не открыт", item))
 		}
 	}
 	return res
