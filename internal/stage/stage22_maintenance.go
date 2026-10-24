@@ -148,6 +148,10 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 	if err := queueResearch(ctx, h); err != nil {
 		return err
 	}
+	// буферы — лишнее (попало до фильтров) себе; не пригодится — ниже в хранение
+	if err := cleanBuffers(ctx, h); err != nil {
+		return err
+	}
 	// хранение — расширить до storageChests (до того, как складывать туда инвентарь)
 	if err := growStorage(ctx, h, s); err != nil {
 		return err
@@ -163,6 +167,86 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	return queueResearch(ctx, h)
+}
+
+// cleanBuffers — сундуки буферов: только то, что пропускают фильтры их манипуляторов (тех, что
+// берут из сундука или кладут в него); лишнее (попало до фильтров — стадия 21 до заглушки) —
+// забрать всё и вернуть нужное. У сундука манипулятор без фильтра — что там положено, не
+// известно: не трогать. Хранение и сундуки без манипуляторов — не буферы.
+func cleanBuffers(ctx context.Context, h *act.Hands) error {
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
+	store := map[world.Tile]bool{}
+	if list, err := storageLayout(); err == nil {
+		for _, pl := range list {
+			store[world.TileOf(pl.Pos)] = true
+		}
+	}
+	step := map[int]world.Tile{0: {Y: -1}, 4: {X: 1}, 8: {Y: 1}, 12: {X: -1}}
+	for _, o := range h.World.Objects() {
+		ct := world.TileOf(o.Pos)
+		if !o.Own || o.Type != "container" || store[ct] {
+			continue
+		}
+		// манипуляторы, у которых сундук — место взятия или выкладки
+		allowed := map[string]bool{}
+		known, any := true, false
+		for _, ins := range h.World.ObjectsNear(o.Pos, 3) {
+			if !ins.Own || ins.Type != "inserter" {
+				continue
+			}
+			k := 1
+			if ins.Name == "long-handed-inserter" {
+				k = 2
+			}
+			it, v := world.TileOf(ins.Pos), step[ins.Direction]
+			if (world.Tile{X: it.X + v.X*k, Y: it.Y + v.Y*k}) != ct && (world.Tile{X: it.X - v.X*k, Y: it.Y - v.Y*k}) != ct {
+				continue
+			}
+			any = true
+			st, err := h.B.GetEntity(ins.Name, ins.Pos)
+			if err != nil || st == nil || len(st.Filters) == 0 {
+				known = false
+				break
+			}
+			for _, f := range st.Filters {
+				allowed[f] = true
+			}
+		}
+		if !any || !known {
+			continue
+		}
+		st, err := h.B.GetEntity(o.Name, o.Pos)
+		if err != nil || st == nil {
+			continue
+		}
+		in := st.Inventories["chest"]
+		var wrong []string
+		for it := range in {
+			if !allowed[it] {
+				wrong = append(wrong, it)
+			}
+		}
+		if len(wrong) == 0 {
+			continue
+		}
+		slices.Sort(wrong)
+		h.Say("буфер в (%.1f, %.1f): лишнее %v — забираю себе", o.Pos.X, o.Pos.Y, wrong)
+		e := st.Entity // с рамкой выделения (наведение)
+		if _, err := h.Take(ctx, e); err != nil {
+			return fmt.Errorf("буфер в (%.1f, %.1f): %w", o.Pos.X, o.Pos.Y, err)
+		}
+		// нужное — назад
+		for it, n := range in {
+			if allowed[it] && n > 0 {
+				if err := h.Insert(ctx, e, it, n); err != nil {
+					return fmt.Errorf("буфер в (%.1f, %.1f): вернуть %s: %w", o.Pos.X, o.Pos.Y, it, err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // storageChests — сундуков хранения после обслуживания (stages.md, стадия 22: было 8).
