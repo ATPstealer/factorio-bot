@@ -505,6 +505,39 @@ func (s *worker) built(ore, name string) []bridge.Entity {
 	return res
 }
 
+// pairDonors — с каких угольных буров брать уголь: в каждой паре (точка угля) — один, где угля
+// больше, и не меньше pairTake; второй остаётся с топливом и кормит соседа.
+func (s *worker) pairDonors() []bridge.Entity {
+	var res []bridge.Entity
+	for _, site := range s.sites {
+		if site.Ore != "coal" {
+			continue
+		}
+		var best *bridge.Entity
+		most := pairTake - 1
+		for _, pl := range site.Items {
+			if pl.Name != drill {
+				continue
+			}
+			st, err := s.h.B.GetEntity(pl.Name, pl.Pos)
+			if err != nil || st == nil {
+				continue
+			}
+			if n := st.Inventories["fuel"]["coal"]; n > most {
+				e := st.Entity
+				best, most = &e, n
+			}
+		}
+		if best != nil {
+			res = append(res, *best)
+		}
+	}
+	return res
+}
+
+// pairTake — с бура угольной пары брать, только если в нём не меньше стольких.
+const pairTake = 5
+
 // takeAll — забрать со всех построек точки (печи, сундук), где что-то есть; подошёл — со всех.
 func (s *worker) takeAll(ctx context.Context, es []bridge.Entity, inv string) (int, error) {
 	got := 0
@@ -609,9 +642,10 @@ func (s *worker) firstMissing(ore, name string) (layout.Placement, bool) {
 
 // coal — уголь: с угольных пар (топливо буров), нет пар — с больших камней или руками.
 func (s *worker) coal(ctx context.Context, lack int) error {
-	if ds := s.built("coal", drill); len(ds) > 0 {
+	if ds := s.pairDonors(); len(ds) > 0 {
 		// назад не класть (stages.md): у каждого бура горит свой уголь, сосед докладывает ему
-		// новый быстрее, чем он сгорает
+		// новый быстрее, чем он сгорает; с пары — только с одного бура (выгребали оба — оба
+		// догорали с пустыми слотами, и пара вставала насовсем: 1028292478)
 		got, err := s.takeAll(ctx, ds, "fuel")
 		if err != nil || got >= lack {
 			return err
