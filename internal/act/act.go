@@ -169,25 +169,39 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	h.goal = &target
 	defer func() { h.goal = nil }()
 	// конечная точка на ленте или у её края (рамка задевает) — нельзя (унесёт): ближайшая, где
-	// можно стоять
-	// (кольцами по 0.05 тайла: сетка в полтайла уводила на 0.6 от цели у делителя — e2e
-	// TestWalkAgainstBelt); допуск — от исходной цели (ниже)
+	// можно стоять, — кольцами по 0.05 тайла (сетка в полтайла уводила на 0.6 от цели у
+	// делителя — e2e TestWalkAgainstBelt); сначала — с запасом 0.15 от лент в пределах допуска
+	// (точку вплотную к ленте доводка проскакивала — TestStandBetweenBelts), нет — любая.
+	// Допуск — от исходной цели (ниже)
 	goal, tol := target, stop // исходные цель и допуск
 	if h.World != nil && h.World.TouchesBelt(target) {
-		t0 := target
-	rings:
-		for r := 0.05; r <= 2; r += 0.05 {
-			n := max(8, int(2*math.Pi*r/0.05))
-			for k := 0; k < n; k++ {
-				a := 2 * math.Pi * float64(k) / float64(n)
-				if q := (bridge.Pos{X: t0.X + r*math.Cos(a), Y: t0.Y + r*math.Sin(a)}); h.World.Standable(q) {
-					target = q
-					break rings
+		roomy := func(q bridge.Pos) bool {
+			for _, d := range [][2]float64{{0, 0}, {-0.15, 0}, {0.15, 0}, {0, -0.15}, {0, 0.15}} {
+				if !h.World.Standable(bridge.Pos{X: q.X + d[0], Y: q.Y + d[1]}) {
+					return false
 				}
 			}
+			return true
 		}
-		// допуск — от исходной цели: сдвинутую — точнее (иначе встал бы до stop+сдвиг от цели)
-		stop = max(stop-dist(t0, target), 0.15)
+		nearest := func(maxR float64, ok func(bridge.Pos) bool) (bridge.Pos, bool) {
+			for r := 0.05; r <= maxR; r += 0.05 {
+				n := max(8, int(2*math.Pi*r/0.05))
+				for k := 0; k < n; k++ {
+					a := 2 * math.Pi * float64(k) / float64(n)
+					if q := (bridge.Pos{X: goal.X + r*math.Cos(a), Y: goal.Y + r*math.Sin(a)}); ok(q) {
+						return q, true
+					}
+				}
+			}
+			return goal, false
+		}
+		q, ok := nearest(stop, roomy)
+		if !ok {
+			q, _ = nearest(2, h.World.Standable)
+		}
+		target = q
+		// сдвинутую цель — точнее (иначе встал бы до stop+сдвиг от цели), но не до проскока
+		stop = max(stop-dist(goal, target), 0.25)
 	}
 	if p, err := h.B.Player(); err == nil && dist(p.Position, target) > 8 {
 		h.Say("иду к (%.0f, %.0f), %.0f тайлов", target.X, target.Y, dist(p.Position, target))

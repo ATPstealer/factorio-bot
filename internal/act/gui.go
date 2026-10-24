@@ -424,7 +424,7 @@ func (h *Hands) search(ctx context.Context, text string) error {
 // «производстве»). Целиком нельзя: английские названия бывают с дефисом («Long-handed
 // inserter»), «long handed» не найдётся; место рецепта среди найденных считает craftSlot.
 func (h *Hands) searchWord(name string, fits func(word string) bool) string {
-	best, bestN := name, 1<<30
+	best, bestN := SearchText(name), 1<<30
 	for _, w := range strings.Split(name, "-") {
 		if len(w) < 3 || !fits(w) {
 			continue
@@ -627,21 +627,24 @@ func (h *Hands) bindQuickbar(ctx context.Context, i int, item string, busy bool)
 
 // Крафт ---------------------------------------------------------------------------
 
-// craftSlot — ячейка рецепта в окне крафта после поиска text. Окно показывает вкладку
-// первой группы с совпадениями; каждая подгруппа — с новой строки, внутри — по order.
-// Совпадение считаем по английскому названию ≈ имени без дефисов.
-func craftSlot(protos *knowledge.Prototypes, available []string, handcraft map[string]bool, recipe, text string) (row, col int, err error) {
+// craftSlot — ячейка рецепта в окне крафта после поиска text. Видны все доступные рецепты, для
+// которых shown (в окне персонажа — и те, что руками не скрафтить: красные); каждая подгруппа —
+// с новой строки, внутри — по order. Совпадения — только на одной вкладке: в 2.1 поиск остаётся
+// на текущей вкладке, если на ней есть совпадения (крафт iron-chest по «iron» кликнул
+// iron-plate на вкладке промежуточных). Совпадение — по английскому названию ≈ имени без дефисов.
+func craftSlot(protos *knowledge.Prototypes, available []string, shown func(knowledge.Recipe) bool, recipe, text string) (row, col int, err error) {
 	type rec struct {
 		name string
 		r    knowledge.Recipe
 	}
+	key := strings.ReplaceAll(text, " ", "-")
 	var match []rec
 	for _, name := range available {
 		r, ok := protos.Recipes[name]
-		if !ok || r.Hidden || !handcraft[r.Category] {
+		if !ok || r.Hidden || !shown(r) {
 			continue
 		}
-		if strings.Contains(name, text) {
+		if strings.Contains(name, key) {
 			match = append(match, rec{name, r})
 		}
 	}
@@ -662,6 +665,11 @@ func craftSlot(protos *knowledge.Prototypes, available []string, handcraft map[s
 		return 0, 0, fmt.Errorf("act: рецепт %s недоступен здесь", recipe)
 	}
 	group := match[0].r.Group
+	for _, m := range match {
+		if m.r.Group != group {
+			return 0, 0, fmt.Errorf("act: поиск %q — совпадения на разных вкладках (%s, %s)", text, group, m.r.Group)
+		}
+	}
 	sub, inSub := "", 0
 	row = -1
 	for _, m := range match {
@@ -707,11 +715,15 @@ func (h *Hands) Craft(ctx context.Context, recipe string, n int) error {
 			handcraft[c] = true
 		}
 	}
+	if r, ok := h.Protos.Recipes[recipe]; !ok || !handcraft[r.Category] {
+		return fmt.Errorf("act: рецепт %s руками не скрафтить", recipe)
+	}
+	all := func(knowledge.Recipe) bool { return true }
 	text := h.searchWord(recipe, func(w string) bool {
-		_, _, err := craftSlot(h.Protos, f.Recipes, handcraft, recipe, w)
+		_, _, err := craftSlot(h.Protos, f.Recipes, all, recipe, w)
 		return err == nil
 	})
-	row, col, err := craftSlot(h.Protos, f.Recipes, handcraft, recipe, text)
+	row, col, err := craftSlot(h.Protos, f.Recipes, all, recipe, text)
 	if err != nil {
 		return err
 	}
@@ -1130,8 +1142,9 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	for _, c := range h.Protos.Entities[e.Name].CraftingCategories {
 		cats[c] = true
 	}
+	inCats := func(r knowledge.Recipe) bool { return cats[r.Category] }
 	text := h.searchWord(recipe, func(w string) bool {
-		_, _, err := craftSlot(h.Protos, f.Recipes, cats, recipe, w)
+		_, _, err := craftSlot(h.Protos, f.Recipes, inCats, recipe, w)
 		return err == nil
 	})
 	if err := h.In.Tap("a", "ctrl"); err != nil {
@@ -1143,7 +1156,7 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	if err := sleep(ctx, 400*time.Millisecond); err != nil {
 		return err
 	}
-	row, col, err := craftSlot(h.Protos, f.Recipes, cats, recipe, text)
+	row, col, err := craftSlot(h.Protos, f.Recipes, inCats, recipe, text)
 	if err != nil {
 		return err
 	}

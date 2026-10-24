@@ -685,11 +685,25 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 			return held(p0, item)-held(q, item) >= n-6
 		})
 		h.In.KeyUp("z")
-		if err := sleep(ctx, inputLatency); err != nil {
-			return err
+		// повтор Z доходит и после отпускания — остаток считать, когда счёт перестал меняться
+		// (иначе лишний предмет: 151 из 150, e2e TestTakeItemFromChest)
+		last := -1
+		for k := 0; k < 10; k++ {
+			if err := sleep(ctx, inputLatency); err != nil {
+				return err
+			}
+			q, err := h.B.Player()
+			if err != nil {
+				break
+			}
+			if c := held(q, item); c == last {
+				break
+			} else {
+				last = c
+			}
 		}
-		if q, err := h.B.Player(); err == nil {
-			left = n - (held(p0, item) - held(q, item))
+		if last >= 0 {
+			left = n - (held(p0, item) - last)
 		}
 	}
 	// одно нажатие Z (удержание Input.Hold) — ровно один предмет

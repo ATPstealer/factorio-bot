@@ -110,3 +110,25 @@ func TestCollisionBoxRotated(t *testing.T) {
 		}
 	}
 }
+
+// TestCraftSearchOneTab — слово поиска крафта: совпадения только на одной вкладке (в 2.1 поиск
+// остаётся на текущей вкладке: iron-chest по «iron» — клик по iron-plate промежуточных).
+func TestCraftSearchOneTab(t *testing.T) {
+	p, err := knowledge.Load("../knowledge/testdata/prototypes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Hands{Protos: p}
+	avail := []string{"iron-chest", "wooden-chest", "iron-gear-wheel", "iron-plate", "copper-plate", "transport-belt", "inserter"}
+	all := func(knowledge.Recipe) bool { return true }
+	if _, _, err := craftSlot(p, avail, all, "iron-chest", "iron"); err == nil {
+		t.Error("«iron» — совпадения на двух вкладках, а ошибки нет")
+	}
+	text := h.searchWord("iron-chest", func(w string) bool {
+		_, _, err := craftSlot(p, avail, all, "iron-chest", w)
+		return err == nil
+	})
+	if _, _, err := craftSlot(p, avail, all, "iron-chest", text); err != nil {
+		t.Errorf("слово %q: %v", text, err)
+	}
+}
