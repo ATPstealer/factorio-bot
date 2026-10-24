@@ -145,6 +145,47 @@ func TestWalkAgainstBelt(t *testing.T) {
 	}
 }
 
+// Встать в проход в 1 тайл между рядами лент (стадия 18 на 794457638: «застрял: не сойти с ленты у
+// (79.0, 116.7)» — ряды лент на восток y=116 и y=118, точка стоянки (79.0, 117.0) — на границе
+// прохода и ленты: рамка персонажа задевает ленту, лента уносит). Дойти без ошибки и стоять
+// (лента не несёт).
+func TestStandBetweenBelts(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "transport-belt", 16)
+	c := freeArea(t, h, 14)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	var rows []bridge.Pos
+	for dx := -4; dx <= 3; dx++ {
+		rows = append(rows, world.Tile{X: ct.X + dx, Y: ct.Y - 1}.Center(), world.Tile{X: ct.X + dx, Y: ct.Y + 1}.Center())
+	}
+	if _, err := h.PlaceAll(ctx, "transport-belt", rows, act.East); err != nil {
+		t.Fatal(err)
+	}
+	// персонаж — как в игре: на 4–5 тайлов восточнее, у прохода; цель — на границе прохода и
+	// верхней ленты
+	if err := h.WalkTo(ctx, bridge.Pos{X: float64(ct.X) + 5.7, Y: float64(ct.Y) - 0.3}, 0.3); err != nil {
+		t.Fatal(err)
+	}
+	target := bridge.Pos{X: float64(ct.X), Y: float64(ct.Y)}
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	time.Sleep(2 * time.Second)
+	p1, _ := h.B.Player()
+	if d := math.Hypot(p1.Position.X-p0.Position.X, p1.Position.Y-p0.Position.Y); d > 0.05 {
+		t.Errorf("персонажа несёт: (%.2f, %.2f) → (%.2f, %.2f)", p0.Position.X, p0.Position.Y, p1.Position.X, p1.Position.Y)
+	}
+	if d := math.Hypot(p1.Position.X-target.X, p1.Position.Y-target.Y); d > 1 {
+		t.Errorf("стою в %.2f от цели", d)
+	}
+}
+
 // Выход из ловушки не теряет содержимое (стадия 2 на 859088572: «stone-furnace точки iron-ore
 // без топлива» — печь подняли, чтобы выйти, поставили назад пустой): в каждом сундуке кольца —
 // уголь; после выхода у каждого сундука на месте — его уголь.

@@ -503,7 +503,22 @@ func (w *World) Tight(p bridge.Pos) bool {
 // Standable — персонаж может стоять в точке: ячейка свободна и не на ленте (унесёт).
 func (w *World) Standable(p bridge.Pos) bool {
 	free, _, _, _ := w.cellState(CellOf(p))
-	return free && !w.OnBelt(p)
+	return free && !w.TouchesBelt(p)
+}
+
+// beltReach — полуширина рамки персонажа (0.2) с запасом 0.05: задевает ленту — лента уносит
+// (0.3 — слишком: точку в 0.3 от края ленты бот обходил стороной, TestWalkAgainstBelt).
+const beltReach = 0.25
+
+// TouchesBelt — персонаж в точке p задевает ленту рамкой (не только центром): точка стоянки на
+// границе прохода и ленты — лента уносит (стадия 18 на 794457638, «не сойти с ленты»).
+func (w *World) TouchesBelt(p bridge.Pos) bool {
+	for _, d := range [][2]float64{{0, 0}, {-beltReach, -beltReach}, {beltReach, -beltReach}, {-beltReach, beltReach}, {beltReach, beltReach}} {
+		if w.OnBelt(bridge.Pos{X: p.X + d[0], Y: p.Y + d[1]}) {
+			return true
+		}
+	}
+	return false
 }
 
 // OnBelt — точка на ленте (персонажа на ней несёт).

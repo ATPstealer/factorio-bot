@@ -165,8 +165,9 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	}
 	h.goal = &target
 	defer func() { h.goal = nil }()
-	// конечная точка на ленте — нельзя (унесёт): ближайшая, где можно стоять
-	if h.World != nil && h.World.OnBelt(target) {
+	// конечная точка на ленте или у её края (рамка задевает) — нельзя (унесёт): ближайшая, где
+	// можно стоять
+	if h.World != nil && h.World.TouchesBelt(target) {
 		best := math.Inf(1)
 		t0 := target
 		for dy := -2.0; dy <= 2; dy += 0.5 {
@@ -1228,7 +1229,7 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		spot := c.q
 		h.Log("на ленте — схожу в (%.1f, %.1f)", spot.X, spot.Y)
 		err := h.drive(ctx, 2, func(pos bridge.Pos) (map[string]bool, bool) {
-			return walkKeys(pos, spot), !h.World.OnBelt(pos) && dist(pos, spot) < 0.6
+			return walkKeys(pos, spot), !h.World.TouchesBelt(pos) && dist(pos, spot) < 0.6
 		})
 		if err == nil || !errors.Is(err, ErrStuck) {
 			return err
@@ -1241,7 +1242,7 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		goal := bridge.Pos{X: from.X + 40*v[0], Y: from.Y + 40*v[1]}
 		h.Log("на ленте — вбок не сойти, иду по ходу ленты")
 		err := h.drive(ctx, 2, func(pos bridge.Pos) (map[string]bool, bool) {
-			return walkKeys(pos, goal), !h.World.OnBelt(pos)
+			return walkKeys(pos, goal), !h.World.TouchesBelt(pos)
 		})
 		if err == nil || !errors.Is(err, ErrStuck) {
 			return err
