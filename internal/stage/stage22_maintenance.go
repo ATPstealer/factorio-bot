@@ -403,7 +403,8 @@ func planAudit(h *act.Hands) ([]planDiff, error) {
 			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
 		case strings.HasPrefix(pl.Name, "assembling-machine") && pl.Recipe != "" && st.Recipe != pl.Recipe:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
-		case strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
+		// у твердотопливного манипулятора фильтров нет (Recipe в плане — что он носит)
+		case strings.HasSuffix(pl.Name, "inserter") && pl.Name != "burner-inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
 			!(locked[pl.Recipe] && slices.Contains(st.Filters, filterHold)):
 			res = append(res, planDiff{pl, st, "нет фильтра " + pl.Recipe})
 		}
@@ -441,6 +442,13 @@ func planFix(ctx context.Context, h *act.Hands, s *worker) error {
 		}
 		var err error
 		switch {
+		case strings.HasPrefix(d.why, "нет фильтра"): // по причине, а не по виду постройки
+			// (манипулятор поворачивается — «нет фильтра» чинилось поворотом)
+			item := d.pl.Recipe
+			if locked, lerr := lockedItems(h); lerr == nil && locked[item] {
+				item = filterHold // не открыт — заглушка, чтобы инсертер стоял
+			}
+			err = h.SetFilter(ctx, d.st.Entity, item)
 		case d.pl.Name == "underground-belt", d.pl.Name == "splitter" && d.st.Direction != nil && *d.st.Direction%8 != d.pl.Dir%8:
 			// подземку R не поворачивает (меняет вход/выход), делитель поперёк — сдвинет центр:
 			// поднять и поставить заново
@@ -451,12 +459,6 @@ func planFix(ctx context.Context, h *act.Hands, s *worker) error {
 			err = h.Rotate(ctx, d.st.Entity, d.pl.Dir)
 		case strings.HasPrefix(d.pl.Name, "assembling-machine"):
 			err = h.SetRecipe(ctx, d.st.Entity, d.pl.Recipe)
-		default:
-			item := d.pl.Recipe
-			if locked, lerr := lockedItems(h); lerr == nil && locked[item] {
-				item = filterHold // не открыт — заглушка, чтобы инсертер стоял
-			}
-			err = h.SetFilter(ctx, d.st.Entity, item)
 		}
 		if err != nil {
 			return fmt.Errorf("сверка: %v: %w", d, err)
