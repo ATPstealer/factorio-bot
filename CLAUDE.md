@@ -45,6 +45,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Перезапуск только клиента: `pkill -f "^<путь factorio> .*run/client/config.ini"`, затем та же команда, что в `run.sh` (с `setsid nohup`).
 - Окно Xephyr `factorio-bot-N` (N — экземпляр), после запуска свёрнуто (`SHOW=1` — нет); смотреть — `scripts/view.sh N` (видео без ввода). Ввод бота — только в дисплей своего экземпляра.
 - `scripts/map-gen-settings.json` — без кусак (`enemy-base` frequency 0, `peaceful_mode`), утёсы обычные (`richness` 1). Огонь у места крушения (`crash-site-fire-flame`) — сила enemy, но не кусаки.
+- `scripts/map-gen-wild.json` (`MAPGEN=…` у `newmap.sh`/`run.sh`) — максимум леса (`trees` 600%) и утёсов (частота и непрерывность 600%): карта бенча, чтобы погонять тесты в тяжёлом рельефе.
 - `scripts/server-settings.json` — `auto_pause: false`, `require_user_verification: false`, не публичный.
 
 ## Снимки

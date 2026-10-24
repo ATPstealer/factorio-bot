@@ -4,6 +4,7 @@
 #   scripts/newmap.sh            — случайная карта
 #   SEED=123 scripts/newmap.sh   — конкретная
 #   NEW_MAP=0 scripts/newmap.sh  — перезапуск на той же карте (например, после правки мода)
+#   MAPGEN=scripts/map-gen-wild.json scripts/newmap.sh — максимум леса и утёсов
 #   INST=N …                     — экземпляр N (scripts/inst.sh)
 set -euo pipefail
 cd "$(dirname "$0")/.."
