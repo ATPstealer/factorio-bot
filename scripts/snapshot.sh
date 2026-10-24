@@ -24,7 +24,9 @@ save)
   cp $R/server/saves/bot.zip $R/map.json "$S"/
   cp $R/state*.json "$S"/ 2>/dev/null || true
   printf '%s\nсохранён: %s\n' "${3:-}" "$(date -Is)" > "$S/NOTE.txt"
-  NEW_MAP=0 scripts/newmap.sh >/dev/null
+  # снимок уже сохранён — игра не поднялась (мод не грузится после обновления игры) — не беда
+  # для снимка: сказать, но код 0
+  NEW_MAP=0 scripts/newmap.sh >/dev/null || echo "снимок $2 сохранён, но игра не поднялась" >&2
   echo "снимок $2: $(cat "$S/map.json")"
   ;;
 grab)
