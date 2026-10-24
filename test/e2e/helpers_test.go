@@ -116,7 +116,7 @@ func freeArea(t *testing.T, h *act.Hands, size int) bridge.Pos {
 	return c
 }
 
-const gameVersion = "2.0.77"
+const gameVersion = "2.1.23"
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {

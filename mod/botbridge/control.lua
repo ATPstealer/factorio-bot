@@ -231,12 +231,11 @@ local function entity_state(p, name, position)
     end
     r.belt = util.nonempty(items)
   end
-  if e.fluidbox and #e.fluidbox > 0 then -- жидкости в ящиках: имя → количество
+  -- жидкости в ящиках: имя → количество (2.1: LuaEntity::fluidbox убрали — get_fluid_contents)
+  local okf, fc = pcall(function() return e.get_fluid_contents() end)
+  if okf and fc then
     local f = {}
-    for i = 1, #e.fluidbox do
-      local fl = e.fluidbox[i]
-      if fl then f[fl.name] = (f[fl.name] or 0) + fl.amount end
-    end
+    for name, amount in pairs(fc) do f[name] = amount end
     r.fluids = util.nonempty(f)
   end
   if e.burner then
