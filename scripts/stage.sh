@@ -101,9 +101,16 @@ for seed in "$@"; do
   fi
   start=$(date +%s)
   if timeout $((limit * 60 + 300)) bin/bot -t "${limit}m" stage "$n" > "$log" 2>&1; then
-    timeout 300 scripts/snapshot.sh save "$seed-$n" "сид $seed: после стадии $n" > /dev/null 2>&1
-    touch "run/stages/ok-$n-$seed"
-    echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
+    if timeout 300 scripts/snapshot.sh save "$seed-$n" "сид $seed: после стадии $n" > /dev/null 2>> "$log"; then
+      touch "run/stages/ok-$n-$seed"
+      echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
+    else
+      # стадия прошла, но снимок не сохранился (сервер завис на сохранении) — следующей
+      # стадии не с чего начинать: не выполнена
+      code=1
+      rm -rf "run/snapshots/$seed-$n"
+      echo "   НЕ выполнена: стадия $n прошла, но снимок $seed-$n не сохранился" | tee -a run/stages/summary.txt
+    fi
   else
     code=1
     echo "   НЕ выполнена: $(tail -1 "$log" | cut -c17-200)" | tee -a run/stages/summary.txt

@@ -15,7 +15,11 @@ S=run/snapshots/${2:-}
 case "${1:-}" in
 save)
   [[ -n "${2:-}" ]] || { echo "нужно имя" >&2; exit 1; }
-  scripts/stop.sh
+  t0=$(date +%s)
+  # карта не сохранилась (сервер завис и убит) — снимок не делать: старый bot.zip выдал бы
+  # себя за новый
+  scripts/stop.sh || { echo "снимок $2 не сохранён: сервер не сохранил карту" >&2; exit 1; }
+  (( $(stat -c %Y $R/server/saves/bot.zip) >= t0 )) || { echo "снимок $2 не сохранён: bot.zip старый" >&2; exit 1; }
   rm -rf "$S" && mkdir -p "$S"
   cp $R/server/saves/bot.zip $R/map.json "$S"/
   cp $R/state*.json "$S"/ 2>/dev/null || true
