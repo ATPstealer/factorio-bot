@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,6 +148,10 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 	if err := queueResearch(ctx, h); err != nil {
 		return err
 	}
+	// хранение — расширить до storageChests (до того, как складывать туда инвентарь)
+	if err := growStorage(ctx, h, s); err != nil {
+		return err
+	}
 	// лишнее — в хранение (все сундуки хранения теперь железные)
 	p, err := h.B.Player()
 	if err != nil {
@@ -158,6 +163,109 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	return queueResearch(ctx, h)
+}
+
+// storageChests — сундуков хранения после обслуживания (stages.md, стадия 22: было 8).
+const storageChests = 32
+
+// storageExtraFile — сундуки расширения хранения (storageLayout берёт их вместе с плановыми).
+const storageExtraFile = "state-storage-extra.json"
+
+// growStorage — хранение до storageChests железных сундуков: продолжением ряда хранения, не
+// влезает — следующими рядами вплотную; только на свободной суше, не на местах плана (там
+// будут строить следующие стадии). Места — один раз (файл), потом — достроить недостающее.
+func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
+	list, err := storageLayout()
+	if err != nil {
+		return err
+	}
+	if len(list) < storageChests {
+		extra, err := storageExtra(h, list, storageChests-len(list))
+		if err != nil {
+			return err
+		}
+		data, err := json.MarshalIndent(extra, "", " ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(runPath(storageExtraFile), data, 0o644); err != nil {
+			return err
+		}
+		if list, err = storageLayout(); err != nil {
+			return err
+		}
+	}
+	h.Say("обслуживание: хранение — до %d сундуков", storageChests)
+	return s.build(ctx, list)
+}
+
+// storageExtra — n мест под сундуки расширения ряда хранения list: вдоль ряда (сначала ближе к
+// его середине), потом соседние ряды (±1, ±2, …).
+func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placement, error) {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return nil, err
+	}
+	taken := map[world.Tile]bool{}
+	for _, pl := range plan.Layout {
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			taken[t] = true
+		}
+	}
+	for _, pl := range list {
+		taken[world.TileOf(pl.Pos)] = true
+	}
+	// ряд: от первого сундука к последнему; поперёк — перпендикуляр
+	ts := make([]world.Tile, len(list))
+	for i, pl := range list {
+		ts[i] = world.TileOf(pl.Pos)
+	}
+	slices.SortFunc(ts, func(a, b world.Tile) int {
+		if a.X != b.X {
+			return a.X - b.X
+		}
+		return a.Y - b.Y
+	})
+	first, last := ts[0], ts[len(ts)-1]
+	along, across := world.Tile{X: 1}, world.Tile{Y: 1}
+	if first.X == last.X {
+		along, across = world.Tile{Y: 1}, world.Tile{X: 1}
+	}
+	mid := (len(ts) - 1) / 2
+	var res []layout.Placement
+	tag := list[0].Tag
+	for off := 0; off <= 6 && len(res) < n; off++ {
+		for _, side := range []int{1, -1} {
+			if off == 0 && side < 0 {
+				continue
+			}
+			o := off * side
+			// вдоль ряда — от середины к краям, с запасом длины
+			for d := 0; d <= len(ts)+n && len(res) < n; d++ {
+				for _, k := range []int{mid + d, mid - d} {
+					if d == 0 && k != mid+d {
+						continue
+					}
+					t := world.Tile{X: first.X + along.X*k + across.X*o, Y: first.Y + along.Y*k + across.Y*o}
+					if taken[t] || len(res) >= n {
+						continue
+					}
+					if ok, clear := h.World.Buildable(t); !ok || !clear || h.World.Blocked(t) {
+						continue
+					}
+					taken[t] = true
+					res = append(res, layout.Placement{Name: ironChest, Pos: t.Center(), Tag: tag})
+				}
+			}
+		}
+	}
+	if len(res) < n {
+		return nil, fmt.Errorf("хранение: места под сундуки — %d из %d", len(res), n)
+	}
+	return res, nil
 }
 
 // planDiff — расхождение плана и построенного: чего нет (st == nil) или что стоит не так.
@@ -294,6 +402,16 @@ func checkMaintenance(h *act.Hands) error {
 		if o.Own && o.Name == "wooden-chest" {
 			return fmt.Errorf("деревянный сундук в (%.1f, %.1f)", o.Pos.X, o.Pos.Y)
 		}
+	}
+	store, err := storageLayout()
+	if err != nil {
+		return err
+	}
+	if len(store) < storageChests {
+		return fmt.Errorf("хранение: сундуков %d из %d", len(store), storageChests)
+	}
+	if err := checkBuilt(h, store); err != nil {
+		return fmt.Errorf("хранение: %w", err)
 	}
 	diffs, err := planAudit(h)
 	if err != nil {

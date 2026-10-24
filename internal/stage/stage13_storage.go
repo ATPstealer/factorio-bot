@@ -2,7 +2,9 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -49,6 +51,14 @@ func storageLayout() ([]layout.Placement, error) {
 	}
 	if len(res) == 0 {
 		return nil, fmt.Errorf("в плане нет кластера хранения")
+	}
+	// расширение хранения обслуживанием (стадия 22) — те же сундуки хранения
+	if data, err := os.ReadFile(runPath(storageExtraFile)); err == nil {
+		var extra []layout.Placement
+		if err := json.Unmarshal(data, &extra); err != nil {
+			return nil, fmt.Errorf("%s: %w", storageExtraFile, err)
+		}
+		res = append(res, extra...)
 	}
 	return res, nil
 }
