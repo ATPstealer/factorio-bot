@@ -311,6 +311,9 @@ func have(t *testing.T, h *act.Hands, item string, n int) {
 				return
 			}
 			if _, err := h.Gather(ctx, item, n, 64); err != nil {
+				if errors.Is(err, act.ErrNoTargets) { // нет на карте рядом — рельеф (CLAUDE.md)
+					t.Skipf("нет %s рядом: %v", item, err)
+				}
 				t.Fatalf("добыть %s: %v", item, err)
 			}
 		}
