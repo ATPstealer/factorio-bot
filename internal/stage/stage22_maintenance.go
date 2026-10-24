@@ -267,9 +267,10 @@ const storageChests = 32
 // storageExtraFile — сундуки расширения хранения (storageLayout берёт их вместе с плановыми).
 const storageExtraFile = "state-storage-extra.json"
 
-// growStorage — хранение до storageChests железных сундуков: продолжением ряда хранения, не
-// влезает — следующими рядами вплотную; только на свободной суше, не на местах плана (там
-// будут строить следующие стадии). Места — один раз (файл), потом — достроить недостающее.
+// growStorage — хранение до storageChests железных сундуков: прямоугольник 4×8 — ряд хранения и
+// ряды той же длины вплотную (не линией — просьба пользователя); только на свободной суше, не
+// на местах плана (там будут строить следующие стадии). Места — один раз (файл), потом —
+// достроить недостающее.
 func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
 	list, err := storageLayout()
 	if err != nil {
@@ -295,8 +296,8 @@ func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
 	return s.build(ctx, list)
 }
 
-// storageExtra — n мест под сундуки расширения ряда хранения list: вдоль ряда (сначала ближе к
-// его середине), потом соседние ряды (±1, ±2, …).
+// storageExtra — n мест под сундуки расширения ряда хранения list: ряды той же длины вплотную
+// сбоку (прямоугольник).
 func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
@@ -330,39 +331,35 @@ func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placem
 	if first.X == last.X {
 		along, across = world.Tile{Y: 1}, world.Tile{X: 1}
 	}
-	mid := (len(ts) - 1) / 2
-	var res []layout.Placement
+	// прямоугольник (stages.md): ряды той же длины вплотную к ряду хранения — rows рядов, с той
+	// стороны, где все тайлы свободны (деревья и камни — можно, вырубятся; нельзя — вода, утёсы,
+	// постройки и места плана)
+	rows := (n + len(ts) - 1) / len(ts)
 	tag := list[0].Tag
-	for off := 0; off <= 6 && len(res) < n; off++ {
-		for _, side := range []int{1, -1} {
-			if off == 0 && side < 0 {
-				continue
-			}
-			o := off * side
-			// вдоль ряда — от середины к краям, с запасом длины
-			for d := 0; d <= len(ts)+n && len(res) < n; d++ {
-				for _, k := range []int{mid + d, mid - d} {
-					if d == 0 && k != mid+d {
-						continue
-					}
-					t := world.Tile{X: first.X + along.X*k + across.X*o, Y: first.Y + along.Y*k + across.Y*o}
-					if taken[t] || len(res) >= n {
-						continue
-					}
-					// деревья и камни — можно (стройка их вырубит); нельзя — вода, утёсы, постройки
-					if ok, _ := h.World.Buildable(t); !ok {
-						continue
-					}
-					taken[t] = true
-					res = append(res, layout.Placement{Name: ironChest, Pos: t.Center(), Tag: tag})
+	for below := rows; below >= 0; below-- {
+		var offs []int
+		for o := 1; o <= below; o++ {
+			offs = append(offs, o)
+		}
+		for o := 1; o <= rows-below; o++ {
+			offs = append(offs, -o)
+		}
+		var res []layout.Placement
+		ok := true
+		for _, o := range offs {
+			for k := 0; k < len(ts) && ok && len(res) < n; k++ {
+				t := world.Tile{X: first.X + along.X*k + across.X*o, Y: first.Y + along.Y*k + across.Y*o}
+				if b, _ := h.World.Buildable(t); taken[t] || !b {
+					ok = false
 				}
+				res = append(res, layout.Placement{Name: ironChest, Pos: t.Center(), Tag: tag})
 			}
 		}
+		if ok {
+			return res, nil
+		}
 	}
-	if len(res) < n {
-		return nil, fmt.Errorf("хранение: места под сундуки — %d из %d", len(res), n)
-	}
-	return res, nil
+	return nil, fmt.Errorf("хранение: нет места под прямоугольник %d×%d рядом с рядом хранения", rows+1, len(ts))
 }
 
 // planDiff — расхождение плана и построенного: чего нет (st == nil) или что стоит не так.
