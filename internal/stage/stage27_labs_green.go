@@ -150,8 +150,15 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	// исследование на зелёной — в очередь (очередь красных из обслуживания идёт впереди)
+	// зелёные пошли — в очередь сразу все нужные для ракеты на красной и зелёной (stages.md);
+	// дальше это делает и обслуживание (greenOnFile)
+	if err := os.WriteFile(runPath(greenOnFile), []byte("{}\n"), 0o644); err != nil {
+		return err
+	}
 	start := func() error {
+		if err := queueResearch(ctx, h); err != nil {
+			return err
+		}
 		f, err := h.B.Force()
 		if err != nil {
 			return err
@@ -161,6 +168,7 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 				return nil
 			}
 		}
+		// нужных для ракеты на зелёной сейчас нет в очереди — первое доступное
 		techs, err := greenTechs(h)
 		if err != nil {
 			return err
@@ -175,7 +183,7 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	}
 	deadline := time.Now().Add(30 * time.Minute)
 	for checkLabsGreen(h) != nil && time.Now().Before(deadline) {
-		if err := start(); err != nil { // изучено — следующее
+		if err := start(); err != nil { // изучено — доставить следующие
 			return err
 		}
 		if err := sleepCtx(ctx, 20*time.Second); err != nil {

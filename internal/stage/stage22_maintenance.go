@@ -32,9 +32,17 @@ func init() {
 	register(Stage{N: 22, Name: "обслуживание", Run: runMaintenance, Check: checkMaintenance})
 }
 
-// rocketRedTechs — нужные для ракеты исследования на одной красной науке, ещё не изученные, по
-// порядку пути (предпосылки раньше).
-func rocketRedTechs(h *act.Hands) ([]string, error) {
+// greenOnFile — отметка: зелёные пакеты производятся (стадия 27 выполнена) — исследования на
+// красной и зелёной ставить в очередь.
+const greenOnFile = "state-green-on.json"
+
+// rocketTechs — нужные для ракеты исследования на тех пакетах, что уже производятся (красная;
+// после стадии 27 — и зелёная), ещё не изученные, по порядку пути (предпосылки раньше).
+func rocketTechs(h *act.Hands) ([]string, error) {
+	packs := map[string]bool{redPack: true}
+	if _, err := os.Stat(runPath(greenOnFile)); err == nil {
+		packs[greenPack] = true
+	}
 	f, err := h.B.Force()
 	if err != nil {
 		return nil, err
@@ -50,7 +58,11 @@ func rocketRedTechs(h *act.Hands) ([]string, error) {
 	var res []string
 	for _, t := range path {
 		tech := h.Protos.Technologies[t]
-		if tech.Trigger == nil && len(tech.UnitIngredients) == 1 && tech.UnitIngredients[0].Name == redPack {
+		ok := tech.Trigger == nil && len(tech.UnitIngredients) > 0
+		for _, in := range tech.UnitIngredients {
+			ok = ok && packs[in.Name]
+		}
+		if ok {
 			res = append(res, t)
 		}
 	}
@@ -60,7 +72,7 @@ func rocketRedTechs(h *act.Hands) ([]string, error) {
 // queueResearch — доставить в очередь исследований, сколько влезет (очередь игры — 7 с текущим).
 // Не встало (предпосылки не изучены и не в очереди) — следующее по порядку.
 func queueResearch(ctx context.Context, h *act.Hands) error {
-	techs, err := rocketRedTechs(h)
+	techs, err := rocketTechs(h)
 	if err != nil {
 		return err
 	}
@@ -516,7 +528,7 @@ func checkMaintenance(h *act.Hands) error {
 	if len(diffs) > 0 {
 		return fmt.Errorf("сверка с планом: %d расхождений, первое — %v", len(diffs), diffs[0])
 	}
-	techs, err := rocketRedTechs(h)
+	techs, err := rocketTechs(h)
 	if err != nil {
 		return err
 	}
@@ -530,7 +542,8 @@ func checkMaintenance(h *act.Hands) error {
 			miss = append(miss, t)
 		}
 	}
-	if len(miss) > 0 {
+	// очередь игры — 7: полная — остальные доставятся по ходу
+	if busy := len(f.Queue); len(miss) > 0 && busy < 7 {
 		return fmt.Errorf("не в очереди исследований: %s", strings.Join(miss, ", "))
 	}
 	return nil
