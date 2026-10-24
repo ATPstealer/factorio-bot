@@ -135,6 +135,76 @@ func SplitTap(l *layout.Layout, line []layout.Placement, p Port, tag string, tri
 	return err
 }
 
+// SplitJoin — подвод от from в ленту line делителем, а не боком (сбоку всё ложится на одну
+// полосу; делитель полосы сохраняет — продукт с обеих полос кластера идёт по обеим полосам
+// ленты): лента t прямого участка line — делитель, его второй вход — тайл g рядом (зазор),
+// подвод — прямо в него с тайла перед g; второй выход (за g) — пустой и закрыт (Reserved):
+// всё — в ленту. tries — сколько мест пробовать (ближайшие к from). Возвращает тайл t.
+func SplitJoin(l *layout.Layout, line []layout.Placement, from Port, tag string, tries int) (world.Tile, error) {
+	dir := map[world.Tile]int{}
+	for _, b := range line {
+		if b.Name == "transport-belt" {
+			dir[world.TileOf(b.Pos)] = b.Dir
+		}
+	}
+	type cand struct {
+		t, g, in, out world.Tile
+		d, at         int
+	}
+	var cs []cand
+	for _, b := range line {
+		if b.Name != "transport-belt" {
+			continue
+		}
+		t, d := world.TileOf(b.Pos), b.Dir
+		if q := l.At(t); q != nil && q.Name != "transport-belt" {
+			continue // уже делитель
+		}
+		if pd, ok := dir[layout.Step(t, (d+8)%16)]; !ok || pd != d {
+			continue
+		}
+		if nd, ok := dir[layout.Step(t, d)]; !ok || nd != d {
+			continue
+		}
+		for _, side := range []int{(d + 4) % 16, (d + 12) % 16} {
+			g := layout.Step(t, side)
+			in, out := layout.Step(g, (d+8)%16), layout.Step(g, d)
+			if !l.Free(g, layout.AnyLand) || !l.Free(in, layout.AnyLand) || !l.Free(out, layout.AnyLand) {
+				continue
+			}
+			cs = append(cs, cand{t, g, in, out, d, abs(in.X-from.T.X) + abs(in.Y-from.T.Y)})
+		}
+	}
+	sort.Slice(cs, func(i, j int) bool { return cs[i].at < cs[j].at })
+	var err error = layout.ErrNoRoute
+	for i, c := range cs {
+		if i >= tries {
+			break
+		}
+		tc, gc := c.t.Center(), c.g.Center()
+		sp := layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (tc.X + gc.X) / 2, Y: (tc.Y + gc.Y) / 2}, Dir: c.d, Tag: tag}
+		mark := l.Mark()
+		idx, own := l.Index(c.t)
+		var old layout.Placement
+		if own {
+			old = l.List[idx]
+			l.Replace(idx, sp)
+		} else {
+			l.Add(sp)
+		}
+		l.Reserved[c.out] = true // второй выход — пустой: всё в ленту
+		if _, err = l.RouteBelt(from.T, from.Dir, c.in, c.d, tag); err == nil {
+			return c.t, nil
+		}
+		delete(l.Reserved, c.out)
+		if own {
+			l.Replace(idx, old)
+		}
+		l.Rollback(mark)
+	}
+	return world.Tile{}, err
+}
+
 func abs(x int) int {
 	if x < 0 {
 		return -x

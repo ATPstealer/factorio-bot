@@ -333,7 +333,18 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			// «Размер»: ленты текут снизу вверх; кластер строится целиком — конец ряда не
 			// двигается)
 			ov := belts + 3 + mh
-			if err := row(ov, c.Head, L, layout.E); err != nil {
+			// перекладка в середине ряда — продукт по обеим полосам (как у плавки): между
+			// инсертерами выхода (у пары — в u+5, у одиночного — в u+1) при шаге ≥ 4 три
+			// свободных столбца
+			oc := 1
+			if c.Sub != "" {
+				oc = 5
+			}
+			if half := c.Count / 2; half == 0 {
+				if err := row(ov, c.Head, L, layout.E); err != nil {
+					return err
+				}
+			} else if err := laneSwap(row, belt, ov, c.Head, c.Head+(half-1)*c.Pitch+oc+2, L); err != nil {
 				return err
 			}
 			l.AllowEnd(f.tile(L, ov))
@@ -436,24 +447,29 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 		if err := row(outV, c.Head, L, layout.E); err != nil {
 			return err
 		}
-	} else {
-		m := c.Head + (half-1)*c.Pitch + 2 // столбцы m-1, m, m+1 в ряду инсертеров выхода свободны
-		if err := row(outV, c.Head, m-1, layout.E); err != nil {
-			return err
-		}
-		for _, b := range []struct{ u, v, d int }{{m - 1, outV, layout.N}, {m - 1, outInsV, layout.E},
-			{m, outInsV, layout.E}, {m + 1, outInsV, layout.S}, {m, outV, layout.E}} {
-			if err := belt(b.u, b.v, b.d); err != nil {
-				return err
-			}
-		}
-		if err := row(outV, m+1, L, layout.E); err != nil {
-			return err
-		}
+	} else if err := laneSwap(row, belt, outV, c.Head, c.Head+(half-1)*c.Pitch+2, L); err != nil {
+		return err // столбцы m-1, m, m+1 в ряду инсертеров выхода свободны (вторая половина — за smeltGap)
 	}
 	l.AllowEnd(f.tile(L, outV))
 	c.Ports = append(c.Ports, Port{T: f.tile(L, outV), Dir: f.dir(layout.E), Item: outItem(c)})
 	return nil
+}
+
+// laneSwap — лента выхода ряда v (инсертеры выхода — в ряду v-1) от from до L с перекладкой у
+// столбца m (cluster.md §2а «Плавка»): первая половина — до m-1, обход через (m-1, v-1) → (m, v-1)
+// → (m+1, v-1) → боком в (m+1, v); перед ним заглушка (m, v) — прямая лента сзади: без неё вход
+// сбоку игра делает поворотом, и полоса не меняется. Столбцы m-1…m+1 ряда v-1 — свободны.
+func laneSwap(row func(v, from, to, d int) error, belt func(u, v, d int) error, v, from, m, L int) error {
+	if err := row(v, from, m-1, layout.E); err != nil {
+		return err
+	}
+	for _, b := range []struct{ u, v, d int }{{m - 1, v, layout.N}, {m - 1, v - 1, layout.E},
+		{m, v - 1, layout.E}, {m + 1, v - 1, layout.S}, {m, v, layout.E}} {
+		if err := belt(b.u, b.v, b.d); err != nil {
+			return err
+		}
+	}
+	return row(v, m+1, L, layout.E)
 }
 
 // pair — пара прямой подачи с u: сборщик промежуточного (Sub) → инсертер → основной (Main)

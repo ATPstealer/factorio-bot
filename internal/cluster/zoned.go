@@ -480,15 +480,23 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 	if ln == nil {
 		return nil // продукт выше не нужен (буфер выхода)
 	}
-	to := zSidePorts(l, bus, ln, c.Area.Min.X-20, max(c.Area.Max.X+20, ln.Start+40)) // лента начинается за неровностью — ближайшие за ней
+	x0, x1 := c.Area.Min.X-20, max(c.Area.Max.X+20, ln.Start+40) // лента начинается за неровностью — ближайшие за ней
+	g.open(op)
+	tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
+	// в ленту — делителем (cluster.md §5: боком всё ложилось на одну полосу, делитель полосы
+	// сохраняет); не встал — боком
+	if t, err := SplitJoin(l, zLaneBelts(l, bus, ln, x0, x1), op, tag, 40); err == nil {
+		ln.feed(t.X)
+		return nil
+	}
+	to := zSidePorts(l, bus, ln, x0, x1)
 	sort.SliceStable(to, func(i, j int) bool {
 		return math.Abs(float64(to[i].T.X-op.T.X)) < math.Abs(float64(to[j].T.X-op.T.X))
 	})
 	if len(to) > 40 {
 		to = to[:40]
 	}
-	g.open(op)
-	p, err := zRoute(l, op, to, LogisticsTag+"/"+bus.Name+"/"+c.Name)
+	p, err := zRoute(l, op, to, tag)
 	if err != nil {
 		return &ConnectError{c, fmt.Errorf("%s → %s (%s): %w", c.Name, bus.Name, op.Item, err)}
 	}
