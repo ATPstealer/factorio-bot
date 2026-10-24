@@ -39,6 +39,9 @@ type Hands struct {
 	DebugDir string
 	// Console — дублировать Say в консоль игры (видно в окне клиента).
 	Console bool
+	// OnFull — инвентарь полон при добыче: освободить место (стадии — лишнее в хранение);
+	// nil — ошибка ErrFull как есть.
+	OnFull func(ctx context.Context) error
 
 	altChecked bool           // Alt-режим проверен и включён
 	goal       *bridge.Pos    // куда идёт WalkTo: сходить с ленты — в её сторону

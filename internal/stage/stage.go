@@ -5,9 +5,11 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"factorio-bot/internal/act"
@@ -82,6 +84,27 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
 		layout.Chest, chest = ironChest, ironChest
 	}
+	// добыча упёрлась в полный инвентарь (взял из хранения сундук целиком — стадия 23 на
+	// 859088572) — в хранение сырьё, пластины, уголь; постройки — при себе (их ставить)
+	h.OnFull = func(ctx context.Context) error {
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		bulk := map[string]bool{"iron-plate": true, "copper-plate": true, "steel-plate": true, "stone-brick": true, "coal": true}
+		var keep []string
+		for it := range p.Inventory {
+			if !bulk[it] && !slices.Contains(rawItems, it) {
+				keep = append(keep, it)
+			}
+		}
+		err = (&worker{h: h, useStore: true}).store(ctx, craftFree+5, keep...)
+		if errors.Is(err, errNoStorage) {
+			return nil // хранения ещё нет — как есть
+		}
+		return err
+	}
+	defer func() { h.OnFull = nil }()
 	// перед стройкой — проверка и расчистка площади плана (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
 		return fmt.Errorf("стадия %d: %w", n, err)

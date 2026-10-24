@@ -20,8 +20,24 @@ var ErrNoTargets = errors.New("act: нет целей для добычи")
 
 const notMiningGrace = 1500 * time.Millisecond
 
+// ErrFull — добытое некуда класть: инвентарь полон.
+var ErrFull = errors.New("act: инвентарь полон")
+
 // MineUntil наводит курсор на e и держит ПКМ, пока сущность не исчезнет или done не вернёт true.
+// Инвентарь полон — освободить место (OnFull: стадии — в хранение) и ещё раз.
 func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
+	err := h.mineUntil(ctx, e, done)
+	if errors.Is(err, ErrFull) && h.OnFull != nil {
+		h.Say("инвентарь полон — освобождаю место")
+		if ferr := h.OnFull(ctx); ferr != nil {
+			return fmt.Errorf("%w (освободить место: %v)", err, ferr)
+		}
+		err = h.mineUntil(ctx, e, done)
+	}
+	return err
+}
+
+func (h *Hands) mineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
 	held := false
 	defer func() {
 		if held {
@@ -125,7 +141,7 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 			} else if fullSince.IsZero() {
 				fullSince = time.Now()
 			} else if time.Since(fullSince) > 8*time.Second {
-				return fmt.Errorf("act: %s не поднять — инвентарь полон", e.Name)
+				return fmt.Errorf("%w: %s не поднять", ErrFull, e.Name)
 			}
 			continue
 		}
