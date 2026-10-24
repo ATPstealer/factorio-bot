@@ -104,36 +104,15 @@ func runMake(ctx context.Context, h *act.Hands, product string) error {
 	if err != nil {
 		return err
 	}
-	sites, err := outpostsLayout(h)
-	if err != nil {
-		return err
-	}
-	s := &worker{h: h, sites: sites, useStore: true}
 	order := []string{"assembling-machine-1", "transport-belt", "underground-belt", "splitter", chest, "inserter", "small-electric-pole"}
-	sorted := slices.Clone(list)
-	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
-		return slices.Index(order, a.Name) - slices.Index(order, b.Name)
-	})
-	if err := s.build(ctx, sorted); err != nil {
+	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
-	for _, pl := range list {
-		if pl.Recipe == "" || pl.Name != "assembling-machine-1" && pl.Name != "inserter" {
-			continue
-		}
-		st, err := h.B.GetEntity(pl.Name, pl.Pos)
-		if err != nil || st == nil {
-			return fmt.Errorf("нет %s в (%.1f, %.1f): %v", pl.Name, pl.Pos.X, pl.Pos.Y, err)
-		}
-		switch {
-		case pl.Name == "assembling-machine-1" && st.Recipe != pl.Recipe:
-			err = h.SetRecipe(ctx, st.Entity, pl.Recipe)
-		case pl.Name == "inserter" && !slices.Contains(st.Filters, pl.Recipe):
-			err = h.SetFilter(ctx, st.Entity, pl.Recipe)
-		}
-		if err != nil {
-			return err
-		}
+	if err := waitOpen(ctx, h, list); err != nil { // рецепт ещё не изучен — ждать только перед ним
+		return err
+	}
+	if err := configure(ctx, h, list); err != nil {
+		return err
 	}
 	deadline := time.Now().Add(8 * time.Minute)
 	for checkMake(h, product) != nil && time.Now().Before(deadline) {

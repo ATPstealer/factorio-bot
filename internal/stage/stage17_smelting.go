@@ -3,7 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -118,36 +117,14 @@ func runSmelting(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	sites, err := outpostsLayout(h)
-	if err != nil {
-		return err
-	}
-	s := &worker{h: h, sites: sites, useStore: true}
 	// добыча и машины — потом ленты (подземки — парами по порядку плана), инсертеры, столбы
 	order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "transport-belt", "underground-belt", "splitter",
 		chest, "inserter", "long-handed-inserter", "burner-inserter", "small-electric-pole"}
-	sorted := slices.Clone(list)
-	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
-		return slices.Index(order, a.Name) - slices.Index(order, b.Name)
-	})
-	if err := s.build(ctx, sorted); err != nil {
+	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
-	// фильтры инсертеров буферов
-	for _, pl := range list {
-		if pl.Name != "inserter" || pl.Recipe == "" {
-			continue
-		}
-		st, err := h.B.GetEntity(pl.Name, pl.Pos)
-		if err != nil || st == nil {
-			return fmt.Errorf("нет инсертера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
-		}
-		if slices.Contains(st.Filters, pl.Recipe) {
-			continue
-		}
-		if err := h.SetFilter(ctx, st.Entity, pl.Recipe); err != nil {
-			return err
-		}
+	if err := configure(ctx, h, list); err != nil { // фильтры инсертеров буферов
+		return err
 	}
 	// пластины дошли до буферов выхода
 	deadline := time.Now().Add(6 * time.Minute)

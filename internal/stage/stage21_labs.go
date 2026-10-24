@@ -78,68 +78,18 @@ func labsTech(h *act.Hands) (string, error) {
 	return cands[0], nil
 }
 
-// filterHold — фильтр-заглушка, пока нужный предмет не открыт: инсертер с ним стоит (уголь на
-// лентах пакетов не бывает); без фильтра он перекладывал бы всё подряд. Нужный фильтр
-// добавляется позже (белый список «уголь + предмет» — берёт только предмет).
-const filterHold = "coal"
-
-// lockedItems — предметы, чей рецепт ещё не открыт: в 2.1 окно выбора фильтра их не показывает
-// («Nothing found» — стадия 21 на 859088572, фильтр зелёных пакетов до исследования). Вместо
-// фильтра на них — заглушка filterHold; настоящий ставит стадия, которая их вводит (27).
-func lockedItems(h *act.Hands) (map[string]bool, error) {
-	f, err := h.B.Force()
-	if err != nil {
-		return nil, err
-	}
-	res := map[string]bool{}
-	for name := range h.Protos.Recipes {
-		if _, item := h.Protos.Items[name]; item && !slices.Contains(f.Recipes, name) {
-			res[name] = true
-		}
-	}
-	return res, nil
-}
-
 func runLabs(ctx context.Context, h *act.Hands) error {
 	list, err := labsLayout(h)
 	if err != nil {
 		return err
 	}
-	sites, err := outpostsLayout(h)
-	if err != nil {
-		return err
-	}
-	s := &worker{h: h, sites: sites, useStore: true}
 	order := []string{"lab", "transport-belt", "underground-belt", "splitter", chest, "inserter", "small-electric-pole"}
-	sorted := slices.Clone(list)
-	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
-		return slices.Index(order, a.Name) - slices.Index(order, b.Name)
-	})
-	if err := s.build(ctx, sorted); err != nil {
+	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
-	locked, err := lockedItems(h)
-	if err != nil {
+	// фильтры; зелёные пакеты ещё не открыты — заглушка, настоящий фильтр — стадия 27
+	if err := configure(ctx, h, list); err != nil {
 		return err
-	}
-	for _, pl := range list {
-		if pl.Name != "inserter" || pl.Recipe == "" {
-			continue
-		}
-		st, err := h.B.GetEntity(pl.Name, pl.Pos)
-		if err != nil || st == nil {
-			return fmt.Errorf("нет инсертера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
-		}
-		item := pl.Recipe
-		if locked[item] { // ещё не открыт — заглушка, чтобы инсертер стоял (иначе без фильтра
-			// перекладывает всё подряд)
-			item = filterHold
-		}
-		if !slices.Contains(st.Filters, item) && !slices.Contains(st.Filters, pl.Recipe) {
-			if err := h.SetFilter(ctx, st.Entity, item); err != nil {
-				return err
-			}
-		}
 	}
 	tech, err := labsTech(h)
 	if err != nil {

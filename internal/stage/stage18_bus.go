@@ -3,7 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -41,17 +40,7 @@ func runBusPlates(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	sites, err := outpostsLayout(h)
-	if err != nil {
-		return err
-	}
-	s := &worker{h: h, sites: sites, useStore: true}
-	order := []string{"transport-belt", "underground-belt", "splitter"}
-	sorted := slices.Clone(list)
-	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
-		return slices.Index(order, a.Name) - slices.Index(order, b.Name)
-	})
-	if err := s.build(ctx, sorted); err != nil {
+	if err := buildSorted(ctx, h, list, []string{"transport-belt", "underground-belt", "splitter"}); err != nil {
 		return err
 	}
 	// пластины дошли до концов своих лент

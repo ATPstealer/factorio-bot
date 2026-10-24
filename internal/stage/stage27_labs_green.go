@@ -119,19 +119,8 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	for _, pl := range append(slices.Clone(list), labs...) {
-		if pl.Name != "inserter" || pl.Recipe == "" {
-			continue
-		}
-		st, err := h.B.GetEntity(pl.Name, pl.Pos)
-		if err != nil || st == nil {
-			return fmt.Errorf("нет инсертера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
-		}
-		if !slices.Contains(st.Filters, pl.Recipe) {
-			if err := h.SetFilter(ctx, st.Entity, pl.Recipe); err != nil {
-				return err
-			}
-		}
+	if err := configure(ctx, h, append(slices.Clone(list), labs...)); err != nil {
+		return err
 	}
 	// зелёные пошли — в очередь сразу все нужные для ракеты на красной и зелёной (stages.md);
 	// дальше это делает и обслуживание (greenOnFile)

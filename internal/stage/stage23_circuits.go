@@ -82,28 +82,6 @@ func growLayout(h *act.Hands) ([]layout.Placement, error) {
 	})
 }
 
-// buildSorted — построить list (уже стоящее пропускается) в порядке order (машины — раньше лент
-// и инсертеров), брать из хранения.
-func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, order []string) error {
-	sites, err := outpostsLayout(h)
-	if err != nil {
-		return err
-	}
-	s := &worker{h: h, sites: sites, useStore: true}
-	sorted := slices.Clone(list)
-	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
-		ia, ib := slices.Index(order, a.Name), slices.Index(order, b.Name)
-		if ia < 0 {
-			ia = len(order)
-		}
-		if ib < 0 {
-			ib = len(order)
-		}
-		return ia - ib
-	})
-	return s.build(ctx, sorted)
-}
-
 func runCircuits(ctx context.Context, h *act.Hands) error {
 	grow, err := growLayout(h)
 	if err != nil {
