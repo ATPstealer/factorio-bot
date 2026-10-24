@@ -215,25 +215,39 @@ func checkLabsGreen(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
+	// зелёных мало (0.1/с на 30 лабораторий) — съедаются сразу: искать не одним снимком, а
+	// в течение минуты (851731946: в цикле стадии были, в проверке через миг — нет)
 	lab := clusterOf(plan, cluster.Lab, "")
-	fed := 0
-	for _, pl := range tagged(plan, cluster.Tag(lab.Name)) {
-		if pl.Name != "lab" {
-			continue
+	fed := false
+	for deadline := time.Now().Add(time.Minute); !fed && time.Now().Before(deadline); {
+		for _, pl := range tagged(plan, cluster.Tag(lab.Name)) {
+			if pl.Name != "lab" {
+				continue
+			}
+			if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(greenPack) > 0 {
+				fed = true
+				break
+			}
 		}
-		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(greenPack) > 0 {
-			fed++
+		if !fed {
+			time.Sleep(5 * time.Second)
 		}
 	}
-	if fed == 0 {
-		return fmt.Errorf("в лабораториях нет %s", greenPack)
+	if !fed {
+		return fmt.Errorf("в лабораториях за минуту не было %s", greenPack)
 	}
+	// исследование идёт (очередь — по порядку пути: впереди бывают на одной красной), в
+	// текущем или очереди — на зелёной
 	f0, err := h.B.Force()
 	if err != nil {
 		return err
 	}
-	if f0.Current == "" || !usesGreen(h, f0.Current) {
-		return fmt.Errorf("не идёт исследование на зелёной науке (идёт %q)", f0.Current)
+	green := false
+	for _, t := range append([]string{f0.Current}, f0.Queue...) {
+		green = green || t != "" && usesGreen(h, t)
+	}
+	if f0.Current == "" || !green {
+		return fmt.Errorf("в очереди исследований нет на зелёной науке (идёт %q)", f0.Current)
 	}
 	time.Sleep(30 * time.Second)
 	f1, err := h.B.Force()
