@@ -337,7 +337,8 @@ func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placem
 					if taken[t] || len(res) >= n {
 						continue
 					}
-					if ok, clear := h.World.Buildable(t); !ok || !clear || h.World.Blocked(t) {
+					// деревья и камни — можно (стройка их вырубит); нельзя — вода, утёсы, постройки
+					if ok, _ := h.World.Buildable(t); !ok {
 						continue
 					}
 					taken[t] = true
