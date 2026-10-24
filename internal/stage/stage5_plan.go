@@ -28,9 +28,6 @@ const (
 	redRate     = 0.1 // красная наука, шт/с (вся наука до ракеты — 0.1/с, stages.md)
 	planReserve = 1   // без запаса роста: запасы — в зонах (zones.md)
 	planLabSec  = 10  // секунд исследования на пакет (automation и т.п.)
-	// нет места — разведка: до planExplore раз, каждый раз — пока не откроется planExploreChunks
-	planExplore       = 20
-	planExploreChunks = 12
 )
 
 // planKinds — какие кластеры должны быть в плане (имя без номера).
