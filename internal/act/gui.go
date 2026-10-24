@@ -1169,15 +1169,29 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	if err := sleep(ctx, 200*time.Millisecond); err != nil {
 		return err
 	}
-	if err := h.In.Click(input.Left); err != nil {
-		return err
-	}
-	for i := 0; i < 10; i++ {
-		if err := sleep(ctx, inputLatency); err != nil {
+	// клик по ячейке бывает теряется (окно выбора открыто, ячейка под курсором, рецепт пуст —
+	// стадия 23 на 859088572) — ещё раз, пока окно выбора открыто
+	for try := 0; try < 3; try++ {
+		if try > 0 {
+			p, err := h.B.Player()
+			if err != nil {
+				return err
+			}
+			if p.OpenedGUIType == nil || *p.OpenedGUIType == 0 {
+				break // окно закрылось — клик дошёл (или нечего кликать)
+			}
+			h.Log("рецепт %s не встал — кликаю ещё раз", recipe)
+		}
+		if err := h.In.Click(input.Left); err != nil {
 			return err
 		}
-		if r, err := cur(); err != nil || r == recipe {
-			return err
+		for i := 0; i < 10; i++ {
+			if err := sleep(ctx, inputLatency); err != nil {
+				return err
+			}
+			if r, err := cur(); err != nil || r == recipe {
+				return err
+			}
 		}
 	}
 	h.debugShot("recipe-" + recipe)
