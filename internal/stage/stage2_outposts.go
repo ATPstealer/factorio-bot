@@ -358,7 +358,7 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 		need["iron-plate"], need["stone"] = 9*n, 5*n
 	case furnace:
 		need["stone"] = 5 * n
-	case chest:
+	case "wooden-chest": // не chest: с обслуживания chest — железный (8 пластин), не дерево
 		need["wood"] = 2 * n
 	default: // по дереву ручных рецептов
 		f, err := s.h.B.Force()
