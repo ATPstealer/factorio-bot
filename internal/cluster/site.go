@@ -315,9 +315,6 @@ func (b *Base) find(c *Cluster) *cand {
 	var best *cand
 	try := func(r Rect, vertical bool) {
 		x, y := r.Center()
-		if c.Kind == Bus { // шина — головой (начало ряда, сюда идут пластины) к поставщикам
-			x, y = float64(r.Min.X), float64(r.Min.Y)
-		}
 		d := math.Hypot(x-ax, y-ay)
 		if best != nil && d >= best.d {
 			return
@@ -337,9 +334,6 @@ func (b *Base) find(c *Cluster) *cand {
 			}
 			w, h := size(c, horizontal)
 			cx, cy := int(math.Round(ax))-w/2, int(math.Round(ay))-h/2
-			if c.Kind == Bus {
-				cx, cy = int(math.Round(ax)), int(math.Round(ay))
-			}
 			for _, o := range ringOffsets(rr) {
 				try(Rect{world.Tile{X: cx + o.X, Y: cy + o.Y}, world.Tile{X: cx + o.X + w, Y: cy + o.Y + h}}, !horizontal)
 			}
