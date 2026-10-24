@@ -613,12 +613,12 @@ func (s *worker) coal(ctx context.Context, lack int) error {
 		// назад не класть (stages.md): у каждого бура горит свой уголь, сосед докладывает ему
 		// новый быстрее, чем он сгорает
 		got, err := s.takeAll(ctx, ds, "fuel")
-		if err != nil {
+		if err != nil || got >= lack {
 			return err
 		}
-		if got > 0 {
-			return nil
-		}
+		// с только что поставленных пар — по паре кусков: остальное — с камней и руками (иначе
+		// попытки have кончались на крохах с пар — «не набрать coal ×20», 208708719)
+		lack -= got
 	}
 	if _, err := s.h.Gather(ctx, "huge-rock", 1, 60); err == nil {
 		return nil
