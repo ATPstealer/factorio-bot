@@ -53,8 +53,15 @@ func (c *Cluster) Len() int {
 	if c.Kind == Lab {
 		return c.Head + (c.Room+labCols-1)/labCols*c.Pitch
 	}
+	if c.Kind == Smelt && c.Room >= 2 {
+		return c.Head + c.Room*c.Pitch + smeltGap // перекладка выхода в середине ряда
+	}
 	return c.Head + c.Room*c.Pitch
 }
+
+// smeltGap — сдвиг второй половины ряда плавки: третий свободный тайл под перекладку выхода
+// (подача сбоку на ленту с прямой лентой сзади — полосы меняются).
+const smeltGap = 1
 
 // Блок лабораторий (cluster.md §2а «Лаборатории»): labCols столбцов, всего не меньше labRoom; поперёк: 0 —
 // сундуки буфера второго пакета ленты A, 1 — его инсертеры (в голове) / лента B (вдоль
@@ -392,8 +399,12 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 	if l.Usable != nil && !l.Usable(long) {
 		return fmt.Errorf("cluster %s: нет длинных инсертеров (уголь со второй ленты)", c.Name)
 	}
+	half := c.Count / 2
 	for i := 0; i < c.Count; i++ {
 		u := c.Head + i*c.Pitch
+		if half > 0 && i >= half {
+			u += smeltGap // вторая половина — за перекладкой
+		}
 		for _, p := range []layout.Placement{
 			f.at(l, "stone-furnace", u, furV, layout.N, tag),
 			f.inserter(l, "inserter", u, insV, oreV, tag),
@@ -406,6 +417,9 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 		}
 	}
 	end := c.Head + c.Count*c.Pitch - 1 // ленты подачи — до последней печи
+	if half > 0 {
+		end += smeltGap
+	}
 	for _, v := range []int{coalV, oreV} {
 		if err := row(v, 0, end, layout.E); err != nil {
 			return err
@@ -415,23 +429,25 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 	c.Ports = append(c.Ports,
 		Port{T: f.tile(-1, coalV), Dir: f.dir(layout.E), Item: coal, In: true},
 		Port{T: f.tile(-1, oreV), Dir: f.dir(layout.E), Item: ore, In: true})
-	// выход с перекладкой: первая половина — до m-1, обход через (m-1, 5) → (m, 5) → боком в (m, 6)
-	half := c.Count / 2
+	// выход с перекладкой: первая половина — до m-1, обход через (m-1, 5) → (m, 5) → (m+1, 5) →
+	// боком в (m+1, 6); перед ним заглушка (m, 6) — прямая лента сзади: без неё вход сбоку игра
+	// делает поворотом, и полоса не меняется (пластины шли по одной полосе — просьба пользователя)
 	if half == 0 {
 		if err := row(outV, c.Head, L, layout.E); err != nil {
 			return err
 		}
 	} else {
-		m := c.Head + (half-1)*c.Pitch + 2 // столбцы m-1, m в ряду инсертеров выхода свободны
+		m := c.Head + (half-1)*c.Pitch + 2 // столбцы m-1, m, m+1 в ряду инсертеров выхода свободны
 		if err := row(outV, c.Head, m-1, layout.E); err != nil {
 			return err
 		}
-		for _, b := range []struct{ u, v, d int }{{m - 1, outV, layout.N}, {m - 1, outInsV, layout.E}, {m, outInsV, layout.S}} {
+		for _, b := range []struct{ u, v, d int }{{m - 1, outV, layout.N}, {m - 1, outInsV, layout.E},
+			{m, outInsV, layout.E}, {m + 1, outInsV, layout.S}, {m, outV, layout.E}} {
 			if err := belt(b.u, b.v, b.d); err != nil {
 				return err
 			}
 		}
-		if err := row(outV, m, L, layout.E); err != nil {
+		if err := row(outV, m+1, L, layout.E); err != nil {
 			return err
 		}
 	}
