@@ -89,8 +89,8 @@ func runCircuits(ctx context.Context, h *act.Hands) error {
 	}
 	if len(grow) > 0 {
 		h.Say("рост: %d построек по плану стадии 6", len(grow))
-		order := []string{"electric-mining-drill", "stone-furnace", "boiler", "steam-engine", "transport-belt", "underground-belt",
-			"splitter", chest, "inserter", "burner-inserter", "small-electric-pole"}
+		order := []string{"electric-mining-drill", "stone-furnace", "boiler", "steam-engine", chest, "inserter",
+			"burner-inserter", "transport-belt", "underground-belt", "splitter", "small-electric-pole"}
 		if err := buildSorted(ctx, h, grow, order); err != nil {
 			return err
 		}

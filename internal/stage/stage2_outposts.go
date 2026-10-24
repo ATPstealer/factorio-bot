@@ -190,8 +190,11 @@ func outpostOrder(sites []outpostSite) []int {
 type worker struct {
 	h        *act.Hands
 	sites    []outpostSite
-	useStore bool // брать из кластера хранения (стадии после 8)
+	useStore bool // брать из кластера хранения (стадии после 13)
 	any      bool // store — и нужное текущей стадии (полный инвентарь посреди дела)
+	// placed — после постановки всех построек вида name (build): сразу настроить, пока по
+	// лентам ничего не пошло
+	placed func(ctx context.Context, name string) error
 }
 
 func (s *worker) entity(pl layout.Placement) (*bridge.Entity, error) {

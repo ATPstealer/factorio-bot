@@ -434,8 +434,8 @@ func planFix(ctx context.Context, h *act.Hands, s *worker) error {
 		}
 	}
 	if len(missing) > 0 {
-		order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "lab", "transport-belt", "underground-belt",
-			"splitter", chest, "inserter", "burner-inserter", "small-electric-pole"}
+		order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "lab", chest, "inserter",
+			"burner-inserter", "transport-belt", "underground-belt", "splitter", "small-electric-pole"}
 		if err := buildSorted(ctx, h, missing, order); err != nil {
 			return err
 		}

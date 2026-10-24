@@ -12,14 +12,24 @@ import (
 
 // Общее для стадий стройки: построить раскладку по порядку, задать рецепты и фильтры.
 
-// buildSorted — построить list (уже стоящее пропускается) в порядке order (машины — раньше лент
-// и инсертеров; чего нет в order — в конце), недостающее — из хранения.
+// buildSorted — построить list (уже стоящее пропускается) в порядке order (чего нет в order — в
+// конце), недостающее — из хранения. Сборщики и инсертеры настраиваются сразу, как поставлены
+// (configure): инсертеры — раньше лент, иначе буфер без фильтра набирает чужое.
 func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, order []string) error {
 	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
 	}
 	s := &worker{h: h, sites: sites, useStore: true}
+	s.placed = func(ctx context.Context, name string) error {
+		var these []layout.Placement
+		for _, pl := range list {
+			if pl.Name == name {
+				these = append(these, pl)
+			}
+		}
+		return configure(ctx, h, these)
+	}
 	sorted := slices.Clone(list)
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
 		ia, ib := slices.Index(order, a.Name), slices.Index(order, b.Name)
@@ -57,7 +67,7 @@ func lockedItems(h *act.Hands) (map[string]bool, error) {
 
 // configure — рецепты сборщиков и фильтры инсертеров list по плану (Recipe). Фильтр на ещё не
 // открытый предмет — заглушка filterHold, настоящий ставит стадия, которая предмет вводит;
-// рецепты сборщиков должны быть открыты (waitOpen).
+// рецепт сборщика ещё не открыт — пропустить (waitOpen, потом configure ещё раз).
 func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error {
 	locked, err := lockedItems(h)
 	if err != nil {
@@ -73,7 +83,7 @@ func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error
 		}
 		switch item := pl.Recipe; {
 		case pl.Name == "assembling-machine-1":
-			if st.Recipe != pl.Recipe {
+			if st.Recipe != pl.Recipe && !locked[pl.Recipe] {
 				err = h.SetRecipe(ctx, st.Entity, pl.Recipe)
 			}
 		case !slices.Contains(st.Filters, pl.Recipe):

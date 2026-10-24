@@ -117,9 +117,10 @@ func runSmelting(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	// добыча и машины — потом ленты (подземки — парами по порядку плана), инсертеры, столбы
-	order := []string{"electric-mining-drill", furnace, "assembling-machine-1", "transport-belt", "underground-belt", "splitter",
-		chest, "inserter", "long-handed-inserter", "burner-inserter", "small-electric-pole"}
+	// добыча и машины, сундуки и инсертеры (фильтры — сразу), потом ленты (подземки — парами по
+	// порядку плана), столбы
+	order := []string{"electric-mining-drill", furnace, "assembling-machine-1", chest, "inserter", "long-handed-inserter",
+		"burner-inserter", "transport-belt", "underground-belt", "splitter", "small-electric-pole"}
 	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}

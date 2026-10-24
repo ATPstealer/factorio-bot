@@ -109,7 +109,7 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	order := []string{"transport-belt", "underground-belt", "splitter", chest, "inserter", "small-electric-pole"}
+	order := []string{chest, "inserter", "transport-belt", "underground-belt", "splitter", "small-electric-pole"}
 	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}

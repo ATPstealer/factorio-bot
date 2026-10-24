@@ -128,6 +128,11 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 				return fmt.Errorf("поставить %s ×%d с (%.1f, %.1f): %w", name, len(batch), pos[0].X, pos[0].Y, err)
 			}
 		}
+		if s.placed != nil {
+			if err := s.placed(ctx, name); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

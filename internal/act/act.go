@@ -927,10 +927,6 @@ func (h *Hands) unstuck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	near, err := h.B.FindNearest(bridge.FindArgs{Radius: 3, Limit: 12})
-	if err != nil {
-		return err
-	}
 	type lifted struct {
 		item string
 		pos  bridge.Pos
@@ -938,29 +934,40 @@ func (h *Hands) unstuck(ctx context.Context) error {
 		in   map[string]int // что лежало внутри — вернуть
 	}
 	var back []lifted
-	for _, e := range near {
-		item := h.Protos.ItemFor(e.Name)
-		if item == "" || e.Type == "character" {
-			continue
-		}
-		if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || !st.Own {
-			continue
-		}
-		h.Say("обступили постройки — поднимаю %s, выйду и поставлю назад", e.Name)
-		d := 0
-		if e.Direction != nil {
-			d = *e.Direction
-		}
-		in := h.contents(e)
-		if err := h.Pickup(ctx, e); err != nil {
-			return err
-		}
-		back = append(back, lifted{item, e.Position, d, in})
-		if _, err := h.World.Sync(h.B, false); err != nil {
-			return err
-		}
+	// свои постройки — ближние первыми, круг шире, пока не откроется выход (на пятне руды
+	// ближайшие сущности — тайлы руды: 12 ближайших без построек — «не выбраться», 1039746529-0)
+	for _, r := range []float64{3, 5, 8} {
 		if !h.World.Enclosed(p.Position) {
 			break
+		}
+		near, err := h.B.FindNearest(bridge.FindArgs{Radius: r, Limit: 400})
+		if err != nil {
+			return err
+		}
+		for _, e := range near {
+			item := h.Protos.ItemFor(e.Name)
+			if item == "" || e.Type == "character" || e.Type == "resource" {
+				continue
+			}
+			if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || !st.Own {
+				continue
+			}
+			h.Say("обступили постройки — поднимаю %s, выйду и поставлю назад", e.Name)
+			d := 0
+			if e.Direction != nil {
+				d = *e.Direction
+			}
+			in := h.contents(e)
+			if err := h.Pickup(ctx, e); err != nil {
+				return err
+			}
+			back = append(back, lifted{item, e.Position, d, in})
+			if _, err := h.World.Sync(h.B, false); err != nil {
+				return err
+			}
+			if !h.World.Enclosed(p.Position) {
+				break
+			}
 		}
 	}
 	// своё убрано, а выхода нет — закрывают деревья и камни: рубить ближайшие (устранимое не
