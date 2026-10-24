@@ -539,8 +539,10 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 		if k >= len(buses) || (k == f && c.Kind != Make) || len(lines) > 0 {
 			continue
 		}
-		// лент предмета две (добытое) — сначала с менее занятой
-		lns := buses[k].lanes(p.Item)
+		// лент предмета две (добытое) — сначала с менее занятой; только с тех, куда есть
+		// подвод (второй подвод не дошёл до головы и влился сбоку в первый — вторая лента
+		// пустая: стадия 17 на 859088572, печи железа без угля)
+		lns := slices.DeleteFunc(buses[k].lanes(p.Item), func(ln *ZoneLane) bool { return !ln.Fed })
 		sort.SliceStable(lns, func(i, j int) bool { return lns[i].Taps < lns[j].Taps })
 		for _, ln := range lns {
 			// только ниже подвода: выше по течению предмета на ленте нет

@@ -37,11 +37,20 @@ func FillLanes(buses []*ZBus, list []layout.Placement) {
 					n = max(n, k)
 				}
 			}
+			var lns []ZoneLane
 			for y, k := range ys {
 				if laneRow(y-bus.Rect.Min.Y, bus.Rect.H()) && 2*k >= n {
-					bus.Lanes = append(bus.Lanes, fillLane(bus, list, it, y))
+					lns = append(lns, fillLane(bus, list, it, y))
 				}
 			}
+			// подвода не нашли (бывает подземкой) — отводы где угодно, но только если у
+			// предмета нет ленты с найденным подводом: вторая лента без подвода пустая
+			if !slices.ContainsFunc(lns, func(ln ZoneLane) bool { return ln.Fed }) {
+				for i := range lns {
+					lns[i].feed(lns[i].Start)
+				}
+			}
+			bus.Lanes = append(bus.Lanes, lns...)
 		}
 		sort.Slice(bus.Lanes, func(i, j int) bool { return bus.Lanes[i].Y < bus.Lanes[j].Y })
 	}
@@ -66,9 +75,6 @@ func fillLane(bus *ZBus, list []layout.Placement, it string, y int) ZoneLane {
 		if t.Y == y-1 && p.Dir == layout.S || t.Y == y+1 && p.Dir == layout.N || t.Y == y && t.X == ln.Start-1 && p.Dir == layout.E {
 			ln.feed(t.X)
 		}
-	}
-	if !ln.Fed { // поставщик есть (лента построена), подвода не нашли — отводы где угодно
-		ln.feed(ln.Start)
 	}
 	return ln
 }
