@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -215,16 +216,20 @@ func checkLabsGreen(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	// зелёных мало (0.1/с на 30 лабораторий) — съедаются сразу: искать не одним снимком, а
-	// в течение минуты (851731946: в цикле стадии были, в проверке через миг — нет)
+	// зелёные дошли до лабораторий: в них, на лентах подачи или в буфере. В саму лабораторию
+	// инсертер кладёт только пакеты текущего исследования (очередь по пути: впереди бывают на
+	// одной красной — 851731946), а зелёных мало (0.1/с на 30 лабораторий) — искать не одним
+	// снимком, а в течение минуты
 	lab := clusterOf(plan, cluster.Lab, "")
+	where := append(tagged(plan, cluster.Tag(lab.Name)), list...)
 	fed := false
 	for deadline := time.Now().Add(time.Minute); !fed && time.Now().Before(deadline); {
-		for _, pl := range tagged(plan, cluster.Tag(lab.Name)) {
-			if pl.Name != "lab" {
+		for _, pl := range where {
+			if pl.Name != "lab" && pl.Name != "transport-belt" && !strings.HasSuffix(pl.Name, "chest") {
 				continue
 			}
-			if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(greenPack) > 0 {
+			st, err := h.B.GetEntity(pl.Name, pl.Pos)
+			if err == nil && st != nil && (st.Count(greenPack) > 0 || st.Belt[greenPack] > 0) {
 				fed = true
 				break
 			}
@@ -234,7 +239,7 @@ func checkLabsGreen(h *act.Hands) error {
 		}
 	}
 	if !fed {
-		return fmt.Errorf("в лабораториях за минуту не было %s", greenPack)
+		return fmt.Errorf("до лабораторий за минуту не дошло %s", greenPack)
 	}
 	// исследование идёт (очередь — по порядку пути: впереди бывают на одной красной), в
 	// текущем или очереди — на зелёной
