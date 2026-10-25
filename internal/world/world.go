@@ -371,6 +371,72 @@ func (w *World) NearestUnknownWhere(from bridge.Pos, max int, skip map[bridge.Ch
 	return bridge.Pos{}, false
 }
 
+// FrontierFrom — неоткрытые чанки, до которых можно дойти от from (разведка не бежит за воду):
+// открытые чанки связаны, если через общую границу есть проходимая пара тайлов (внутри чанка —
+// считаются связными), неоткрытый — если у достижимого соседа граница к нему проходима.
+func (w *World) FrontierFrom(from bridge.Pos) map[bridge.ChunkPos]bool {
+	// side — проходимые тайлы края чанка c в сторону d (0 — +X, 1 — −X, 2 — +Y, 3 — −Y)
+	edge := func(c bridge.ChunkPos, d int, i int) Tile {
+		x0, y0 := c.X*ChunkSize, c.Y*ChunkSize
+		switch d {
+		case 0:
+			return Tile{X: x0 + ChunkSize - 1, Y: y0 + i}
+		case 1:
+			return Tile{X: x0, Y: y0 + i}
+		case 2:
+			return Tile{X: x0 + i, Y: y0 + ChunkSize - 1}
+		}
+		return Tile{X: x0 + i, Y: y0}
+	}
+	step := []bridge.ChunkPos{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}}
+	opp := []int{1, 0, 3, 2}
+	start := ChunkOf(TileOf(from))
+	seen := map[bridge.ChunkPos]bool{start: true}
+	queue := []bridge.ChunkPos{start}
+	res := map[bridge.ChunkPos]bool{}
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		for d, s := range step {
+			n := bridge.ChunkPos{X: c.X + s.X, Y: c.Y + s.Y}
+			if seen[n] && w.Chunks[n] != nil {
+				continue
+			}
+			pass := false
+			for i := 0; i < ChunkSize && !pass; i++ {
+				a := edge(c, d, i)
+				if !w.passable(a) {
+					continue
+				}
+				if w.Chunks[n] == nil {
+					pass = true // за краем — неоткрытое: дойти до края можно
+				} else {
+					pass = w.passable(edge(n, opp[d], i))
+				}
+			}
+			if !pass {
+				continue
+			}
+			if w.Chunks[n] == nil {
+				res[n] = true
+				continue
+			}
+			seen[n] = true
+			queue = append(queue, n)
+		}
+	}
+	return res
+}
+
+// passable — по тайлу можно пройти, если надо — срубив (деревья, камни): суша без утёсов и
+// построек или мелководье.
+func (w *World) passable(t Tile) bool {
+	if ok, _ := w.Buildable(t); ok {
+		return true
+	}
+	return w.Walkable(t)
+}
+
 // ringChunks — чанки квадратного кольца r вокруг чанка (0,0).
 func ringChunks(r int) []bridge.ChunkPos {
 	if r == 0 {

@@ -48,7 +48,11 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 		if err != nil {
 			return err
 		}
-		target, ok := w.NearestUnknownWhere(p.Position, 64, skip, inside)
+		// только чанки, до которых можно дойти (за водой и утёсами — нет: бот стоял, перебирая их)
+		front := w.FrontierFrom(p.Position)
+		target, ok := w.NearestUnknownWhere(p.Position, 64, skip, func(c bridge.ChunkPos) bool {
+			return front[c] && (inside == nil || inside(c))
+		})
 		if !ok {
 			return ErrNothingToExplore
 		}
