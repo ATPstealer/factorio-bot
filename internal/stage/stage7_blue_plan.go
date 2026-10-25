@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/calc"
 	"factorio-bot/internal/cluster"
+	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -52,6 +54,40 @@ func blueBase() (*ClusterPlan, error) {
 		}
 	}
 	return loadPlanFile(runPath(blueBaseFile))
+}
+
+// bluePack — синяя наука; blueRate — её темп (вся наука — 0.1/с, stages.md).
+const (
+	bluePack = "chemical-science-pack"
+	blueRate = 0.1
+)
+
+// blueClusters — двигатели (пары «трубы → двигатель»), красные схемы (пары «провод → схема»),
+// синяя наука; остальное (сталь, пластик, сера, схемы, шестерни) — с шины.
+func blueClusters(pr *knowledge.Prototypes) ([]*cluster.Cluster, error) {
+	plan, err := calc.Solve(pr, map[string]float64{bluePack: blueRate}, calc.Options{All: true,
+		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1", "advanced-crafting": "assembling-machine-2"}})
+	if err != nil {
+		return nil, err
+	}
+	cs, err := cluster.Split(pr, plan, planReserve, nil, append(slices.Clone(greenSeparate),
+		"steel-plate", "plastic-bar", "sulfur", "advanced-circuit", "engine-unit", "iron-gear-wheel")...)
+	if err != nil {
+		return nil, err
+	}
+	by := map[string]*cluster.Cluster{}
+	for _, c := range cs {
+		if c.Kind == cluster.Make {
+			by[c.Product] = c
+		}
+	}
+	for _, it := range []string{"engine-unit", "pipe", "advanced-circuit", "copper-cable", bluePack} {
+		if by[it] == nil {
+			return nil, fmt.Errorf("синяя наука: в расчёте нет %s", it)
+		}
+	}
+	return []*cluster.Cluster{cluster.Pair(pr, by["engine-unit"], by["pipe"]),
+		cluster.Pair(pr, by["advanced-circuit"], by["copper-cable"]), by[bluePack]}, nil
 }
 
 // oreUnder — руды под бурами ресурса it в кластерах плана.
@@ -245,6 +281,16 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, helpers...)
+	// синяя наука: двигатели (трубы внутри, шестерни — с шины), красные схемы (провод внутри),
+	// сама наука (stages.md, стадия 7)
+	sci, err := blueClusters(pr)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := base.PlaceZoned(sci, rough.Zones); err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, sci...)
 	l, err := base.Layout(fresh...)
 	if err != nil {
 		return base, l, err
@@ -290,6 +336,18 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
+			var x, y int // чья постройка — в ошибку (разбор)
+			if _, err := fmt.Sscanf(e[strings.Index(e, "{"):], "{%d %d}", &x, &y); err == nil {
+				if p := l.At(world.Tile{X: x, Y: y}); p != nil {
+					e += " (" + p.Tag + ")"
+				}
+				drawPlan(h, rough.Zones, base, l, world.Tile{X: x, Y: y}, 30, image("plan-blue-err"))
+				for _, p := range l.List { // что рядом — в журнал
+					if t := world.TileOf(p.Pos); abs(t.X-x) <= 3 && abs(t.Y-y) <= 3 {
+						h.Log("рядом с ошибкой: %v %s %s", t, p, p.Tag)
+					}
+				}
+			}
 			return base, l, fmt.Errorf("раскладка: %v", e)
 		}
 	}
@@ -301,6 +359,10 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	if err := planDraw(h, rough.Zones, base, l, blueImage()); err != nil {
 		return base, l, err
+	}
+	// нефть крупно — для проверки глазами: НПЗ, химия, склад
+	for _, c := range append([]*cluster.Cluster{refinery, tank}, chems...) {
+		drawAround(h, rough.Zones, base, l, c, image("plan-blue-"+c.Name))
 	}
 	all := append(base.Sorted(), buses...)
 	return base, l, writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})

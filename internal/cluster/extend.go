@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -95,9 +96,10 @@ func (b *Base) newLane(l *layout.Layout, buses []*ZBus, k int, it string, end in
 			continue
 		}
 		saved := slices.Clone(l.List)
-		bus.Lanes = append(bus.Lanes, ZoneLane{Item: it, Y: bus.Rect.Min.Y + v, Start: bus.Rect.Min.X})
+		start := b.laneStart(bus, k, it)
+		bus.Lanes = append(bus.Lanes, ZoneLane{Item: it, Y: bus.Rect.Min.Y + v, Start: start})
 		var gaps []laneGap
-		b.layLane(l, buses, k, len(bus.Lanes)-1, bus.Rect.Min.X, end, -1, false, &gaps)
+		b.layLane(l, buses, k, len(bus.Lanes)-1, start, end, -1, false, &gaps)
 		if err = fixGaps(l, buses, gaps); err == nil {
 			return nil
 		}
@@ -106,6 +108,22 @@ func (b *Base) newLane(l *layout.Layout, buses []*ZBus, k int, it string, end in
 		l.Rollback(-1)
 	}
 	return err
+}
+
+// laneStart — откуда новая лента it шины k: продукт этажа под шиной кладётся у столбца своего
+// кластера — лента начинается у самого левого из них (у головы шины тесно от старых подводов и
+// отводов: обходы ломались, 859088572); добытое и сквозное — от головы.
+func (b *Base) laneStart(bus *ZBus, k int, it string) int {
+	start := math.MaxInt
+	for _, c := range b.Clusters {
+		if floorOf(c) == k && k > 0 && slices.ContainsFunc(c.Out, func(f Flow) bool { return f.Item == it }) {
+			start = min(start, c.Area.Min.X-laneTail)
+		}
+	}
+	if start == math.MaxInt {
+		return bus.Rect.Min.X
+	}
+	return max(start, bus.Rect.Min.X)
 }
 
 // laneLast — X последней ленты ряда ln шины bus.

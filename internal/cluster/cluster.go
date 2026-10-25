@@ -472,6 +472,40 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 // StorageChest — сундук хранения: сразу железный, потом не менять (stages.md, стадия 13).
 const StorageChest = "iron-chest"
 
+// Pair — кластер main с промежуточным sub внутри (пары прямой подачи: сборщик sub → инсертер →
+// main; stages.md, стадия 7: провод — в красных схемах, трубы — в двигателях): входы sub вместо
+// его продукта.
+func Pair(p *knowledge.Prototypes, main, sub *Cluster) *Cluster {
+	c := &Cluster{Kind: Make, Product: main.Product, Reserve: main.Reserve,
+		Main: main.Units[0].Recipe, Sub: sub.Units[0].Recipe, PowerW: main.PowerW + sub.PowerW}
+	c.Units = append(append([]Unit(nil), main.Units...), sub.Units...)
+	in := map[string]float64{}
+	for _, f := range main.In {
+		if f.Item != sub.Product {
+			in[f.Item] += f.Rate
+		}
+	}
+	for _, f := range sub.In {
+		in[f.Item] += f.Rate
+	}
+	c.In = toFlows(in)
+	c.Out = append([]Flow(nil), main.Out...)
+	c.Internal = []Flow{{sub.Product, sub.Out[0].Rate}}
+	nm, ns := 0.0, 0.0
+	for _, u := range main.Units {
+		nm += u.Machines
+	}
+	for _, u := range sub.Units {
+		ns += u.Machines
+	}
+	c.SubPer = min(2, max(1, int(math.Ceil(ns/math.Max(nm, 1e-9)-1e-9))))
+	shape(p, c)
+	// по темпу (не по лентам): пары длинные (шаг 8–12) — 30 пар не влезут в глубину зоны
+	c.Count = min(max(c.Need, MinUnits), MaxUnits)
+	c.Room = c.Count
+	return c
+}
+
 // Steel — кластер стали из руды (cluster.md §2а «Сталь»): пары печей «пластины → сталь», сразу
 // на MaxUnits пар (стали нужно тонны). Потоки — по печам второго уровня (как у всей плавки).
 func Steel(p *knowledge.Prototypes, reserve float64) *Cluster {
