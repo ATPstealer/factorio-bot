@@ -93,7 +93,8 @@ func blueClusters(pr *knowledge.Prototypes) ([]*cluster.Cluster, error) {
 // blueNeeds — потребность всей базы (красная + зелёная + синяя) кластерами с запасом — по ней
 // рост старых кластеров (cluster.md §7).
 func blueNeeds(pr *knowledge.Prototypes) ([]*cluster.Cluster, error) {
-	targets := map[string]float64{redPack: redRate, greenPack: greenRate, bluePack: blueRate}
+	targets := map[string]float64{redPack: redRate, greenPack: greenRate, bluePack: blueRate,
+		"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate} // быстрые — их входы (жёлтые ленты 1.4/с) растут
 	whole, err := calc.Solve(pr, targets, calc.Options{All: true,
 		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1", "advanced-crafting": "assembling-machine-2"}})
 	if err != nil {
@@ -367,7 +368,8 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return rank(a) - rank(b)
 	})
 	for _, c := range order {
-		if c.Kind != cluster.Smelt && c.Kind != cluster.Power || slices.Contains(fresh, c) {
+		belts := c.Kind == cluster.Make && c.Product == "transport-belt" // жёлтые ленты — под быстрые (1.4/с)
+		if c.Kind != cluster.Smelt && c.Kind != cluster.Power && !belts || slices.Contains(fresh, c) {
 			continue
 		}
 		n, have := cluster.Need(needs, c), cluster.Built(l.List, c)

@@ -72,8 +72,12 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 	switch c.Kind {
 	case Mine: // блок на пятно уже взял руду до предела — новое пятно
 		return fail(fmt.Errorf("блок добычи — на пределе руды, нужно новое пятно"))
-	case Smelt, Power:
-		c.Count, room = n, n
+	case Smelt, Power, Make: // сборка — дальше по ряду тем же шаблоном (пары — парами)
+		cnt := n
+		if c.Sub != "" { // n — машин, в ряду — пары (основной + SubPer промежуточных)
+			cnt = (n + c.SubPer) / (1 + c.SubPer)
+		}
+		c.Count, room = cnt, cnt
 	default:
 		return fail(fmt.Errorf("вид %s так не растёт", c.Kind))
 	}
