@@ -158,7 +158,6 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		// дальний квадрат с ним не граничит — «открывался» за секунду, 1028292478)
 		if p, err := h.B.Player(); err == nil {
 			ax, ay := p.Position.X, p.Position.Y
-			goal := world.ChunkOf(world.Tile{X: int(cx), Y: int(cy)})
 			corridor := func(c bridge.ChunkPos) bool {
 				// расстояние от чанка до отрезка игрок — центр, в чанках
 				px, py := float64(c.X*32+16), float64(c.Y*32+16)
@@ -170,7 +169,13 @@ func runRough(ctx context.Context, h *act.Hands) error {
 				}
 				return math.Hypot(px-ax-t*dx, py-ay-t*dy) <= 96
 			}
-			err := h.ExploreWhere(ctx, corridor, func() bool { return h.World.Chunks[goal] != nil })
+			// дошёл — персонаж в квадрате (не «центральный чанк открыт»: он бывает сгенерирован
+			// заранее, отдельно от открытого — коридор кончался сразу, 264771462, 208708719)
+			arrived := func() bool {
+				q, err := h.B.Player()
+				return err != nil || math.Hypot(q.Position.X-cx, q.Position.Y-cy) < 512
+			}
+			err := h.ExploreWhere(ctx, corridor, arrived)
 			if err != nil && !errors.Is(err, act.ErrNothingToExplore) {
 				return err
 			}
