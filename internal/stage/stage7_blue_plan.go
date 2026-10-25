@@ -106,6 +106,11 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 		}
 		h.Say("кластер %s на %v: %v — ищу другое место", ce.Consumer.Name, ce.Consumer.Area, ce.Err)
 		drawAround(h, rough.Zones, base, l, ce.Consumer, image(fmt.Sprintf("plan-blue-fail%d", try)))
+		for _, z := range rough.Zones {
+			if z.Name == "bus-1" && ce.Consumer.Kind == cluster.Mine { // подвод — у головы bus-1
+				drawPlan(h, rough.Zones, base, l, z.Rect.Min, 60, image(fmt.Sprintf("plan-blue-head%d", try)))
+			}
+		}
 		a := ce.Consumer.Area
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {

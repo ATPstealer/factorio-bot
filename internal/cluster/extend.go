@@ -253,15 +253,32 @@ func (b *Base) moreMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
 			}
 			l.Rollback(mark)
 		}
-		q, err := route(op.T, op.Dir, heads)
-		if err != nil {
+		if q, err := route(op.T, op.Dir, heads); err == nil {
+			fedHead(fresh, q)
+			continue
+		}
+		// до головы не дойти (у головы bus-1 тесно от старых подводов) — весь выход боком в
+		// старый подвод, как раньше
+		if _, err := route(op.T, op.Dir, feederSides(l, bus, old, op.T)); err != nil {
 			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
 		}
-		fedHead(fresh, q)
 	}
+	// новые ленты без подвода — убрать (пустые ленты на шине не нужны)
+	empty := map[int]bool{}
 	nb := &ZBus{Name: bus.Name}
 	for _, ln := range fresh {
-		nb.Lanes = append(nb.Lanes, *ln)
+		if ln.Fed {
+			nb.Lanes = append(nb.Lanes, *ln)
+		} else {
+			empty[ln.Y] = true
+		}
+	}
+	if len(empty) > 0 {
+		l.List = slices.DeleteFunc(l.List, func(p layout.Placement) bool {
+			return p.Tag == Tag(bus.Name) && p.Recipe == c.Product && empty[world.TileOf(p.Pos).Y]
+		})
+		l.Rollback(-1)
+		bus.Lanes = slices.DeleteFunc(bus.Lanes, func(ln ZoneLane) bool { return ln.Item == c.Product && empty[ln.Y] })
 	}
 	balanceLanes(l, nb)
 	return nil

@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"factorio-bot/internal/bridge"
@@ -44,13 +45,8 @@ func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) {
 		}
 		return nil
 	}
-	var pts []world.Patch
+	pts := oilFields(b.W.Patches())
 	oil := 0.0
-	for _, p := range b.W.Patches() {
-		if p.Name == "crude-oil" {
-			pts = append(pts, p)
-		}
-	}
 	sort.Slice(pts, func(i, j int) bool {
 		return math.Hypot(pts[i].Center.X-float64(head.X), pts[i].Center.Y-float64(head.Y)) <
 			math.Hypot(pts[j].Center.X-float64(head.X), pts[j].Center.Y-float64(head.Y))
@@ -106,6 +102,44 @@ func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) {
 		return zones, res, fmt.Errorf("cluster: месторождений нефти %d из %d", have, OilFields)
 	}
 	return zones, res, nil
+}
+
+// oilFields — месторождения нефти: пятна, чьи рамки (+3 — качалка) задевают друг друга, — одно
+// месторождение (кластер на них один, 238178543).
+func oilFields(all []world.Patch) []world.Patch {
+	var res []world.Patch
+	grow := func(p world.Patch) Rect {
+		return Rect{world.Tile{X: p.Min.X - 3, Y: p.Min.Y - 3}, world.Tile{X: p.Max.X + 4, Y: p.Max.Y + 4}}
+	}
+	for _, p := range all {
+		if p.Name != "crude-oil" {
+			continue
+		}
+		res = append(res, p)
+	}
+	for merged := true; merged; {
+		merged = false
+		for i := 0; i < len(res) && !merged; i++ {
+			for j := i + 1; j < len(res); j++ {
+				if !grow(res[i]).Overlaps(grow(res[j])) {
+					continue
+				}
+				a, b := res[i], res[j]
+				n := float64(len(a.Tiles) + len(b.Tiles))
+				a.Center = bridge.Pos{X: (a.Center.X*float64(len(a.Tiles)) + b.Center.X*float64(len(b.Tiles))) / n,
+					Y: (a.Center.Y*float64(len(a.Tiles)) + b.Center.Y*float64(len(b.Tiles))) / n}
+				a.Tiles = append(slices.Clone(a.Tiles), b.Tiles...)
+				a.Amount += b.Amount
+				a.Min = world.Tile{X: min(a.Min.X, b.Min.X), Y: min(a.Min.Y, b.Min.Y)}
+				a.Max = world.Tile{X: max(a.Max.X, b.Max.X), Y: max(a.Max.Y, b.Max.Y)}
+				res[i] = a
+				res = append(res[:j], res[j+1:]...)
+				merged = true
+				break
+			}
+		}
+	}
+	return res
 }
 
 // taken — рамку r задевает кластер базы.
