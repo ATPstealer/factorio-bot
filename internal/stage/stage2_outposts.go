@@ -369,7 +369,10 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 		if err != nil {
 			return err
 		}
-		hc := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, float64(n))
+		// сырьё — на целое число крафтов (ленты — по 2 за крафт: на 65 считалось 97.5 железа,
+		// а крафтов 33 — нужно 99, последнему не хватило: стадия 21 на 954176679)
+		per := s.perCraft(item)
+		hc := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, float64((n+per-1)/per*per))
 		for raw, v := range hc.Base {
 			if raw != "iron-plate" && raw != "copper-plate" && raw != "stone" && raw != "wood" {
 				return fmt.Errorf("крафт %s: нужно %s — руками не сделать", item, raw)
