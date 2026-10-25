@@ -387,22 +387,35 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		return n == 0
 	}
 	// шине (zones.md): вдоль рядов неровностей не длиннее busGap — подземка перепрыгнет
+	// why — почему отвергнуты места (разбор: база не встаёт)
+	why := map[string]int{}
 	freeBus := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
+			why["шина: край карты/кольцо"]++
 			return false
 		}
 		if n, _ := g.count(g.unknown, r); n > 0 {
+			why["шина: неоткрытое"]++
 			return false
 		}
 		if n, _ := g.count(g.zone, r); n > 0 {
+			why["шина: месторождение"]++
 			return false
 		}
 		// неровность длиннее busGap вдоль ряда — ленте не обойти (подземка не перепрыгнет, обход по
 		// зазорам к стадии 7 занят): такой шине не место (решение пользователя; 3% площади
 		// пропускали утёс поперёк bus-3 — 859088572)
-		n, _ := g.count(g.rowThick, r)
-		return n == 0
+		if n, _ := g.count(g.rowThick, r); n > 0 {
+			why["шина: неровность длиннее 4 в ряду"]++
+			return false
+		}
+		return true
 	}
+	defer func() {
+		if len(why) > 0 {
+			b.logf("этажи: отказы мест %v", why)
+		}
+	}()
 	// части этажа f между шинами (от top до bottom): свободные полосы на всю глубину в [lo, hi)
 	// — слева направо (right — справа налево, прижать вправо), пока в сумме не наберётся zw[f];
 	// nil — не набралось
@@ -486,6 +499,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 					for gap := 0; gap <= maxShift && !placed; gap += 2 {
 						ps := parts(f, l, l+span, y-gap-depths[f], y-gap, f == floors)
 						if ps == nil {
+							why[fmt.Sprintf("этаж %d: не набралась ширина", f)]++
 							continue
 						}
 						left := busL
@@ -494,7 +508,11 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 						}
 						bus := Rect{world.Tile{X: left, Y: busY.Min.Y}, world.Tile{X: ps[len(ps)-1].Max.X, Y: busY.Max.Y}}
 						// шине ресурсов — зазор от добычи: в головы слева входят подводы (zones.md)
-						if !freeBus(bus) || f == 1 && b.nearMine(bus) {
+						if !freeBus(bus) {
+							continue
+						}
+						if f == 1 && b.nearMine(bus) {
+							why["bus-1: ближе 16 к добыче"]++
 							continue
 						}
 						lo.buses[f-1], lo.floors[f] = bus, ps
