@@ -123,7 +123,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	g := b.grid()
 	for _, c := range cs {
 		if c.Name == "" {
-			c.Name = b.name(c.Product)
+			c.Name = b.name(c.Product, cs)
 		}
 	}
 	var fl [floors + 1][]*Cluster

@@ -90,7 +90,16 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		if err != nil {
 			return err
 		}
-		cs = append(cs, cluster.Labs(pr, targets, planLabSec, planReserve), cluster.StorageCluster())
+		// хранение — у стартовых буров и у головы bus-1 (cluster.md §2а «Хранение»: база бывает в
+		// сотнях тайлов от старта)
+		atBase := cluster.StorageCluster()
+		for _, z := range rough.Zones {
+			if z.Name == "bus-1" {
+				_, y := z.Rect.Center()
+				atBase.Near = &world.Tile{X: z.Rect.Min.X - 20, Y: int(y)}
+			}
+		}
+		cs = append(cs, cluster.Labs(pr, targets, planLabSec, planReserve), cluster.StorageCluster(), atBase)
 		if cs, err = cluster.AddPower(pr, cs, planReserve, nil); err != nil {
 			return err
 		}

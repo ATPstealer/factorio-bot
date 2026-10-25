@@ -159,7 +159,7 @@ func checkDismantle(h *act.Hands) error {
 // сундук целиком) и, раз стоим у хранения, выложить ненужное (stages.md, инвентарь). false — в
 // хранении нет.
 func (s *worker) fromStorage(ctx context.Context, item string, n int) (bool, error) {
-	list, err := storageLayout()
+	list, err := storageNear(s.h)
 	if err != nil {
 		return false, err
 	}

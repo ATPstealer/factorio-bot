@@ -1,9 +1,11 @@
 package stage
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"sort"
@@ -30,6 +32,46 @@ var rawItems = []string{"wood", "stone", "iron-ore", "copper-ore"}
 
 func init() {
 	register(Stage{N: 13, Name: "хранение", Run: runStorage, Check: checkStorage})
+}
+
+// storageNear — сундуки хранения, ближние к игроку первыми (мест хранения два — бот кладёт и
+// берёт из ближнего: cluster.md §2а «Хранение»).
+func storageNear(h *act.Hands) ([]layout.Placement, error) {
+	list, err := storageLayout()
+	if err != nil {
+		return nil, err
+	}
+	if p, err := h.B.Player(); err == nil {
+		slices.SortStableFunc(list, func(a, b layout.Placement) int {
+			da := math.Hypot(a.Pos.X-p.Position.X, a.Pos.Y-p.Position.Y)
+			db := math.Hypot(b.Pos.X-p.Position.X, b.Pos.Y-p.Position.Y)
+			return cmp.Compare(da, db)
+		})
+	}
+	return list, nil
+}
+
+// storageAtBase — сундуки хранения у базы (storage-2, у головы bus-1; в старых планах хранение
+// одно — оно и есть).
+func storageAtBase(list []layout.Placement) []layout.Placement {
+	plan, err := LoadPlan()
+	if err != nil {
+		return list
+	}
+	name := "" // у базы — storage-2 (у старта — storage-1)
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Storage && c.Name > name {
+			name = c.Name
+		}
+	}
+	tag := cluster.Tag(name)
+	var res []layout.Placement
+	for _, pl := range list {
+		if pl.Tag == tag {
+			res = append(res, pl)
+		}
+	}
+	return res
 }
 
 // storageLayout — постройки кластера хранения из плана.

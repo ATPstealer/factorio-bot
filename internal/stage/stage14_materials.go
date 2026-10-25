@@ -204,7 +204,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	if p.InventorySize-len(p.InventorySlots) >= free {
 		return nil
 	}
-	list, err := storageLayout()
+	list, err := storageNear(s.h)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errNoStorage, err) // плана ещё нет (до стадии 5)
 	}
@@ -277,7 +277,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	}
 	// все сундуки полны — хранение сразу до 4×8, как на обслуживании (8 сундуков забивались к
 	// стадии 15: разбор точек не помещался — 238178543), и ещё раз
-	if k >= len(chests) && len(chests) < storageChests && !s.growing {
+	if k >= len(chests) && len(storageAtBase(list)) < storageChests && !s.growing {
 		s.growing = true
 		defer func() { s.growing = false }()
 		s.h.Say("хранение полно — расширяю до %d сундуков", storageChests)

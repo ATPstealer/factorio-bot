@@ -137,7 +137,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 	head := world.Tile{X: buses[0].Rect.Min.X, Y: buses[0].Rect.Min.Y}
 	for _, c := range cs {
 		if c.Name == "" {
-			c.Name = b.name(c.Product)
+			c.Name = b.name(c.Product, cs)
 		}
 	}
 	// добыча: зона своего ресурса, ближняя к голове шины ресурсов
@@ -200,13 +200,15 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 				return nil, err
 			}
 			continue
-		default: // хранение — вне зон, у стартовых буров
-			cx, cy := base.Center()
-			near := world.Tile{X: int(cx), Y: int(cy)}
-			if b.StorageNear != nil {
-				near = *b.StorageNear
+		default: // хранение — вне зон, у стартовых буров (или где задано: у головы bus-1)
+			if c.Near == nil {
+				cx, cy := base.Center()
+				near := world.Tile{X: int(cx), Y: int(cy)}
+				if b.StorageNear != nil {
+					near = *b.StorageNear
+				}
+				c.Near = &near
 			}
-			c.Near = &near
 		}
 		err := b.Place(c)
 		// станция: ряд на всю зону не влез (зона у воды вплотную к соседям, 264771462) —

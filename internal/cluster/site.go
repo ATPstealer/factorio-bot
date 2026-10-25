@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"factorio-bot/internal/knowledge"
@@ -476,12 +477,14 @@ var short = map[string]string{
 }
 
 // name — следующее свободное имя продукта.
-func (b *Base) name(product string) string {
+// name — свободное имя кластера product: не занятое ни в базе, ни среди also (кластеры, которым
+// имена дают сейчас — два хранения в одном плане оба были storage-1).
+func (b *Base) name(product string, also []*Cluster) string {
 	if s, ok := short[product]; ok {
 		product = s
 	}
 	used := map[string]bool{}
-	for _, c := range b.Clusters {
+	for _, c := range append(slices.Clone(b.Clusters), also...) {
 		used[c.Name] = true
 	}
 	for i := 1; ; i++ {
