@@ -57,13 +57,6 @@ func checkBlueprint(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	diffs, err := planAudit(h, want)
-	if err != nil {
-		return err
-	}
-	if len(diffs) > 0 {
-		return fmt.Errorf("сверка с чертежом: %d расхождений, первое — %v", len(diffs), diffs[0])
-	}
 	extra, err := extras(h, want)
 	if err != nil {
 		return err
@@ -71,7 +64,7 @@ func checkBlueprint(h *act.Hands) error {
 	if len(extra) > 0 {
 		return fmt.Errorf("лишнее (нет в чертеже): %d, первое — %s в (%.1f, %.1f)", len(extra), extra[0].Name, extra[0].Pos.X, extra[0].Pos.Y)
 	}
-	return checkMaintenance(h)
+	return checkKept(h, want)
 }
 
 // upgradePlan — правила плана, которые только дописывают построенное (cluster.md §5: делители

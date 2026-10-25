@@ -22,6 +22,9 @@ import (
 
 const ironChest = "iron-chest"
 
+// auditBatch — построек в одном запросе сверки с планом.
+const auditBatch = 200
+
 // keepItems — что не класть в хранение: понадобится на следующих стадиях (стройка кластеров).
 var keepItems = []string{"transport-belt", "underground-belt", "splitter", "inserter", "small-electric-pole",
 	"medium-electric-pole", "assembling-machine-1", "assembling-machine-2", ironChest, "electric-mining-drill",
@@ -436,12 +439,22 @@ func planAudit(h *act.Hands, list []layout.Placement) ([]planDiff, error) {
 	if err != nil {
 		return nil, err
 	}
-	var res []planDiff
-	for _, pl := range list {
-		st, err := h.B.GetEntity(pl.Name, pl.Pos)
+	// постройки — пачками (по одной — тысячи запросов: сверка шла десятки минут)
+	states := make([]*bridge.EntityState, 0, len(list))
+	for i := 0; i < len(list); i += auditBatch {
+		var refs []bridge.EntityRef
+		for _, pl := range list[i:min(len(list), i+auditBatch)] {
+			refs = append(refs, bridge.EntityRef{Name: pl.Name, Position: pl.Pos})
+		}
+		got, err := h.B.GetEntities(refs)
 		if err != nil {
 			return nil, err
 		}
+		states = append(states, got...)
+	}
+	var res []planDiff
+	for i, pl := range list {
+		st := states[i]
 		switch {
 		case st == nil:
 			res = append(res, planDiff{pl, nil, "нет"})
@@ -535,8 +548,17 @@ func renameChests() error {
 }
 
 // checkMaintenance — нет своих деревянных сундуков; каждое нужное исследование изучено или в
-// очереди.
+// очереди; построенное — по плану.
 func checkMaintenance(h *act.Hands) error {
+	now, err := planNow()
+	if err != nil {
+		return err
+	}
+	return checkKept(h, now)
+}
+
+// checkKept — проверка обслуживания со сверкой по list (стадия 28 — чертёж: одна сверка, не две).
+func checkKept(h *act.Hands, list []layout.Placement) error {
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return err
 	}
@@ -555,11 +577,7 @@ func checkMaintenance(h *act.Hands) error {
 	if err := checkBuilt(h, store); err != nil {
 		return fmt.Errorf("хранение: %w", err)
 	}
-	now, err := planNow()
-	if err != nil {
-		return err
-	}
-	diffs, err := planAudit(h, now)
+	diffs, err := planAudit(h, list)
 	if err != nil {
 		return err
 	}
