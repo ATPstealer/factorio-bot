@@ -562,8 +562,14 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			// отвод — ниже подвода в нижнюю ленту; в ленту шины k — в голову или боком до места
 			// отвода (подвод в нижнюю бывает не у головы)
 			line := zLaneBelts(l, buses[k-1], low, low.From+1, low.From+81)
-			to := append([]Port{{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}},
-				zSidePorts(l, buses[k], ln, buses[k].Rect.Min.X, low.From+41)...)
+			// боком — в любом месте ленты (у головы шины тесно от других сквозных и отводов: сера на
+			// bus-3, 859088572), ближние к подводу внизу первыми
+			side := zSidePorts(l, buses[k], ln, buses[k].Rect.Min.X, buses[k].Rect.Max.X)
+			sort.SliceStable(side, func(i, j int) bool { return abs(side[i].T.X-low.From) < abs(side[j].T.X-low.From) })
+			if len(side) > 30 {
+				side = side[:30]
+			}
+			to := append([]Port{{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}}, side...)
 			err := layout.ErrNoRoute
 			for _, p := range to {
 				if err = SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err == nil {
