@@ -9,6 +9,7 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/calc"
 	"factorio-bot/internal/cluster"
+	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
 
@@ -68,7 +69,6 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	pr := h.Protos
 	old, err := blueBase()
 	if err != nil {
 		return err
@@ -83,9 +83,45 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	restore := h.World.Hide(own)
 	defer restore()
 	built := builtOutside(h, old)
+	avoid := map[world.Tile]bool{}
+	for t := range built {
+		avoid[t] = true
+	}
+	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток, как на
+	// стадии 6)
+	for try := 0; ; try++ {
+		base, l, err := blueTry(h, rough, built, avoid)
+		if err == nil {
+			return nil
+		}
+		ce, ok := err.(*cluster.ConnectError)
+		if !ok || try >= 5 {
+			if base != nil && l != nil {
+				planDraw(h, rough.Zones, base, l, blueImage()) // что вышло — на картинку
+			}
+			return err
+		}
+		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
+		a := ce.Consumer.Area
+		for y := a.Min.Y; y < a.Max.Y; y++ {
+			for x := a.Min.X; x < a.Max.X; x++ {
+				avoid[world.Tile{X: x, Y: y}] = true
+			}
+		}
+	}
+}
+
+// blueTry — одна попытка проекта синей науки: план стадии 6 — заново из файла (прошлая попытка
+// меняла кластеры), avoid — куда новые кластеры не ставить; удалось — план записан.
+func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (*cluster.Base, *layout.Layout, error) {
+	pr := h.Protos
+	old, err := loadPlanFile(runPath(blueBaseFile))
+	if err != nil {
+		return nil, nil, err
+	}
 	base := cluster.NewBase(pr, h.World, world.Tile{})
 	base.Log = h.Log
-	base.Avoid = built
+	base.Avoid = avoid
 	var buses []*cluster.Cluster
 	for _, c := range old.Clusters {
 		if c.Kind == cluster.Bus {
@@ -96,7 +132,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	}
 	zb, err := base.PlaceZoned(nil, rough.Zones)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	cluster.FillLanes(zb, old.Layout)
 	// добыча до 2M (stages.md, стадия 7): месторождения целиком, ближние к голове bus-1 первыми;
@@ -114,18 +150,18 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 		if like == nil {
-			return fmt.Errorf("в плане нет добычи %s", it)
+			return nil, nil, fmt.Errorf("в плане нет добычи %s", it)
 		}
 		zones := base.MoreMineZones(rough.Zones, it, oreTarget*1.3)
 		if len(zones) > len(rough.Zones) {
 			rough.Zones = zones
 			if err := writeState(roughFile, rough); err != nil {
-				return err
+				return nil, nil, err
 			}
 		}
 		ms, err := base.MoreMines(like, rough.Zones, have, oreTarget)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		h.Say("добыча %s: под бурами %d, новых блоков %d", it, have, len(ms))
 		fresh = append(fresh, ms...)
@@ -133,7 +169,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»)
 	steel := cluster.Steel(pr, planReserve)
 	if _, err := base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {
-		return err
+		return nil, nil, err
 	}
 	fresh = append(fresh, steel)
 	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 7):
@@ -141,11 +177,11 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	fast, err := calc.Solve(pr, map[string]float64{"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate},
 		calc.Options{All: true, Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	cs, err := cluster.Split(pr, fast, planReserve, nil, greenSeparate...)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	var helpers []*cluster.Cluster
 	for _, c := range cs {
@@ -154,12 +190,12 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	if _, err := base.PlaceZoned(helpers, rough.Zones); err != nil {
-		return err
+		return nil, nil, err
 	}
 	fresh = append(fresh, helpers...)
 	l, err := base.Layout(fresh...)
 	if err != nil {
-		return err
+		return base, l, err
 	}
 	for t := range built {
 		delete(l.Reserved, t)
@@ -169,7 +205,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	}
 	for _, c := range fill {
 		if err := base.FillMine(l, c); err != nil {
-			return fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
+			return base, l, fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
 		}
 	}
 	before := map[string]bool{}
@@ -177,23 +213,24 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 		before[e] = true
 	}
 	if err := base.ConnectMore(l, zb, fresh, nil); err != nil {
-		planDraw(h, rough.Zones, base, l, blueImage())
-		return err
+		return base, l, err
 	}
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
-			planDraw(h, rough.Zones, base, l, blueImage())
-			return fmt.Errorf("раскладка: %v", e)
+			return base, l, fmt.Errorf("раскладка: %v", e)
 		}
 	}
 	for _, it := range blueOres {
 		h.Say("добыча %s: под бурами %d", it, oreUnder(base.Clusters, it))
 	}
+	for _, c := range fresh {
+		h.Say("кластер %v", c)
+	}
 	if err := planDraw(h, rough.Zones, base, l, blueImage()); err != nil {
-		return err
+		return base, l, err
 	}
 	all := append(base.Sorted(), buses...)
-	return writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})
+	return base, l, writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})
 }
 
 // checkBluePlan — под бурами каждого ресурса не меньше oreTarget; картинка есть.
