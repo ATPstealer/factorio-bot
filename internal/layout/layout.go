@@ -17,7 +17,10 @@ type Layout struct {
 	Clear map[world.Tile]bool
 	// Reserved — тайлы, где строить нельзя (запас под будущее, проходы)
 	Reserved map[world.Tile]bool
-	ends     map[world.Tile]bool
+	// Solid — тайлы, под которыми и подземкой не идти (кластеры добычи: ленты и трубы никогда не
+	// идут через чужую добычу — правило пользователя)
+	Solid map[world.Tile]bool
+	ends  map[world.Tile]bool
 	// Usable — доступна ли постройка (изучено); nil — всё. Без подземок лента только поверху.
 	Usable func(entity string) bool
 	// Anchors — уже стоящие в игре свои столбы: узлы сети, к которым тянуть столбы

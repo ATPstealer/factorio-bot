@@ -261,7 +261,7 @@ func (l *Layout) ugAxisClear(a world.Tile, d, k, maxUG int) bool {
 	}
 	t := a
 	for i := 1; i < k; i++ {
-		if t = Step(t, d); axis(t) != nil {
+		if t = Step(t, d); axis(t) != nil || l.Solid[t] {
 			return false
 		}
 	}

@@ -88,7 +88,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 	ugClear := func(a world.Tile, d, k int) bool {
 		for i := 1; i <= k; i++ {
 			a = Step(a, d)
-			if p := l.At(a); p != nil && p.Name == ptg && (p.Dir == d || p.Dir == (d+8)%16) {
+			if p := l.At(a); p != nil && p.Name == ptg && (p.Dir == d || p.Dir == (d+8)%16) || l.Solid[a] {
 				return false
 			}
 		}

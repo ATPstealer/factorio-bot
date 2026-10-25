@@ -527,21 +527,40 @@ func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
 			}
 		}
 	}
+	// добыча — сплошная: чужие ленты и трубы не идут через неё и подземкой (правило пользователя)
+	l.Solid = map[world.Tile]bool{}
+	solid := func(c *Cluster, on bool) {
+		if c.Kind != Mine {
+			return
+		}
+		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
+			for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+				if t := (world.Tile{X: x, Y: y}); on {
+					l.Solid[t] = true
+				} else {
+					delete(l.Solid, t)
+				}
+			}
+		}
+	}
 	for _, c := range b.Clusters {
 		if c.Kind == Bus {
 			continue // ленты шины — в ConnectZoned
 		}
 		area(c, true)
+		solid(c, true)
 	}
 	for _, c := range fresh {
 		if c.Kind == Bus {
 			continue // ленты шины — в ConnectZoned (по потребителям)
 		}
 		area(c, false)
+		solid(c, false) // своя — внутри можно
 		if err := Interior(l, c, Tag(c.Name)); err != nil {
 			return l, err
 		}
 		area(c, true)
+		solid(c, true)
 	}
 	return l, nil
 }
