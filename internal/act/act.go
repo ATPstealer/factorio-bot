@@ -251,7 +251,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 				p, _ := h.B.Player()
 				if !unstuckTried && h.World.Enclosed(p.Position) {
 					unstuckTried = true
-					if uerr := h.unstuck(ctx); uerr != nil {
+					if uerr := h.unstuck(ctx, 0); uerr != nil {
 						return uerr
 					}
 					continue
@@ -272,6 +272,15 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 			}
 			if err == nil {
 				break
+			}
+			if errors.Is(err, ErrStuck) && replan >= 2 && !unstuckTried && h.World != nil {
+				// путь заново не помог — карман между своими постройками: поднять ближние,
+				// выйти, поставить назад
+				unstuckTried = true
+				if uerr := h.unstuck(ctx, 2); uerr != nil {
+					return uerr
+				}
+				continue
 			}
 			if !errors.Is(err, ErrStuck) || replan >= 2 {
 				return err
@@ -967,7 +976,9 @@ func (h *Hands) CloseGUI(ctx context.Context) error {
 
 // unstuck — выбраться, когда персонажа обступили свои постройки: поднять ближайшие (пока
 // не откроется выход), выйти и поставить их на место с тем же направлением.
-func (h *Hands) unstuck(ctx context.Context) error {
+// force — поднять не меньше стольких, даже если модель считает выход открытым (карман между
+// своими постройками уже, чем по рамкам: топтался — стадия 21 на 238178543).
+func (h *Hands) unstuck(ctx context.Context, force int) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err
@@ -982,7 +993,7 @@ func (h *Hands) unstuck(ctx context.Context) error {
 	// свои постройки — ближние первыми, круг шире, пока не откроется выход (на пятне руды
 	// ближайшие сущности — тайлы руды: 12 ближайших без построек — «не выбраться», 1039746529-0)
 	for _, r := range []float64{3, 5, 8} {
-		if !h.World.Enclosed(p.Position) {
+		if !h.World.Enclosed(p.Position) && len(back) >= force {
 			break
 		}
 		near, err := h.B.FindNearest(bridge.FindArgs{Radius: r, Limit: 400})
@@ -1010,7 +1021,7 @@ func (h *Hands) unstuck(ctx context.Context) error {
 			if _, err := h.World.Sync(h.B, false); err != nil {
 				return err
 			}
-			if !h.World.Enclosed(p.Position) {
+			if !h.World.Enclosed(p.Position) && len(back) >= force {
 				break
 			}
 		}
