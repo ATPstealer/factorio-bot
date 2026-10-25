@@ -150,6 +150,16 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		ce, ok := err.(*cluster.ConnectError)
 		if !ok || try >= 5 {
 			planDraw(h, rough.Zones, base, l, planImage()) // что вышло — на картинку
+			for _, z := range rough.Zones {
+				if z.Name == "bus-1" { // подводы с добычи — у головы bus-1
+					drawPlan(h, rough.Zones, base, l, z.Rect.Min, 60, image("plan-head"))
+				}
+			}
+			for _, c := range base.Clusters { // кластер из ошибки — крупно
+				if strings.Contains(err.Error(), c.Name+" ") {
+					drawAround(h, rough.Zones, base, l, c, image("plan-fail"))
+				}
+			}
 			return err
 		}
 		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)

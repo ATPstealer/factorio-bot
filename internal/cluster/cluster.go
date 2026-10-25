@@ -624,7 +624,9 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Make && len(c.In) == 3 { // третий вход — ленты за выходом (thirdIn)
 		c.Cross++
 	}
-	if len(c.In) == 1 && c.Kind != Mine || len(c.In) >= 2 && c.Kind == Make {
+	// с третьим входом — без буферов в голове: голова длиннее меняла прикидку этажей (859088572:
+	// зоны мельче, подвод добычи у головы bus-1 не проходил); такие кластеры малы
+	if len(c.In) == 1 && c.Kind != Mine || len(c.In) == 2 && c.Kind == Make {
 		// буферы входов — в голове ряда, по разные стороны ленты (cluster.md §6б)
 		c.Head = 2 * bufferChests(p, c)
 	}
