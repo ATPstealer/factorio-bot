@@ -9,6 +9,8 @@ import (
 	"image/png"
 	"log"
 	"math"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -109,6 +111,10 @@ func main() {
 	limit := flag.Duration("t", 5*time.Minute, "общий лимит времени команды")
 	flag.Parse()
 	log.SetFlags(log.Ltime | log.Lmicroseconds)
+	// профиль долгих расчётов (планы): BOT_PPROF=127.0.0.1:6060 — go tool pprof http://…/debug/pprof/profile
+	if a := os.Getenv("BOT_PPROF"); a != "" {
+		go http.ListenAndServe(a, nil)
+	}
 
 	args := flag.Args()
 	if len(args) == 0 {

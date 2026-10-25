@@ -130,7 +130,11 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 	came := map[rstate]redge{}
 	heap.Push(open, &rnode{s: start, f: h(from)})
 	var goal *rstate
-	for open.Len() > 0 && len(best) < 1500000 {
+	// предел поиска — по расстоянию: пути нет — короткий маршрут (отвод с шины) не обходит всю
+	// открытую карту (12 мин на попытку, стадия 7); дальний — как раньше, до 1.5M состояний
+	d := abs(from.X-to.X) + abs(from.Y-to.Y) + 60
+	limit := min(max(16*d*d, 100_000), 1_500_000)
+	for open.Len() > 0 && len(best) < limit {
 		cur := heap.Pop(open).(*rnode)
 		if cur.g > best[cur.s] {
 			continue
