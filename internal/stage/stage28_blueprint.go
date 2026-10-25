@@ -32,11 +32,11 @@ func runBlueprint(ctx context.Context, h *act.Hands) error {
 	if err := upgradePlan(h); err != nil {
 		return err
 	}
-	return maintain(ctx, h, blueprint, true)
+	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h) }, true)
 }
 
 func checkBlueprint(h *act.Hands) error {
-	want, err := blueprint()
+	want, err := blueprint(h)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func upgradePlan(h *act.Hands) error {
 // blueprint — чертёж: план и раскладки стадий (state-*.json — столбы, буферы, хранение); где
 // раскладка стадии расходится с планом (план обновлён — делитель на месте ленты), прав план.
 // Временное (сундук и инсертер станции стадии 11, их убирает стадия 16) — не чертёж.
-func blueprint() ([]layout.Placement, error) {
+func blueprint(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
@@ -88,7 +88,9 @@ func blueprint() ([]layout.Placement, error) {
 	res := append([]layout.Placement(nil), plan.Layout...)
 	taken := map[world.Tile]layout.Placement{}
 	for _, pl := range plan.Layout {
-		taken[world.TileOf(pl.Pos)] = pl
+		for _, t := range layout.Tiles(h.Protos, pl) { // все тайлы (делитель — два)
+			taken[t] = pl
+		}
 	}
 	have := map[layout.Placement]bool{}
 	for _, pl := range res {
@@ -112,8 +114,14 @@ func blueprint() ([]layout.Placement, error) {
 			if pl.Name == "" || have[pl] || pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {
 				continue
 			}
-			if q, ok := taken[world.TileOf(pl.Pos)]; ok && q != pl {
-				continue // в плане на этом месте другое — прав план
+			clash := false // в плане на этом месте другое — прав план
+			for _, t := range layout.Tiles(h.Protos, pl) {
+				if q, ok := taken[t]; ok && q != pl {
+					clash = true
+				}
+			}
+			if clash {
+				continue
 			}
 			have[pl] = true
 			res = append(res, pl)
