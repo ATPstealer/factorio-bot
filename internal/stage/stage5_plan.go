@@ -277,7 +277,12 @@ func shortOre(cs []*cluster.Cluster) (string, int, int) {
 func planImage() string { return image("plan") }
 
 // image — картинка name карты: run/stages/<name>-<сид>.png (по смыслу, без номера стадии).
-func image(name string) string { return filepath.Join("run/stages", name+"-"+seedOf()+".png") }
+func image(name string) string {
+	if roughOffline { // без игры (bin/bot rough) — рядом с состоянием, не мешать прогонам
+		return runPath(name + "-" + seedOf() + ".png")
+	}
+	return filepath.Join("run/stages", name+"-"+seedOf()+".png")
+}
 
 // planDraw — картинка в файл path: карта, зоны, кластеры с бордюрами и раскладка.
 func planDraw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, path string) error {

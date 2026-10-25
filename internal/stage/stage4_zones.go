@@ -210,8 +210,26 @@ func saveWorld(h *act.Hands) {
 // RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
 // попытка в открытом, без дооткрытий и переходов в другие квадраты.
 func RoughOffline(h *act.Hands) error {
-	roughRegion, roughCliffs = nil, false
+	roughRegion, roughCliffs, roughOffline = nil, false, true
 	return roughOnce(h)
+}
+
+// roughOffline — разметка без игры (RoughOffline): база не встала — картинка помех.
+var roughOffline bool
+
+// roughBlocked — карта вокруг центра с помехами этажам (run/stages/zones-fail-<сид>.png).
+func roughBlocked(h *act.Hands, base *cluster.Base, origin world.Tile) {
+	ro := world.RenderOptions{Center: origin, Radius: 1100, Scale: 3, Labels: true}
+	img := h.World.Render(ro)
+	base.DrawBlocked(img, ro)
+	f, err := os.Create(image("zones-fail"))
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		h.Log("картинка помех: %v", err)
+	}
 }
 
 func roughRegions(h *act.Hands, center world.Tile) []cluster.Rect {
@@ -398,6 +416,9 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, roughBelt)
 	if err != nil {
+		if roughOffline {
+			roughBlocked(h, base, origin)
+		}
 		return nil, err
 	}
 	zones := base.Zones(lay)
