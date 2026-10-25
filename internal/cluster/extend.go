@@ -124,7 +124,7 @@ func farthestUser(fresh []*Cluster, it string, k int) *Cluster {
 	for _, c := range fresh {
 		f, use := floorOf(c), false
 		for _, in := range c.In {
-			use = use || in.Item == it && (f == k+1 || f == k && c.Kind == Make)
+			use = use || in.Item == it && (f == k+1 || f == k && c.TakesAbove())
 		}
 		for _, o := range c.Out {
 			use = use || o.Item == it && f == k

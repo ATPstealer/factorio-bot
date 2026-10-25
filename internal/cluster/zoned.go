@@ -181,7 +181,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			for _, in := range c.In {
 				first := math.MaxInt // самый левый поставщик предмета
 				for _, p := range b.Clusters {
-					if f2 := floorOf(p); f2 > 0 && (f2 < f || f2 == f && c.Kind == Make) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
+					if f2 := floorOf(p); f2 > 0 && (f2 < f || f2 == f && c.TakesAbove()) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
 						first = min(first, p.Area.Min.X)
 					}
 				}
@@ -283,7 +283,7 @@ func (b *Base) zoneNeed(on map[string]int, nb int) []map[string]bool {
 			for k := src; k <= f-1 && k < nb; k++ {
 				need[k][in.Item] = true
 			}
-			if src == f && c.Kind == Make && f < nb {
+			if src == f && c.TakesAbove() && f < nb {
 				need[f][in.Item] = true
 			}
 		}
@@ -300,7 +300,7 @@ func (b *Base) laneEnd(buses []*ZBus, k int, it string) int {
 	for _, c := range b.Clusters {
 		f, use := floorOf(c), false
 		for _, in := range c.In {
-			use = use || in.Item == it && (f == k+1 || f == k && c.Kind == Make)
+			use = use || in.Item == it && (f == k+1 || f == k && c.TakesAbove())
 		}
 		for _, o := range c.Out {
 			use = use || o.Item == it && f == k
@@ -568,7 +568,7 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 	var lines [][]layout.Placement
 	var used []*ZoneLane
 	for _, k := range []int{f - 1, f} {
-		if k >= len(buses) || (k == f && c.Kind != Make) || len(lines) > 0 {
+		if k >= len(buses) || (k == f && !c.TakesAbove()) || len(lines) > 0 {
 			continue
 		}
 		// лент предмета две (добытое) — сначала с менее занятой; только с тех, куда есть

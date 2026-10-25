@@ -565,6 +565,10 @@ func Steel(p *knowledge.Prototypes, reserve float64) *Cluster {
 	return c
 }
 
+// TakesAbove — кластер берёт и с шины над своим этажом: сборка (снабжение), лаборатории (на этаже
+// конечного продукта — пакеты с шины конечных над собой; zones.md).
+func (c *Cluster) TakesAbove() bool { return c.Kind == Make || c.Kind == Lab }
+
 // IsSteel — кластер стали (пары печей, свой шаблон).
 func (c *Cluster) IsSteel() bool { return c.Kind == Smelt && c.Product == "steel-plate" }
 

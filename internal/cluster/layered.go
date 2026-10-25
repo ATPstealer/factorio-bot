@@ -25,6 +25,7 @@ const (
 	layerSlack = 24             // запас ширины базы: зонам — сдвигаться влево-вправо
 	maxShift   = 24             // зазор шина — зона сверх коридора 6 (снизу и сверху от зоны): всего 6…30 (zones.md)
 	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
+	busSpare0  = 4              // шине ресурсов — ещё лент в запас на будущее (решение пользователя)
 	busLanes   = 16             // лент шин 2 и 3, не меньше
 	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
 	busThick   = 0.03           // шине: толстых утёсов и воды — не больше доли площади
@@ -62,7 +63,7 @@ func floorOf(c *Cluster) int {
 	case Smelt:
 		return 1
 	case Lab:
-		return 4
+		return 3 // лаборатории — на этаже конечного продукта, справа (zones.md, решение пользователя)
 	case Make:
 		for _, u := range c.Units {
 			switch u.Machine {
@@ -197,6 +198,9 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 			least = busLanes4
 		}
 		n = max(n, least)
+		if i == 0 {
+			n += busSpare0 // шине ресурсов — ещё ленты в запас (решение пользователя)
+		}
 		L.Buses = append(L.Buses, LayerBus{Lanes: lanes, Total: n, Dir: "E"})
 		widths[i] = busWidth(n)
 	}
@@ -235,6 +239,22 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	for _, c := range fl[floors] {
 		depths[floors] = max(depths[floors], c.Len())
 	}
+	// этаж конечного продукта (с лабораториями справа) — вдвое мельче (решение пользователя)
+	depths[3] = depth / 2
+	for _, c := range fl[3] {
+		depths[3] = max(depths[3], c.Len())
+	}
+	// лаборатории — правее сборки этажа (укладка — слева направо)
+	slices.SortStableFunc(fl[3], func(a, b *Cluster) int {
+		la, lb := 0, 0
+		if a.Kind == Lab {
+			la = 1
+		}
+		if b.Kind == Lab {
+			lb = 1
+		}
+		return la - lb
+	})
 	zw := make([]int, floors+1)
 	var pos [floors + 1][]world.Tile
 	base := 0
@@ -242,6 +262,9 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		pos[f], zw[f] = pack(fl[f], depths[f], nil)
 		if len(fl[f]) > 0 { // не уже минимума (zones.md): прикидка даёт мало машин
 			zw[f] = max(zw[f], minCols[f]*colWidth[f])
+		}
+		if f == 1 && zw[f] > 0 { // переработка почти забита — шире на 30% (решение пользователя)
+			zw[f] = zw[f] * 13 / 10
 		}
 		if b.CliffZones && zw[f] > 0 { // утёсы съедают место — шире на половину (zones.md)
 			zw[f] = zw[f] * 3 / 2
