@@ -267,6 +267,12 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			}
 			break
 		}
+		if c.IsChem() {
+			if err := chemRow(l, f, c, L, tag, add, row, deadEnd); err != nil {
+				return err
+			}
+			break
+		}
 		if len(c.In) > 3 || len(c.In) == 3 && c.Kind != Make {
 			return fmt.Errorf("cluster %s: входов %v — шаблона нет", c.Name, flows(c.In))
 		}

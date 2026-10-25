@@ -339,27 +339,219 @@ func fluidPort(c *Cluster, fluid string, in bool) (Port, bool) {
 
 // RefineryPipes — трубы НПЗ ref: нефть — с трубы bus-1 (из склада tank), газ — в трубу bus-2
 // (cluster.md §2а «Нефть»: всё через шину). end — докуда тянуть трубу газа (потребители).
-func (b *Base) RefineryPipes(l *layout.Layout, buses []*ZBus, ref, tank *Cluster, gasEnd int) error {
+func (b *Base) RefineryPipes(l *layout.Layout, buses []*ZBus, ref, tank *Cluster, gasEnd int) (string, error) {
 	crude, err := b.PipeLane(l, buses, 0, "crude-oil", ref.Area.Max.X+10)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := TankJoin(l, tank, crude); err != nil {
-		return err
+		return "", err
 	}
 	in, _ := fluidPort(ref, "crude-oil", true)
 	if err := JoinLane(l, ref, in, crude); err != nil {
-		return err
+		return "", err
 	}
 	if len(buses) < 2 {
-		return fmt.Errorf("cluster: нет шины над переработкой")
+		return "", fmt.Errorf("cluster: нет шины над переработкой")
 	}
 	gas, err := b.PipeLane(l, buses, 1, "petroleum-gas", max(gasEnd, ref.Area.Max.X+20))
 	if err != nil {
-		return err
+		return "", err
 	}
 	out, _ := fluidPort(ref, "petroleum-gas", false)
-	return JoinLane(l, ref, out, gas)
+	return gas, JoinLane(l, ref, out, gas)
+}
+
+// Chem — химия (cluster.md §2а «Нефть»): n химзаводов рецепта recipe (пластик — газ + уголь,
+// сера — газ + вода) в столбец этажа переработки.
+func Chem(p *knowledge.Prototypes, recipe string, n int) *Cluster {
+	r := p.Recipes[recipe]
+	k := float64(n) * p.Entities["chemical-plant"].CraftingSpeed / r.Energy
+	c := &Cluster{Kind: Make, Product: r.Products[0].Name, Reserve: 1,
+		Units:  []Unit{{Recipe: recipe, Machine: "chemical-plant", Machines: float64(n)}},
+		PowerW: float64(n) * p.Entities["chemical-plant"].EnergyUsage * 60}
+	for _, i := range r.Ingredients {
+		c.In = append(c.In, Flow{i.Name, i.Amount * k})
+	}
+	for _, o := range r.Products {
+		c.Out = append(c.Out, Flow{o.Name, o.Amount * k})
+	}
+	c.Cross, c.Pitch, c.Head = 10, 4, 1
+	if c.fluids(p) == 2 {
+		c.Cross = 12 // вторая жидкость — трубой под лентой выхода (chemRow)
+	}
+	c.Count, c.Room, c.Need = n, n, n
+	return c
+}
+
+// IsChem — кластер химзаводов (свой шаблон).
+func (c *Cluster) IsChem() bool { return c.Kind == Make && c.machine() == "chemical-plant" }
+
+// fluids — сколько жидкостей на входе.
+func (c *Cluster) fluids(p *knowledge.Prototypes) int {
+	n := 0
+	for _, f := range c.In {
+		if _, ok := p.Fluids[f.Item]; ok {
+			n++
+		}
+	}
+	return n
+}
+
+// chemRow — химзаводы в ряд (шаг 4), повёрнуты входами жидкости к +v: поперёк — 2 лента входа
+// (предмет), 3 инсертеры, 4–6 химзаводы, 7 — трубы к входам жидкости и длинный инсертер выхода
+// (через ряд 8 — на ленту 9), 8 — труба газа (вход сверху, с bus-2), 9 — лента выхода. Две
+// жидкости (сера): к входу воды — труба в ряду 8 (вода — снизу, с bus-1), к входу газа —
+// подземная труба под рядами 8–9 в ряд 11 (газ сверху).
+func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(layout.Placement) error,
+	row func(v, from, to, d int) error, deadEnd func(v, to int)) error {
+	two := c.fluids(l.P) == 2
+	rowTag := func(fluid string) string { return tag + "/" + fluid }
+	gasV, waterV := 8, -1
+	if two {
+		gasV, waterV = 11, 8
+	}
+	recipe := c.Units[0].Recipe
+	ings := l.P.Recipes[recipe].Ingredients
+	for i := 0; i < c.Count; i++ {
+		u := c.Head + i*c.Pitch
+		m := f.at(l, "chemical-plant", u, 4, layout.S, tag)
+		m.Recipe = recipe
+		if err := add(m); err != nil {
+			return err
+		}
+		// входы жидкости — по порядку ингредиентов (ячейки по порядку соединений)
+		var ins []layout.Conn
+		for _, cn := range layout.Connections(l.P, m) {
+			if cn.Flow == "input" {
+				ins = append(ins, cn)
+			}
+		}
+		k := 0
+		for _, ing := range ings {
+			if _, fl := l.P.Fluids[ing.Name]; !fl || k >= len(ins) {
+				continue
+			}
+			cn := ins[k]
+			k++
+			switch {
+			case ing.Name == "water" && two, !two:
+				if err := add(layout.Placement{Name: "pipe", Pos: cn.To.Center(), Tag: rowTag(ing.Name)}); err != nil {
+					return err
+				}
+			default: // газ при двух жидкостях — подземкой под водой и лентой выхода
+				if err := add(layout.Placement{Name: "pipe-to-ground", Pos: cn.To.Center(), Dir: (cn.Dir + 8) % 16, Tag: rowTag(ing.Name)}); err != nil {
+					return err
+				}
+				exit := cn.To
+				for j := 0; j < gasV-1-7; j++ {
+					exit = layout.Step(exit, cn.Dir)
+				}
+				if err := add(layout.Placement{Name: "pipe-to-ground", Pos: exit.Center(), Dir: cn.Dir, Tag: rowTag(ing.Name)}); err != nil {
+					return err
+				}
+			}
+		}
+		if err := add(f.inserter(l, "inserter", u+1, 3, 2, tag)); err != nil {
+			return err
+		}
+		if err := add(f.inserter(l, "long-handed-inserter", u+1, 7, 5, tag)); err != nil {
+			return err
+		}
+	}
+	end := c.Head + c.Count*c.Pitch - 1
+	pipeRow := func(v int, fluid string, from, to int) error {
+		for u := from; u < to; u++ {
+			t := f.tile(u, v)
+			if l.At(t) != nil {
+				continue
+			}
+			if err := add(layout.Placement{Name: "pipe", Pos: t.Center(), Tag: rowTag(fluid)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	gas := "petroleum-gas"
+	if err := pipeRow(gasV, gas, c.Head, L); err != nil {
+		return err
+	}
+	c.Ports = append(c.Ports, Port{T: f.tile(L, gasV), Dir: f.dir(layout.W), Item: gas, In: true})
+	if two {
+		if err := pipeRow(waterV, "water", 0, end+1); err != nil {
+			return err
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(-1, waterV), Dir: f.dir(layout.E), Item: "water", In: true})
+	}
+	// лента входа предмета (пластик — уголь): снизу у головы, с торца в ряду 1 и боком в голову
+	for _, in := range c.In {
+		if _, fl := l.P.Fluids[in.Item]; fl {
+			continue
+		}
+		for _, b := range []struct{ u, v, d int }{{0, 2, layout.E}, {0, 1, layout.S}} {
+			if err := add(f.at(l, "transport-belt", b.u, b.v, b.d, tag)); err != nil {
+				return err
+			}
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(-1, 1), Dir: f.dir(layout.E), Item: in.Item, In: true})
+		if err := row(2, 1, end, layout.E); err != nil {
+			return err
+		}
+		deadEnd(2, end)
+	}
+	if err := row(9, c.Head, L, layout.E); err != nil {
+		return err
+	}
+	l.AllowEnd(f.tile(L, 9))
+	c.Ports = append(c.Ports, Port{T: f.tile(L, 9), Dir: f.dir(layout.E), Item: c.Product})
+	return nil
+}
+
+// ChemPipes — трубы химии: газ — с трубы bus-2 (tag gas), вода — своей трубой в bus-1 от своей
+// помпы (stages.md, стадия 7: вода для химии — своя помпа и своя линия).
+func (b *Base) ChemPipes(l *layout.Layout, buses []*ZBus, chems []*Cluster, gas string) error {
+	end := 0
+	water := false
+	for _, c := range chems {
+		end = max(end, c.Area.Max.X+10)
+		_, w := fluidPort(c, "water", true)
+		water = water || w
+	}
+	var wtag string
+	if water {
+		var err error
+		if wtag, err = b.PipeLane(l, buses, 0, "water", end); err != nil {
+			return err
+		}
+		head := world.Tile{X: buses[0].Rect.Min.X, Y: (buses[0].Rect.Min.Y + buses[0].Rect.Max.Y) / 2}
+		// вода бывает далеко (238178543 — дальше 150 тайлов): труба — подземная, как нефтетрасса
+		l.PipeUnder = true
+		_, err = l.WaterPumpR(head, 400, wtag, func(pump layout.Placement) bool {
+			if !l.CanPlace(pump, layout.OffOre) {
+				return false
+			}
+			l.Add(pump)
+			_, err := l.JoinPipe(layout.Connections(l.P, pump)[0], wtag)
+			return err == nil
+		})
+		l.PipeUnder = false
+		if err != nil {
+			return fmt.Errorf("cluster: помпа воды для химии: %w", err)
+		}
+	}
+	for _, c := range chems {
+		if p, ok := fluidPort(c, "petroleum-gas", true); ok {
+			if err := JoinLane(l, c, p, gas); err != nil {
+				return err
+			}
+		}
+		if p, ok := fluidPort(c, "water", true); ok {
+			if err := JoinLane(l, c, p, wtag); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // tankBlock — цистерны шахматкой: соседние повёрнуты на 90° — угловые соединения стыкуются,

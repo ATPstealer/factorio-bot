@@ -27,6 +27,7 @@ const (
 	// refineries — НПЗ на простой переработке: газа с большим запасом (на синюю ~4/с, один НПЗ
 	// даёт 9/с)
 	refineries = 5
+	chemPlants = 5 // химзаводов пластика и серы — не меньше MinUnits (cluster.md §2 «Размер»)
 )
 
 // blueOres — ресурсы, добыча которых растёт до oreTarget.
@@ -217,6 +218,12 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, refinery)
+	// химия: пластик (газ + уголь), сера (газ + вода) — правее НПЗ на этаже переработки
+	chems := []*cluster.Cluster{cluster.Chem(pr, "plastic-bar", chemPlants), cluster.Chem(pr, "sulfur", chemPlants)}
+	if _, err := base.PlaceZoned(chems, rough.Zones); err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, chems...)
 	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 7):
 	// шестерни — внутри парами; ленты, инсертеры, схемы — с шины (их кластеры уже есть)
 	fast, err := calc.Solve(pr, map[string]float64{"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate},
@@ -270,7 +277,15 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		}
 	}
 	// трубы шин: нефть — bus-1 (склад → НПЗ), газ — bus-2 (НПЗ → потребители)
-	if err := base.RefineryPipes(l, zb, refinery, tank, refinery.Area.Max.X+60); err != nil {
+	gasEnd := refinery.Area.Max.X + 20
+	for _, c := range chems {
+		gasEnd = max(gasEnd, c.Area.Max.X+10)
+	}
+	gas, err := base.RefineryPipes(l, zb, refinery, tank, gasEnd)
+	if err != nil {
+		return base, l, err
+	}
+	if err := base.ChemPipes(l, zb, chems, gas); err != nil {
 		return base, l, err
 	}
 	for _, e := range l.Validate() {

@@ -38,6 +38,11 @@ func (l *Layout) SteamPower(near world.Tile, engines int, tag string) (Module, e
 // WaterPump — помпа на ближайшей к near кромке воды, для которой fit (ставит остальное
 // через Add) вернул true; при false всё, что fit добавил, откатывается.
 func (l *Layout) WaterPump(near world.Tile, tag string, fit func(pump Placement) bool) (Placement, error) {
+	return l.WaterPumpR(near, 150, tag, fit)
+}
+
+// WaterPumpR — WaterPump с поиском кромки в радиусе r.
+func (l *Layout) WaterPumpR(near world.Tile, r int, tag string, fit func(pump Placement) bool) (Placement, error) {
 	if l.W == nil {
 		return Placement{}, fmt.Errorf("layout: помпе нужна карта")
 	}
@@ -46,7 +51,6 @@ func (l *Layout) WaterPump(near world.Tile, tag string, fit func(pump Placement)
 		d float64
 	}
 	var cands []cand
-	r := 150
 	for dy := -r; dy <= r; dy++ {
 		for dx := -r; dx <= r; dx++ {
 			t := world.Tile{X: near.X + dx, Y: near.Y + dy}
