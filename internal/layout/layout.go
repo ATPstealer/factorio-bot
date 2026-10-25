@@ -156,6 +156,12 @@ func (l *Layout) Replace(i int, pl Placement) {
 	l.Rollback(-1)
 }
 
+// Remove — убрать i-е размещение (номера после него сдвигаются).
+func (l *Layout) Remove(i int) {
+	l.List = append(l.List[:i], l.List[i+1:]...)
+	l.Rollback(-1)
+}
+
 // Mark/Rollback — откат неудачной попытки раскладки.
 func (l *Layout) Mark() int { return len(l.List) }
 

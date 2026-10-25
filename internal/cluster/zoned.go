@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -922,6 +923,10 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 	if err := feedThrough(l, buses); err != nil {
 		return err
 	}
+	// соседние ленты одного предмета — делят друг с другом, до первого отвода (cluster.md §5)
+	for _, bus := range buses {
+		balanceLanes(l, bus)
+	}
 	// входы: делителем с ленты шины снизу (снабжение — и сверху), у своих столбцов
 	for _, c := range b.Clusters {
 		if floorOf(c) == 0 {
@@ -936,4 +941,98 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		}
 	}
 	return nil
+}
+
+// balanceLanes — соседние (ряд к ряду) ленты одного предмета шины bus делят друг с другом
+// делителями (cluster.md §5): цепочка лент — пары с конца (последняя со предпоследней раньше
+// по ходу, дальше — следующая пара), сразу за последним подводом, на прямом участке без боковых
+// подач.
+func balanceLanes(l *layout.Layout, bus *ZBus) {
+	byItem := map[string][]ZoneLane{}
+	for _, ln := range bus.Lanes {
+		if ln.Fed {
+			byItem[ln.Item] = append(byItem[ln.Item], ln)
+		}
+	}
+	for item, lns := range byItem {
+		sort.Slice(lns, func(i, j int) bool { return lns[i].Y < lns[j].Y })
+		// цепочки соседних рядов
+		var chains [][]ZoneLane
+		for i, ln := range lns {
+			if i > 0 && ln.Y == lns[i-1].Y+1 {
+				chains[len(chains)-1] = append(chains[len(chains)-1], ln)
+			} else {
+				chains = append(chains, []ZoneLane{ln})
+			}
+		}
+		for _, ch := range chains {
+			if len(ch) < 2 {
+				continue
+			}
+			from := math.MinInt
+			for _, ln := range ch {
+				from = max(from, ln.From, ln.Start)
+			}
+			// направление — по ленте у начала
+			d := -1
+			for x := from; x < from+40 && d < 0; x++ {
+				if q := l.At(world.Tile{X: x, Y: ch[0].Y}); q != nil && q.Name == "transport-belt" && q.Recipe == item {
+					d = q.Dir
+				}
+			}
+			if d < 0 {
+				continue
+			}
+			step := 1
+			if d == layout.W {
+				step = -1
+			}
+			x := from + 2*step
+			for k := len(ch) - 1; k >= 1; k-- {
+				a, b := ch[k-1], ch[k]
+				for n := 0; n < 80; n++ {
+					if balanceAt(l, item, a.Y, b.Y, x, d) {
+						x += 2 * step
+						break
+					}
+					x += step
+				}
+			}
+		}
+	}
+}
+
+// balanceAt — делитель поперёк рядов ya, yb (соседних) в столбце x, если там прямые ленты item
+// направления d без боковых подач; true — поставлен.
+func balanceAt(l *layout.Layout, item string, ya, yb, x, d int) bool {
+	ta, tb := world.Tile{X: x, Y: ya}, world.Tile{X: x, Y: yb}
+	for _, t := range []world.Tile{ta, tb} {
+		for _, u := range []world.Tile{layout.Step(t, (d+8)%16), t, layout.Step(t, d)} {
+			q := l.At(u)
+			if q == nil || q.Name != "transport-belt" || q.Recipe != item || q.Dir != d {
+				return false
+			}
+		}
+	}
+	// боком в ta/tb ничего не въезжает (снаружи пары)
+	for _, side := range []struct {
+		t   world.Tile
+		dir int
+	}{{ta, (d + 12) % 16}, {ta, (d + 4) % 16}, {tb, (d + 12) % 16}, {tb, (d + 4) % 16}} {
+		n := layout.Step(side.t, side.dir)
+		if n == ta || n == tb {
+			continue
+		}
+		if q := l.At(n); q != nil && (q.Name == "transport-belt" || q.Name == "underground-belt") && q.Dir == (side.dir+8)%16 {
+			return false
+		}
+	}
+	ia, _ := l.Index(ta)
+	ib, _ := l.Index(tb)
+	tag := l.List[ia].Tag
+	ca, cb := ta.Center(), tb.Center()
+	sp := layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (ca.X + cb.X) / 2, Y: (ca.Y + cb.Y) / 2}, Dir: d, Tag: tag}
+	l.Replace(ia, sp) // делитель на месте ленты ta, лента tb — убрать
+	l.Remove(ib)
+	return true
 }
