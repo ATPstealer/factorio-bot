@@ -660,6 +660,7 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 		return nil
 	}
 	defer unfence(l, b.fence(l, bus, c))
+	defer unsolid(l, c)()
 	for i, op := range outPorts(c) {
 		if skip != nil && op.T == skip.T {
 			continue
@@ -726,6 +727,25 @@ func feedPorts(l *layout.Layout, bus *ZBus, lns []*ZoneLane, from world.Tile) []
 	}
 	sort.SliceStable(to, func(i, j int) bool { return dist(to[i].T, from) < dist(to[j].T, from) })
 	return append(to, feederSides(l, bus, lns, from)...)
+}
+
+// unsolid — своя добыча c на время её подводов — не сплошная (под своим блоком подземкой можно,
+// под чужим — нет); возвращает, как было.
+func unsolid(l *layout.Layout, c *Cluster) func() {
+	var opened []world.Tile
+	for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
+		for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+			if t := (world.Tile{X: x, Y: y}); l.Solid[t] {
+				delete(l.Solid, t)
+				opened = append(opened, t)
+			}
+		}
+	}
+	return func() {
+		for _, t := range opened {
+			l.Solid[t] = true
+		}
+	}
 }
 
 // feederSides — входы боком в подводы лент lns: прямые ленты логистики шины вне неё, которые

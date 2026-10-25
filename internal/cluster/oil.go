@@ -201,6 +201,7 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 		return fmt.Errorf("cluster %s: нет выхода трубы", field.Name)
 	}
 	tag := LogisticsTag + "/" + field.Name
+	defer unsolid(l, field)()
 	start := field.Ports[0].T
 	goals := tankConns(l, tank)
 	if len(goals) == 0 {

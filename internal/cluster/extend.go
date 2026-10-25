@@ -224,6 +224,7 @@ func (b *Base) moreMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
 	}
 	old = bus.lanes(c.Product)[:len(old)]
 	defer unfence(l, b.fence(l, bus, c))
+	defer unsolid(l, c)()
 	tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
 	for i, op := range outPorts(c) {
 		// куда: голова своей новой ленты; половина — боком в старый подвод
