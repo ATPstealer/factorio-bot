@@ -34,8 +34,7 @@ func init() {
 	register(Stage{N: 13, Name: "хранение", Run: runStorage, Check: checkStorage})
 }
 
-// storageNear — сундуки хранения, ближние к игроку первыми (мест хранения два — бот кладёт и
-// берёт из ближнего: cluster.md §2а «Хранение»).
+// storageNear — сундуки хранения, ближние к игроку первыми (кладёт и берёт — из ближних).
 func storageNear(h *act.Hands) ([]layout.Placement, error) {
 	list, err := storageLayout()
 	if err != nil {
@@ -49,29 +48,6 @@ func storageNear(h *act.Hands) ([]layout.Placement, error) {
 		})
 	}
 	return list, nil
-}
-
-// storageAtBase — сундуки хранения у базы (storage-2, у головы bus-1; в старых планах хранение
-// одно — оно и есть).
-func storageAtBase(list []layout.Placement) []layout.Placement {
-	plan, err := LoadPlan()
-	if err != nil {
-		return list
-	}
-	name := "" // у базы — storage-2 (у старта — storage-1)
-	for _, c := range plan.Clusters {
-		if c.Kind == cluster.Storage && c.Name > name {
-			name = c.Name
-		}
-	}
-	tag := cluster.Tag(name)
-	var res []layout.Placement
-	for _, pl := range list {
-		if pl.Tag == tag {
-			res = append(res, pl)
-		}
-	}
-	return res
 }
 
 // storageLayout — постройки кластера хранения из плана.

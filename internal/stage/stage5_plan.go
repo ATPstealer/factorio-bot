@@ -90,16 +90,15 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		if err != nil {
 			return err
 		}
-		// хранение — у стартовых буров и у головы bus-1 (cluster.md §2а «Хранение»: база бывает в
-		// сотнях тайлов от старта)
-		atBase := cluster.StorageCluster()
+		// хранение — одно, у начала базы: под bus-1 и правее её головы, подальше от развязки
+		// подводов с добычи слева (cluster.md §2а «Хранение»; место — свободное вне зон, Place)
+		store := cluster.StorageCluster()
 		for _, z := range rough.Zones {
 			if z.Name == "bus-1" {
-				_, y := z.Rect.Center()
-				atBase.Near = &world.Tile{X: z.Rect.Min.X - 20, Y: int(y)}
+				store.Near = &world.Tile{X: z.Rect.Min.X + 40, Y: z.Rect.Max.Y + 15}
 			}
 		}
-		cs = append(cs, cluster.Labs(pr, targets, planLabSec, planReserve), cluster.StorageCluster(), atBase)
+		cs = append(cs, cluster.Labs(pr, targets, planLabSec, planReserve), store)
 		if cs, err = cluster.AddPower(pr, cs, planReserve, nil); err != nil {
 			return err
 		}

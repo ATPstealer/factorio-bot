@@ -288,11 +288,10 @@ const storageExtraFile = "state-storage-extra.json"
 // на местах плана (там будут строить следующие стадии). Места — один раз (файл), потом —
 // достроить недостающее.
 func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
-	all, err := storageLayout()
+	list, err := storageLayout()
 	if err != nil {
 		return err
 	}
-	list := storageAtBase(all) // растёт хранение у базы (cluster.md §2а «Хранение»)
 	if len(list) < storageChests {
 		extra, err := storageExtra(h, list, storageChests-len(list))
 		if err != nil {
