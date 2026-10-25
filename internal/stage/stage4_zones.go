@@ -115,7 +115,14 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		if !errors.As(err, &ns) {
 			return err
 		}
-		// места нет — другой квадрат 2048×2048 в 2000 тайлах (один из 8 соседних, ближние
+		// места нет — сначала здесь же база с утёсами в зонах (zones.md, решение пользователя:
+		// до перехода в соседние квадраты; 208708719, 264771462)
+		if !roughCliffs {
+			h.Say("%v — размечаю здесь же базу с утёсами в зонах (зоны шире)", err)
+			roughCliffs = true
+			continue
+		}
+		// и так нет — другой квадрат 2048×2048 в 2000 тайлах (один из 8 соседних, ближние
 		// первыми): сходить, открыть, разметить только в нём (stages.md, решение пользователя)
 		if regions == nil {
 			need, err := roughNeed(h)
@@ -125,17 +132,11 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			regions = roughRegions(h, roughAnchor(h, need))
 		}
 		if len(regions) == 0 {
-			if roughCliffs {
-				return fmt.Errorf("%w; и в 8 соседних квадратах, и базой с утёсами тоже", err)
-			}
-			// последнее — база с утёсами по всей открытой карте (zones.md, решение пользователя)
-			h.Say("%v — и в 8 соседних квадратах нет: размечаю базу с утёсами в зонах (зоны шире)", err)
-			roughCliffs, roughRegion = true, nil
-			continue
+			return fmt.Errorf("%w; и базой с утёсами, и в 8 соседних квадратах тоже", err)
 		}
 		r := regions[0]
 		regions = regions[1:]
-		roughRegion = &r
+		roughRegion, roughCliffs = &r, false
 		cx, cy := r.Center()
 		h.Say("%v — перехожу в другой квадрат: центр (%.0f, %.0f), открываю его", err, cx, cy)
 		in := func(c bridge.ChunkPos) bool {
@@ -180,7 +181,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	}
 }
 
-// roughCliffs — база с утёсами (zones.md): обычным способом места нигде не нашлось.
+// roughCliffs — база с утёсами (zones.md): обычным способом места в квадрате нет.
 var roughCliffs bool
 
 // roughRegion — квадрат, в котором размечается база (nil — вся открытая карта): места не
