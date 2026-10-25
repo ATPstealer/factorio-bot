@@ -70,6 +70,21 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 				break
 			}
 		}
+		// по прямой — вода (озеро между игроком и целью): к открытому соседу цели маршрутом
+		// в обход (чанк — на краю достижимого: FrontierFrom), а не «недоступно» — верх
+		// открытого участка бросался за секунды, 689494172
+		if !found {
+			for _, s := range []bridge.ChunkPos{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+				n := bridge.ChunkPos{X: tc.X + s.X, Y: tc.Y + s.Y}
+				if w.Chunks[n] == nil {
+					continue
+				}
+				c := bridge.Pos{X: float64(n.X*world.ChunkSize + world.ChunkSize/2), Y: float64(n.Y*world.ChunkSize + world.ChunkSize/2)}
+				if spot, found = w.FreeSpot(c, 1, 1, 16, nil); found {
+					break
+				}
+			}
+		}
 		before := len(w.Chunks)
 		moved, near := false, false
 		if found {
