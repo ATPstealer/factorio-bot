@@ -204,31 +204,14 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		L.Buses = append(L.Buses, LayerBus{Lanes: lanes, Total: n, Dir: "E"})
 		widths[i] = busWidth(n)
 	}
-	// глубина зон — по самой глубокой (самый длинный кластер), ширина — по укладке. Минимум
-	// MinUnits мест удлиняет кластеры — этажи растут в глубину, а не в ширину (cluster.md §2):
-	// ширина — как у кластеров без минимума, глубина — пока укладка в неё не влезет
-	len0 := func(c *Cluster) int {
-		if c.Need == 0 || c.Need > c.Count {
-			return c.Len()
-		}
-		return c.Len() - (c.Count-c.Need)*c.Pitch
-	}
-	depth, depth0 := 0, 0
+	// глубина зон — по самой глубокой (самый длинный кластер), ширина — по укладке (не важна,
+	// решение пользователя: раньше глубина росла, чтобы база не шире, — этаж ~100 не вставал
+	// между утёсами, 208708719, 264771462)
+	depth := 0
 	for f := 1; f <= floors; f++ {
 		for _, c := range fl[f] {
-			depth, depth0 = max(depth, c.Len()), max(depth0, len0(c))
+			depth = max(depth, c.Len())
 		}
-	}
-	widest := func(d int, length func(*Cluster) int) int {
-		w := 0
-		for f := 1; f <= floors; f++ {
-			_, x := pack(fl[f], d, length)
-			w = max(w, x)
-		}
-		return w
-	}
-	for w0 := widest(depth0, len0); widest(depth, nil) > w0 && depth < 4*max(depth0, 1); {
-		depth += 2
 	}
 	// верхний этаж (лаборатории, шахта) — вдвое мельче (zones.md), не короче своих кластеров
 	depths := make([]int, floors+1)
@@ -371,22 +354,34 @@ type layered struct {
 // месторождений, неоткрытого, чужих коридоров, утёсов и воды толще maxGap. nil — нет места.
 func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int) *layered {
 	g := b.g
+	var diag map[string]int // разбор у головы (база не встала): чем заняты столбцы этажей
 	free := func(r Rect) bool {
-		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
+		no := func(why string) bool {
+			if diag != nil {
+				diag[why]++
+			}
 			return false
+		}
+		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
+			return no("кольцо/край")
 		}
 		if n, _ := g.count(g.unknown, r); n > 0 {
-			return false
+			return no("неоткрытое")
 		}
 		if n, _ := g.count(g.zone, r); n > 0 {
-			return false
+			return no("месторождение")
 		}
+		thick := g.thick
 		if b.CliffZones { // база с утёсами: в зоне утёсы можно, вода — нет (zones.md)
-			n, _ := g.count(g.thickWet, r)
-			return n == 0
+			thick = g.thickWet
 		}
-		n, _ := g.count(g.thick, r)
-		return n == 0
+		if n, _ := g.count(thick, r); n > 0 {
+			return no("неровность")
+		}
+		if diag != nil {
+			diag["свободно"]++
+		}
+		return true
 	}
 	// шине (zones.md): вдоль рядов неровностей не длиннее busGap — подземка перепрыгнет
 	// why — почему отвергнуты места (разбор: база не встаёт)
@@ -578,6 +573,11 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				best = lo
 			}
 		}
+	}
+	if best == nil {
+		diag = map[string]int{}
+		stack(ax, ay+widths[0]/2)
+		b.logf("этажи: у головы (%d, %d) столбцы — %v", ax, ay, diag)
 	}
 	return best
 }
