@@ -17,7 +17,8 @@ import (
 // blueAddedFor — дописанное стадией 7 для кластеров, которые выбирает pick: их постройки и
 // логистика (ленты, трубы, отводы), ленты шин их продуктов (и делители на шинах, если splitters),
 // столбы к сети базы; один раз на карту (file).
-func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, splitters bool) ([]layout.Placement, error) {
+func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, splitters bool,
+	more ...func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error)) ([]layout.Placement, error) {
 	return onceLayout(file, func() ([]layout.Placement, error) {
 		added, plan, err := blueAdded()
 		if err != nil {
@@ -51,6 +52,19 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 		}
 		if len(res) == 0 {
 			return nil, fmt.Errorf("в плане стадии 7 нет этих построек (%v)", allow)
+		}
+		if len(more) > 0 { // своё стадии (буферы выхода…) — по всему плану
+			all := layout.New(h.Protos, h.World)
+			for _, pl := range plan.Layout {
+				all.Add(pl)
+			}
+			for _, m := range more {
+				add, err := m(plan, all)
+				if err != nil {
+					return nil, err
+				}
+				res = append(res, add...)
+			}
 		}
 		poles, err := connectPower(h, plan, res, allow)
 		return append(res, poles...), err

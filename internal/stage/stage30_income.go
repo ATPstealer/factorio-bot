@@ -24,7 +24,20 @@ func init() {
 func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
 	return blueAddedFor(h, incomeFile, func(c *cluster.Cluster) bool {
 		return c.Kind == cluster.Mine && !c.IsOil() || c.Kind == cluster.Smelt && !c.IsSteel()
-	}, true)
+	}, true, func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error) {
+		// кирпич — в буфер у кластера (на шину — когда появится потребитель): бот берёт на крафт
+		var res []layout.Placement
+		for _, c := range plan.Clusters {
+			if c.Kind == cluster.Smelt && c.Product == "stone-brick" {
+				buf, err := outBuffer(h, all, c, outBufferItems[chest])
+				if err != nil {
+					return nil, err
+				}
+				res = append(res, buf...)
+			}
+		}
+		return res, nil
+	})
 }
 
 func runIncome(ctx context.Context, h *act.Hands) error {

@@ -23,6 +23,7 @@ const (
 	// blueBaseFile — план стадии 6 до дописывания: перезапуск стадии — с него
 	blueBaseFile = "state-plan-green.json"
 	oreTarget    = 2_000_000 // руды под бурами на ресурс (железо, медь, уголь)
+	stoneTarget  = 500_000   // камня под бурами (кирпич; stages.md, стадия 7)
 	// быстрые ленты и инсертеры, шт/с: ~10k лент и ~500 инсертеров за 2 ч (stages.md, стадия 7)
 	fastBeltRate     = 1.4
 	fastInserterRate = 0.07
@@ -233,6 +234,29 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		h.Say("добыча %s: под бурами %d, новых блоков %d", it, have, len(ms))
 		fresh = append(fresh, ms...)
 	}
+	// камень — на кирпич (НПЗ, стальные печи, бетон; решение пользователя): месторождение до
+	// stoneTarget, кластер плавки кирпича — выход в буфер у кластера
+	stoneLike := &cluster.Cluster{Kind: cluster.Mine, Product: "stone", Reserve: planReserve,
+		Units: []cluster.Unit{{Recipe: "mine:stone", Machine: "electric-mining-drill", Machines: 1}}}
+	if zones := base.MoreMineZones(rough.Zones, "stone", stoneTarget*1.3); len(zones) > len(rough.Zones) {
+		rough.Zones = zones
+		if err := writeState(roughFile, rough); err != nil {
+			return nil, nil, err
+		}
+	}
+	stone, err := base.MoreMines(stoneLike, rough.Zones, oreUnder(base.Clusters, "stone"), stoneTarget)
+	if err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, stone...)
+	bricks, err := cluster.SmeltOf(pr, "stone-brick", planReserve)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := base.PlaceZoned([]*cluster.Cluster{bricks}, rough.Zones); err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, bricks)
 	// нефть — до конца игры: 2 месторождения, ближние к голове bus-1 (cluster.md §2а «Нефть»)
 	zones, oil, err := base.MoreOil(rough.Zones)
 	if err != nil {

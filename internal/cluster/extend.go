@@ -232,6 +232,9 @@ func (b *Base) moreMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
 	if len(old) == 0 {
 		return nil
 	}
+	if !slices.ContainsFunc(old, func(ln *ZoneLane) bool { return ln.Fed }) {
+		return b.feedMine(l, buses, c, nil) // первая добыча ресурса (камень) — в головы его лент
+	}
 	end := b.laneEnd(buses, 0, c.Product)
 	n0 := len(bus.Lanes)
 	for range outPorts(c) {

@@ -525,6 +525,26 @@ func Pair(p *knowledge.Prototypes, main, sub *Cluster) *Cluster {
 	return c
 }
 
+// SmeltOf — кластер плавки продукта product (кирпич из камня…) обычного размера (§2 «Размер»:
+// по лентам, не больше MaxUnits).
+func SmeltOf(p *knowledge.Prototypes, product string, reserve float64) (*Cluster, error) {
+	plan, err := calc.Solve(p, map[string]float64{product: 1}, calc.Options{All: true,
+		Machines: map[string]string{"smelting": "stone-furnace"}})
+	if err != nil {
+		return nil, err
+	}
+	cs, err := Split(p, plan, reserve, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range cs {
+		if c.Kind == Smelt && c.Product == product {
+			return c, nil
+		}
+	}
+	return nil, fmt.Errorf("cluster: в расчёте нет плавки %s", product)
+}
+
 // Steel — кластер стали из руды (cluster.md §2а «Сталь»): пары печей «пластины → сталь», сразу
 // на MaxUnits пар (стали нужно тонны). Потоки — по печам второго уровня (как у всей плавки).
 func Steel(p *knowledge.Prototypes, reserve float64) *Cluster {
