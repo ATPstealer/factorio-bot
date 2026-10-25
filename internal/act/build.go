@@ -476,6 +476,13 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 		if err := sleep(ctx, inputLatency); err != nil {
 			return e, err
 		}
+		// поднимал — мог сойти с ленты, и лента унесла: место дальше досягаемости — подойти
+		// («Cannot reach» — делитель так и не встал, стадия 18 на 238178543)
+		if p, err := h.B.Player(); err == nil && dist(p.Position, pos) > buildReach-1 {
+			if err := h.WalkTo(ctx, pos, buildReach-3); err != nil && !errors.Is(err, ErrNotReached) {
+				return e, err
+			}
+		}
 		ne, err := h.clickBuild(ctx, e.Name, pos)
 		if err != nil {
 			return e, err
