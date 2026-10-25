@@ -591,10 +591,63 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 	for i, line := range lines {
 		if err = SplitTap(l, line, p, LogisticsTag+"/"+c.Name, 40); err == nil {
 			used[i].Taps++
+			pairBefore(l, buses, used[i], LogisticsTag+"/"+c.Name)
 			return nil
 		}
 	}
 	return &ConnectError{c, fmt.Errorf("шина → %s (%s): %w", c.Name, p.Item, err)}
+}
+
+// pairBefore — отвод с ленты ln, у которой есть пара (соседний ряд с тем же предметом): делитель
+// между лентами пары сразу перед отводом (cluster.md §5) — в отвод идёт с обеих. Делитель отвода
+// — делитель с тегом tag на ряду ln (SplitTap ставит его на место ленты).
+func pairBefore(l *layout.Layout, buses []*ZBus, ln *ZoneLane, tag string) {
+	var bus *ZBus
+	for _, b := range buses {
+		for i := range b.Lanes {
+			if &b.Lanes[i] == ln {
+				bus = b
+			}
+		}
+	}
+	if bus == nil {
+		return
+	}
+	other := -1
+	for _, o := range bus.Lanes {
+		if o.Item == ln.Item && (o.Y == ln.Y-1 || o.Y == ln.Y+1) {
+			other = o.Y
+		}
+	}
+	if other < 0 {
+		return
+	}
+	for i := len(l.List) - 1; i >= 0; i-- {
+		sp := l.List[i]
+		if sp.Name != "splitter" || sp.Tag != tag {
+			continue
+		}
+		var t world.Tile // тайл делителя на ряду ленты
+		found := false
+		for _, u := range layout.Tiles(l.P, sp) {
+			if u.Y == ln.Y {
+				t, found = u, true
+			}
+		}
+		if !found {
+			continue
+		}
+		step := -1 // против хода: перед отводом
+		if sp.Dir == layout.W {
+			step = 1
+		}
+		for k := 2; k <= 12; k++ {
+			if balanceAt(l, ln.Item, min(ln.Y, other), max(ln.Y, other), t.X+k*step, sp.Dir) {
+				return
+			}
+		}
+		return
+	}
 }
 
 // feedMine — выходы добычи c (у блока их два — две ленты в bus-1), кроме skip, — в свободные
