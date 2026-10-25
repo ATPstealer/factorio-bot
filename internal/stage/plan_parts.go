@@ -74,6 +74,43 @@ func busParts(plan *ClusterPlan, items []string, srcs []string) []layout.Placeme
 			res = append(res, pl)
 		}
 	}
+	// подземки лент шины: в Recipe у них «вход/выход», а не предмет — берутся по соседству с
+	// взятыми лентами (вход — за лентой, выход — перед), пара — вместе (медная лента шины
+	// рвалась под отводом железа: стадия 18 на 954176679)
+	line := map[world.Tile]bool{}
+	for _, pl := range res {
+		line[world.TileOf(pl.Pos)] = true
+	}
+	buses := map[string]bool{}
+	for _, b := range busNames(plan) {
+		buses[cluster.Tag(b)] = true
+	}
+	for added := true; added; {
+		added = false
+		for _, pl := range plan.Layout {
+			t := world.TileOf(pl.Pos)
+			if pl.Name != "underground-belt" || !buses[pl.Tag] || line[t] {
+				continue
+			}
+			near := pl.Recipe == "input" && line[layout.Step(t, (pl.Dir+8)%16)] ||
+				pl.Recipe == "output" && line[layout.Step(t, pl.Dir)]
+			if !near && pl.Recipe == "output" { // выход пары уже взятого входа
+				for k := 1; k <= 10 && !near; k++ {
+					b := t
+					for j := 0; j < k; j++ {
+						b = layout.Step(b, (pl.Dir+8)%16)
+					}
+					near = line[b] && slices.ContainsFunc(res, func(q layout.Placement) bool {
+						return q.Name == "underground-belt" && q.Recipe == "input" && world.TileOf(q.Pos) == b
+					})
+				}
+			}
+			if near {
+				res = append(res, pl)
+				line[t], added = true, true
+			}
+		}
+	}
 	return res
 }
 
