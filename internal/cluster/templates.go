@@ -630,6 +630,20 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 			}
 		}
 	}
+	// лента сбора (u = 0) от ряда до края не встаёт — ряд без буров
+	half0 := (rows + 1) / 2
+	for r := range stop {
+		from, to := 0, 7*r+3 // первая половина — к v = −1
+		if r >= half0 {
+			from, to = 7*r+3, c.Cross-1
+		}
+		for v := from; v <= to; v++ {
+			if !l.CanPlace(f.at(l, "transport-belt", 0, v, layout.N, tag), layout.AnyLand) {
+				stop[r] = 0
+				break
+			}
+		}
+	}
 	for _, u := range us {
 		if ore >= c.Ore {
 			break
