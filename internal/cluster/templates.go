@@ -618,11 +618,26 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 			us = append(us, 5+7*k)
 		}
 	}
+	// лента ряда не встаёт (утёс, вода посреди большого пятна) — буры ряда только до неё: лента
+	// идёт от последнего бура к голове
+	stop := make([]int, rows)
+	for r := range stop {
+		stop[r] = L
+		for u := 1; u < L; u++ {
+			if !l.CanPlace(f.at(l, "transport-belt", u, 7*r+3, layout.W, tag), layout.AnyLand) {
+				stop[r] = u
+				break
+			}
+		}
+	}
 	for _, u := range us {
 		if ore >= c.Ore {
 			break
 		}
 		for r := 0; r < rows && ore < c.Ore; r++ {
+			if u+2 >= stop[r] {
+				continue
+			}
 			for _, s := range []struct{ v, d int }{{7 * r, layout.S}, {7*r + 4, layout.N}} {
 				if ore >= c.Ore {
 					break
