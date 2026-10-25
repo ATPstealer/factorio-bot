@@ -27,6 +27,9 @@ func steelLayout(h *act.Hands) ([]layout.Placement, error) {
 }
 
 func runSteel(ctx context.Context, h *act.Hands) error {
+	if err := queueTechs(ctx, h, "fast-inserter"); err != nil { // на стадию 32
+		return err
+	}
 	if err := waitResearch(ctx, h, steelTech); err != nil {
 		return err
 	}
