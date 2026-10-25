@@ -23,7 +23,8 @@ const (
 	floorDepth = 40             // кластер длиннее — несколькими столбцами
 	layerHead  = 10             // начало шин: головы лент, подвод с добычи
 	layerSlack = 24             // запас ширины базы: зонам — сдвигаться влево-вправо
-	maxShift   = 24             // зазор шина — зона сверх коридора 6 (снизу и сверху от зоны): всего 6…30 (zones.md)
+	maxShift   = 24             // зазор шина — зона сверх коридора 6 (снизу и сверху от зоны): всего 10…30 (zones.md)
+	minShift   = 4              // зазор не меньше 10 (коридор 6 + 4; решение пользователя: места под отводы у шины)
 	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
 	busSpare0  = 4              // шине ресурсов — ещё лент в запас на будущее (решение пользователя)
 	busLanes   = 16             // лент шин 2 и 3, не меньше
@@ -268,6 +269,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		base = max(base, zw[f])
 	}
 	width := layerHead + base + layerSlack
+	b.logf("этажи: ширина зон %v, глубина %v, шины %v, база ~%d×%d", zw[1:], depths[1:], widths, width, sum(depths)+sum(widths))
 	// части этажей между препятствиями — база шире; из ширин — место ближе к старту (лишний тайл
 	// ширины — как тайл расстояния): у старта препятствия, а узкая база уезжает за сотни тайлов
 	var lo *layered
@@ -424,7 +426,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	parts := func(f, lo, hi, top, bottom int, right bool) []Rect {
 		type runAt struct{ a, b, s int } // полоса [a, b) на сдвиге s
 		var runs []runAt
-		for s := 0; s <= maxShift; s += 2 {
+		for s := minShift; s <= maxShift; s += 2 { // зазор от шины снизу — не меньше 10 (пользователь)
 			run := -1
 			for x := lo; x <= hi; x++ {
 				if x < hi && free(Rect{world.Tile{X: x, Y: top - s}, world.Tile{X: x + 1, Y: bottom - s}}) {
