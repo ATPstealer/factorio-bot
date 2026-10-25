@@ -204,14 +204,31 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		L.Buses = append(L.Buses, LayerBus{Lanes: lanes, Total: n, Dir: "E"})
 		widths[i] = busWidth(n)
 	}
-	// глубина зон — по самой глубокой (самый длинный кластер), ширина — по укладке (не важна,
-	// решение пользователя: раньше глубина росла, чтобы база не шире, — этаж ~100 не вставал
-	// между утёсами, 208708719, 264771462)
-	depth := 0
+	// глубина зон — по самой глубокой (самый длинный кластер), ширина — по укладке. Минимум
+	// MinUnits мест удлиняет кластеры — этажи растут в глубину, а не в ширину (cluster.md §2):
+	// ширина — как у кластеров без минимума, глубина — пока укладка в неё не влезет
+	len0 := func(c *Cluster) int {
+		if c.Need == 0 || c.Need > c.Count {
+			return c.Len()
+		}
+		return c.Len() - (c.Count-c.Need)*c.Pitch
+	}
+	depth, depth0 := 0, 0
 	for f := 1; f <= floors; f++ {
 		for _, c := range fl[f] {
-			depth = max(depth, c.Len())
+			depth, depth0 = max(depth, c.Len()), max(depth0, len0(c))
 		}
+	}
+	widest := func(d int, length func(*Cluster) int) int {
+		w := 0
+		for f := 1; f <= floors; f++ {
+			_, x := pack(fl[f], d, length)
+			w = max(w, x)
+		}
+		return w
+	}
+	for w0 := widest(depth0, len0); widest(depth, nil) > w0 && depth < 4*max(depth0, 1); {
+		depth += 2
 	}
 	// верхний этаж (лаборатории, шахта) — вдвое мельче (zones.md), не короче своих кластеров
 	depths := make([]int, floors+1)
