@@ -213,11 +213,6 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	for f := 1; f <= floors; f++ {
 		for _, c := range fl[f] {
 			depth, depth0 = max(depth, c.Len()), max(depth0, len0(c))
-			if c.Kind == Smelt { // план ставит плавку сразу на MaxUnits печей (cluster.md §2 «Размер»)
-				full := *c
-				full.Room = MaxUnits
-				depth = max(depth, full.Len())
-			}
 		}
 	}
 	widest := func(d int, length func(*Cluster) int) int {

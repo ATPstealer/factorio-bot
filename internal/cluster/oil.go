@@ -202,6 +202,23 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 	}
 	tag := LogisticsTag + "/" + field.Name
 	defer unsolid(l, field)()
+	// своя площадь — не закрыта: трасса выходит от трубы месторождения
+	var opened []world.Tile
+	for y := field.Area.Min.Y; y < field.Area.Max.Y; y++ {
+		for x := field.Area.Min.X; x < field.Area.Max.X; x++ {
+			if t := (world.Tile{X: x, Y: y}); l.Reserved[t] && l.At(t) == nil {
+				delete(l.Reserved, t)
+				opened = append(opened, t)
+			}
+		}
+	}
+	defer func() {
+		for _, t := range opened {
+			if l.At(t) == nil {
+				l.Reserved[t] = true
+			}
+		}
+	}()
 	start := field.Ports[0].T
 	goals := tankConns(l, tank)
 	if len(goals) == 0 {
