@@ -204,6 +204,10 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			if err != nil {
 				return nil, err
 			}
+			if c.Kind == Lab { // пакеты — с шины над этажом: голова блока (входы, буферы) — сверху,
+				// ленты A и B идут вниз вдоль левого столбца (решение пользователя)
+				c.Upright, c.Rect = false, c.Area
+			}
 			continue
 		default: // хранение — вне зон, у стартовых буров (или где задано: у головы bus-1)
 			if c.Near == nil {
