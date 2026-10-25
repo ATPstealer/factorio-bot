@@ -374,6 +374,7 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, roughBelt)
 	if err != nil {
+		roughBlocked(h, base, origin)
 		return nil, err
 	}
 	zones := base.Zones(lay)
@@ -432,6 +433,26 @@ func roughDraw(h *act.Hands, zones []cluster.Zone, image string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// roughBlocked — база не встала: карта вокруг центра с помехами этажам
+// (run/stages/zones-fail[-cliffs]-<сид>.png).
+func roughBlocked(h *act.Hands, base *cluster.Base, origin world.Tile) {
+	name := "zones-fail"
+	if base.CliffZones {
+		name += "-cliffs"
+	}
+	ro := world.RenderOptions{Center: origin, Radius: 1100, Scale: 3, Labels: true}
+	img := h.World.Render(ro)
+	base.DrawBlocked(img, ro)
+	f, err := os.Create(image(name))
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		h.Log("картинка помех: %v", err)
+	}
 }
 
 func checkRough(h *act.Hands) error {
