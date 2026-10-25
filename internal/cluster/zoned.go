@@ -780,8 +780,15 @@ func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
 	}
 	b.feedLane = map[world.Tile]int{}
 	for i, o := range outs {
-		end := b.laneEnd(buses, 0, o.c.Product)
-		y, _, err := b.newLaneFrom(l, buses, 0, o.c.Product, end, want[i])
+		// до конца шины: потребители синей и дальше — по всей ширине, продлевать потом негде
+		// (238178543); у края неровность не обходится — до последнего потребителя
+		y, _, err := b.newLaneFrom(l, buses, 0, o.c.Product, bus.Rect.Max.X-2, want[i])
+		if err != nil {
+			y, _, err = b.newLaneFrom(l, buses, 0, o.c.Product, b.laneEnd(buses, 0, o.c.Product), want[i])
+		}
+		if err != nil { // ниже по порядку рядов не осталось — любой свободный
+			y, _, err = b.newLaneFrom(l, buses, 0, o.c.Product, b.laneEnd(buses, 0, o.c.Product), 0)
+		}
 		if err != nil {
 			return err
 		}
