@@ -243,6 +243,9 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		if len(fl[f]) > 0 { // не уже минимума (zones.md): прикидка даёт мало машин
 			zw[f] = max(zw[f], minCols[f]*colWidth[f])
 		}
+		if b.CliffZones && zw[f] > 0 { // утёсы съедают место — шире на половину (zones.md)
+			zw[f] = zw[f] * 3 / 2
+		}
 		base = max(base, zw[f])
 	}
 	width := layerHead + base + layerSlack
@@ -356,6 +359,10 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		}
 		if n, _ := g.count(g.zone, r); n > 0 {
 			return false
+		}
+		if b.CliffZones { // база с утёсами: в зоне утёсы можно, вода — нет (zones.md)
+			n, _ := g.count(g.thickWet, r)
+			return n == 0
 		}
 		n, _ := g.count(g.thick, r)
 		return n == 0

@@ -93,7 +93,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	opened := 0 // дооткрытий у базы (stages.md, стадия 4)
-	roughRegion = nil
+	roughRegion, roughCliffs = nil, false
 	var regions []cluster.Rect // соседние квадраты (места в нынешнем нет)
 	for {
 		err := roughOnce(h)
@@ -125,7 +125,13 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			regions = roughRegions(h, roughAnchor(h, need))
 		}
 		if len(regions) == 0 {
-			return fmt.Errorf("%w; и в 8 соседних квадратах тоже", err)
+			if roughCliffs {
+				return fmt.Errorf("%w; и в 8 соседних квадратах, и базой с утёсами тоже", err)
+			}
+			// последнее — база с утёсами по всей открытой карте (zones.md, решение пользователя)
+			h.Say("%v — и в 8 соседних квадратах нет: размечаю базу с утёсами в зонах (зоны шире)", err)
+			roughCliffs, roughRegion = true, nil
+			continue
 		}
 		r := regions[0]
 		regions = regions[1:]
@@ -173,6 +179,9 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		opened = 0
 	}
 }
+
+// roughCliffs — база с утёсами (zones.md): обычным способом места нигде не нашлось.
+var roughCliffs bool
 
 // roughRegion — квадрат, в котором размечается база (nil — вся открытая карта): места не
 // нашлось — следующий из соседних (runRough).
@@ -359,7 +368,7 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	}
 	h.Log("центр базы (%d, %d)", origin.X, origin.Y)
 	base := cluster.NewBase(pr, h.World, origin)
-	base.Log, base.Rough = h.Log, true
+	base.Log, base.Rough, base.CliffZones = h.Log, true, roughCliffs
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
 	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, roughBelt)

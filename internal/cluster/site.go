@@ -59,6 +59,9 @@ type Base struct {
 	Log func(format string, args ...any)
 	// Rough — прикидка базы целиком (шина — с запасом +10%)
 	Rough bool
+	// CliffZones — база с утёсами (zones.md): в зонах производства утёсы любой толщины можно
+	// (вода — нет), зоны шире на половину
+	CliffZones bool
 
 	// StorageNear — куда тянуть хранение (стартовые буры); nil — к середине шин
 	StorageNear *world.Tile
@@ -86,6 +89,7 @@ type grid struct {
 	avoid        []int32            // Base.Avoid
 	zone         []int32            // зона месторождения (руда + Corridor)
 	thick        []int32            // непроходимое (вода, утёсы…) подряд больше maxGap — подземкой не пройти
+	thickWet     []int32            // то же, только вода и неоткрытое (база с утёсами)
 }
 
 // maxGap — сколько тайлов непроходимого подряд пройдёт подземка (этажная база, cluster.md 5а).
@@ -150,6 +154,11 @@ func (b *Base) grid() *grid {
 	g.avoid = prefix(avoid, g.w, g.h)
 	g.zone = prefix(zone, g.w, g.h)
 	g.thick = prefix(thickRuns(bad, g.w, g.h), g.w, g.h)
+	wet := make([]bool, len(bad))
+	for i := range wet {
+		wet[i] = water[i] || unknown[i]
+	}
+	g.thickWet = prefix(thickRuns(wet, g.w, g.h), g.w, g.h)
 	for i := range bad {
 		bad[i] = bad[i] || zone[i]
 	}
