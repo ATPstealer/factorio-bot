@@ -29,8 +29,6 @@ const (
 	roughResearch    = 0.8  // доля времени на исследования (остальное — ракетные части)
 	roughRocket      = 100  // ракетных частей на ракету
 	roughBelt        = 30.0 // лента шины — красная, шт/с
-	roughExplore     = 20   // нет места — разведать (сгенерировать ходьбой) и заново
-	roughChunks      = 16   // за одну разведку — новых чанков
 	roughReopen      = 3    // дооткрыть землю у базы и разметить заново — до стольких раз
 	roughMarginTiles = 64   // у базы: рамка зон + столько тайлов — должно быть открыто
 	roughMargin      = 1.0  // запас роста в прикидке: план — уже под конечный темп
@@ -95,7 +93,9 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	opened := 0 // дооткрытий у базы (stages.md, стадия 4)
-	for try := 0; ; try++ {
+	roughRegion = nil
+	var regions []cluster.Rect // соседние квадраты (места в нынешнем нет)
+	for {
 		err := roughOnce(h)
 		var ns *cluster.NoSiteError
 		if err == nil {
@@ -112,15 +112,67 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			}
 			continue
 		}
-		if !errors.As(err, &ns) || try >= roughExplore {
+		if !errors.As(err, &ns) {
 			return err
 		}
-		n0 := len(h.World.Chunks)
-		h.Say("%v — иду, чтобы игра сгенерировала карту дальше", err)
-		if err := h.Explore(ctx, func() bool { return len(h.World.Chunks) >= n0+roughChunks }); err != nil {
+		// места нет — другой квадрат 2048×2048 в 2000 тайлах (один из 8 соседних, ближние
+		// первыми): сходить, открыть, разметить только в нём (stages.md, решение пользователя)
+		if regions == nil {
+			need, err := roughNeed(h)
+			if err != nil {
+				return err
+			}
+			regions = roughRegions(h, roughAnchor(h, need))
+		}
+		if len(regions) == 0 {
+			return fmt.Errorf("%w; и в 8 соседних квадратах тоже", err)
+		}
+		r := regions[0]
+		regions = regions[1:]
+		roughRegion = &r
+		cx, cy := r.Center()
+		h.Say("%v — перехожу в другой квадрат: центр (%.0f, %.0f), открываю его", err, cx, cy)
+		in := func(c bridge.ChunkPos) bool {
+			return c.X*32+32 > r.Min.X && c.X*32 < r.Max.X && c.Y*32+32 > r.Min.Y && c.Y*32 < r.Max.Y
+		}
+		more := func() bool {
+			for c := range h.World.Chunks {
+				for _, d := range []bridge.ChunkPos{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+					u := bridge.ChunkPos{X: c.X + d.X, Y: c.Y + d.Y}
+					if h.World.Chunks[u] == nil && in(u) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		if err := h.ExploreWhere(ctx, in, func() bool { return !more() }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
 			return err
 		}
+		opened = 0
 	}
+}
+
+// roughRegion — квадрат, в котором размечается база (nil — вся открытая карта): места не
+// нашлось — следующий из соседних (runRough).
+var roughRegion *cluster.Rect
+
+// roughRegions — 8 квадратов 2048×2048 со сдвигом на 2000 тайлов от center, ближние к игроку
+// первыми.
+func roughRegions(h *act.Hands, center world.Tile) []cluster.Rect {
+	var res []cluster.Rect
+	for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+		c := world.Tile{X: center.X + d[0]*2000, Y: center.Y + d[1]*2000}
+		res = append(res, cluster.Rect{Min: world.Tile{X: c.X - 1024, Y: c.Y - 1024}, Max: world.Tile{X: c.X + 1024, Y: c.Y + 1024}})
+	}
+	if p, err := h.B.Player(); err == nil {
+		sort.SliceStable(res, func(i, j int) bool {
+			xi, yi := res[i].Center()
+			xj, yj := res[j].Center()
+			return math.Hypot(xi-p.Position.X, yi-p.Position.Y) < math.Hypot(xj-p.Position.X, yj-p.Position.Y)
+		})
+	}
+	return res
 }
 
 // roughAnchor — центр базы по всей открытой карте (zones.md): у какого пятна угля, железа или
@@ -130,6 +182,9 @@ func roughAnchor(h *act.Hands, need map[string]float64) world.Tile {
 	res := []string{"coal", "iron-ore", "copper-ore"}
 	big := map[string][]world.Patch{}
 	for _, p := range h.World.Patches() {
+		if g := roughRegion; g != nil && !(int(p.Center.X) >= g.Min.X && int(p.Center.X) < g.Max.X && int(p.Center.Y) >= g.Min.Y && int(p.Center.Y) < g.Max.Y) {
+			continue // только в квадрате разметки
+		}
 		for _, r := range res {
 			if p.Name == r && float64(p.Amount) >= need[r]/3 {
 				big[r] = append(big[r], p)
@@ -151,6 +206,10 @@ func roughAnchor(h *act.Hands, need map[string]float64) world.Tile {
 				best, bd = world.TileOf(c.Center), d
 			}
 		}
+	}
+	if math.IsInf(bd, 1) && roughRegion != nil { // в квадрате крупных пятен нет — его центр
+		x, y := roughRegion.Center()
+		return world.Tile{X: int(x), Y: int(y)}
 	}
 	return best
 }
