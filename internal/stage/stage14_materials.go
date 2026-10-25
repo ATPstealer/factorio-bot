@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -190,34 +189,69 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 // errNoStorage — инвентарь полон, а хранения ещё нет (до стадии 13).
 var errNoStorage = errors.New("инвентарь полон, а хранения нет")
 
-// fullSlots — свободных ячеек не больше стольких — инвентарь полон (к хранению — всегда).
+// fullSlots — свободных ячеек не больше стольких — инвентарь полон.
 const fullSlots = 2
 
-// storeTrips — походов к хранению «на всякий случай» (места мало, но не полон) за стадию.
-var storeTrips = map[int]int{}
+// neverStore — не выкладывать никогда: пластины всё равно используем (stages.md, инвентарь).
+var neverStore = map[string]bool{"iron-plate": true, "copper-plate": true, "steel-plate": true}
 
-// store — свободных ячеек инвентаря меньше free — в хранение то, что не нужно для крафта
-// сейчас: сначала готовые постройки, потом запас (уголь, пластины); need — что ещё ставить
-// (не убирать).
-func (s *worker) store(ctx context.Context, free int, need ...string) error {
-	if !s.any {
-		need = keepList(s.h, need...) // нужное стадии и запас ходового — при себе (inventory.go)
+// storeRank — ходовость предмета для выкладки (stages.md: от самого неходового к ходовому):
+// меньше — выкладывать раньше.
+func storeRank(it string) int {
+	switch it {
+	case "coal":
+		return 3
+	case "iron-gear-wheel", "copper-cable", "electronic-circuit":
+		return 2
 	}
+	return 0
+}
+
+// store — инвентарь в порядке (stages.md, решение пользователя): свободно 25% и больше — не
+// трогать; меньше — к хранению и выложить ненужное, пока не станет свободно 50%: пластины —
+// никогда, нужное стадии (need и план стадии) — нет (s.any — полон посреди дела: нужное тоже
+// можно), от самого неходового к ходовому. free — сколько ячеек просит дело (не больше
+// четверти — порог один на всех, решение пользователя; free — только для повторного вызова).
+func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	p, err := s.h.B.Player()
 	if err != nil {
 		return err
 	}
-	if p.InventorySize-len(p.InventorySlots) >= free {
+	size := p.InventorySize
+	freeNow := func() int { return p.InventorySize - len(p.InventorySlots) }
+	if freeNow() >= size/4 && freeNow() > fullSlots {
 		return nil
 	}
-	// к хранению — только когда действительно полон или раз за стадию (stages.md, решение
-	// пользователя: бегал каждый раз, как появлялось ненужное); у хранения по делу — без хода
-	full := p.InventorySize-len(p.InventorySlots) <= fullSlots
-	if !full && !s.tidying && storeTrips[curStage] > 0 {
-		return nil
+	keep := map[string]bool{}
+	for _, it := range need {
+		keep[it] = true
 	}
-	if !s.tidying {
-		storeTrips[curStage]++
+	if !s.any {
+		for it := range neededItems(s.h) {
+			keep[it] = true
+		}
+	}
+	var order []string
+	for it := range p.Inventory {
+		if !neverStore[it] && !keep[it] {
+			order = append(order, it)
+		}
+	}
+	// неходовое — раньше; при равной — что больше места занимает
+	slots := func(it string) int {
+		return (p.Inventory[it] + max(s.h.Protos.Items[it].StackSize, 1) - 1) / max(s.h.Protos.Items[it].StackSize, 1)
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		if ri, rj := storeRank(order[i]), storeRank(order[j]); ri != rj {
+			return ri < rj
+		}
+		if si, sj := slots(order[i]), slots(order[j]); si != sj {
+			return si > sj
+		}
+		return order[i] < order[j]
+	})
+	if len(order) == 0 {
+		return nil // выложить нечего: всё нужное или пластины
 	}
 	list, err := storageNear(s.h)
 	if err != nil {
@@ -232,24 +266,16 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	if len(chests) == 0 {
 		return errNoStorage
 	}
-	keep := map[string]bool{"wood": true, "stone": true, "iron-plate": true, "copper-plate": true, "coal": true,
-		"iron-gear-wheel": true, "copper-cable": true, "electronic-circuit": true}
-	order := []string{}
-	for it := range p.Inventory {
-		if !keep[it] {
-			order = append(order, it)
-		}
-	}
-	sort.Strings(order)
-	order = append(order, "coal", "iron-plate", "copper-plate", "wood", "stone")
-	order = slices.DeleteFunc(order, func(it string) bool { return slices.Contains(need, it) })
-	if p.InventorySize-len(p.InventorySlots) <= 2 {
+	if freeNow() <= fullSlots {
 		s.h.Say("инвентарь полон — кладу в хранение")
 	} else {
-		s.h.Say("кладу в хранение ненужное (свободно %d из %d)", p.InventorySize-len(p.InventorySlots), p.InventorySize)
+		s.h.Say("свободно %d из %d (меньше четверти) — кладу в хранение ненужное", freeNow(), size)
 	}
 	k := 0
 	for _, it := range order {
+		if freeNow() >= size/2 || k >= len(chests) {
+			break
+		}
 		for p.Inventory[it] > 0 && k < len(chests) {
 			n, err := s.h.InsertAll(ctx, chests[k], it)
 			if err != nil {
@@ -260,37 +286,6 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 			}
 			if p, err = s.h.B.Player(); err != nil {
 				return err
-			}
-		}
-		// после визита к хранению — свободна хотя бы четверть инвентаря (stages.md, инвентарь)
-		if p.InventorySize-len(p.InventorySlots) >= max(free+10, p.InventorySize/4) || k >= len(chests) {
-			break
-		}
-	}
-	// места всё ещё мало, а оставлено только ходовое (запас: пластины, уголь…) — и его в
-	// хранение (Ctrl+клик кладёт всё; нужное потом берётся из хранения) (stages.md: держать по пачке; держался весь — 3870 железа и 1450 угля
-	// забили инвентарь, разбор точек встал: 238178543)
-	if p.InventorySize-len(p.InventorySlots) < free && k < len(chests) {
-		needed := neededItems(s.h)
-		for _, it := range reserveItems {
-			st := max(s.h.Protos.Items[it].StackSize, 50)
-			if needed[it] || slices.Contains(need, it) && !slices.Contains(reserveItems, it) || p.Inventory[it] <= st {
-				continue
-			}
-			for p.Inventory[it] > st && k < len(chests) {
-				n, err := s.h.InsertAll(ctx, chests[k], it)
-				if err != nil {
-					return err
-				}
-				if n == 0 {
-					k++
-				}
-				if p, err = s.h.B.Player(); err != nil {
-					return err
-				}
-			}
-			if p.InventorySize-len(p.InventorySlots) >= free {
-				break
 			}
 		}
 	}

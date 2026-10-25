@@ -195,8 +195,6 @@ type worker struct {
 	// placed — после постановки всех построек вида name (build): сразу настроить, пока по
 	// лентам ничего не пошло
 	placed func(ctx context.Context, name string) error
-	// tidying — store у хранения по делу (tidy): не поход, не считать
-	tidying bool
 	// growing — store расширяет хранение (стройка сундуков сама зовёт store — не по кругу)
 	growing bool
 }
