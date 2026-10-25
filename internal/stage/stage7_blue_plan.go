@@ -187,6 +187,20 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		}
 	}
 	fresh = append(fresh, oil...)
+	// склад нефти — 6×5 цистерн под bus-1 у её головы, левее хранения (cluster.md §2а «Нефть»)
+	var tank *cluster.Cluster
+	for _, z := range rough.Zones {
+		if z.Name == "bus-1" {
+			tank = cluster.Tanks("crude-oil", 6, 5, world.Tile{X: z.Rect.Min.X + 10, Y: z.Rect.Max.Y + 12})
+		}
+	}
+	if tank == nil {
+		return nil, nil, fmt.Errorf("нет зоны bus-1")
+	}
+	if _, err := base.PlaceZoned([]*cluster.Cluster{tank}, rough.Zones); err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, tank)
 	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»)
 	steel := cluster.Steel(pr, planReserve)
 	if _, err := base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {
@@ -235,6 +249,15 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	if err := base.ConnectMore(l, zb, fresh, nil); err != nil {
 		return base, l, err
+	}
+	// нефтетрассы: от каждого месторождения — в склад нефти
+	for _, c := range base.Clusters {
+		if c.IsOil() {
+			if err := base.OilTrunk(l, c, tank); err != nil {
+				return base, l, err
+			}
+			h.Say("нефтетрасса %s → %s", c.Name, tank.Name)
+		}
 	}
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {

@@ -142,6 +142,191 @@ func oilFields(all []world.Patch) []world.Patch {
 	return res
 }
 
+// Tanks — склад жидкости fluid (cluster.md §2а «Нефть»): блок cols×rows цистерн 3×3, вне зон
+// у near (у головы своей шины).
+func Tanks(fluid string, cols, rows int, near world.Tile) *Cluster {
+	c := &Cluster{Kind: Tank, Product: fluid, Reserve: 1, Near: &near,
+		Units: []Unit{{Recipe: "store:" + fluid, Machine: "storage-tank", Machines: float64(cols * rows)}}}
+	c.Cross, c.Pitch, c.Head = 3*rows, 3, 0
+	c.Count, c.Room, c.Need = cols, cols, cols
+	return c
+}
+
+// tankBlock — цистерны шахматкой: соседние повёрнуты на 90° — угловые соединения стыкуются,
+// весь блок — одна ёмкость.
+func tankBlock(l *layout.Layout, f frame, c *Cluster, tag string, add func(layout.Placement) error) error {
+	rows := c.Cross / 3
+	for i := 0; i < c.Count; i++ {
+		for j := 0; j < rows; j++ {
+			d := layout.N
+			if (i+j)%2 == 1 {
+				d = layout.E
+			}
+			if err := add(f.at(l, "storage-tank", 3*i, 3*j, d, tag)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// tankConns — свободные соединения цистерн блока c наружу (куда подвести трубу).
+func tankConns(l *layout.Layout, c *Cluster) []layout.Conn {
+	var res []layout.Conn
+	in := func(t world.Tile) bool {
+		return t.X >= c.Area.Min.X && t.X < c.Area.Max.X && t.Y >= c.Area.Min.Y && t.Y < c.Area.Max.Y
+	}
+	for _, p := range l.List {
+		if p.Tag != Tag(c.Name) || p.Name != "storage-tank" {
+			continue
+		}
+		for _, cn := range layout.Connections(l.P, p) {
+			if !in(cn.To) && l.Free(cn.To, layout.AnyLand) {
+				res = append(res, cn)
+			}
+		}
+	}
+	return res
+}
+
+// pumpEvery — насос на нефтетрассе через столько тайлов: участок трубы шире 320×320 стоит
+// (default_pipeline_extent), с запасом (cluster.md §2а «Нефть»).
+const pumpEvery = 280
+
+// OilTrunk — нефтетрасса от месторождения field до склада tank (cluster.md §2а «Нефть»):
+// подземными трубами везде, где можно; насосы — по пути каждые pumpEvery тайлов; столбы — рядом
+// с трубой (соседние тайлы), до сети базы.
+func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
+	if len(field.Ports) == 0 {
+		return fmt.Errorf("cluster %s: нет выхода трубы", field.Name)
+	}
+	tag := LogisticsTag + "/" + field.Name
+	start := field.Ports[0].T
+	goals := tankConns(l, tank)
+	if len(goals) == 0 {
+		return fmt.Errorf("cluster %s: к цистернам не подойти", tank.Name)
+	}
+	tx, ty := tank.Area.Center()
+	to := world.Tile{X: int(tx), Y: int(ty)}
+	// насосы — на прямой от начала к складу, через pumpEvery
+	var froms []layout.Conn
+	for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+		if n := layout.Step(start, d); l.Free(n, layout.AnyLand) && !l.Solid[n] {
+			froms = append(froms, layout.Conn{At: start, To: n, Dir: d})
+		}
+	}
+	if len(froms) == 0 {
+		return fmt.Errorf("cluster %s: от трубы нефти не отойти", field.Name)
+	}
+	sort.Slice(froms, func(i, j int) bool { return dist(froms[i].To, to) < dist(froms[j].To, to) })
+	cur := froms[0]
+	n := (abs(start.X-to.X) + abs(start.Y-to.Y)) / pumpEvery
+	l.PipeUnder = true
+	defer func() { l.PipeUnder = false }()
+	var legs [][]layout.Placement
+	for k := 1; k <= n; k++ {
+		p := world.Tile{X: start.X + (to.X-start.X)*k/(n+1), Y: start.Y + (to.Y-start.Y)*k/(n+1)}
+		pump, in, out, ok := pumpNear(l, p, to, tag)
+		if !ok {
+			return fmt.Errorf("cluster %s: насосу нет места у (%d, %d)", field.Name, p.X, p.Y)
+		}
+		leg, err := l.RoutePipe(cur, in, tag)
+		if err != nil {
+			return fmt.Errorf("нефтетрасса %s → насос %d: %w", field.Name, k, err)
+		}
+		l.Add(pump)
+		legs = append(legs, leg)
+		cur = out
+	}
+	leg, err := l.RoutePipeTo(cur, goals, tag)
+	if err != nil {
+		return fmt.Errorf("нефтетрасса %s → %s: %w", field.Name, tank.Name, err)
+	}
+	legs = append(legs, leg)
+	for _, leg := range legs {
+		polesAlong(l, leg, tag)
+	}
+	return nil
+}
+
+// pumpNear — насос у тайла p, вход — с дальней от to стороны, выход — к to (вдоль главной оси),
+// на свободной суше; входное и выходное соединения — на свободные тайлы.
+func pumpNear(l *layout.Layout, p, to world.Tile, tag string) (layout.Placement, layout.Conn, layout.Conn, bool) {
+	d := layout.E
+	switch dx, dy := to.X-p.X, to.Y-p.Y; {
+	case abs(dx) >= abs(dy) && dx < 0:
+		d = layout.W
+	case abs(dy) > abs(dx) && dy > 0:
+		d = layout.S
+	case abs(dy) > abs(dx):
+		d = layout.N
+	}
+	for r := 0; r <= 20; r++ {
+		for _, o := range ringOffsets(r) {
+			t := world.Tile{X: p.X + o.X, Y: p.Y + o.Y}
+			pl := layout.Placement{Name: "pump", Pos: layout.CenterAt(l.P, "pump", d, t), Dir: d, Tag: tag}
+			if !l.CanPlace(pl, layout.AnyLand) || slices.ContainsFunc(layout.Tiles(l.P, pl), func(t world.Tile) bool { return l.Solid[t] }) {
+				continue
+			}
+			var in, out layout.Conn
+			for _, c := range layout.Connections(l.P, pl) {
+				if c.Flow == "input" {
+					in = c
+				} else {
+					out = c
+				}
+			}
+			if !l.Free(in.To, layout.AnyLand) || !l.Free(out.To, layout.AnyLand) {
+				continue
+			}
+			return pl, in, out, true
+		}
+	}
+	return layout.Placement{}, layout.Conn{}, layout.Conn{}, false
+}
+
+// polesAlong — малые столбы вдоль трубы leg (соседние тайлы), не дальше 6 тайлов друг от друга
+// (провод — 7.5): трасса питает свои насосы, качалки получают сеть от базы.
+func polesAlong(l *layout.Layout, leg []layout.Placement, tag string) {
+	const pole, step = "small-electric-pole", 6
+	var pts []world.Tile // тайлы трассы по порядку, с промежутками подземок
+	for i := len(leg) - 1; i >= 0; i-- {
+		t := world.TileOf(leg[i].Pos)
+		if len(pts) > 0 {
+			last := pts[len(pts)-1]
+			for k := 1; k < abs(t.X-last.X)+abs(t.Y-last.Y); k++ {
+				pts = append(pts, world.Tile{X: last.X + sign(t.X-last.X)*k, Y: last.Y + sign(t.Y-last.Y)*k})
+			}
+		}
+		pts = append(pts, t)
+	}
+	var lastPole *world.Tile
+	for i, t := range pts {
+		if lastPole != nil && abs(t.X-lastPole.X)+abs(t.Y-lastPole.Y) < step && i != len(pts)-1 {
+			continue
+		}
+		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+			n := layout.Step(t, d)
+			pl := layout.Placement{Name: pole, Pos: n.Center(), Tag: tag}
+			if l.CanPlace(pl, layout.AnyLand) && !l.Solid[n] {
+				l.Add(pl)
+				lastPole = &n
+				break
+			}
+		}
+	}
+}
+
+func sign(x int) int {
+	switch {
+	case x > 0:
+		return 1
+	case x < 0:
+		return -1
+	}
+	return 0
+}
+
 // taken — рамку r задевает кластер базы.
 func (b *Base) taken(r Rect) bool {
 	for _, c := range b.Clusters {

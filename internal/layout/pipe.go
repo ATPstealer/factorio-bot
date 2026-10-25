@@ -46,6 +46,17 @@ func (l *Layout) RoutePipe(from, to Conn, tag string) ([]Placement, error) {
 	return l.routePipe(from, map[world.Tile]int{to.To: (to.Dir + 8) % 16}, own, tag)
 }
 
+// RoutePipeTo — труба от соединения from до любого из соединений to (подвод к блоку цистерн).
+func (l *Layout) RoutePipeTo(from Conn, to []Conn, tag string) ([]Placement, error) {
+	own := map[world.Tile]bool{from.At: true}
+	goals := map[world.Tile]int{}
+	for _, c := range to {
+		own[c.At] = true
+		goals[c.To] = (c.Dir + 8) % 16
+	}
+	return l.routePipe(from, goals, own, tag)
+}
+
 // JoinPipe — труба от соединения from до уже проложенной трубы с тем же tag (та же
 // жидкость): к ней можно прикасаться.
 func (l *Layout) JoinPipe(from Conn, tag string) ([]Placement, error) {
@@ -133,9 +144,16 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		best[s], came[s] = g, e
 		heap.Push(open, &rnode{s: s, g: g, f: g + h(s.T)})
 	}
+	plainCost := 1.0
+	if l.PipeUnder {
+		plainCost = 3 // подземная пара (7 + …) дешевле уже на 3 тайлах
+	}
+	// предел поиска — по расстоянию (дальняя нефтетрасса — до 2M состояний)
+	far := int(h(start)) + 60
+	limit := min(max(16*far*far, 200_000), 2_000_000)
 	var end rstate
 	found := false
-	for open.Len() > 0 && len(best) < 200000 {
+	for open.Len() > 0 && len(best) < limit {
 		cur := heap.Pop(open).(*rnode)
 		if cur.g > best[cur.s] {
 			continue
@@ -152,7 +170,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		for _, d := range dirs {
 			n := Step(t, d)
 			if pipeOK(n) && !used(cur.s, n) {
-				push(rstate{T: n, D: plain}, edge{from: cur.s}, cur.g+1)
+				push(rstate{T: n, D: plain}, edge{from: cur.s}, cur.g+plainCost)
 			}
 			if !l.usable(ptg) || !l.Free(n, AnyLand) || used(cur.s, n) {
 				continue

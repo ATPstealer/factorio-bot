@@ -367,6 +367,10 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		if err := powerRow(l, f, c, L, tag); err != nil {
 			return err
 		}
+	case Tank:
+		if err := tankBlock(l, f, c, tag, add); err != nil {
+			return err
+		}
 	case Storage:
 		for u := 0; u < c.Count; u++ {
 			if err := add(f.at(l, StorageChest, u, 1, layout.N, tag)); err != nil {
