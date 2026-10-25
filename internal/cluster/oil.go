@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strings"
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/knowledge"
@@ -202,6 +203,163 @@ func refineryRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add f
 		Port{T: f.tile(-1, 0), Dir: f.dir(layout.E), Item: "crude-oil", In: true},
 		Port{T: f.tile(L, 6), Dir: f.dir(layout.E), Item: "petroleum-gas"})
 	return nil
+}
+
+// PipeLaneTag — тег труб жидкости fluid на шине bus (cluster.md §5: жидкости на шине — трубами).
+func PipeLaneTag(bus, fluid string) string { return Tag(bus) + "/" + fluid }
+
+// PipeLane — труба жидкости fluid вдоль шины k от её левого края до end: в свободном ряду лент,
+// соседи по паре — не трубы; занятое (подземки лент поперёк, чужие жидкостные соединения) —
+// подземной парой. Возвращает тег трубы (к ней подключаются JoinPipe).
+func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, end int) (string, error) {
+	bus := buses[k]
+	tag := PipeLaneTag(bus.Name, fluid)
+	used := map[int]bool{}
+	for _, ln := range bus.Lanes {
+		used[ln.Y-bus.Rect.Min.Y] = true
+	}
+	pipeRow := func(v int) bool { // в ряду уже труба шины
+		for x := bus.Rect.Min.X; x < bus.Rect.Min.X+40; x++ {
+			if p := l.At(world.Tile{X: x, Y: bus.Rect.Min.Y + v}); p != nil && strings.HasPrefix(p.Tag, Tag(bus.Name)+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for j := 0; laneV(j) < bus.Rect.H(); j++ {
+		v := laneV(j)
+		if used[v] || pipeRow(v) || pipeRow(v-1) || pipeRow(v+1) {
+			continue
+		}
+		mark := l.Mark()
+		if err := pipeAlong(l, bus.Rect.Min.X, end, bus.Rect.Min.Y+v, tag); err == nil {
+			return tag, nil
+		}
+		l.Rollback(mark)
+	}
+	return "", fmt.Errorf("cluster: %s: нет ряда под трубу %s", bus.Name, fluid)
+}
+
+// pipeAlong — труба по ряду y от x0 до x1: обычная, где тайл свободен и рядом нет чужих
+// жидкостных соединений; иначе — подземная пара через занятое (до дальности прототипа).
+func pipeAlong(l *layout.Layout, x0, x1, y int, tag string) error {
+	const pipe, ptg = "pipe", "pipe-to-ground"
+	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
+	own := map[world.Tile]bool{}
+	ok := func(t world.Tile) bool { return l.Free(t, layout.AnyLand) && !fluidNear(l, t, tag) }
+	for x := x0; x <= x1; {
+		t := world.Tile{X: x, Y: y}
+		if ok(t) {
+			l.Add(layout.Placement{Name: pipe, Pos: t.Center(), Tag: tag})
+			own[t] = true
+			x++
+			continue
+		}
+		// занято: вход подземки — на прошлом тайле (он обычная труба → заменить), выход — за занятым
+		prev := world.Tile{X: x - 1, Y: y}
+		i, isOwn := l.Index(prev)
+		if !isOwn || l.List[i].Tag != tag || l.List[i].Name != pipe {
+			return fmt.Errorf("cluster: труба %s: не обойти (%d, %d)", tag, x, y)
+		}
+		out := -1
+		for k := 1; k <= maxUG && x+k <= x1+maxUG; k++ {
+			if ok(world.Tile{X: x + k, Y: y}) {
+				out = x + k
+				break
+			}
+		}
+		if out < 0 {
+			return fmt.Errorf("cluster: труба %s: не обойти (%d, %d)", tag, x, y)
+		}
+		l.Replace(i, layout.Placement{Name: ptg, Pos: prev.Center(), Dir: layout.W, Tag: tag}) // вход: наземное — назад
+		l.Add(layout.Placement{Name: ptg, Pos: world.Tile{X: out, Y: y}.Center(), Dir: layout.E, Tag: tag})
+		x = out + 1
+	}
+	return nil
+}
+
+// fluidNear — рядом с t жидкостное соединение не своей трубы tag (обычная труба смешала бы).
+func fluidNear(l *layout.Layout, t world.Tile, tag string) bool {
+	for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+		n := layout.Step(t, d)
+		p := l.At(n)
+		if p == nil || p.Tag == tag {
+			continue
+		}
+		if p.Name == "pipe" {
+			return true
+		}
+		for _, c := range layout.Connections(l.P, *p) {
+			if c.At == n && c.To == t {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// JoinLane — порт жидкости p кластера c — трубой к трубе шины tag (JoinPipe): от тайла порта.
+func JoinLane(l *layout.Layout, c *Cluster, p Port, tag string) error {
+	at := layout.Step(p.T, (p.Dir+8)%16) // тайл трубы кластера у края
+	if p.In {
+		at = layout.Step(p.T, p.Dir)
+	}
+	if l.At(p.T) == nil {
+		delete(l.Reserved, p.T) // порт закрыт до подключения (guardPorts) — жидкость лентой не открывается
+	}
+	from := layout.Conn{At: at, To: p.T, Dir: (p.Dir + 8) % 16}
+	if !p.In {
+		from.Dir = p.Dir
+	}
+	if _, err := l.JoinPipe(from, tag); err != nil {
+		return &ConnectError{c, fmt.Errorf("труба %s ↔ %s: %w", c.Name, tag, err)}
+	}
+	return nil
+}
+
+// TankJoin — блок цистерн tank — трубой к трубе шины tag (с ближнего к ней свободного соединения).
+func TankJoin(l *layout.Layout, tank *Cluster, tag string) error {
+	for _, cn := range tankConns(l, tank) {
+		if _, err := l.JoinPipe(cn, tag); err == nil {
+			return nil
+		}
+	}
+	return &ConnectError{tank, fmt.Errorf("цистерны %s → %s: трубу не провести", tank.Name, tag)}
+}
+
+// fluidPort — порт жидкости fluid кластера c.
+func fluidPort(c *Cluster, fluid string, in bool) (Port, bool) {
+	for _, p := range c.Ports {
+		if p.Item == fluid && p.In == in {
+			return p, true
+		}
+	}
+	return Port{}, false
+}
+
+// RefineryPipes — трубы НПЗ ref: нефть — с трубы bus-1 (из склада tank), газ — в трубу bus-2
+// (cluster.md §2а «Нефть»: всё через шину). end — докуда тянуть трубу газа (потребители).
+func (b *Base) RefineryPipes(l *layout.Layout, buses []*ZBus, ref, tank *Cluster, gasEnd int) error {
+	crude, err := b.PipeLane(l, buses, 0, "crude-oil", ref.Area.Max.X+10)
+	if err != nil {
+		return err
+	}
+	if err := TankJoin(l, tank, crude); err != nil {
+		return err
+	}
+	in, _ := fluidPort(ref, "crude-oil", true)
+	if err := JoinLane(l, ref, in, crude); err != nil {
+		return err
+	}
+	if len(buses) < 2 {
+		return fmt.Errorf("cluster: нет шины над переработкой")
+	}
+	gas, err := b.PipeLane(l, buses, 1, "petroleum-gas", max(gasEnd, ref.Area.Max.X+20))
+	if err != nil {
+		return err
+	}
+	out, _ := fluidPort(ref, "petroleum-gas", false)
+	return JoinLane(l, ref, out, gas)
 }
 
 // tankBlock — цистерны шахматкой: соседние повёрнуты на 90° — угловые соединения стыкуются,

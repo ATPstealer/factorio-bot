@@ -269,6 +269,10 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 			h.Say("нефтетрасса %s → %s", c.Name, tank.Name)
 		}
 	}
+	// трубы шин: нефть — bus-1 (склад → НПЗ), газ — bus-2 (НПЗ → потребители)
+	if err := base.RefineryPipes(l, zb, refinery, tank, refinery.Area.Max.X+60); err != nil {
+		return base, l, err
+	}
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
 			return base, l, fmt.Errorf("раскладка: %v", e)
