@@ -228,7 +228,11 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	sort.Strings(order)
 	order = append(order, "coal", "iron-plate", "copper-plate", "wood", "stone")
 	order = slices.DeleteFunc(order, func(it string) bool { return slices.Contains(need, it) })
-	s.h.Say("инвентарь полон — кладу в хранение")
+	if p.InventorySize-len(p.InventorySlots) <= 2 {
+		s.h.Say("инвентарь полон — кладу в хранение")
+	} else {
+		s.h.Say("кладу в хранение ненужное (свободно %d из %d)", p.InventorySize-len(p.InventorySlots), p.InventorySize)
+	}
 	k := 0
 	for _, it := range order {
 		for p.Inventory[it] > 0 && k < len(chests) {
