@@ -219,7 +219,7 @@ func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluste
 			if !ok || b.avoids(r) {
 				break
 			}
-			ore := b.oreIn(r, c.Product)
+			ore := int(float64(b.oreIn(r, c.Product)) * MineCover)
 			if ore < minBlockOre {
 				break
 			}
@@ -238,6 +238,10 @@ func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluste
 	}
 	return res, nil
 }
+
+// MineCover — доля руды пятна, что окажется под бурами блока (края, тайлы с рудой меньше половины
+// под буром — без буров): оценка до раскладки (954176679: угля 1.79M вместо 2M).
+const MineCover = 0.85
 
 // minBlockOre — блок добычи меньше — не ставится (обрезок пятна у соседа).
 const minBlockOre = 30_000

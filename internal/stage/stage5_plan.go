@@ -220,7 +220,7 @@ func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan) ([]*cluster
 		for _, c := range base.Clusters {
 			if c.Kind == cluster.Mine && c.Product == it {
 				like = c
-				have += base.OreIn(c) // дополнится на всё пятно
+				have += int(float64(base.OreIn(c)) * cluster.MineCover) // дополнится на всё пятно
 			}
 		}
 		if like == nil {
