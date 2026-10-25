@@ -394,18 +394,15 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		l.Add(p)
 		return nil
 	}
-	// подача — с торца сбоку (v = labA−2) и поворотом в начало ленты B
-	if err := add(f.at(l, "transport-belt", u0, bv-1, layout.S, tag)); err != nil {
-		return Port{}, err
-	}
-	rows := (c.Count + labCols - 1) / labCols
-	end := c.Head + 4*(rows-1) + 3
-	for u := u0; u < end; u++ {
-		if err := add(f.at(l, "transport-belt", u, bv, layout.E, tag)); err != nil {
+	// подача — сверху, с дальнего торца блока (блок — под шиной конечных, подвод короткий; сбоку у
+	// головы — ленты красного и зелёного, 954176679): лента B течёт сверху вниз до головы
+	L := c.Len()
+	for u := L - 1; u >= u0; u-- {
+		if err := add(f.at(l, "transport-belt", u, bv, layout.W, tag)); err != nil {
 			return Port{}, err
 		}
 	}
-	l.AllowEnd(f.tile(end, bv))
+	l.AllowEnd(f.tile(u0-1, bv))
 	for k := 0; k < c.Count; k++ {
 		if k%labCols != 0 {
 			continue // только левый столбец — дальше от лаборатории к лаборатории
@@ -415,7 +412,7 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 			return Port{}, err
 		}
 	}
-	port := Port{T: f.tile(u0, bv-2), Dir: f.dir(layout.S), Item: item, In: true}
+	port := Port{T: f.tile(L, bv), Dir: f.dir(layout.W), Item: item, In: true}
 	c.Ports = append(c.Ports, port)
 	addFlow(&c.In, item, rate)
 	return port, nil
