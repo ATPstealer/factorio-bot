@@ -390,6 +390,17 @@ func (b *Base) find(c *Cluster) *cand {
 func (b *Base) pack(c *Cluster) *cand {
 	z := *c.Zone
 	w, h := size(c, false)
+	if c.Kind == Lab { // лаборатории — в правый край этажа: вся наука (и будущая) — левее, выше по течению
+		for x := z.Max.X - w; x >= z.Min.X; x-- {
+			for y := z.Max.Y - h; y >= z.Min.Y; y-- {
+				r := Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + w, Y: y + h}}
+				if b.fits(c, r, true) {
+					return &cand{r, 0, true}
+				}
+			}
+		}
+		return nil
+	}
 	for x := z.Min.X; x+w <= z.Max.X; x++ {
 		for y := z.Max.Y - h; y >= z.Min.Y; y-- {
 			r := Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + w, Y: y + h}}

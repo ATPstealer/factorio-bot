@@ -191,7 +191,11 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			}
 			// части этажа слева направо — первая, где есть место; ряд — поперёк шин
 			var err error = fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
-			for _, r := range floor[f] {
+			parts := slices.Clone(floor[f])
+			if c.Kind == Lab { // лаборатории — с правой части этажа
+				slices.Reverse(parts)
+			}
+			for _, r := range parts {
 				c.Zone, c.Upright = &r, true
 				if err = b.Place(c); err == nil {
 					break
