@@ -418,7 +418,7 @@ func roughDraw(h *act.Hands, zones []cluster.Zone, image string) error {
 		maxX, maxY = max(maxX, z.Rect.Max.X), max(maxY, z.Rect.Max.Y)
 	}
 	radius := max(maxX-minX, maxY-minY)/2 + 30
-	scale := max(1, min(4, 2000/(2*radius)))
+	scale := max(3, min(12, 8000/(2*radius))) // крупно (пользователь: большие картинки)
 	ro := world.RenderOptions{Center: world.Tile{X: (minX + maxX) / 2, Y: (minY + maxY) / 2}, Radius: radius, Scale: scale, Labels: true}
 	img := h.World.Render(ro)
 	cluster.DrawZones(img, ro, zones)

@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -97,6 +98,8 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	restore := h.World.Hide(own)
 	defer restore()
 	avoid := map[world.Tile]bool{}
+	boost := map[string]float64{} // будущая добыча: цель × (не сошлась по факту — больше)
+	short := 0
 	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток)
 	for try := 0; ; try++ {
 		cs, err := cluster.Split(pr, plan, planReserve, nil, "iron-gear-wheel")
@@ -125,7 +128,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		}
 		// будущая добыча до синей науки — сразу в план (zones.md: ленты bus-1 — все и по
 		// порядку подводов), строится на стадии 30
-		later, err := futureMines(h, base, rough)
+		later, err := futureMines(h, base, rough, boost)
 		if err != nil {
 			return err
 		}
@@ -142,6 +145,14 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 		h.Log("будущая добыча: %d кластеров", len(later))
+		// под бурами — по факту раскладки: меньше цели (оценка не сошлась: 954176679, уголь
+		// 1.79M) — ещё месторождений и заново
+		if it, got, want := shortOre(base.Clusters); it != "" && short < 3 {
+			short++
+			boost[it] = max(boost[it], 1) * float64(want) / float64(max(got, 1)) * 1.05
+			h.Say("добыча %s: под бурами %d из %d — беру ещё месторождений", it, got, want)
+			continue
+		}
 		err = base.ConnectZoned(l, buses)
 		all := base.Sorted()
 		for _, bus := range buses { // шины — в план кластерами (теги лент c/<шина>)
@@ -195,7 +206,8 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 // futureMines — будущая добыча до синей науки (Later: в плане сразу, строится на стадии 30):
 // железо, медь, уголь — месторождения целиком до oreTarget под бурами (блоки первой итерации
 // тоже дополнятся — в счёт), камень — до stoneTarget, и кластер плавки кирпича.
-func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan) ([]*cluster.Cluster, error) {
+func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan, boost map[string]float64) ([]*cluster.Cluster, error) {
+	scaled := func(it string, want int) int { return int(float64(want) * max(boost[it], 1)) }
 	var res []*cluster.Cluster
 	more := func(like *cluster.Cluster, have, want int) error {
 		if zones := base.MoreMineZones(rough.Zones, like.Product, float64(want)*1.3); len(zones) > len(rough.Zones) {
@@ -226,13 +238,13 @@ func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan) ([]*cluster
 		if like == nil {
 			return nil, fmt.Errorf("в плане нет добычи %s", it)
 		}
-		if err := more(like, have, oreTarget); err != nil {
+		if err := more(like, have, scaled(it, oreTarget)); err != nil {
 			return nil, err
 		}
 	}
 	stone := &cluster.Cluster{Kind: cluster.Mine, Product: "stone", Reserve: planReserve,
 		Units: []cluster.Unit{{Recipe: "mine:stone", Machine: "electric-mining-drill", Machines: 1}}}
-	if err := more(stone, 0, stoneTarget); err != nil {
+	if err := more(stone, 0, scaled("stone", stoneTarget)); err != nil {
 		return nil, err
 	}
 	bricks, err := cluster.SmeltOf(h.Protos, "stone-brick", planReserve)
@@ -244,6 +256,21 @@ func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan) ([]*cluster
 		return nil, err
 	}
 	return append(res, bricks), nil
+}
+
+// shortOre — ресурс, под бурами которого (по раскладке) меньше цели: имя, сколько, цель; "" — все
+// в порядке.
+func shortOre(cs []*cluster.Cluster) (string, int, int) {
+	targets := map[string]int{"stone": stoneTarget}
+	for _, it := range blueOres {
+		targets[it] = oreTarget
+	}
+	for _, it := range append(slices.Clone(blueOres), "stone") {
+		if got := oreUnder(cs, it); got < targets[it] {
+			return it, got, targets[it]
+		}
+	}
+	return "", 0, 0
 }
 
 // planImage — картинка плана кластеров: run/stages/plan-<сид>.png.
@@ -278,7 +305,9 @@ func drawAround(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layou
 
 // drawPlan — картинка плана с центром center и радиусом radius в файл path.
 func drawPlan(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, center world.Tile, radius int, path string) error {
-	ro := world.RenderOptions{Center: center, Radius: radius, Scale: max(1, min(8, 2400/(2*radius))), Labels: true}
+	// крупно: ~8000 px на сторону, не меньше 3 px на тайл (пользователь: большие картинки в
+	// хорошем качестве)
+	ro := world.RenderOptions{Center: center, Radius: radius, Scale: max(3, min(12, 8000/(2*radius))), Labels: true}
 	img := h.World.Render(ro)
 	cluster.DrawZones(img, ro, zones)
 	base.Draw(img, ro)
