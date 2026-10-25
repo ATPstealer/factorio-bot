@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -667,7 +668,7 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 		}
 		var p Port
 		err := layout.ErrNoRoute
-		for _, q := range feedPorts(l, bus, lns, op.T) {
+		for _, q := range b.feedTargets(l, bus, lns, op) {
 			g := guardHeads(l, bus, q.T)
 			_, err = l.RouteBelt(op.T, op.Dir, q.T, q.Dir, LogisticsTag+"/"+bus.Name+"/"+c.Name)
 			unfence(l, g)
@@ -677,11 +678,244 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 			}
 		}
 		if err != nil {
+			var tried []string
+			for _, q := range b.feedTargets(l, bus, lns, op) {
+				tried = append(tried, fmt.Sprintf("(%d,%d)", q.T.X, q.T.Y))
+			}
+			b.logf("подвод %s выход %d из (%d,%d): не дошёл ни до одной из %v", c.Name, i+1, op.T.X, op.T.Y, tried)
+			// разбор: где закрыто между выходом и головой
+			if tg := b.feedTargets(l, bus, lns, op); len(tg) > 0 {
+				h := tg[0].T
+				var row []string
+				for x := min(op.T.X, h.X) - 3; x <= max(op.T.X, h.X)+3; x++ {
+					s := ""
+					for y := min(op.T.Y, h.Y) - 3; y <= max(op.T.Y, h.Y)+3; y++ {
+						t := world.Tile{X: x, Y: y}
+						switch {
+						case t == op.T:
+							s += "O"
+						case t == h:
+							s += "H"
+						case l.At(t) != nil:
+							s += "#"
+						case l.Solid[t]:
+							s += "S"
+						case l.Reserved[t]:
+							s += "r"
+						case !l.Free(t, layout.AnyLand):
+							s += "~"
+						default:
+							s += "."
+						}
+					}
+					row = append(row, fmt.Sprintf("x=%d %s", x, s))
+				}
+				b.logf("  карта (столбцы — X, по Y вниз):\n%s", strings.Join(row, "\n"))
+			}
 			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
 		}
 		fedHead(lns, p)
 	}
 	return nil
+}
+
+// mineOut — выход блока добычи и его лента bus-1.
+type mineOut struct {
+	c    *Cluster
+	p    Port
+	lane int // Y ленты
+}
+
+// orderedMineLanes — ленты bus-1 под каждый выход каждого блока добычи (не нефть), ряды сверху
+// вниз — по углу выхода вокруг головы шины (от востока против часовой: сверху-справа — верхний
+// ряд, слева — середина, снизу — нижние): подводы не пересекаются и не закрывают головы. Выход →
+// лента — в b.feedLane.
+func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
+	bus := buses[0]
+	hx, hy := float64(bus.Rect.Min.X), float64(bus.Rect.Min.Y+bus.Rect.Max.Y)/2
+	var outs []mineOut
+	for _, c := range b.Clusters {
+		if c.Kind != Mine || c.IsOil() {
+			continue
+		}
+		for _, p := range outPorts(c) {
+			outs = append(outs, mineOut{c: c, p: p})
+		}
+	}
+	key := func(t world.Tile) float64 {
+		a := math.Atan2(-(float64(t.Y) - hy), float64(t.X)-hx)
+		if a < 0 {
+			a += 2 * math.Pi
+		}
+		return a
+	}
+	sort.SliceStable(outs, func(i, j int) bool { return key(outs[i].p.T) < key(outs[j].p.T) })
+	// ряд — ближе к высоте выхода (пришедший снизу — в нижний), порядок сверху вниз — как у углов,
+	// и место под остальных
+	rows := 0
+	for laneV(rows) < bus.Rect.H() {
+		rows++
+	}
+	if len(outs) > rows {
+		return fmt.Errorf("cluster: %s: выходов добычи %d, рядов %d", bus.Name, len(outs), rows)
+	}
+	want := make([]int, len(outs))
+	for i, o := range outs {
+		v, best := 0, math.MaxInt
+		for r := range rows {
+			if d := abs(bus.Rect.Min.Y + laneV(r) - o.p.T.Y); d < best {
+				v, best = r, d
+			}
+		}
+		want[i] = v
+		if i > 0 {
+			want[i] = max(want[i], want[i-1]+1)
+		}
+	}
+	for i := len(outs) - 1; i >= 0; i-- { // хвост не за последним рядом
+		want[i] = min(want[i], rows-(len(outs)-i))
+		if i < len(outs)-1 {
+			want[i] = min(want[i], want[i+1]-1)
+		}
+	}
+	b.feedLane = map[world.Tile]int{}
+	for i, o := range outs {
+		end := b.laneEnd(buses, 0, o.c.Product)
+		y, _, err := b.newLaneFrom(l, buses, 0, o.c.Product, end, want[i])
+		if err != nil {
+			return err
+		}
+		b.feedLane[o.p.T] = y
+	}
+	return nil
+}
+
+// LaterTag — тег построек, дописанных в стоящий кластер на потом (буры до 2M в блоке первой
+// итерации): строятся вместе с будущей добычей.
+func LaterTag(name string) string { return Tag(name) + "/later" }
+
+// transfers — руда будущих блоков (Later) питает и старые цепочки (решение пользователя): на
+// новой ленте — делитель, его второй выход — подземкой поперёк шины к ближней старой ленте того
+// же предмета, там — делитель (вливает в неё).
+func (b *Base) transfers(l *layout.Layout, bus *ZBus) {
+	byY := map[int]*ZoneLane{}
+	for i := range bus.Lanes {
+		byY[bus.Lanes[i].Y] = &bus.Lanes[i]
+	}
+	later := map[int]*Cluster{} // лента → будущий блок
+	old := map[string][]int{}   // предмет → ленты старых блоков
+	for _, c := range b.Clusters {
+		for _, p := range outPorts(c) {
+			y, ok := b.feedLane[p.T]
+			if !ok {
+				continue
+			}
+			if c.Later {
+				later[y] = c
+			} else {
+				old[c.Product] = append(old[c.Product], y)
+			}
+		}
+	}
+	for _, y := range slices.Sorted(maps.Keys(later)) {
+		c, nl := later[y], byY[y]
+		if nl == nil || len(old[c.Product]) == 0 {
+			continue
+		}
+		oy := old[c.Product][0]
+		for _, o := range old[c.Product] {
+			if abs(o-y) < abs(oy-y) {
+				oy = o
+			}
+		}
+		ol := byY[oy]
+		if ol == nil {
+			continue
+		}
+		tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
+		x0 := max(nl.From, ol.From, nl.Start, ol.Start) + 3
+		if err := transferAt(l, nl, ol, x0, tag); err != nil {
+			b.logf("перекидка %s → лента %d: %v", c.Name, oy, err)
+		}
+	}
+}
+
+// transferAt — перекидка с ленты from на ленту to (лента шины течёт на восток): делитель на from
+// у столбца x (с ряда соседнего в сторону to), его второй выход — лентой (поперёк — подземками)
+// во второй вход делителя на to. Ищет столбец от x0 вправо.
+func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string) error {
+	s := 1
+	if to.Y < from.Y {
+		s = -1
+	}
+	straight := func(x, y int) bool { // прямая лента предмета, без подач сбоку
+		for _, dx := range []int{-1, 0, 1} {
+			q := l.At(world.Tile{X: x + dx, Y: y})
+			if q == nil || q.Name != "transport-belt" || q.Dir != layout.E {
+				return false
+			}
+		}
+		for _, dy := range []int{-1, 1} {
+			if q := l.At(world.Tile{X: x, Y: y + dy}); q != nil && (q.Name == "transport-belt" || q.Name == "underground-belt") && (q.Dir == layout.N || q.Dir == layout.S) {
+				return false
+			}
+		}
+		return true
+	}
+	splitter := func(x, y, side int) layout.Placement {
+		a, b := world.Tile{X: x, Y: y}.Center(), world.Tile{X: x, Y: y + side}.Center()
+		return layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (a.X + b.X) / 2, Y: (a.Y + b.Y) / 2}, Dir: layout.E, Tag: tag}
+	}
+	// делители — со стороны, где рядом не лента пары (сначала к другой ленте, потом наружу)
+	for _, sa := range []int{s, -s} {
+		for _, sb := range []int{-s, s} {
+			for x := x0; x < x0+80; x++ {
+				if !straight(x, from.Y) || !l.Free(world.Tile{X: x, Y: from.Y + sa}, layout.AnyLand) ||
+					!l.Free(world.Tile{X: x + 1, Y: from.Y + sa}, layout.AnyLand) {
+					continue
+				}
+				for xb := x + 3; xb < x+16; xb++ {
+					if !straight(xb, to.Y) || !l.Free(world.Tile{X: xb, Y: to.Y + sb}, layout.AnyLand) ||
+						!l.Free(world.Tile{X: xb - 1, Y: to.Y + sb}, layout.AnyLand) {
+						continue
+					}
+					mark := l.Mark()
+					ia, _ := l.Index(world.Tile{X: x, Y: from.Y})
+					savedA := l.List[ia]
+					l.Replace(ia, splitter(x, from.Y, sa))
+					ib, _ := l.Index(world.Tile{X: xb, Y: to.Y})
+					saved := l.List[ib]
+					l.Replace(ib, splitter(xb, to.Y, sb))
+					_, err := l.RouteBelt(world.Tile{X: x + 1, Y: from.Y + sa}, layout.E, world.Tile{X: xb - 1, Y: to.Y + sb}, layout.E, tag)
+					if err == nil {
+						return nil
+					}
+					// назад: делители — снова лентами
+					l.List = l.List[:mark]
+					l.Replace(ib, saved)
+					l.Replace(ia, savedA)
+				}
+			}
+		}
+	}
+	return fmt.Errorf("нет места под перекидку")
+}
+
+// feedTargets — куда вести выход op: сначала голова его ленты (orderedMineLanes), потом —
+// как раньше (свободные головы, боком в подводы).
+func (b *Base) feedTargets(l *layout.Layout, bus *ZBus, lns []*ZoneLane, op Port) []Port {
+	res := feedPorts(l, bus, lns, op.T)
+	y, ok := b.feedLane[op.T]
+	if !ok {
+		return res
+	}
+	for _, ln := range lns {
+		if ln.Y == y && !ln.Fed {
+			h := ln.head()
+			return append([]Port{h}, slices.DeleteFunc(res, func(p Port) bool { return p.T == h.T })...)
+		}
+	}
+	return res
 }
 
 // headRun — подход к голове ленты шины ресурсов: столько тайлов слева от неё — по ряду ленты.
@@ -873,8 +1107,16 @@ func sortedItems(need map[string]bool, on map[string]int, k int) []string {
 func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 	on := b.zoneSources(len(buses))
 	need := b.zoneNeed(on, len(buses))
+	// bus-1: ленты добытого — по выходу каждого блока (и будущих), ряды — по порядку подводов
+	// вокруг головы (zones.md: сверху-справа — верхний ряд, дальше по кругу против часовой)
+	if err := b.orderedMineLanes(l, buses); err != nil {
+		return err
+	}
 	for k := range buses {
 		for _, it := range sortedItems(need[k], on, k) {
+			if k == 0 && len(buses[0].lanes(it)) > 0 {
+				continue // добытое — уже (orderedMineLanes)
+			}
 			for range b.laneCount(k, it) {
 				if err := b.newLane(l, buses, k, it, b.laneEnd(buses, k, it)); err != nil {
 					return err
@@ -916,12 +1158,20 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			return &ConnectError{c, fmt.Errorf("вода к %s: %w", c.Name, err)}
 		}
 	}
+	// добыча → головы лент шины ресурсов, слева: сначала вся, кроме угля (лента угля на станцию,
+	// проложенная первой, замуровывала выходы соседних блоков — 859088572); подход ко входу угля
+	// станции всё это время закрыт (keep) — потом уголь на станцию и его отвод в шину
+	feedMine := func(c *Cluster) error { return b.feedMine(l, buses, c, nil) }
+	for _, c := range b.Clusters {
+		if c.Kind == Mine && c.Product != "coal" && !c.IsOil() {
+			if err := feedMine(c); err != nil {
+				return err
+			}
+		}
+	}
 	for _, t := range keep {
 		delete(l.Reserved, t)
 	}
-	// добыча → головы лент шины ресурсов, слева (второй поставщик — боком в подвод); сначала
-	// уголь и сразу отвод угля на станцию — иначе ленты другой добычи замуруют вход станции
-	feedMine := func(c *Cluster) error { return b.feedMine(l, buses, c, nil) }
 	// уголь: лента с добычи прямо на станцию (мимо шин), с неё делителем — в голову ленты шины
 	// ресурсов; станции нет или уже питается — добыча угля сразу на шину
 	powered := false
@@ -964,7 +1214,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		}
 		opened := b.fence(l, bus, m)
 		err := layout.ErrNoRoute
-		for _, p := range feedPorts(l, bus, lns, op.T) {
+		for _, p := range b.feedTargets(l, bus, lns, op) {
 			g := guardHeads(l, bus, p.T)
 			err = SplitTap(l, line, p, LogisticsTag+"/"+bus.Name+"/"+m.Name, 60)
 			unfence(l, g)
@@ -982,13 +1232,8 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			return err
 		}
 	}
-	for _, c := range b.Clusters {
-		if c.Kind == Mine && c.Product != "coal" {
-			if err := feedMine(c); err != nil {
-				return err
-			}
-		}
-	}
+	// будущая добыча питает и старые цепочки — перекидки на шине (zones.md)
+	b.transfers(l, buses[0])
 	// выходы этажей — боком в ленты шины над собой; отводы — ниже по течению
 	for _, c := range b.Clusters {
 		if err := b.feedOut(l, buses, c, g); err != nil {

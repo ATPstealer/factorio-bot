@@ -84,13 +84,20 @@ func fillLane(bus *ZBus, list []layout.Placement, it string, y int) ZoneLane {
 // newLane — новая лента it шины k до end — в свободный ряд; обход неровности не проводится
 // (там обходы других лент, утёс у самого ряда) — в следующий свободный.
 func (b *Base) newLane(l *layout.Layout, buses []*ZBus, k int, it string, end int) error {
+	_, _, err := b.newLaneFrom(l, buses, k, it, end, 0)
+	return err
+}
+
+// newLaneFrom — newLane в первый свободный ряд не раньше ряда j0 (по порядку сверху вниз):
+// Y ленты и номер следующего ряда.
+func (b *Base) newLaneFrom(l *layout.Layout, buses []*ZBus, k int, it string, end, j0 int) (int, int, error) {
 	bus := buses[k]
 	used := map[int]bool{}
 	for _, ln := range bus.Lanes {
 		used[ln.Y-bus.Rect.Min.Y] = true
 	}
 	var err error = fmt.Errorf("cluster: %s: нет ряда под ленту %s", bus.Name, it)
-	for j := 0; laneV(j) < bus.Rect.H(); j++ {
+	for j := j0; laneV(j) < bus.Rect.H(); j++ {
 		v := laneV(j)
 		if used[v] {
 			continue
@@ -101,13 +108,32 @@ func (b *Base) newLane(l *layout.Layout, buses []*ZBus, k int, it string, end in
 		var gaps []laneGap
 		b.layLane(l, buses, k, len(bus.Lanes)-1, start, end, -1, false, &gaps)
 		if err = fixGaps(l, buses, gaps); err == nil {
-			return nil
+			return bus.Rect.Min.Y + v, j + 1, nil
 		}
 		bus.Lanes = bus.Lanes[:len(bus.Lanes)-1]
 		l.List = saved
 		l.Rollback(-1)
 	}
-	return err
+	return 0, 0, err
+}
+
+// farthestUser — новый кластер (из fresh), который берёт it с шины k или кладёт в неё, самый
+// правый (из-за него лента тянется дальше всего).
+func farthestUser(fresh []*Cluster, it string, k int) *Cluster {
+	var res *Cluster
+	for _, c := range fresh {
+		f, use := floorOf(c), false
+		for _, in := range c.In {
+			use = use || in.Item == it && (f == k+1 || f == k && c.Kind == Make)
+		}
+		for _, o := range c.Out {
+			use = use || o.Item == it && f == k
+		}
+		if use && (res == nil || c.Area.Max.X > res.Area.Max.X) {
+			res = c
+		}
+	}
+	return res
 }
 
 // laneStart — откуда новая лента it шины k: продукт этажа под шиной кладётся у столбца своего
@@ -157,6 +183,10 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 					var gaps []laneGap
 					b.layLane(l, buses, k, j, last+1, end, last, true, &gaps)
 					if err := fixGaps(l, buses, gaps); err != nil {
+						// ленту не продлить до нового потребителя — его в другое место (ближе)
+						if c := farthestUser(fresh, it, k); c != nil {
+							return &ConnectError{c, err}
+						}
 						return err
 					}
 				}

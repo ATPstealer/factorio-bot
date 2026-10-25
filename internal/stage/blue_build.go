@@ -50,10 +50,7 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 				res = append(res, pl)
 			}
 		}
-		if len(res) == 0 {
-			return nil, fmt.Errorf("в плане стадии 7 нет этих построек (%v)", allow)
-		}
-		if len(more) > 0 { // своё стадии (буферы выхода…) — по всему плану
+		if len(more) > 0 { // своё стадии (будущая добыча, буферы выхода…) — по всему плану
 			all := layout.New(h.Protos, h.World)
 			for _, pl := range plan.Layout {
 				all.Add(pl)
@@ -65,6 +62,14 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 				}
 				res = append(res, add...)
 			}
+			for _, c := range plan.Clusters {
+				if c.Later {
+					allow = append(allow, c.Name)
+				}
+			}
+		}
+		if len(res) == 0 {
+			return nil, fmt.Errorf("в плане нет этих построек (%v)", allow)
 		}
 		poles, err := connectPower(h, plan, res, allow)
 		return append(res, poles...), err

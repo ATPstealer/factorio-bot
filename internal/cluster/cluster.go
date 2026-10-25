@@ -81,6 +81,9 @@ type Cluster struct {
 	// не размещена: OreFirst); OreUnder — сколько руды под поставленными
 	Ore      int `json:"ore,omitempty"`
 	OreUnder int `json:"ore_under,omitempty"`
+	// Later — в плане сразу (место, подвод, лента шины), строится позже (будущая добыча до 2M,
+	// камень, кирпич — стадия 30; zones.md)
+	Later bool `json:"later,omitempty"`
 	// Back — ряд в обратную сторону (голова — у Max: снизу у вертикального, справа у
 	// горизонтального); у блока добычи — голова к шине ресурсов
 	Back bool `json:"back,omitempty"`

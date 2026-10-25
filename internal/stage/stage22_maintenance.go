@@ -429,7 +429,7 @@ func planNow() ([]layout.Placement, error) {
 			res = append(res, pl)
 		}
 	}
-	return res, nil
+	return withoutLater(plan, res), nil // будущая добыча — на стадии 30
 }
 
 // planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр

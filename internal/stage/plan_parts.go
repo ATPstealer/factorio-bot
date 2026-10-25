@@ -33,6 +33,31 @@ func clusterOfName(plan *ClusterPlan, name string) cluster.Cluster {
 	return cluster.Cluster{}
 }
 
+// laterTags — теги будущей добычи плана (cluster.Later — строится на стадии 30): её кластеры, их
+// логистика, дописанное на потом в блоки первой итерации (LaterTag).
+func laterTags(plan *ClusterPlan) map[string]bool {
+	res := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Mine || c.Kind == cluster.Smelt {
+			res[cluster.LaterTag(c.Name)] = true
+		}
+		if !c.Later {
+			continue
+		}
+		res[cluster.Tag(c.Name)], res[cluster.LogisticsTag+"/"+c.Name] = true, true
+		for _, bus := range busNames(plan) {
+			res[cluster.LogisticsTag+"/"+bus+"/"+c.Name] = true
+		}
+	}
+	return res
+}
+
+// withoutLater — list без будущей добычи (её строит стадия 30).
+func withoutLater(plan *ClusterPlan, list []layout.Placement) []layout.Placement {
+	later := laterTags(plan)
+	return slices.DeleteFunc(slices.Clone(list), func(pl layout.Placement) bool { return later[pl.Tag] })
+}
+
 // busNames — шины плана (зоны шин: bus-1 … bus-4).
 func busNames(plan *ClusterPlan) []string {
 	var res []string

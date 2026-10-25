@@ -85,7 +85,7 @@ func blueprint(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := append([]layout.Placement(nil), plan.Layout...)
+	res := withoutLater(plan, plan.Layout) // будущая добыча — на стадии 30 (её файл — ниже, со state-*)
 	taken := map[world.Tile]layout.Placement{}
 	for _, pl := range plan.Layout {
 		for _, t := range layout.Tiles(h.Protos, pl) { // все тайлы (делитель — два)

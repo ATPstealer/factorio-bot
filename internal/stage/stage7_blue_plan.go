@@ -203,60 +203,8 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	cluster.FillLanes(zb, old.Layout)
-	// добыча до 2M (stages.md, стадия 7): месторождения целиком, ближние к голове bus-1 первыми;
-	// зон не хватает — новые зоны на дальних пятнах
-	var fresh, fill []*cluster.Cluster
-	for _, it := range blueOres {
-		var like *cluster.Cluster
-		have := 0
-		// стоящие блоки (первая итерация — до 500k) — дописать на всё пятно в своей площади
-		for _, c := range base.Clusters {
-			if c.Kind == cluster.Mine && c.Product == it {
-				like = c
-				fill = append(fill, c)
-				have += max(c.OreUnder, base.OreIn(c))
-			}
-		}
-		if like == nil {
-			return nil, nil, fmt.Errorf("в плане нет добычи %s", it)
-		}
-		zones := base.MoreMineZones(rough.Zones, it, oreTarget*1.3)
-		if len(zones) > len(rough.Zones) {
-			rough.Zones = zones
-			if err := writeState(roughFile, rough); err != nil {
-				return nil, nil, err
-			}
-		}
-		ms, err := base.MoreMines(like, rough.Zones, have, oreTarget)
-		if err != nil {
-			return nil, nil, err
-		}
-		h.Say("добыча %s: под бурами %d, новых блоков %d", it, have, len(ms))
-		fresh = append(fresh, ms...)
-	}
-	// камень — на кирпич (НПЗ, стальные печи, бетон; решение пользователя): месторождение до
-	// stoneTarget, кластер плавки кирпича — выход в буфер у кластера
-	stoneLike := &cluster.Cluster{Kind: cluster.Mine, Product: "stone", Reserve: planReserve,
-		Units: []cluster.Unit{{Recipe: "mine:stone", Machine: "electric-mining-drill", Machines: 1}}}
-	if zones := base.MoreMineZones(rough.Zones, "stone", stoneTarget*1.3); len(zones) > len(rough.Zones) {
-		rough.Zones = zones
-		if err := writeState(roughFile, rough); err != nil {
-			return nil, nil, err
-		}
-	}
-	stone, err := base.MoreMines(stoneLike, rough.Zones, oreUnder(base.Clusters, "stone"), stoneTarget)
-	if err != nil {
-		return nil, nil, err
-	}
-	fresh = append(fresh, stone...)
-	bricks, err := cluster.SmeltOf(pr, "stone-brick", planReserve)
-	if err != nil {
-		return nil, nil, err
-	}
-	if _, err := base.PlaceZoned([]*cluster.Cluster{bricks}, rough.Zones); err != nil {
-		return nil, nil, err
-	}
-	fresh = append(fresh, bricks)
+	// добыча до 2M, камень, кирпич — уже в плане стадии 5 (zones.md: ленты bus-1 — все сразу)
+	var fresh []*cluster.Cluster
 	// нефть — до конца игры: 2 месторождения, ближние к голове bus-1 (cluster.md §2а «Нефть»)
 	zones, oil, err := base.MoreOil(rough.Zones)
 	if err != nil {
@@ -358,11 +306,6 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		}
 		for _, pl := range old.Layout {
 			l.Add(pl)
-		}
-		for _, c := range fill {
-			if err := base.FillMine(l, c); err != nil {
-				return l, fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
-			}
 		}
 		return l, nil
 	}

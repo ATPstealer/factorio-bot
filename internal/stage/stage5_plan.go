@@ -123,10 +123,25 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		if err != nil {
 			return err
 		}
+		// будущая добыча до синей науки — сразу в план (zones.md: ленты bus-1 — все и по
+		// порядку подводов), строится на стадии 30
+		later, err := futureMines(h, base, rough)
+		if err != nil {
+			return err
+		}
 		l, err := base.Layout()
 		if err != nil {
 			return err
 		}
+		// блоки первой итерации — на всё месторождение (буры сверх 500k — на потом)
+		for _, c := range base.Clusters {
+			if c.Kind == cluster.Mine && !c.IsOil() && !c.Later {
+				if err := base.FillMine(l, c, cluster.LaterTag(c.Name)); err != nil {
+					return fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
+				}
+			}
+		}
+		h.Log("будущая добыча: %d кластеров", len(later))
 		err = base.ConnectZoned(l, buses)
 		all := base.Sorted()
 		for _, bus := range buses { // шины — в план кластерами (теги лент c/<шина>)
@@ -170,6 +185,60 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
+}
+
+// futureMines — будущая добыча до синей науки (Later: в плане сразу, строится на стадии 30):
+// железо, медь, уголь — месторождения целиком до oreTarget под бурами (блоки первой итерации
+// тоже дополнятся — в счёт), камень — до stoneTarget, и кластер плавки кирпича.
+func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan) ([]*cluster.Cluster, error) {
+	var res []*cluster.Cluster
+	more := func(like *cluster.Cluster, have, want int) error {
+		if zones := base.MoreMineZones(rough.Zones, like.Product, float64(want)*1.3); len(zones) > len(rough.Zones) {
+			rough.Zones = zones
+			if err := writeState(roughFile, rough); err != nil {
+				return err
+			}
+		}
+		ms, err := base.MoreMines(like, rough.Zones, have, want)
+		if err != nil {
+			return err
+		}
+		for _, m := range ms {
+			m.Later = true
+		}
+		res = append(res, ms...)
+		return nil
+	}
+	for _, it := range blueOres {
+		var like *cluster.Cluster
+		have := 0
+		for _, c := range base.Clusters {
+			if c.Kind == cluster.Mine && c.Product == it {
+				like = c
+				have += base.OreIn(c) // дополнится на всё пятно
+			}
+		}
+		if like == nil {
+			return nil, fmt.Errorf("в плане нет добычи %s", it)
+		}
+		if err := more(like, have, oreTarget); err != nil {
+			return nil, err
+		}
+	}
+	stone := &cluster.Cluster{Kind: cluster.Mine, Product: "stone", Reserve: planReserve,
+		Units: []cluster.Unit{{Recipe: "mine:stone", Machine: "electric-mining-drill", Machines: 1}}}
+	if err := more(stone, 0, stoneTarget); err != nil {
+		return nil, err
+	}
+	bricks, err := cluster.SmeltOf(h.Protos, "stone-brick", planReserve)
+	if err != nil {
+		return nil, err
+	}
+	bricks.Later = true
+	if _, err := base.PlaceZoned([]*cluster.Cluster{bricks}, rough.Zones); err != nil {
+		return nil, err
+	}
+	return append(res, bricks), nil
 }
 
 // planImage — картинка плана кластеров: run/stages/plan-<сид>.png.

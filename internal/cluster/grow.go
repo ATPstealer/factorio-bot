@@ -98,12 +98,12 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 
 // FillMine — блок добычи c дописан на всё пятно в своей площади (stages.md, стадия 7:
 // месторождения целиком): предел руды снят, буры — дальше по тому же шаблону, старые на месте.
-func (b *Base) FillMine(l *layout.Layout, c *Cluster) error {
+func (b *Base) FillMine(l *layout.Layout, c *Cluster, tag string) error {
 	if c.Kind != Mine {
 		return fmt.Errorf("cluster: %s — не добыча", c.Name)
 	}
 	c.Ore = math.MaxInt32
-	return b.growInterior(l, c, 0)
+	return b.growInterior(l, c, 0, tag)
 }
 
 // OreIn — руды ресурса c в площади блока добычи c (оценка: всё пятно в ней).
@@ -275,7 +275,7 @@ func (b *Base) extFree(l *layout.Layout, c *Cluster, old Rect) error {
 
 // growInterior — внутренность c заново (в копии раскладки без своих построек), в l — только
 // новое: старое на месте (рамка ряда привязана к голове), новые столбы — где свободно.
-func (b *Base) growInterior(l *layout.Layout, c *Cluster, n int) error {
+func (b *Base) growInterior(l *layout.Layout, c *Cluster, n int, addTag ...string) error {
 	tag := Tag(c.Name)
 	tl := layout.New(l.P, l.W)
 	tl.Usable = l.Usable
@@ -326,6 +326,9 @@ func (b *Base) growInterior(l *layout.Layout, c *Cluster, n int) error {
 		add = append(add, p)
 	}
 	for _, p := range add {
+		if len(addTag) > 0 {
+			p.Tag = addTag[0] // дописанное на потом (FillMine)
+		}
 		l.Add(p)
 	}
 	l.AllowEndsOf(tl)

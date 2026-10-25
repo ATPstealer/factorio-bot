@@ -20,13 +20,21 @@ func init() {
 	register(Stage{N: 30, Name: "расширение дохода", Run: runIncome, Check: checkIncome})
 }
 
-// incomeLayout — дописанное стадией 7 в добычу (не нефть) и плавку (не сталь).
+// incomeLayout — будущая добыча из плана стадии 5 (Later: блоки до 2M, камень, кирпич, буры на
+// потом в блоках первой итерации, их подводы и перекидки) и дописанное стадией 7 в плавку (не
+// сталь); буфер кирпича; столбы к сети.
 func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
 	return blueAddedFor(h, incomeFile, func(c *cluster.Cluster) bool {
-		return c.Kind == cluster.Mine && !c.IsOil() || c.Kind == cluster.Smelt && !c.IsSteel()
+		return c.Kind == cluster.Smelt && !c.IsSteel()
 	}, true, func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error) {
-		// кирпич — в буфер у кластера (на шину — когда появится потребитель): бот берёт на крафт
+		later := laterTags(plan)
 		var res []layout.Placement
+		for _, pl := range plan.Layout {
+			if later[pl.Tag] {
+				res = append(res, pl)
+			}
+		}
+		// кирпич — в буфер у кластера (на шину — когда появится потребитель): бот берёт на крафт
 		for _, c := range plan.Clusters {
 			if c.Kind == cluster.Smelt && c.Product == "stone-brick" {
 				buf, err := outBuffer(h, all, c, outBufferItems[chest])

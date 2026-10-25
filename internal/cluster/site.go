@@ -66,6 +66,8 @@ type Base struct {
 
 	// StorageNear — куда тянуть хранение (стартовые буры); nil — к середине шин
 	StorageNear *world.Tile
+	// feedLane — выход блока добычи → Y его ленты bus-1 (orderedMineLanes)
+	feedLane map[world.Tile]int
 	// Keep — что кластерам без зоны не задевать (стартовые точки до разборки)
 	Keep []Rect
 
