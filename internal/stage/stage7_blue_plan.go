@@ -170,6 +170,18 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		h.Say("добыча %s: под бурами %d, новых блоков %d", it, have, len(ms))
 		fresh = append(fresh, ms...)
 	}
+	// нефть — до конца игры: 2 месторождения, ближние к голове bus-1 (cluster.md §2а «Нефть»)
+	zones, oil, err := base.MoreOil(rough.Zones)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(zones) > len(rough.Zones) {
+		rough.Zones = zones
+		if err := writeState(roughFile, rough); err != nil {
+			return nil, nil, err
+		}
+	}
+	fresh = append(fresh, oil...)
 	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»)
 	steel := cluster.Steel(pr, planReserve)
 	if _, err := base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {

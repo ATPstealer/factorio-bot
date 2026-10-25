@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -156,8 +157,11 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		}
 	}
 	for _, c := range fresh {
-		if c.Kind == Mine { // ещё одна добыча того же ресурса — боком в подвод до головы
-			if err := b.feedMine(l, buses, c, nil); err != nil {
+		if c.IsOil() {
+			continue // нефть — трубой (трасса), не лентой
+		}
+		if c.Kind == Mine {
+			if err := b.moreMine(l, buses, c); err != nil {
 				return &ConnectError{c, err}
 			}
 			continue
@@ -195,6 +199,87 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		}
 	}
 	return nil
+}
+
+// moreMine — ещё одна добыча c того же ресурса (cluster.md §2а «Добыча», §5): свои ленты в bus-1
+// (по выходу блока), подвод каждого выхода — через делитель: одна половина — в голову своей
+// новой ленты, другая — боком в старый подвод (руда нового месторождения питает и старые
+// цепочки); новые ленты делят друг с другом. Делитель не встал — весь выход в свою голову.
+func (b *Base) moreMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
+	bus := buses[0]
+	old := bus.lanes(c.Product)
+	if len(old) == 0 {
+		return nil
+	}
+	end := b.laneEnd(buses, 0, c.Product)
+	n0 := len(bus.Lanes)
+	for range outPorts(c) {
+		if err := b.newLane(l, buses, 0, c.Product, end); err != nil {
+			return err
+		}
+	}
+	var fresh []*ZoneLane
+	for i := n0; i < len(bus.Lanes); i++ {
+		fresh = append(fresh, &bus.Lanes[i])
+	}
+	old = bus.lanes(c.Product)[:len(old)]
+	defer unfence(l, b.fence(l, bus, c))
+	tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
+	for i, op := range outPorts(c) {
+		// куда: голова своей новой ленты; половина — боком в старый подвод
+		route := func(from world.Tile, d int, ports []Port) (Port, error) {
+			for _, q := range ports {
+				g := guardHeads(l, bus, q.T)
+				_, err := l.RouteBelt(from, d, q.T, q.Dir, tag)
+				unfence(l, g)
+				if err == nil {
+					return q, nil
+				}
+			}
+			return Port{}, layout.ErrNoRoute
+		}
+		heads := feedPorts(l, bus, fresh, op.T)
+		heads = slices.DeleteFunc(heads, func(p Port) bool {
+			return !slices.ContainsFunc(fresh, func(ln *ZoneLane) bool { return ln.head().T == p.T })
+		})
+		mark := l.Mark()
+		if sp, a, s, ok := splitterAt(l, op, tag); ok {
+			l.Add(sp)
+			if q, err := route(a, op.Dir, heads); err == nil {
+				if _, err := route(s, op.Dir, feederSides(l, bus, old, s)); err == nil {
+					fedHead(fresh, q)
+					continue
+				}
+			}
+			l.Rollback(mark)
+		}
+		q, err := route(op.T, op.Dir, heads)
+		if err != nil {
+			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
+		}
+		fedHead(fresh, q)
+	}
+	nb := &ZBus{Name: bus.Name}
+	for _, ln := range fresh {
+		nb.Lanes = append(nb.Lanes, *ln)
+	}
+	balanceLanes(l, nb)
+	return nil
+}
+
+// splitterAt — делитель сразу за выходом op (поперёк хода, op.T — один из входов): выходы a (за
+// op.T) и s (за соседним тайлом). false — не встаёт ни с одной стороны.
+func splitterAt(l *layout.Layout, op Port, tag string) (layout.Placement, world.Tile, world.Tile, bool) {
+	for _, side := range []int{(op.Dir + 4) % 16, (op.Dir + 12) % 16} {
+		n := layout.Step(op.T, side)
+		cn, co := n.Center(), op.T.Center()
+		sp := layout.Placement{Name: "splitter", Pos: bridge.Pos{X: (cn.X + co.X) / 2, Y: (cn.Y + co.Y) / 2}, Dir: op.Dir, Tag: tag}
+		a, s := layout.Step(op.T, op.Dir), layout.Step(n, op.Dir)
+		if l.CanPlace(sp, layout.AnyLand) && l.Free(a, layout.AnyLand) && l.Free(s, layout.AnyLand) {
+			return sp, a, s, true
+		}
+	}
+	return layout.Placement{}, world.Tile{}, world.Tile{}, false
 }
 
 // AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §2а «Лаборатории»): подача

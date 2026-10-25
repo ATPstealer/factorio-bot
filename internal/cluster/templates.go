@@ -183,6 +183,16 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 	}
 	switch c.Kind {
 	case Mine:
+		if c.IsOil() {
+			head := world.Tile{}
+			if c.Near != nil {
+				head = *c.Near
+			}
+			if err := oilField(l, c, tag, head); err != nil {
+				return err
+			}
+			break
+		}
 		if err := mineBlock(l, f, c, tag, belt); err != nil {
 			return err
 		}
