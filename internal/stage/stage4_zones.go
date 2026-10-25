@@ -146,6 +146,27 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			}
 			return false
 		}
+		// туда — коридором от игрока к центру квадрата (разведка берёт только край открытого:
+		// дальний квадрат с ним не граничит — «открывался» за секунду, 1028292478)
+		if p, err := h.B.Player(); err == nil {
+			ax, ay := p.Position.X, p.Position.Y
+			goal := world.ChunkOf(world.Tile{X: int(cx), Y: int(cy)})
+			corridor := func(c bridge.ChunkPos) bool {
+				// расстояние от чанка до отрезка игрок — центр, в чанках
+				px, py := float64(c.X*32+16), float64(c.Y*32+16)
+				dx, dy := cx-ax, cy-ay
+				l2 := dx*dx + dy*dy
+				t := 0.0
+				if l2 > 0 {
+					t = math.Max(0, math.Min(1, ((px-ax)*dx+(py-ay)*dy)/l2))
+				}
+				return math.Hypot(px-ax-t*dx, py-ay-t*dy) <= 96
+			}
+			err := h.ExploreWhere(ctx, corridor, func() bool { return h.World.Chunks[goal] != nil })
+			if err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+				return err
+			}
+		}
 		if err := h.ExploreWhere(ctx, in, func() bool { return !more() }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
 			return err
 		}
