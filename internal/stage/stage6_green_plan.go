@@ -50,6 +50,28 @@ func loadPlanFile(path string) (*ClusterPlan, error) {
 	return &s, nil
 }
 
+// builtOutside — тайлы построенного по плану old вне площадей кластеров (ленты шин, подводы,
+// отводы): новым кластерам — препятствие.
+func builtOutside(h *act.Hands, old *ClusterPlan) map[world.Tile]bool {
+	inArea := func(t world.Tile) bool {
+		for _, c := range old.Clusters {
+			if c.Kind != cluster.Bus && t.X >= c.Area.Min.X && t.X < c.Area.Max.X && t.Y >= c.Area.Min.Y && t.Y < c.Area.Max.Y {
+				return true
+			}
+		}
+		return false
+	}
+	built := map[world.Tile]bool{}
+	for _, pl := range old.Layout {
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			if !inArea(t) {
+				built[t] = true
+			}
+		}
+	}
+	return built
+}
+
 // greenImage — картинка плана с проектом зелёной науки: run/stages/plan-green-<сид>.png.
 func greenImage() string { return image("plan-green") }
 
@@ -85,24 +107,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	// построенное по плану вне площадей кластеров (ленты шин, подводы, отводы) — новым кластерам
-	// препятствие
-	inArea := func(t world.Tile) bool {
-		for _, c := range old.Clusters {
-			if c.Kind != cluster.Bus && t.X >= c.Area.Min.X && t.X < c.Area.Max.X && t.Y >= c.Area.Min.Y && t.Y < c.Area.Max.Y {
-				return true
-			}
-		}
-		return false
-	}
-	built := map[world.Tile]bool{}
-	for _, pl := range old.Layout {
-		for _, t := range layout.Tiles(pr, pl) {
-			if !inArea(t) {
-				built[t] = true
-			}
-		}
-	}
+	built := builtOutside(h, old)
 	// стадия 6 — сразу после плана стадии 5, стройки ещё не было: свои постройки на карте (точки
 	// стадии 2) к стройке разобраны — не помеха; план стадии 5 считается построенным
 	var own []world.Object

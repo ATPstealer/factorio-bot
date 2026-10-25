@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"factorio-bot/internal/world"
@@ -229,6 +230,63 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 	}
 	b.mineZones = zs
 	return zs
+}
+
+// MoreMineZones — зоны добычи ресурса it дописаны, пока запаса в них (с уже стоящими блоками)
+// меньше want (stages.md, стадия 7: 2M под бурами): пятна от ближних к голове bus-1, зона — пятно
+// целиком (+ZoneBorder), только мимо всех зон (части базы не трогаются).
+func (b *Base) MoreMineZones(zones []Zone, it string, want float64) []Zone {
+	var head world.Tile
+	have, n := 0.0, 0
+	for _, z := range zones {
+		if z.Name == "bus-1" {
+			head = z.Rect.Min
+		}
+		if z.Kind == ZoneMine {
+			have += z.Resources[it]
+			n++
+		}
+	}
+	pts := b.W.Patches()
+	sort.Slice(pts, func(i, j int) bool {
+		return math.Hypot(pts[i].Center.X-float64(head.X), pts[i].Center.Y-float64(head.Y)) <
+			math.Hypot(pts[j].Center.X-float64(head.X), pts[j].Center.Y-float64(head.Y))
+	})
+	for _, pt := range pts {
+		if have >= want {
+			break
+		}
+		if pt.Name != it {
+			continue
+		}
+		r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(ZoneBorder)
+		if slices.ContainsFunc(zones, func(z Zone) bool { return z.Rect.Overlaps(r) }) || b.avoids(r) {
+			continue
+		}
+		n++
+		z := Zone{Name: fmt.Sprintf("mine-%d", n), Kind: ZoneMine, Rect: r, Resources: map[string]float64{}}
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				if res, ok := b.W.ResourceAt(world.Tile{X: x, Y: y}); ok {
+					z.Resources[res.Name] += float64(res.Amount)
+				}
+			}
+		}
+		have += z.Resources[it]
+		zones = append(zones, z)
+		b.logf("зоны: %v", z)
+	}
+	return zones
+}
+
+// avoids — в рамке r есть тайл Avoid (построенное по плану вне кластеров: подводы, ленты шин).
+func (b *Base) avoids(r Rect) bool {
+	for t := range b.Avoid {
+		if t.X >= r.Min.X && t.X < r.Max.X && t.Y >= r.Min.Y && t.Y < r.Max.Y {
+			return true
+		}
+	}
+	return false
 }
 
 // patchNear — соседние пятна (до стольких тайлов) — кандидаты в одну зону добычи; minOre —

@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"factorio-bot/internal/world"
 )
@@ -88,6 +89,17 @@ func shareMines(spots []*mineSpot) {
 // placeMine — блок добычи на рамке s.r: мимо уже размеченных кластеров (срезать полосу со стороны
 // соседа, оставить большую часть), ряды — вдоль длинной стороны по 7. false — места не осталось.
 func (b *Base) placeMine(s *mineSpot) bool {
+	r, ok := b.fitMine(s)
+	if !ok {
+		return false
+	}
+	b.commitMine(s, r)
+	return true
+}
+
+// fitMine — рамка блока s мимо уже размеченных кластеров, ряды по 7 (без разметки). false — места
+// не осталось.
+func (b *Base) fitMine(s *mineSpot) (Rect, bool) {
 	c, r := s.c, s.r
 	if c.Ore == 0 {
 		c.Ore = OreFirst
@@ -117,25 +129,35 @@ func (b *Base) placeMine(s *mineSpot) bool {
 			}
 		}
 		if ba == 0 {
-			return false
+			return Rect{}, false
 		}
 		r = bestR
 	}
-	c.Vertical = r.H() > r.W()
+	vertical := r.H() > r.W()
 	cross := r.H()
-	if c.Vertical {
+	if vertical {
 		cross = r.W()
 	}
 	rows := cross / 7
 	if rows == 0 || r.W() < 4 || r.H() < 4 {
-		return false
+		return Rect{}, false
 	}
-	if c.Vertical {
+	if vertical {
 		r.Max.X = r.Min.X + 7*rows
 	} else {
 		r.Max.Y = r.Min.Y + 7*rows
 	}
-	c.Cross = 7 * rows
+	return r, true
+}
+
+// commitMine — блок s на рамке r (из fitMine): ряды, голова к шине, разметка.
+func (b *Base) commitMine(s *mineSpot, r Rect) {
+	c := s.c
+	c.Vertical = r.H() > r.W()
+	c.Cross = r.H() / 7 * 7
+	if c.Vertical {
+		c.Cross = r.W() / 7 * 7
+	}
 	c.Area, c.Rect = r, r
 	// голова (лента сбора, оба выхода) — к шине ресурсов: ленты к ней — без обхода блока
 	cx, cy := r.Center()
@@ -150,7 +172,87 @@ func (b *Base) placeMine(s *mineSpot) bool {
 		b.g.mark(b.occupied(c))
 	}
 	b.Clusters = append(b.Clusters, c)
-	return true
+}
+
+// MoreMines — блоки добычи ресурса it на месторождениях целиком (stages.md, стадия 7), пока руды
+// под бурами меньше want: have — сколько уже под бурами; пятна в зонах добычи — ближние к голове
+// шины ресурсов первыми, уже занятые блоками — остатком мимо них; остаток меньше minBlockOre —
+// мимо. like — кластер добычи для образца (машина); Ore — без предела (пятно целиком).
+func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluster, error) {
+	b.grid()
+	var head world.Tile
+	for _, z := range zones {
+		if z.Name == "bus-1" {
+			head = z.Rect.Min
+		}
+	}
+	type cand struct {
+		z Zone
+		r Rect
+		d float64
+	}
+	var cs []cand
+	for _, z := range zones {
+		if z.Kind != ZoneMine || z.Resources[like.Product] == 0 {
+			continue
+		}
+		for _, p := range b.W.Patches() {
+			if p.Name != like.Product {
+				continue
+			}
+			r := Rect{world.Tile{X: max(p.Min.X-2, z.Rect.Min.X), Y: max(p.Min.Y-2, z.Rect.Min.Y)},
+				world.Tile{X: min(p.Max.X+3, z.Rect.Max.X), Y: min(p.Max.Y+3, z.Rect.Max.Y)}}
+			if r.W() < 7 || r.H() < 7 {
+				continue
+			}
+			cs = append(cs, cand{z, r, math.Hypot(p.Center.X-float64(head.X), p.Center.Y-float64(head.Y))})
+		}
+	}
+	sort.SliceStable(cs, func(i, j int) bool { return cs[i].d < cs[j].d })
+	var res []*Cluster
+	for _, k := range cs {
+		for have < want { // пятно может дать и несколько блоков (остатки мимо соседей)
+			c := &Cluster{Kind: Mine, Product: like.Product, Reserve: like.Reserve, Ore: math.MaxInt32,
+				Units: []Unit{{Recipe: like.Units[0].Recipe, Machine: like.Units[0].Machine, Machines: 1}}}
+			s := &mineSpot{c, k.z, k.r, head}
+			r, ok := b.fitMine(s)
+			if !ok || b.avoids(r) {
+				break
+			}
+			ore := b.oreIn(r, c.Product)
+			if ore < minBlockOre {
+				break
+			}
+			b.commitMine(s, r)
+			c.Name = b.name(c.Product, res)
+			res = append(res, c)
+			have += ore
+			b.logf("добыча: %s на %v — руды %d, всего %d из %d", c.Name, r, ore, have, want)
+		}
+		if have >= want {
+			break
+		}
+	}
+	if have < want {
+		return res, fmt.Errorf("cluster: в зонах добычи %s под бурами %d из %d", like.Product, have, want)
+	}
+	return res, nil
+}
+
+// minBlockOre — блок добычи меньше — не ставится (обрезок пятна у соседа).
+const minBlockOre = 30_000
+
+// oreIn — руды ресурса it в рамке r.
+func (b *Base) oreIn(r Rect, it string) int {
+	n := 0
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			if res, ok := b.W.ResourceAt(world.Tile{X: x, Y: y}); ok && res.Name == it {
+				n += res.Amount
+			}
+		}
+	}
+	return n
 }
 
 // placeMines — блоки добычи cs: у каждого — ближнее к head пятно его ресурса в зонах добычи
