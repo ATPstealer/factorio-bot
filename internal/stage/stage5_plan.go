@@ -183,8 +183,18 @@ func planDraw(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.
 		}
 	}
 	radius := max(maxX-minX, maxY-minY)/2 + 20
-	ro := world.RenderOptions{Center: world.Tile{X: (minX + maxX) / 2, Y: (minY + maxY) / 2},
-		Radius: radius, Scale: max(1, min(4, 2400/(2*radius))), Labels: true}
+	return drawPlan(h, zones, base, l, world.Tile{X: (minX + maxX) / 2, Y: (minY + maxY) / 2}, radius, path)
+}
+
+// drawAround — картинка плана вокруг кластера c (разбор неудачной логистики): радиус 60, крупно.
+func drawAround(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, c *cluster.Cluster, path string) error {
+	x, y := c.Area.Center()
+	return drawPlan(h, zones, base, l, world.Tile{X: int(x), Y: int(y)}, 60, path)
+}
+
+// drawPlan — картинка плана с центром center и радиусом radius в файл path.
+func drawPlan(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, center world.Tile, radius int, path string) error {
+	ro := world.RenderOptions{Center: center, Radius: radius, Scale: max(1, min(8, 2400/(2*radius))), Labels: true}
 	img := h.World.Render(ro)
 	cluster.DrawZones(img, ro, zones)
 	base.Draw(img, ro)

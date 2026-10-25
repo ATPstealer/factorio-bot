@@ -98,10 +98,14 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 		if !ok || try >= 5 {
 			if base != nil && l != nil {
 				planDraw(h, rough.Zones, base, l, blueImage()) // что вышло — на картинку
+				if ok {
+					drawAround(h, rough.Zones, base, l, ce.Consumer, image("plan-blue-fail"))
+				}
 			}
 			return err
 		}
-		h.Say("кластер %s: %v — ищу другое место", ce.Consumer.Name, ce.Err)
+		h.Say("кластер %s на %v: %v — ищу другое место", ce.Consumer.Name, ce.Consumer.Area, ce.Err)
+		drawAround(h, rough.Zones, base, l, ce.Consumer, image(fmt.Sprintf("plan-blue-fail%d", try)))
 		a := ce.Consumer.Area
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {

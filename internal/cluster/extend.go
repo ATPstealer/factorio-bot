@@ -170,13 +170,19 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		return err
 	}
 	for _, c := range fresh {
-		if floorOf(c) == 0 {
+		f := floorOf(c)
+		if f == 0 {
 			continue
 		}
-		for _, p := range c.Ports {
-			if p.In {
-				if err := feedIn(l, buses, c, p, g); err != nil {
-					return err
+		// сначала входы с шины снизу: ленты сверху (по коридору вниз) огибали голову и закрывали
+		// подвод снизу (быстрые инсертеры, стадия 7)
+		below := func(p Port) bool { return f-1 < len(buses) && len(buses[f-1].lanes(p.Item)) > 0 }
+		for _, first := range []bool{true, false} {
+			for _, p := range c.Ports {
+				if p.In && below(p) == first {
+					if err := feedIn(l, buses, c, p, g); err != nil {
+						return err
+					}
 				}
 			}
 		}
