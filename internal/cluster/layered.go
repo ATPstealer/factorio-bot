@@ -28,7 +28,6 @@ const (
 	busSpare0  = 4              // шине ресурсов — ещё лент в запас на будущее (решение пользователя)
 	busLanes   = 16             // лент шин 2 и 3, не меньше
 	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
-	busThick   = 0.03           // шине: толстых утёсов и воды — не больше доли площади
 	mineGap    = 16             // от зон базы до зон добычи — подводам развернуться (zones.md)
 	// этаж выше — правее нижнего на долю ширины нижнего (zones.md): лучше floorShift, хоть floorShiftMin
 	floorShift, floorShiftMin = 0.5, 0.3
@@ -387,7 +386,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		n, _ := g.count(g.thick, r)
 		return n == 0
 	}
-	// шине — мягче (zones.md): толстых утёсов и воды — не больше busThick площади, ленты обойдут
+	// шине (zones.md): вдоль рядов неровностей не длиннее busGap — подземка перепрыгнет
 	freeBus := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
@@ -398,8 +397,11 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		if n, _ := g.count(g.zone, r); n > 0 {
 			return false
 		}
-		n, _ := g.count(g.thick, r)
-		return float64(n) <= busThick*float64(r.W()*r.H())
+		// неровность длиннее busGap вдоль ряда — ленте не обойти (подземка не перепрыгнет, обход по
+		// зазорам к стадии 7 занят): такой шине не место (решение пользователя; 3% площади
+		// пропускали утёс поперёк bus-3 — 859088572)
+		n, _ := g.count(g.rowThick, r)
+		return n == 0
 	}
 	// части этажа f между шинами (от top до bottom): свободные полосы на всю глубину в [lo, hi)
 	// — слева направо (right — справа налево, прижать вправо), пока в сумме не наберётся zw[f];

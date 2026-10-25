@@ -340,7 +340,7 @@ func (b *Base) layLane(l *layout.Layout, buses []*ZBus, k, j, x0, end, last int,
 	l.AllowEnd(world.Tile{X: last + 1, Y: ln.Y})
 }
 
-// fixGaps — неровности шины (вода, утёсы — до busThick площади, zones.md): ленты ряда — в
+// fixGaps — неровности шины (вода, утёсы — вдоль ряда не длиннее busGap, zones.md): ленты ряда — в
 // обход, когда все ряды уже лежат (обход одной не займёт ряд другой).
 func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 	for _, gp := range gaps {
@@ -780,12 +780,8 @@ func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
 	}
 	b.feedLane = map[world.Tile]int{}
 	for i, o := range outs {
-		// до конца шины: потребители синей и дальше — по всей ширине, продлевать потом негде
-		// (238178543); у края неровность не обходится — до последнего потребителя
-		y, _, err := b.newLaneFrom(l, buses, 0, o.c.Product, bus.Rect.Max.X-2, want[i])
-		if err != nil {
-			y, _, err = b.newLaneFrom(l, buses, 0, o.c.Product, b.laneEnd(buses, 0, o.c.Product), want[i])
-		}
+		// до последнего потребителя (не до конца шины — решение пользователя)
+		y, _, err := b.newLaneFrom(l, buses, 0, o.c.Product, b.laneEnd(buses, 0, o.c.Product), want[i])
 		if err != nil { // ниже по порядку рядов не осталось — любой свободный
 			y, _, err = b.newLaneFrom(l, buses, 0, o.c.Product, b.laneEnd(buses, 0, o.c.Product), 0)
 		}

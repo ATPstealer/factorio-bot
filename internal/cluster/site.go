@@ -93,10 +93,15 @@ type grid struct {
 	zone         []int32            // зона месторождения (руда + Corridor)
 	thick        []int32            // непроходимое (вода, утёсы…) подряд больше maxGap — подземкой не пройти
 	thickWet     []int32            // то же, только вода и неоткрытое (база с утёсами)
+	rowThick     []int32            // неровности длиннее busGap вдоль ряда (X): ряду ленты шины не подходит
 }
 
 // maxGap — сколько тайлов непроходимого подряд пройдёт подземка (этажная база, cluster.md 5а).
 const maxGap = 3
+
+// busGap — неровность длиннее стольких тайлов вдоль ряда ленты шины подземка не перепрыгнет (жёлтая —
+// 4 тайла под землёй): такой ряд шине не подходит (решение пользователя)
+const busGap = 4
 
 func (b *Base) grid() *grid {
 	if b.g != nil {
@@ -157,6 +162,7 @@ func (b *Base) grid() *grid {
 	g.avoid = prefix(avoid, g.w, g.h)
 	g.zone = prefix(zone, g.w, g.h)
 	g.thick = prefix(thickRuns(bad, g.w, g.h), g.w, g.h)
+	g.rowThick = prefix(rowRuns(bad, g.w, g.h, busGap), g.w, g.h)
 	wet := make([]bool, len(bad))
 	for i := range wet {
 		wet[i] = water[i] || unknown[i]
@@ -214,6 +220,30 @@ func (g *grid) count(s []int32, r Rect) (n, out int) {
 }
 
 // thickRuns — тайлы в отрезках непроходимого длиннее maxGap по горизонтали или вертикали.
+// rowRuns — тайлы, входящие в отрезки bad вдоль X длиннее n.
+func rowRuns(bad []bool, w, h, n int) []bool {
+	res := make([]bool, w*h)
+	for y := 0; y < h; y++ {
+		for k := 0; k < w; {
+			if !bad[y*w+k] {
+				k++
+				continue
+			}
+			e := k
+			for e < w && bad[y*w+e] {
+				e++
+			}
+			if e-k > n {
+				for j := k; j < e; j++ {
+					res[y*w+j] = true
+				}
+			}
+			k = e
+		}
+	}
+	return res
+}
+
 func thickRuns(bad []bool, w, h int) []bool {
 	res := make([]bool, w*h)
 	run := func(at func(k int) int, n int) {
