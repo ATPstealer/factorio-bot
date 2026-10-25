@@ -190,6 +190,12 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 // errNoStorage — инвентарь полон, а хранения ещё нет (до стадии 13).
 var errNoStorage = errors.New("инвентарь полон, а хранения нет")
 
+// fullSlots — свободных ячеек не больше стольких — инвентарь полон (к хранению — всегда).
+const fullSlots = 2
+
+// storeTrips — походов к хранению «на всякий случай» (места мало, но не полон) за стадию.
+var storeTrips = map[int]int{}
+
 // store — свободных ячеек инвентаря меньше free — в хранение то, что не нужно для крафта
 // сейчас: сначала готовые постройки, потом запас (уголь, пластины); need — что ещё ставить
 // (не убирать).
@@ -203,6 +209,15 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	}
 	if p.InventorySize-len(p.InventorySlots) >= free {
 		return nil
+	}
+	// к хранению — только когда действительно полон или раз за стадию (stages.md, решение
+	// пользователя: бегал каждый раз, как появлялось ненужное); у хранения по делу — без хода
+	full := p.InventorySize-len(p.InventorySlots) <= fullSlots
+	if !full && !s.tidying && storeTrips[curStage] > 0 {
+		return nil
+	}
+	if !s.tidying {
+		storeTrips[curStage]++
 	}
 	list, err := storageNear(s.h)
 	if err != nil {

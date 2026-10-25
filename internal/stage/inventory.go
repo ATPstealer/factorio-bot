@@ -89,7 +89,10 @@ func (s *worker) tidy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := s.store(ctx, p.InventorySize); err != nil {
+	s.tidying = true // уже у хранения (берёт оттуда) — выложить без счёта походов
+	err = s.store(ctx, p.InventorySize)
+	s.tidying = false
+	if err != nil {
 		return err
 	}
 	need := neededItems(s.h)
