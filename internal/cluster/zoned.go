@@ -538,6 +538,16 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 
 // feedThrough — сквозные ленты: голова ленты шины k без поставщика — отводом с той же ленты
 // шины k-1.
+// ThroughError — сквозную ленту item на шину Bus не провести.
+type ThroughError struct {
+	Item string
+	Bus  int
+	Err  error
+}
+
+func (e *ThroughError) Error() string { return e.Err.Error() }
+func (e *ThroughError) Unwrap() error { return e.Err }
+
 func feedThrough(l *layout.Layout, buses []*ZBus) error {
 	for k := 1; k < len(buses); k++ {
 		for i := range buses[k].Lanes {
@@ -562,7 +572,7 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 				}
 			}
 			if err != nil {
-				return fmt.Errorf("сквозная %s → %s (%s): %w", buses[k-1].Name, buses[k].Name, ln.Item, err)
+				return &ThroughError{Item: ln.Item, Bus: k, Err: fmt.Errorf("сквозная %s → %s (%s): %w", buses[k-1].Name, buses[k].Name, ln.Item, err)}
 			}
 		}
 	}

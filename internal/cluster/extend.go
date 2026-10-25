@@ -219,6 +219,12 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		}
 	}
 	if err := feedThrough(l, buses); err != nil {
+		// сквозную не провести — новый потребитель её предмета (этажом выше) — в другое место
+		if te, ok := err.(*ThroughError); ok {
+			if c := farthestUser(fresh, te.Item, te.Bus); c != nil {
+				return &ConnectError{c, err}
+			}
+		}
 		return err
 	}
 	for _, c := range fresh {
