@@ -208,6 +208,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	// далеко (сотни тайлов): путь целиком не укладывается в поиск — участками по ~120
 	// тайлов к точкам на прямой до цели (где можно стоять)
 	if h.World != nil {
+		hopUnstuck := false
 		for hop := 0; hop < 20; hop++ {
 			p, err := h.B.Player()
 			if err != nil {
@@ -224,7 +225,16 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 				break
 			}
 			if err := h.followPath(ctx, spot, 3); err != nil && !errors.Is(err, world.ErrNoPath) && !errors.Is(err, ErrNotReached) {
-				return err
+				// застрял на участке (стоял в кармане своих построек с начала стадии — 238178543):
+				// поднять ближние, выйти, поставить назад — и дальше
+				if !errors.Is(err, ErrStuck) || hopUnstuck {
+					return err
+				}
+				hopUnstuck = true
+				if uerr := h.unstuck(ctx, 2); uerr != nil {
+					return uerr
+				}
+				continue
 			}
 			if q, err := h.B.Player(); err == nil && dist(q.Position, p.Position) < 10 {
 				break // не продвинулись — дальше обычным путём (пролом и т.п.)
