@@ -101,18 +101,21 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	cluster.FillLanes(zb, old.Layout)
 	// добыча до 2M (stages.md, стадия 7): месторождения целиком, ближние к голове bus-1 первыми;
 	// зон не хватает — новые зоны на дальних пятнах
-	var fresh []*cluster.Cluster
+	var fresh, fill []*cluster.Cluster
 	for _, it := range blueOres {
 		var like *cluster.Cluster
+		have := 0
+		// стоящие блоки (первая итерация — до 500k) — дописать на всё пятно в своей площади
 		for _, c := range base.Clusters {
 			if c.Kind == cluster.Mine && c.Product == it {
 				like = c
+				fill = append(fill, c)
+				have += max(c.OreUnder, base.OreIn(c))
 			}
 		}
 		if like == nil {
 			return fmt.Errorf("в плане нет добычи %s", it)
 		}
-		have := oreUnder(base.Clusters, it)
 		zones := base.MoreMineZones(rough.Zones, it, oreTarget*1.3)
 		if len(zones) > len(rough.Zones) {
 			rough.Zones = zones
@@ -163,6 +166,11 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	}
 	for _, pl := range old.Layout {
 		l.Add(pl)
+	}
+	for _, c := range fill {
+		if err := base.FillMine(l, c); err != nil {
+			return fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
+		}
 	}
 	before := map[string]bool{}
 	for _, e := range l.Validate() {

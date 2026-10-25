@@ -89,6 +89,19 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 	return nil
 }
 
+// FillMine — блок добычи c дописан на всё пятно в своей площади (stages.md, стадия 7:
+// месторождения целиком): предел руды снят, буры — дальше по тому же шаблону, старые на месте.
+func (b *Base) FillMine(l *layout.Layout, c *Cluster) error {
+	if c.Kind != Mine {
+		return fmt.Errorf("cluster: %s — не добыча", c.Name)
+	}
+	c.Ore = math.MaxInt32
+	return b.growInterior(l, c, 0)
+}
+
+// OreIn — руды ресурса c в площади блока добычи c (оценка: всё пятно в ней).
+func (b *Base) OreIn(c *Cluster) int { return b.oreIn(c.Area, c.Product) }
+
 // Extra — новый кластер того же продукта, что c, на недостающие n−Built машин (рост вдоль ряда
 // не влез): по кластеру плана cs того же вида и продукта, потоки — по доле. Плавка, сборка и
 // добыча (их связывает ConnectMore; станция — нет).
