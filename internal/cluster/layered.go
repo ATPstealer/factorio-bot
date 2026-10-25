@@ -278,7 +278,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		}
 	}
 	if lo == nil {
-		return nil, &NoSiteError{&Cluster{Name: "этажи"}, fmt.Errorf("cluster: нет места под этажную базу %d×~%d (утёсы и вода не толще %d, без месторождений)", width, sum(depths)+sum(widths), maxGap)}
+		return nil, &NoSiteError{&Cluster{Name: "этажи"}, fmt.Errorf("cluster: нет места под этажную базу %d×~%d (утёсы и вода не толще %d)", width, sum(depths)+sum(widths), maxGap)}
 	}
 	L.Area, L.Floors = lo.area, lo.floors
 	for i := range L.Buses {
@@ -376,9 +376,8 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		if n, _ := g.count(g.unknown, r); n > 0 {
 			return false
 		}
-		if n, _ := g.count(g.zone, r); n > 0 {
-			return false
-		}
+		// месторождения под этажами и шинами — можно (zones.md, решение пользователя): зоны
+		// добычи уже выбраны (ring), под базой новые не берутся (MoreMineZones)
 		if b.CliffZones { // база с утёсами: в зоне утёсы можно, вода — нет (zones.md)
 			n, _ := g.count(g.thickWet, r)
 			return n == 0
@@ -392,9 +391,6 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			return false
 		}
 		if n, _ := g.count(g.unknown, r); n > 0 {
-			return false
-		}
-		if n, _ := g.count(g.zone, r); n > 0 {
 			return false
 		}
 		// неровность длиннее busGap вдоль ряда — ленте не обойти (подземка не перепрыгнет, обход по
@@ -470,7 +466,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			}
 			shifts := []float64{0}
 			if prevW > 0 {
-				shifts = []float64{floorShift, floorShiftMin}
+				// не влезло — меньше, вплоть до «прямо над нижним» (zones.md, черновик: лесенка
+				// упиралась в озеро на краю ровного участка)
+				shifts = []float64{floorShift, floorShiftMin, 0.15, 0}
 			}
 			placed := false
 			// шина над этажом ниже — выше коридора ещё на 0…maxShift (bus-1 — на месте)
