@@ -34,6 +34,19 @@ func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
 				res = append(res, pl)
 			}
 		}
+		// ленты шин, дописанные стадией 7 (продления, новые ленты, их подземки и делители) — здесь
+		// все сразу: стадия долгая и раньше всех частей синей (пустые ленты подождут)
+		if added, _, err := blueAdded(); err == nil {
+			buses := map[string]bool{}
+			for _, b := range busNames(plan) {
+				buses[cluster.Tag(b)] = true
+			}
+			for _, pl := range added {
+				if buses[pl.Tag] {
+					res = append(res, pl)
+				}
+			}
+		}
 		// кирпич — в буфер у кластера (на шину — когда появится потребитель): бот берёт на крафт
 		for _, c := range plan.Clusters {
 			if c.Kind == cluster.Smelt && c.Product == "stone-brick" {
