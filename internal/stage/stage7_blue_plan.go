@@ -24,6 +24,9 @@ const (
 	// быстрые ленты и инсертеры, шт/с: ~10k лент и ~500 инсертеров за 2 ч (stages.md, стадия 7)
 	fastBeltRate     = 1.4
 	fastInserterRate = 0.07
+	// refineries — НПЗ на простой переработке: газа с большим запасом (на синюю ~4/с, один НПЗ
+	// даёт 9/с)
+	refineries = 5
 )
 
 // blueOres — ресурсы, добыча которых растёт до oreTarget.
@@ -192,6 +195,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	for _, z := range rough.Zones {
 		if z.Name == "bus-1" {
 			tank = cluster.Tanks("crude-oil", 6, 5, world.Tile{X: z.Rect.Min.X + 10, Y: z.Rect.Max.Y + 12})
+			tank.Name = "oil-tank-1"
 		}
 	}
 	if tank == nil {
@@ -207,6 +211,12 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, steel)
+	// НПЗ — простая переработка, только газ, с большим запасом (stages.md, стадия 7)
+	refinery := cluster.Refinery(pr, refineries)
+	if _, err := base.PlaceZoned([]*cluster.Cluster{refinery}, rough.Zones); err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, refinery)
 	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 7):
 	// шестерни — внутри парами; ленты, инсертеры, схемы — с шины (их кластеры уже есть)
 	fast, err := calc.Solve(pr, map[string]float64{"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate},

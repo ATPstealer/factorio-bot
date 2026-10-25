@@ -183,6 +183,9 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 		below := func(p Port) bool { return f-1 < len(buses) && len(buses[f-1].lanes(p.Item)) > 0 }
 		for _, first := range []bool{true, false} {
 			for _, p := range c.Ports {
+				if _, fluid := b.P.Fluids[p.Item]; fluid {
+					continue // жидкость — трубой с трубы шины (Pipes), не лентой
+				}
 				if p.In && below(p) == first {
 					if err := feedIn(l, buses, c, p, g); err != nil {
 						return err

@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -150,6 +151,57 @@ func Tanks(fluid string, cols, rows int, near world.Tile) *Cluster {
 	c.Cross, c.Pitch, c.Head = 3*rows, 3, 0
 	c.Count, c.Room, c.Need = cols, cols, cols
 	return c
+}
+
+// Refinery — НПЗ (cluster.md §2а «Нефть»): простая переработка (нефть → газ), n заводов в столбец
+// этажа переработки: труба нефти с одной стороны, газа — с другой.
+func Refinery(p *knowledge.Prototypes, n int) *Cluster {
+	r := p.Recipes["basic-oil-processing"]
+	speed := p.Entities["oil-refinery"].CraftingSpeed
+	in, out := 0.0, 0.0
+	for _, i := range r.Ingredients {
+		in += i.Amount
+	}
+	for _, o := range r.Products {
+		out += o.Amount
+	}
+	k := float64(n) * speed / r.Energy
+	c := &Cluster{Kind: Make, Product: "petroleum-gas", Reserve: 1,
+		Units: []Unit{{Recipe: "basic-oil-processing", Machine: "oil-refinery", Machines: float64(n)}},
+		In:    []Flow{{"crude-oil", in * k}}, Out: []Flow{{"petroleum-gas", out * k}},
+		PowerW: float64(n) * p.Entities["oil-refinery"].EnergyUsage * 60}
+	c.Cross, c.Pitch, c.Head = 7, 5, 1
+	c.Count, c.Room, c.Need = n, n, n
+	return c
+}
+
+// IsRefinery — кластер НПЗ (свой шаблон).
+func (c *Cluster) IsRefinery() bool { return c.Kind == Make && c.machine() == "oil-refinery" }
+
+// refineryRow — НПЗ повёрнуты набок: входы — к трубе нефти (v = 0), выходы — к трубе газа (v = 6);
+// вход нефти — снизу у головы, выход газа — в конце ряда (в шину над этажом).
+func refineryRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(layout.Placement) error) error {
+	for i := 0; i < c.Count; i++ {
+		m := f.at(l, "oil-refinery", c.Head+i*c.Pitch, 1, layout.S, tag) // в кадре S — входы к −v
+		m.Recipe = c.Units[0].Recipe
+		if err := add(m); err != nil {
+			return err
+		}
+	}
+	for u := 0; u < c.Head+c.Count*c.Pitch; u++ {
+		if err := add(layout.Placement{Name: "pipe", Pos: f.tile(u, 0).Center(), Tag: tag + "/crude-oil"}); err != nil {
+			return err
+		}
+	}
+	for u := c.Head; u < L; u++ {
+		if err := add(layout.Placement{Name: "pipe", Pos: f.tile(u, 6).Center(), Tag: tag + "/petroleum-gas"}); err != nil {
+			return err
+		}
+	}
+	c.Ports = append(c.Ports,
+		Port{T: f.tile(-1, 0), Dir: f.dir(layout.E), Item: "crude-oil", In: true},
+		Port{T: f.tile(L, 6), Dir: f.dir(layout.E), Item: "petroleum-gas"})
+	return nil
 }
 
 // tankBlock — цистерны шахматкой: соседние повёрнуты на 90° — угловые соединения стыкуются,

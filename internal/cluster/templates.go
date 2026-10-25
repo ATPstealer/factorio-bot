@@ -261,6 +261,12 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			return err
 		}
 	case Make, Supply:
+		if c.IsRefinery() {
+			if err := refineryRow(l, f, c, L, tag, add); err != nil {
+				return err
+			}
+			break
+		}
 		if len(c.In) > 3 || len(c.In) == 3 && c.Kind != Make {
 			return fmt.Errorf("cluster %s: входов %v — шаблона нет", c.Name, flows(c.In))
 		}
