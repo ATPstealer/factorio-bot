@@ -457,7 +457,8 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			busY := Rect{world.Tile{Y: y - widths[f-1]}, world.Tile{Y: y}}
 			y = busY.Min.Y - 2*ZoneBorder
 			if zw[f] == 0 { // пустой этаж: шина — под окном этажа ниже
-				bus := Rect{world.Tile{X: busL, Y: busY.Min.Y}, world.Tile{X: prevL + max(prevW, span), Y: busY.Max.Y}}
+				// (верхняя шина над конечным продуктом — не длиннее его этажа: пользователь)
+				bus := Rect{world.Tile{X: busL, Y: busY.Min.Y}, world.Tile{X: prevL + max(prevW, 1), Y: busY.Max.Y}}
 				if !freeBus(bus) {
 					return nil
 				}
