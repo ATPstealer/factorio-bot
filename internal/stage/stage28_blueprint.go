@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -34,17 +33,8 @@ const maxExtras = 60
 var firstTechs28 = []string{"automation-2", "logistics-2", "chemical-science-pack"}
 
 func runBlueprint(ctx context.Context, h *act.Hands) error {
-	f, err := h.B.Force()
-	if err != nil {
+	if err := queueTechs(ctx, h, firstTechs28...); err != nil {
 		return err
-	}
-	for _, t := range firstTechs28 {
-		if slices.Contains(f.Researched, t) || f.Current == t || slices.Contains(f.Queue, t) {
-			continue
-		}
-		if err := h.StartResearch(ctx, t); err != nil {
-			h.Say("исследование %s в очередь не встало: %v", t, err)
-		}
 	}
 	if err := upgradePlan(h); err != nil {
 		return err

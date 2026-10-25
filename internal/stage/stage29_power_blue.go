@@ -49,31 +49,7 @@ func blueAdded() ([]layout.Placement, *ClusterPlan, error) {
 // powerBlueLayout — дописанное в станции и новые станции с их логистикой (вода, отвод угля),
 // столбы к сети базы; один раз на карту.
 func powerBlueLayout(h *act.Hands) ([]layout.Placement, error) {
-	return onceLayout(blueAddedFile, func() ([]layout.Placement, error) {
-		added, plan, err := blueAdded()
-		if err != nil {
-			return nil, err
-		}
-		tags := map[string]bool{}
-		var allow []string
-		for _, c := range plan.Clusters {
-			if c.Kind == cluster.Power {
-				tags[cluster.Tag(c.Name)], tags[cluster.LogisticsTag+"/"+c.Name] = true, true
-				allow = append(allow, c.Name)
-			}
-		}
-		var res []layout.Placement
-		for _, pl := range added {
-			if tags[pl.Tag] {
-				res = append(res, pl)
-			}
-		}
-		if len(res) == 0 {
-			return nil, fmt.Errorf("в плане стадии 7 нет роста станций")
-		}
-		poles, err := connectPower(h, plan, res, allow)
-		return append(res, poles...), err
-	})
+	return blueAddedFor(h, blueAddedFile, func(c *cluster.Cluster) bool { return c.Kind == cluster.Power }, false)
 }
 
 func runPowerBlue(ctx context.Context, h *act.Hands) error {

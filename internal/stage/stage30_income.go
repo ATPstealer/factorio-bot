@@ -3,7 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
@@ -12,7 +11,8 @@ import (
 
 // Стадия 30 (stages.md): расширение дохода — из плана стадии 7 добыча до 2M (старые блоки — на
 // всё месторождение, новые блоки со своими лентами bus-1 и делителями на подводах) и ещё плавка
-// железа (выход — в ленту железа bus-2), отводы и делители на шинах, столбы к сети базы.
+// железа (выход — в ленту железа bus-2), отводы и делители на шинах, столбы к сети базы. В
+// самом начале — сталь в очередь исследований (стадия долгая).
 
 const incomeFile = "state-income.json" // раскладка стадии: один раз на карту
 
@@ -20,49 +20,17 @@ func init() {
 	register(Stage{N: 30, Name: "расширение дохода", Run: runIncome, Check: checkIncome})
 }
 
-// incomeLayout — дописанное стадией 7 в добычу (не нефть) и плавку, их логистика, ленты шин их
-// продуктов и делители на шинах; столбы к сети; один раз на карту.
+// incomeLayout — дописанное стадией 7 в добычу (не нефть) и плавку (не сталь).
 func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
-	return onceLayout(incomeFile, func() ([]layout.Placement, error) {
-		added, plan, err := blueAdded()
-		if err != nil {
-			return nil, err
-		}
-		tags := map[string]bool{}
-		items := map[string]bool{}
-		var allow []string
-		for _, c := range plan.Clusters {
-			if (c.Kind != cluster.Mine || c.IsOil()) && (c.Kind != cluster.Smelt || c.IsSteel()) {
-				continue
-			}
-			tags[cluster.Tag(c.Name)], tags[cluster.LogisticsTag+"/"+c.Name] = true, true
-			for _, bus := range busNames(plan) {
-				tags[cluster.LogisticsTag+"/"+bus+"/"+c.Name] = true
-			}
-			items[c.Product] = true
-			for _, o := range c.Out {
-				items[o.Item] = true
-			}
-			allow = append(allow, c.Name)
-		}
-		buses := busNames(plan)
-		var res []layout.Placement
-		for _, pl := range added {
-			onBus := slices.ContainsFunc(buses, func(b string) bool { return pl.Tag == cluster.Tag(b) }) &&
-				(items[pl.Recipe] || pl.Name == "splitter")
-			if tags[pl.Tag] || onBus {
-				res = append(res, pl)
-			}
-		}
-		if len(res) == 0 {
-			return nil, fmt.Errorf("в плане стадии 7 нет роста добычи и плавки")
-		}
-		poles, err := connectPower(h, plan, res, allow)
-		return append(res, poles...), err
-	})
+	return blueAddedFor(h, incomeFile, func(c *cluster.Cluster) bool {
+		return c.Kind == cluster.Mine && !c.IsOil() || c.Kind == cluster.Smelt && !c.IsSteel()
+	}, true)
 }
 
 func runIncome(ctx context.Context, h *act.Hands) error {
+	if err := queueTechs(ctx, h, steelTech); err != nil {
+		return err
+	}
 	list, err := incomeLayout(h)
 	if err != nil {
 		return err
