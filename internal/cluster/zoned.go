@@ -1038,3 +1038,42 @@ func balanceAt(l *layout.Layout, item string, ya, yb, x, d int) bool {
 	l.Remove(ib)
 	return true
 }
+
+// BalancePlan — правило «ленты одного предмета делят друг с другом» (cluster.md §5) для уже
+// сохранённого плана l (обслуживание, stages.md, стадия 28): ленты шин восстанавливаются по
+// раскладке (ряды лент с предметом в Recipe у тега шины), делители дописываются. Сколько
+// делителей добавлено.
+func BalancePlan(l *layout.Layout, buses []string) int {
+	before := l.Count()["splitter"]
+	for _, name := range buses {
+		tag := Tag(name)
+		type key struct {
+			item string
+			y    int
+		}
+		lanes := map[key]*ZoneLane{}
+		for _, pl := range l.List {
+			if pl.Tag != tag || pl.Name != "transport-belt" || pl.Recipe == "" {
+				continue
+			}
+			t := world.TileOf(pl.Pos)
+			k := key{pl.Recipe, t.Y}
+			ln := lanes[k]
+			if ln == nil {
+				ln = &ZoneLane{Item: pl.Recipe, Y: t.Y, Fed: true, Start: t.X}
+				lanes[k] = ln
+			}
+			// голова — начало по ходу (на восток — левый край, на запад — правый)
+			if pl.Dir == layout.W && t.X > ln.Start || pl.Dir != layout.W && t.X < ln.Start {
+				ln.Start = t.X
+			}
+			ln.From = ln.Start
+		}
+		bus := &ZBus{Name: name}
+		for _, ln := range lanes {
+			bus.Lanes = append(bus.Lanes, *ln)
+		}
+		balanceLanes(l, bus)
+	}
+	return l.Count()["splitter"] - before
+}

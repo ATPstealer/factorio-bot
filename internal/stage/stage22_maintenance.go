@@ -102,6 +102,13 @@ func queueResearch(ctx context.Context, h *act.Hands) error {
 }
 
 func runMaintenance(ctx context.Context, h *act.Hands) error {
+	return maintain(ctx, h, planNow, false)
+}
+
+// maintain — обслуживание: list — с чем сверять построенное (стадия 22 — план без того, что
+// строят следующие стадии; стадия 28 — весь чертёж); strict — лишнее (своё, чего нет в list)
+// убрать в хранение.
+func maintain(ctx context.Context, h *act.Hands, list func() ([]layout.Placement, error), strict bool) error {
 	// в самом начале — очередь исследований: лаборатории учат, пока идёт остальное
 	if err := queueResearch(ctx, h); err != nil {
 		return err
@@ -154,7 +161,16 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	// сверка с планом: недостроенное — достроить, стоящее не так — исправить
-	if err := planFix(ctx, h, s); err != nil {
+	want, err := list()
+	if err != nil {
+		return err
+	}
+	if strict { // лишнее — до достройки: может стоять на месте чертежа
+		if err := removeExtras(ctx, h, s, want); err != nil {
+			return err
+		}
+	}
+	if err := planFix(ctx, h, s, want); err != nil {
 		return err
 	}
 	if err := queueResearch(ctx, h); err != nil {
@@ -392,29 +408,37 @@ func directed(name string) bool {
 	return name == "transport-belt" || name == "underground-belt" || name == "splitter" || name == "inserter" || name == "burner-inserter"
 }
 
-// planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр
-// инсертера.
-func planAudit(h *act.Hands) ([]planDiff, error) {
+// planNow — что из плана уже должно стоять: дописанное проектом зелёной науки (стадия 6) строят
+// стадии после обслуживания — не сверять.
+func planNow() ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
-	// дописанное проектом зелёной науки (стадия 6) строят стадии после обслуживания — не сверять
 	later := map[layout.Placement]bool{}
 	if added, _, err := greenAdded(); err == nil {
 		for _, pl := range added {
 			later[pl] = true
 		}
 	}
+	var res []layout.Placement
+	for _, pl := range plan.Layout {
+		if !later[pl] {
+			res = append(res, pl)
+		}
+	}
+	return res, nil
+}
+
+// planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр
+// инсертера.
+func planAudit(h *act.Hands, list []layout.Placement) ([]planDiff, error) {
 	locked, err := lockedItems(h)
 	if err != nil {
 		return nil, err
 	}
 	var res []planDiff
-	for _, pl := range plan.Layout {
-		if later[pl] {
-			continue
-		}
+	for _, pl := range list {
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
 		if err != nil {
 			return nil, err
@@ -436,8 +460,8 @@ func planAudit(h *act.Hands) ([]planDiff, error) {
 }
 
 // planFix — достроить недостающее и исправить стоящее не так.
-func planFix(ctx context.Context, h *act.Hands, s *worker) error {
-	diffs, err := planAudit(h)
+func planFix(ctx context.Context, h *act.Hands, s *worker, list []layout.Placement) error {
+	diffs, err := planAudit(h, list)
 	if err != nil {
 		return err
 	}
@@ -532,7 +556,11 @@ func checkMaintenance(h *act.Hands) error {
 	if err := checkBuilt(h, store); err != nil {
 		return fmt.Errorf("хранение: %w", err)
 	}
-	diffs, err := planAudit(h)
+	now, err := planNow()
+	if err != nil {
+		return err
+	}
+	diffs, err := planAudit(h, now)
 	if err != nil {
 		return err
 	}
