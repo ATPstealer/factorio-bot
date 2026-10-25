@@ -53,7 +53,7 @@ func (c *Cluster) Len() int {
 	if c.Kind == Lab {
 		return c.Head + (c.Room+labCols-1)/labCols*c.Pitch
 	}
-	if c.Kind == Smelt && c.Room >= 2 {
+	if c.Kind == Smelt && c.Room >= 2 && !c.IsSteel() {
 		return c.Head + c.Room*c.Pitch + smeltGap // перекладка выхода в середине ряда
 	}
 	return c.Head + c.Room*c.Pitch
@@ -163,7 +163,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 		}
 		for i, in := range c.In {
 			if i > 1 {
-				return fmt.Errorf("cluster %s: больше двух входов (%v) — шаблона нет", c.Name, flows(c.In))
+				break // третий — своей лентой со стороны выхода (Make)
 			}
 			fv, d := v-1, layout.S
 			if i == 1 {
@@ -241,10 +241,19 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			}
 		}
 	case Smelt:
+		if c.IsSteel() {
+			if err := steelRow(l, f, c, L, tag, add, row, deadEnd); err != nil {
+				return err
+			}
+			break
+		}
 		if err := smeltRow(l, f, c, L, tag, add, belt, row, deadEnd); err != nil {
 			return err
 		}
 	case Make, Supply:
+		if len(c.In) > 3 || len(c.In) == 3 && c.Kind != Make {
+			return fmt.Errorf("cluster %s: входов %v — шаблона нет", c.Name, flows(c.In))
+		}
 		mach, mh := "stone-furnace", 2
 		ins := "inserter"
 		belts := 2
@@ -307,7 +316,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 				return err
 			}
 		}
-		if len(c.In) == 2 && c.Kind == Make && c.Head > 1 { // вход 1 — снизу ленты, вход 2 — сверху
+		if len(c.In) >= 2 && c.Kind == Make && c.Head > 1 { // вход 1 — снизу ленты, вход 2 — сверху
 			if err := bufferAt(l, f, c, belts, belts+1, belts+2, c.Head/2, c.In[0].Item, tag); err != nil {
 				return err
 			}
@@ -327,7 +336,14 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			if c.Sub != "" {
 				oc = 5
 			}
-			if half := c.Count / 2; half == 0 {
+			if len(c.In) == 3 { // третий вход — лента за выходом, длинный инсертер через неё
+				if err := thirdIn(l, f, c, ov, cur-1, tag, add, row, deadEnd); err != nil {
+					return err
+				}
+			}
+			// с третьим входом в ряду инсертеров выхода — ещё длинные: перекладке места нет,
+			// выход — одной полосой (такие кластеры малы: схемы 2, быстрые инсертеры, наука)
+			if half := c.Count / 2; half == 0 || len(c.In) == 3 {
 				if err := row(ov, c.Head, L, layout.E); err != nil {
 					return err
 				}
@@ -439,6 +455,82 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 	}
 	l.AllowEnd(f.tile(L, outV))
 	c.Ports = append(c.Ports, Port{T: f.tile(L, outV), Dir: f.dir(layout.E), Item: outItem(c)})
+	return nil
+}
+
+// thirdIn — третий вход сборки (cluster.md §2а «Сборка»): лента C в ряду ov+1 (за лентой выхода
+// ov), подача — снизу с торца; к каждому основному сборщику — длинный инсертер в ряду ov-1 (рядом
+// с инсертером выхода) через ленту выхода.
+func thirdIn(l *layout.Layout, f frame, c *Cluster, ov, end int, tag string, add func(layout.Placement) error,
+	row func(v, from, to, d int) error, deadEnd func(v, to int)) error {
+	cv := ov + 1
+	for i := 0; i < c.Count; i++ {
+		u := c.Head + i*c.Pitch // основной — u, у пары — u+4 (выход у них в u+1 / u+5)
+		if c.Sub != "" {
+			u += 4
+		}
+		if err := add(f.inserter(l, "long-handed-inserter", u, ov-1, cv, tag)); err != nil {
+			return err
+		}
+	}
+	if err := row(cv, 0, end, layout.E); err != nil {
+		return err
+	}
+	deadEnd(cv, end)
+	c.Ports = append(c.Ports, Port{T: f.tile(-1, cv), Dir: f.dir(layout.E), Item: c.In[2].Item, In: true})
+	return nil
+}
+
+// steelCross — поперёк ряда стали (steelRow).
+const steelCross = 11
+
+// steelRow — сталь (cluster.md §2а «Сталь»): поперёк — 0 лента угля, 1 лента руды, 2 инсертеры
+// (обычный с руды, длинный с угля), 3–4 печи пластин, 5 инсертеры «пластины → печь стали», 6–7
+// печи стали, 8 инсертеры (обычный — выход, длинный — уголь со второй ленты), 9 лента выхода, 10
+// лента угля 2. Подачи — снизу с торца, выход — в конце ряда вверх. Стали мало (до ~4/с) —
+// перекладки выхода на вторую полосу нет.
+func steelRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(layout.Placement) error,
+	row func(v, from, to, d int) error, deadEnd func(v, to int)) error {
+	const coalV, oreV, insV, plateV, midV, steelV, outInsV, outV, coal2V = 0, 1, 2, 3, 5, 6, 8, 9, 10
+	long := "long-handed-inserter"
+	if l.Usable != nil && !l.Usable(long) {
+		return fmt.Errorf("cluster %s: нет длинных инсертеров (уголь со второй ленты)", c.Name)
+	}
+	for i := 0; i < c.Count; i++ {
+		u := c.Head + i*c.Pitch
+		plate := f.at(l, "stone-furnace", u, plateV, layout.N, tag)
+		plate.Recipe = "iron-plate"
+		steel := f.at(l, "stone-furnace", u, steelV, layout.N, tag)
+		steel.Recipe = "steel-plate"
+		for _, p := range []layout.Placement{
+			plate, steel,
+			f.inserter(l, "inserter", u, insV, oreV, tag),
+			f.inserter(l, long, u+1, insV, coalV, tag),
+			f.inserter(l, "inserter", u, midV, plateV+1, tag),
+			f.inserter(l, "inserter", u, outInsV, steelV+1, tag),
+			f.inserter(l, long, u+1, outInsV, coal2V, tag),
+		} {
+			if err := add(p); err != nil {
+				return err
+			}
+		}
+	}
+	end := c.Head + c.Count*c.Pitch - 1 // ленты подачи — до последней пары
+	for _, v := range []int{coalV, oreV, coal2V} {
+		if err := row(v, 0, end, layout.E); err != nil {
+			return err
+		}
+		deadEnd(v, end)
+	}
+	if err := row(outV, c.Head, L, layout.E); err != nil {
+		return err
+	}
+	l.AllowEnd(f.tile(L, outV))
+	c.Ports = append(c.Ports,
+		Port{T: f.tile(-1, coalV), Dir: f.dir(layout.E), Item: "coal", In: true},
+		Port{T: f.tile(-1, oreV), Dir: f.dir(layout.E), Item: "iron-ore", In: true},
+		Port{T: f.tile(-1, coal2V), Dir: f.dir(layout.E), Item: "coal", In: true},
+		Port{T: f.tile(L, outV), Dir: f.dir(layout.E), Item: c.Product})
 	return nil
 }
 

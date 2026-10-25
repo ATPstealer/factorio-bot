@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/calc"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/world"
 )
@@ -19,6 +20,9 @@ const (
 	// blueBaseFile — план стадии 6 до дописывания: перезапуск стадии — с него
 	blueBaseFile = "state-plan-green.json"
 	oreTarget    = 2_000_000 // руды под бурами на ресурс (железо, медь, уголь)
+	// быстрые ленты и инсертеры, шт/с: ~10k лент и ~500 инсертеров за 2 ч (stages.md, стадия 7)
+	fastBeltRate     = 1.4
+	fastInserterRate = 0.07
 )
 
 // blueOres — ресурсы, добыча которых растёт до oreTarget.
@@ -123,6 +127,33 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 		h.Say("добыча %s: под бурами %d, новых блоков %d", it, have, len(ms))
 		fresh = append(fresh, ms...)
 	}
+	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»)
+	steel := cluster.Steel(pr, planReserve)
+	if _, err := base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {
+		return err
+	}
+	fresh = append(fresh, steel)
+	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 7):
+	// шестерни — внутри парами; ленты, инсертеры, схемы — с шины (их кластеры уже есть)
+	fast, err := calc.Solve(pr, map[string]float64{"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate},
+		calc.Options{All: true, Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
+	if err != nil {
+		return err
+	}
+	cs, err := cluster.Split(pr, fast, planReserve, nil, greenSeparate...)
+	if err != nil {
+		return err
+	}
+	var helpers []*cluster.Cluster
+	for _, c := range cs {
+		if c.Kind == cluster.Make && (c.Product == "fast-transport-belt" || c.Product == "fast-inserter") {
+			helpers = append(helpers, c)
+		}
+	}
+	if _, err := base.PlaceZoned(helpers, rough.Zones); err != nil {
+		return err
+	}
+	fresh = append(fresh, helpers...)
 	l, err := base.Layout(fresh...)
 	if err != nil {
 		return err

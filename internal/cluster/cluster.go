@@ -471,7 +471,27 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 // StorageChest — сундук хранения: сразу железный, потом не менять (stages.md, стадия 13).
 const StorageChest = "iron-chest"
 
-// StorageCluster — склад мусора бота.
+// Steel — кластер стали из руды (cluster.md §2а «Сталь»): пары печей «пластины → сталь», сразу
+// на MaxUnits пар (стали нужно тонны). Потоки — по печам второго уровня (как у всей плавки).
+func Steel(p *knowledge.Prototypes, reserve float64) *Cluster {
+	const furnace = "stone-furnace"
+	n := float64(MaxUnits)
+	speed := p.Entities[furnace].CraftingSpeed * upgrade(p, furnace)
+	plate, steel := p.Recipes["iron-plate"], p.Recipes["steel-plate"]
+	plates := n * speed / plate.Energy // пластин/с у печей пластин (столько же ест печь стали)
+	c := &Cluster{Kind: Smelt, Product: "steel-plate", Reserve: reserve,
+		Units: []Unit{{Recipe: "iron-plate", Machine: furnace, Machines: n}, {Recipe: "steel-plate", Machine: furnace, Machines: n}},
+		In:    []Flow{{"coal", 2 * n * p.Entities[furnace].EnergyUsage * 60 / 4e6}, {"iron-ore", plates}},
+		Out:   []Flow{{"steel-plate", n * speed / steel.Energy}}}
+	c.Cross, c.Pitch, c.Head = steelCross, 3, 1
+	c.Count, c.Room, c.Need = MaxUnits, MaxUnits, MaxUnits
+	return c
+}
+
+// IsSteel — кластер стали (пары печей, свой шаблон).
+func (c *Cluster) IsSteel() bool { return c.Kind == Smelt && c.Product == "steel-plate" }
+
+// StorageCluster —склад мусора бота.
 func StorageCluster() *Cluster {
 	c := &Cluster{Kind: Storage, Product: "storage", Reserve: 1, Units: []Unit{{Recipe: "store", Machine: StorageChest, Machines: 8}}}
 	c.Cross, c.Pitch, c.Head = geometry(Storage)
@@ -600,7 +620,10 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 		return
 	}
 	// один вход — буфер в начале ряда, до первой машины: ящики на u = 1, 3, …, 2n−1
-	if len(c.In) == 1 && c.Kind != Mine || len(c.In) == 2 && c.Kind == Make {
+	if c.Kind == Make && len(c.In) == 3 { // третий вход — ленты за выходом (thirdIn)
+		c.Cross++
+	}
+	if len(c.In) == 1 && c.Kind != Mine || len(c.In) >= 2 && c.Kind == Make {
 		// буферы входов — в голове ряда, по разные стороны ленты (cluster.md §6б)
 		c.Head = 2 * bufferChests(p, c)
 	}
