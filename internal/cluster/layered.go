@@ -68,7 +68,7 @@ func floorOf(c *Cluster) int {
 		for _, u := range c.Units {
 			switch u.Machine {
 			case "rocket-silo":
-				return 4
+				return 3 // шахта — на этаже конечного продукта, справа (четвёртого этажа нет)
 			case "oil-refinery", "chemical-plant":
 				return 1
 			}
@@ -244,17 +244,14 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	for _, c := range fl[3] {
 		depths[3] = max(depths[3], c.Len())
 	}
-	// лаборатории — правее сборки этажа (укладка — слева направо)
-	slices.SortStableFunc(fl[3], func(a, b *Cluster) int {
-		la, lb := 0, 0
-		if a.Kind == Lab {
-			la = 1
+	// лаборатории и шахта — правее сборки этажа (укладка — слева направо)
+	right := func(c *Cluster) int {
+		if c.Kind == Lab || slices.ContainsFunc(c.Units, func(u Unit) bool { return u.Machine == "rocket-silo" }) {
+			return 1
 		}
-		if b.Kind == Lab {
-			lb = 1
-		}
-		return la - lb
-	})
+		return 0
+	}
+	slices.SortStableFunc(fl[3], func(a, b *Cluster) int { return right(a) - right(b) })
 	zw := make([]int, floors+1)
 	var pos [floors + 1][]world.Tile
 	base := 0
