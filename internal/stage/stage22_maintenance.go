@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -354,7 +355,24 @@ func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placem
 			return res, nil
 		}
 	}
-	return nil, fmt.Errorf("хранение: нет места под прямоугольник %d×%d рядом с рядом хранения", rows+1, len(ts))
+	// вплотную с обеих сторон занято (вода, места плана — 954176679) — свободный прямоугольник
+	// рядов рядом с хранением, не вплотную
+	w, hh := len(ts), rows
+	if along.Y == 1 {
+		w, hh = rows, len(ts)
+	}
+	spot, ok := h.World.FreeSpotWhere(first.Center(), w, hh, 40, nil, func(t world.Tile) bool { return !taken[t] })
+	if !ok {
+		return nil, fmt.Errorf("хранение: нет места под прямоугольник %d×%d у ряда хранения (ни вплотную, ни в 40 тайлах)", rows+1, len(ts))
+	}
+	x0, y0 := int(math.Floor(spot.X))-w/2, int(math.Floor(spot.Y))-hh/2
+	var res []layout.Placement
+	for y := 0; y < hh && len(res) < n; y++ {
+		for x := 0; x < w && len(res) < n; x++ {
+			res = append(res, layout.Placement{Name: ironChest, Pos: world.Tile{X: x0 + x, Y: y0 + y}.Center(), Tag: tag})
+		}
+	}
+	return res, nil
 }
 
 // planDiff — расхождение плана и построенного: чего нет (st == nil) или что стоит не так.
