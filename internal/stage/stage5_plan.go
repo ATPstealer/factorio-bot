@@ -160,6 +160,11 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 			if err := planDraw(h, rough.Zones, base, l, planImage()); err != nil {
 				return err
 			}
+			for _, z := range rough.Zones { // подводы у головы bus-1 — для проверки глазами
+				if z.Name == "bus-1" {
+					drawPlan(h, rough.Zones, base, l, z.Rect.Min, 70, image("plan-head"))
+				}
+			}
 			return writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})
 		}
 		ce, ok := err.(*cluster.ConnectError)
