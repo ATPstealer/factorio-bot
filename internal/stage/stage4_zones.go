@@ -209,9 +209,24 @@ func saveWorld(h *act.Hands) {
 
 // RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
 // попытка в открытом, без дооткрытий и переходов в другие квадраты.
-func RoughOffline(h *act.Hands) error {
+func RoughOffline(h *act.Hands, to int) error {
 	roughRegion, roughCliffs, roughOffline = nil, false, true
-	return roughOnce(h)
+	if err := roughOnce(h); err != nil {
+		return err
+	}
+	// дальше — стадии планирования до to (их Run читает только карту и состояние)
+	PlanOnly = true
+	for _, n := range Plans(5, to) {
+		s, err := Get(n)
+		if err != nil {
+			return err
+		}
+		if err := s.Run(context.Background(), h); err != nil {
+			return fmt.Errorf("стадия %d: %w", n, err)
+		}
+		h.Log("стадия %d выполнена", n)
+	}
+	return nil
 }
 
 // roughOffline — разметка без игры (RoughOffline): база не встала — картинка помех.

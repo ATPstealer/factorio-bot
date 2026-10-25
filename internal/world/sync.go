@@ -12,6 +12,9 @@ const scanBatch = 16 // чанков за один RCON-запрос (плотн
 // мода что-то изменилось (добыто, построено, разрушено, открыто). Возвращает число
 // пересканированных чанков. full — пересканировать всё (остатки руды меняются без событий).
 func (w *World) Sync(b *bridge.Bridge, full bool) (int, error) {
+	if b == nil { // без игры (bin/bot rough): карта загружена из файла
+		return 0, nil
+	}
 	dirty := map[bridge.ChunkPos]bool{}
 
 	events, seq, err := b.PollEvents(w.EventSeq)
