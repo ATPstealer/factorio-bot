@@ -46,9 +46,10 @@ func init() {
 	register(Stage{N: 5, Name: "план кластеров", Run: runPlan, Check: checkPlan, Plan: true})
 }
 
-// LoadPlan — план стадии 5 этой карты (для следующих стадий).
+// LoadPlan — план кластеров этой карты для стройки стадий 11–28: стадий 5–6 (дописанное
+// стадией 7 — синяя наука — строится потом, его план — LoadBluePlan).
 func LoadPlan() (*ClusterPlan, error) {
-	data, err := os.ReadFile(runPath(planFile))
+	data, err := os.ReadFile(runPath(planNowFile()))
 	if err != nil {
 		return nil, fmt.Errorf("нет плана кластеров (стадия 5): %w", err)
 	}
@@ -58,6 +59,18 @@ func LoadPlan() (*ClusterPlan, error) {
 	}
 	return &s, nil
 }
+
+// planNowFile — файл плана стройки стадий 11–28: план до стадии 7, если она уже дописала
+// свой (иначе — общий).
+func planNowFile() string {
+	if _, err := os.Stat(runPath(blueBaseFile)); err == nil {
+		return blueBaseFile
+	}
+	return planFile
+}
+
+// LoadBluePlan — весь план с проектом синей науки (стадия 7).
+func LoadBluePlan() (*ClusterPlan, error) { return loadPlanFile(runPath(planFile)) }
 
 func runPlan(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {

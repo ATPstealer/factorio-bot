@@ -159,7 +159,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 
 // checkBluePlan — под бурами каждого ресурса не меньше oreTarget; картинка есть.
 func checkBluePlan(h *act.Hands) error {
-	s, err := LoadPlan()
+	s, err := LoadBluePlan()
 	if err != nil {
 		return err
 	}

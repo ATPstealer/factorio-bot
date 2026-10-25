@@ -82,7 +82,7 @@ func upgradePlan(h *act.Hands) error {
 		h.Say("чертёж: +%d делителей между лентами одного предмета на шине", n)
 		plan.Layout = l.List
 		plan.Placed = len(l.List)
-		return writeState(planFile, plan)
+		return writeState(planNowFile(), plan)
 	}
 	return nil
 }
@@ -109,7 +109,7 @@ func blueprint(h *act.Hands) ([]layout.Placement, error) {
 	files, _ := filepath.Glob(runPath("state-*.json"))
 	for _, f := range files {
 		base := filepath.Base(f)
-		if base == planFile || base == greenBaseFile {
+		if base == planFile || base == greenBaseFile || base == blueBaseFile {
 			continue
 		}
 		data, err := os.ReadFile(f)
