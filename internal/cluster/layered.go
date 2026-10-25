@@ -272,7 +272,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	// ширины — как тайл расстояния): у старта препятствия, а узкая база уезжает за сотни тайлов
 	var lo *layered
 	bestCost := math.Inf(1)
-	for _, extra := range []int{0, base / 4, base / 2, base} {
+	for _, extra := range []int{0, base / 4, base / 2, base, 2 * base, 3 * base} { // ширина базы — не важна (пользователь)
 		if l := b.fitLayered(zw, colWidth[:], depths, widths, width+extra); l != nil && l.dist+float64(extra) < bestCost {
 			lo, bestCost = l, l.dist+float64(extra)
 		}
@@ -419,36 +419,52 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	// части этажа f между шинами (от top до bottom): свободные полосы на всю глубину в [lo, hi)
 	// — слева направо (right — справа налево, прижать вправо), пока в сумме не наберётся zw[f];
 	// nil — не набралось
+	// каждая часть — со своим зазором от шины снизу (0…maxShift вверх; решение пользователя:
+	// зазоры — любые, части — где удобно): свободные полосы на каждом сдвиге, без пересечений по X
 	parts := func(f, lo, hi, top, bottom int, right bool) []Rect {
-		var runs [][2]int // свободные полосы [a, b) слева направо
-		run := -1
-		for x := lo; x <= hi; x++ {
-			if x < hi && free(Rect{world.Tile{X: x, Y: top}, world.Tile{X: x + 1, Y: bottom}}) {
-				if run < 0 {
-					run = x
+		type runAt struct{ a, b, s int } // полоса [a, b) на сдвиге s
+		var runs []runAt
+		for s := 0; s <= maxShift; s += 2 {
+			run := -1
+			for x := lo; x <= hi; x++ {
+				if x < hi && free(Rect{world.Tile{X: x, Y: top - s}, world.Tile{X: x + 1, Y: bottom - s}}) {
+					if run < 0 {
+						run = x
+					}
+					continue
 				}
-				continue
+				if run >= 0 && x-run >= colw[f] {
+					runs = append(runs, runAt{run, x, s})
+				}
+				run = -1
 			}
-			if run >= 0 && x-run >= colw[f] {
-				runs = append(runs, [2]int{run, x})
+		}
+		// ближе к шине снизу (меньший сдвиг) и левее — первыми; справа налево — если right
+		sort.SliceStable(runs, func(i, j int) bool {
+			if runs[i].s != runs[j].s {
+				return runs[i].s < runs[j].s
 			}
-			run = -1
-		}
-		if right {
-			slices.Reverse(runs)
-		}
+			if right {
+				return runs[i].a > runs[j].a
+			}
+			return runs[i].a < runs[j].a
+		})
 		var res []Rect
 		need := zw[f]
 		for _, r := range runs {
 			if need <= 0 {
 				break
 			}
-			w := max(min(r[1]-r[0], need), colw[f])
-			a := r[0]
+			w := max(min(r.b-r.a, need), colw[f])
+			a := r.a
 			if right {
-				a = r[1] - w
+				a = r.b - w
 			}
-			res = append(res, Rect{world.Tile{X: a, Y: top}, world.Tile{X: a + w, Y: bottom}})
+			pr := Rect{world.Tile{X: a, Y: top - r.s}, world.Tile{X: a + w, Y: bottom - r.s}}
+			if slices.ContainsFunc(res, func(q Rect) bool { return q.Min.X < pr.Max.X+floorGap && pr.Min.X < q.Max.X+floorGap }) {
+				continue // по X занято другой частью
+			}
+			res = append(res, pr)
 			need -= w
 		}
 		if need > 0 {
@@ -496,7 +512,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				y = busY.Min.Y - 2*ZoneBorder
 				for _, sh := range shifts {
 					l := prevL + int(sh*float64(prevW))
-					for gap := 0; gap <= maxShift && !placed; gap += 2 {
+					for gap := 0; gap <= 0 && !placed; gap += 2 { // зазор — у каждой части свой (parts)
 						ps := parts(f, l, l+span, y-gap-depths[f], y-gap, f == floors)
 						if ps == nil {
 							why[fmt.Sprintf("этаж %d: не набралась ширина", f)]++
@@ -516,8 +532,13 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 							continue
 						}
 						lo.buses[f-1], lo.floors[f] = bus, ps
-						area = union(union(area, bus), union(ps[0], ps[len(ps)-1]))
-						y, placed = y-gap-depths[f]-2*ZoneBorder, true
+						top := ps[0].Min.Y // части — на разных высотах: шина выше — над самой высокой
+						for _, p := range ps {
+							area = union(area, p)
+							top = min(top, p.Min.Y)
+						}
+						area = union(area, bus)
+						y, placed = top-2*ZoneBorder, true
 						busL, prevL, prevW = ps[0].Min.X, ps[0].Min.X, ps[len(ps)-1].Max.X-ps[0].Min.X
 					}
 					if placed {
