@@ -225,3 +225,24 @@ func TestRouteAvoidsBeltAlong(t *testing.T) {
 		t.Errorf("путь вдоль ленты: %v", r.Points)
 	}
 }
+
+func TestSaveLoad(t *testing.T) {
+	w := New(nil)
+	box := &bridge.Box{}
+	w.Apply([]bridge.ChunkScan{chunk00([]bridge.ScanResource{ore("coal", 3, 4, 500)},
+		[]bridge.ScanEntity{{Name: "cliff", Type: "cliff", X: 7, Y: 8, Box: box}})})
+	path := t.TempDir() + "/w.gob"
+	if err := w.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	v := New(nil)
+	if err := v.Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if r, ok := v.ResourceAt(Tile{3, 4}); !ok || r.Amount != 500 || v.TileAt(Tile{5, 0}) != Water {
+		t.Errorf("после загрузки: руда %v %v, тайл %c", r, ok, v.TileAt(Tile{5, 0}))
+	}
+	if len(v.Objects()) != 1 || v.Objects()[0].Box == nil {
+		t.Errorf("объекты: %v", v.Objects())
+	}
+}

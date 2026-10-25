@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -92,6 +93,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {
 		return err
 	}
+	saveWorld(h)
 	opened := 0 // дооткрытий у базы (stages.md, стадия 4)
 	roughRegion, roughCliffs = nil, false
 	var regions []cluster.Rect // соседние квадраты (места в нынешнем нет)
@@ -189,6 +191,24 @@ var roughRegion *cluster.Rect
 
 // roughRegions — 8 квадратов 2048×2048 со сдвигом на 2000 тайлов от center, ближние к игроку
 // первыми.
+// WorldFile — открытая карта перед разметкой зон: run/worlds/<сид>.gob (разметка без игры —
+// bin/bot rough).
+func WorldFile() string { return filepath.Join("run/worlds", seedOf()+".gob") }
+
+func saveWorld(h *act.Hands) {
+	os.MkdirAll(filepath.Dir(WorldFile()), 0o755)
+	if err := h.World.Save(WorldFile()); err != nil {
+		h.Log("карта в файл: %v", err)
+	}
+}
+
+// RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
+// попытка в открытом, без дооткрытий и переходов в другие квадраты.
+func RoughOffline(h *act.Hands) error {
+	roughRegion, roughCliffs = nil, false
+	return roughOnce(h)
+}
+
 func roughRegions(h *act.Hands, center world.Tile) []cluster.Rect {
 	var res []cluster.Rect
 	for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
