@@ -84,7 +84,7 @@ func NewBase(p *knowledge.Prototypes, w *world.World, origin world.Tile) *Base {
 // grid — открытая карта в массивах с префиксными суммами: проверка прямоугольника за O(1).
 type grid struct {
 	x0, y0, w, h int
-	bad          []int32 // нельзя строить: не суша, неубираемое (на месторождении — можно: zones.md)
+	bad          []int32 // нельзя строить: не суша, неубираемое, зона месторождения
 	ring         []int32 // занято Area+Corridor другого кластера
 	water        []int32
 	ore          map[string][]int32 // руда по ресурсу
@@ -168,6 +168,9 @@ func (b *Base) grid() *grid {
 		wet[i] = water[i] || unknown[i]
 	}
 	g.thickWet = prefix(thickRuns(wet, g.w, g.h), g.w, g.h)
+	for i := range bad {
+		bad[i] = bad[i] || zone[i]
+	}
 	g.bad, g.water, g.unknown = prefix(bad, g.w, g.h), prefix(water, g.w, g.h), prefix(unknown, g.w, g.h)
 	for name, o := range ores {
 		g.ore[name] = prefix(o, g.w, g.h)

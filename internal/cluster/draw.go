@@ -113,37 +113,3 @@ func DrawZones(img *image.RGBA, o world.RenderOptions, zones []Zone) {
 		d.DrawString(z.Name)
 	}
 }
-
-// DrawBlocked — где этажам нельзя (разбор: база не встаёт): зоны месторождений — красным,
-// неровности толще maxGap (в режиме с утёсами — только вода) — фиолетовым.
-func (b *Base) DrawBlocked(img *image.RGBA, o world.RenderOptions) {
-	g := b.grid()
-	thick := g.thick
-	if b.CliffZones {
-		thick = g.thickWet
-	}
-	x0, y0 := o.Center.X-o.Radius, o.Center.Y-o.Radius
-	for y := y0; y < o.Center.Y+o.Radius; y++ {
-		for x := x0; x < o.Center.X+o.Radius; x++ {
-			r := Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + 1, Y: y + 1}}
-			var c color.RGBA
-			if n, _ := g.count(g.zone, r); n > 0 {
-				c = color.RGBA{220, 40, 40, 255}
-			} else if n, _ := g.count(thick, r); n > 0 {
-				c = color.RGBA{170, 60, 220, 255}
-			} else {
-				continue
-			}
-			for dy := 0; dy < o.Scale; dy++ {
-				for dx := 0; dx < o.Scale; dx++ {
-					p := image.Point{X: (x-x0)*o.Scale + dx, Y: (y-y0)*o.Scale + dy}
-					if !p.In(img.Rect) {
-						continue
-					}
-					q := img.RGBAAt(p.X, p.Y)
-					img.SetRGBA(p.X, p.Y, color.RGBA{uint8((int(q.R) + int(c.R)) / 2), uint8((int(q.G) + int(c.G)) / 2), uint8((int(q.B) + int(c.B)) / 2), 255})
-				}
-			}
-		}
-	}
-}

@@ -115,14 +115,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		if !errors.As(err, &ns) {
 			return err
 		}
-		// места нет — сначала здесь же база с утёсами в зонах (zones.md, решение пользователя:
-		// до перехода в соседние квадраты; 208708719, 264771462)
-		if !roughCliffs {
-			h.Say("%v — размечаю здесь же базу с утёсами в зонах (зоны шире)", err)
-			roughCliffs = true
-			continue
-		}
-		// и так нет — другой квадрат 2048×2048 в 2000 тайлах (один из 8 соседних, ближние
+		// места нет — другой квадрат 2048×2048 в 2000 тайлах (один из 8 соседних, ближние
 		// первыми): сходить, открыть, разметить только в нём (stages.md, решение пользователя)
 		if regions == nil {
 			need, err := roughNeed(h)
@@ -132,11 +125,17 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			regions = roughRegions(h, roughAnchor(h, need))
 		}
 		if len(regions) == 0 {
-			return fmt.Errorf("%w; и базой с утёсами, и в 8 соседних квадратах тоже", err)
+			if roughCliffs {
+				return fmt.Errorf("%w; и в 8 соседних квадратах, и базой с утёсами тоже", err)
+			}
+			// последнее — база с утёсами по всей открытой карте (zones.md, решение пользователя)
+			h.Say("%v — и в 8 соседних квадратах нет: размечаю базу с утёсами в зонах (зоны шире)", err)
+			roughCliffs, roughRegion = true, nil
+			continue
 		}
 		r := regions[0]
 		regions = regions[1:]
-		roughRegion, roughCliffs = &r, false
+		roughRegion = &r
 		cx, cy := r.Center()
 		h.Say("%v — перехожу в другой квадрат: центр (%.0f, %.0f), открываю его", err, cx, cy)
 		in := func(c bridge.ChunkPos) bool {
@@ -181,7 +180,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	}
 }
 
-// roughCliffs — база с утёсами (zones.md): обычным способом места в квадрате нет.
+// roughCliffs — база с утёсами (zones.md): обычным способом места нигде не нашлось.
 var roughCliffs bool
 
 // roughRegion — квадрат, в котором размечается база (nil — вся открытая карта): места не
@@ -374,7 +373,6 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, roughBelt)
 	if err != nil {
-		roughBlocked(h, base, origin)
 		return nil, err
 	}
 	zones := base.Zones(lay)
@@ -433,26 +431,6 @@ func roughDraw(h *act.Hands, zones []cluster.Zone, image string) error {
 		return err
 	}
 	return f.Close()
-}
-
-// roughBlocked — база не встала: карта вокруг центра с помехами этажам
-// (run/stages/zones-fail[-cliffs]-<сид>.png).
-func roughBlocked(h *act.Hands, base *cluster.Base, origin world.Tile) {
-	name := "zones-fail"
-	if base.CliffZones {
-		name += "-cliffs"
-	}
-	ro := world.RenderOptions{Center: origin, Radius: 1100, Scale: 3, Labels: true}
-	img := h.World.Render(ro)
-	base.DrawBlocked(img, ro)
-	f, err := os.Create(image(name))
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if err := png.Encode(f, img); err != nil {
-		h.Log("картинка помех: %v", err)
-	}
 }
 
 func checkRough(h *act.Hands) error {
