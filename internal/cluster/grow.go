@@ -2,7 +2,10 @@ package cluster
 
 import (
 	"fmt"
+	"maps"
 	"math"
+	"slices"
+	"strings"
 
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
@@ -101,6 +104,95 @@ func (b *Base) FillMine(l *layout.Layout, c *Cluster) error {
 
 // OreIn — руды ресурса c в площади блока добычи c (оценка: всё пятно в ней).
 func (b *Base) OreIn(c *Cluster) int { return b.oreIn(c.Area, c.Product) }
+
+// PowerNeed — сколько бойлеров (по 2 двигателя) нужно на все электрические машины раскладки l
+// при полной работе (столбы — не в счёт): станция — по тому, что реально стоит в плане (буры на
+// месторождениях целиком, НПЗ, химия), а не по темпу науки.
+func PowerNeed(p *knowledge.Prototypes, l *layout.Layout) (int, float64) {
+	w := 0.0
+	for _, pl := range l.List {
+		e := p.Entities[pl.Name]
+		if e.Electric && !strings.HasSuffix(pl.Name, "electric-pole") && pl.Name != "substation" {
+			w += math.Max(e.EnergyUsage, e.MaxEnergyUsage) * 60
+		}
+	}
+	per := 2 * p.Entities["steam-engine"].MaxEnergyProduction * 60
+	if per <= 0 {
+		per = 1.8e6
+	}
+	return int(math.Ceil(w/per - 1e-9)), w
+}
+
+// ConnectStation — вторая станция st (cluster.md §2а «Станция»): вода — своей помпой, уголь —
+// отводом делителем с ленты угля первой станции first.
+func (b *Base) ConnectStation(l *layout.Layout, st, first *Cluster) error {
+	// подход ко входу угля (4 тайла) — свободным, пока идёт труба воды (иначе она его займёт)
+	var keep []world.Tile
+	for _, p := range st.Ports {
+		if !p.In {
+			continue
+		}
+		for k, t := 0, p.T; k < 4; k, t = k+1, layout.Step(t, (p.Dir+8)%16) {
+			if !l.Reserved[t] {
+				l.Reserved[t] = true
+				keep = append(keep, t)
+			}
+		}
+	}
+	unkeep := func() {
+		for _, t := range keep {
+			delete(l.Reserved, t)
+		}
+		keep = nil
+	}
+	defer unkeep()
+	if st.Water != nil {
+		_, err := l.WaterPump(st.Water.To, LogisticsTag+"/"+st.Name, func(pump layout.Placement) bool {
+			if !l.CanPlace(pump, layout.AnyLand) {
+				return false
+			}
+			l.Add(pump)
+			_, err := l.RoutePipe(layout.Connections(l.P, pump)[0], *st.Water, LogisticsTag+"/"+st.Name)
+			return err == nil
+		})
+		if err != nil {
+			return &ConnectError{st, fmt.Errorf("вода к %s: %w", st.Name, err)}
+		}
+	}
+	unkeep() // вода проложена — подход ко входу угля открыть под ленту
+	var in Port
+	ok := false
+	for _, p := range st.Ports {
+		if p.In && p.Item == "coal" {
+			in, ok = p, true
+		}
+	}
+	if !ok {
+		return nil
+	}
+	var line []layout.Placement // лента угля на первую станцию
+	for _, p := range l.List {
+		if p.Tag == LogisticsTag+"/"+first.Name && p.Name == "transport-belt" {
+			line = append(line, p)
+		}
+	}
+	if err := SplitTap(l, line, in, LogisticsTag+"/"+st.Name, 8); err == nil {
+		return nil
+	}
+	// не провести (станция далеко) — отвод с подвода угля в bus-1 (любого блока угля)
+	lines := map[string][]layout.Placement{}
+	for _, p := range l.List {
+		if strings.HasPrefix(p.Tag, LogisticsTag+"/bus-1/coal") && p.Name == "transport-belt" {
+			lines[p.Tag] = append(lines[p.Tag], p)
+		}
+	}
+	for _, tag := range slices.Sorted(maps.Keys(lines)) {
+		if err := SplitTap(l, lines[tag], in, LogisticsTag+"/"+st.Name, 8); err == nil {
+			return nil
+		}
+	}
+	return &ConnectError{st, fmt.Errorf("уголь → %s: отвод не провести ни с ленты %s, ни с подводов угля", st.Name, first.Name)}
+}
 
 // Extra — новый кластер того же продукта, что c, на недостающие n−Built машин (рост вдоль ряда
 // не влез): по кластеру плана cs того же вида и продукта, потоки — по доле. Плавка, сборка и

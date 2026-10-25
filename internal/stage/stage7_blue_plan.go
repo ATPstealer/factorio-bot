@@ -90,6 +90,23 @@ func blueClusters(pr *knowledge.Prototypes) ([]*cluster.Cluster, error) {
 		cluster.Pair(pr, by["advanced-circuit"], by["copper-cable"]), by[bluePack]}, nil
 }
 
+// blueNeeds — потребность всей базы (красная + зелёная + синяя) кластерами с запасом — по ней
+// рост старых кластеров (cluster.md §7).
+func blueNeeds(pr *knowledge.Prototypes) ([]*cluster.Cluster, error) {
+	targets := map[string]float64{redPack: redRate, greenPack: greenRate, bluePack: blueRate}
+	whole, err := calc.Solve(pr, targets, calc.Options{All: true,
+		Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1", "advanced-crafting": "assembling-machine-2"}})
+	if err != nil {
+		return nil, err
+	}
+	needs, err := cluster.Split(pr, whole, planReserve, nil, append([]string{"iron-gear-wheel"}, greenSeparate...)...)
+	if err != nil {
+		return nil, err
+	}
+	needs = append(needs, cluster.Labs(pr, targets, planLabSec, planReserve))
+	return cluster.AddPower(pr, needs, planReserve, nil)
+}
+
 // oreUnder — руды под бурами ресурса it в кластерах плана.
 func oreUnder(cs []*cluster.Cluster, it string) int {
 	n := 0
@@ -291,27 +308,175 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, sci...)
-	l, err := base.Layout(fresh...)
+	// склад газа — 5×4 у головы bus-2, на свободном месте (cluster.md §2а «Нефть»)
+	var gasTank *cluster.Cluster
+	for _, z := range rough.Zones {
+		if z.Name == "bus-2" {
+			gasTank = cluster.Tanks("petroleum-gas", 5, 4, world.Tile{X: z.Rect.Min.X - 15, Y: (z.Rect.Min.Y + z.Rect.Max.Y) / 2})
+			gasTank.Name = "gas-tank-1"
+		}
+	}
+	if gasTank == nil {
+		return nil, nil, fmt.Errorf("нет зоны bus-2")
+	}
+	if _, err := base.PlaceZoned([]*cluster.Cluster{gasTank}, rough.Zones); err != nil {
+		return nil, nil, err
+	}
+	fresh = append(fresh, gasTank)
+	layoutAll := func() (*layout.Layout, error) {
+		l, err := base.Layout(fresh...)
+		if err != nil {
+			return l, err
+		}
+		for t := range built {
+			delete(l.Reserved, t)
+		}
+		for _, pl := range old.Layout {
+			l.Add(pl)
+		}
+		for _, c := range fill {
+			if err := base.FillMine(l, c); err != nil {
+				return l, fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
+			}
+		}
+		return l, nil
+	}
+	// рост под красную + зелёную + синюю (cluster.md §7): станция — первым делом (решение
+	// пользователя), потом плавка; вдоль ряда, не влезло — кластер-2 того же продукта
+	l, err := layoutAll()
 	if err != nil {
 		return base, l, err
 	}
-	for t := range built {
-		delete(l.Reserved, t)
+	needs, err := blueNeeds(pr)
+	if err != nil {
+		return base, l, err
 	}
-	for _, pl := range old.Layout {
-		l.Add(pl)
+	grow := map[*cluster.Cluster]int{}
+	var extras []*cluster.Cluster
+	ironExtra := false
+	var stationOf *cluster.Cluster
+	var stations []*cluster.Cluster
+	order := slices.Clone(base.Clusters)
+	slices.SortStableFunc(order, func(a, b *cluster.Cluster) int {
+		rank := func(c *cluster.Cluster) int {
+			if c.Kind == cluster.Power {
+				return 0
+			}
+			return 1
+		}
+		return rank(a) - rank(b)
+	})
+	for _, c := range order {
+		if c.Kind != cluster.Smelt && c.Kind != cluster.Power || slices.Contains(fresh, c) {
+			continue
+		}
+		n, have := cluster.Need(needs, c), cluster.Built(l.List, c)
+		if c.Kind == cluster.Power { // по тому, что реально стоит в плане (буры на 2M, НПЗ, химия)
+			var w float64
+			n, w = cluster.PowerNeed(pr, l)
+			h.Say("энергия плана: %.1f МВт — бойлеров %d (стоит %d)", w/1e6, n, have)
+		}
+		// плавка железа под быстрые ленты (~16 железа/с) — ещё кластер, выход — в старую ленту
+		// ниже по течению (решение пользователя)
+		if c.Kind == cluster.Smelt && c.Product == "iron-plate" && !ironExtra {
+			ironExtra = true
+			x, err := cluster.Extra(pr, needs, c, have, 2*have)
+			if err != nil {
+				return base, l, fmt.Errorf("плавка железа под быстрые ленты: %w", err)
+			}
+			extras = append(extras, x)
+		}
+		h.Log("рост: %s — нужно %d, стоит %d", c.Name, n, have)
+		if n <= have {
+			continue
+		}
+		if err := base.GrowRow(l, c, n); err == nil {
+			h.Say("рост: %s — %s %d → %d вдоль ряда", c.Name, c.MainMachine(), have, n)
+			grow[c] = n
+			continue
+		} else {
+			h.Log("рост %s: %v", c.Name, err)
+		}
+		if c.Kind == cluster.Power {
+			// вдоль ряда — сколько влезет, остальное — вторая станция у воды (своя помпа, уголь —
+			// отводом с ленты первой; cluster.md §2а «Станция»)
+			m := n - 1
+			for ; m > have; m-- {
+				err := base.GrowRow(l, c, m)
+				if err == nil {
+					grow[c] = m
+					break
+				}
+				if m <= c.Room {
+					h.Log("рост %s до %d: %v", c.Name, m, err)
+				}
+			}
+			if m <= have {
+				m = have
+			}
+			stationOf = c
+			for rest := n - m; rest > 0; { // станции — не больше, чем кормит одна помпа
+				k := min(rest, cluster.PumpBoilers(pr))
+				st := cluster.Station(pr, k)
+				if st == nil {
+					return base, l, fmt.Errorf("станция на %d бойлеров не считается", k)
+				}
+				st.Name = base.Name("power", stations)
+				x, y := c.Area.Center()
+				near := world.Tile{X: int(x), Y: int(y)}
+				st.Near = &near
+				stations = append(stations, st)
+				extras = append(extras, st)
+				h.Say("рост: %s — %d → %d вдоль ряда, ещё станция %s на %d бойлеров", c.Name, have, m, st.Name, k)
+				rest -= k
+			}
+			continue
+		}
+		x, err := cluster.Extra(pr, needs, c, have, n)
+		if err != nil {
+			return base, l, fmt.Errorf("рост %s (%d → %d): %w", c.Name, have, n, err)
+		}
+		extras = append(extras, x)
 	}
-	for _, c := range fill {
-		if err := base.FillMine(l, c); err != nil {
-			return base, l, fmt.Errorf("добыча %s на всё пятно: %w", c.Name, err)
+	if len(extras) > 0 {
+		if _, err := base.PlaceZoned(extras, rough.Zones); err != nil {
+			return base, l, err
+		}
+		for _, x := range extras {
+			h.Say("рост: новый кластер %s", x.Name)
+		}
+		fresh = append(fresh, extras...)
+	}
+	if l, err = layoutAll(); err != nil {
+		return base, l, err
+	}
+	for c, n := range grow {
+		if err := base.GrowRow(l, c, n); err != nil {
+			return base, l, err
+		}
+	}
+	// синий — в лаборатории лентой B (cluster.md §2а «Лаборатории»)
+	extra := map[*cluster.Cluster][]cluster.Port{}
+	for _, c := range base.Clusters {
+		if c.Kind == cluster.Lab && !slices.ContainsFunc(c.In, func(f cluster.Flow) bool { return f.Item == bluePack }) {
+			p, err := cluster.AddLaneB(l, c, bluePack, blueRate*cluster.Margin, cluster.Tag(c.Name))
+			if err != nil {
+				return base, l, err
+			}
+			extra[c] = []cluster.Port{p}
 		}
 	}
 	before := map[string]bool{}
 	for _, e := range l.Validate() {
 		before[e] = true
 	}
-	if err := base.ConnectMore(l, zb, fresh, nil); err != nil {
+	if err := base.ConnectMore(l, zb, fresh, extra); err != nil {
 		return base, l, err
+	}
+	for _, st := range stations {
+		if err := base.ConnectStation(l, st, stationOf); err != nil {
+			return base, l, err
+		}
 	}
 	// нефтетрассы: от каждого месторождения — в склад нефти
 	for _, c := range base.Clusters {
@@ -334,6 +499,11 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	if err := base.ChemPipes(l, zb, chems, gas); err != nil {
 		return base, l, err
 	}
+	if err := cluster.TankJoin(l, gasTank, gas); err != nil {
+		return base, l, err
+	}
+	// трубы шин — подземные везде, где к ним ничего не подходит (решение пользователя)
+	cluster.UnderPipes(l, zb)
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
 			var x, y int // чья постройка — в ошибку (разбор)
@@ -378,6 +548,36 @@ func checkBluePlan(h *act.Hands) error {
 		if n := oreUnder(s.Clusters, it); n < oreTarget {
 			return fmt.Errorf("добыча %s: под бурами %d, нужно %d", it, n, oreTarget)
 		}
+	}
+	// кластеры проекта: продукт → сколько нужно
+	want := map[string]int{"steel-plate": 1, "fast-transport-belt": 1, "fast-inserter": 1, "crude-oil": cluster.OilFields,
+		"petroleum-gas": 1, "plastic-bar": 1, "sulfur": 1, "engine-unit": 1, "advanced-circuit": 1, bluePack: 1}
+	got := map[string]int{}
+	tanks := map[string]bool{}
+	for _, c := range s.Clusters {
+		if c.Kind == cluster.Tank {
+			tanks[c.Product] = true
+			continue
+		}
+		if c.Kind == cluster.Mine && c.Product != "crude-oil" {
+			continue
+		}
+		got[c.Product]++
+	}
+	for it, n := range want {
+		if got[it] < n {
+			return fmt.Errorf("в плане %s: %d из %d", it, got[it], n)
+		}
+	}
+	for _, fl := range []string{"crude-oil", "petroleum-gas"} {
+		if !tanks[fl] {
+			return fmt.Errorf("в плане нет склада %s", fl)
+		}
+	}
+	if !slices.ContainsFunc(s.Clusters, func(c *cluster.Cluster) bool {
+		return c.Kind == cluster.Lab && slices.ContainsFunc(c.In, func(f cluster.Flow) bool { return f.Item == bluePack })
+	}) {
+		return fmt.Errorf("у лабораторий нет входа %s", bluePack)
 	}
 	if st, err := os.Stat(blueImage()); err != nil || st.Size() == 0 {
 		return fmt.Errorf("нет картинки %s", blueImage())

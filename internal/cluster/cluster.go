@@ -333,6 +333,25 @@ func PumpBoilers(p *knowledge.Prototypes) int {
 
 // SizePower — станция cs — под одну помпу (cluster.md §2а «Станция»): столько бойлеров, сколько
 // она кормит водой, по 2 двигателя; дальше — вторая станция.
+// Station — станция на boilers бойлеров (вторая — рядом с первой у воды, когда ряд первой
+// кончился; cluster.md §2а «Станция»): строится сразу вся.
+func Station(p *knowledge.Prototypes, boilers int) *Cluster {
+	W := float64(boilers) * p.Entities["boiler"].MaxEnergyUsage * 60
+	cs, err := AddPower(p, []*Cluster{{PowerW: W}}, 1, nil)
+	var c *Cluster
+	for _, o := range cs {
+		if o.Kind == Power {
+			c = o
+		}
+	}
+	if err != nil || c == nil {
+		return nil
+	}
+	c.Count = max(boilers, c.Count)
+	c.Room = c.Count
+	return c
+}
+
 func SizePower(p *knowledge.Prototypes, cs []*Cluster) {
 	n := float64(PumpBoilers(p))
 	st := calc.SteamFor(p, n*p.Entities["boiler"].MaxEnergyUsage*60)

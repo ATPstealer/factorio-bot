@@ -321,6 +321,73 @@ func splitterAt(l *layout.Layout, op Port, tag string) (layout.Placement, world.
 	return layout.Placement{}, world.Tile{}, world.Tile{}, false
 }
 
+// AddLaneB — лента B уже построенного блока лабораторий (cluster.md §2а «Лаборатории»): третий
+// пакет (синий) — лента вдоль левого столбца лабораторий (ряд labA−1), к каждой лаборатории
+// левого столбца — длинный инсертер через ленту A; подача — с торца сбоку головы (v = labA−2).
+// Места — оставленные шаблоном; построенное не трогает.
+func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag string) (Port, error) {
+	if c.Kind != Lab || len(c.In) != 2 {
+		return Port{}, fmt.Errorf("cluster %s: лента B — у блока лабораторий с двумя пакетами", c.Name)
+	}
+	f := c.frame()
+	for _, t := range labReserve(f, c) {
+		delete(l.Reserved, t)
+	}
+	defer func() {
+		for _, t := range labReserve(f, c) {
+			if l.At(t) == nil {
+				l.Reserved[t] = true
+			}
+		}
+	}()
+	bv := labA - 1
+	u0 := c.Head - 2
+	add := func(p layout.Placement) error {
+		for _, t := range layout.Tiles(l.P, p) { // площадь кластера закрыта целиком (Layout) — своё место открыть
+			if t.X >= c.Area.Min.X && t.X < c.Area.Max.X && t.Y >= c.Area.Min.Y && t.Y < c.Area.Max.Y && l.At(t) == nil {
+				delete(l.Reserved, t)
+			}
+		}
+		if !l.CanPlace(p, layout.AnyLand) {
+			t := world.TileOf(p.Pos)
+			why := "не суша"
+			if q := l.At(t); q != nil {
+				why = q.String() + " " + q.Tag
+			} else if l.Reserved[t] {
+				why = "закрыто"
+			}
+			return fmt.Errorf("cluster %s: лента B не встаёт (%s: %s)", c.Name, p, why)
+		}
+		l.Add(p)
+		return nil
+	}
+	// подача — с торца сбоку (v = labA−2) и поворотом в начало ленты B
+	if err := add(f.at(l, "transport-belt", u0, bv-1, layout.S, tag)); err != nil {
+		return Port{}, err
+	}
+	rows := (c.Count + labCols - 1) / labCols
+	end := c.Head + 4*(rows-1) + 3
+	for u := u0; u < end; u++ {
+		if err := add(f.at(l, "transport-belt", u, bv, layout.E, tag)); err != nil {
+			return Port{}, err
+		}
+	}
+	l.AllowEnd(f.tile(end, bv))
+	for k := 0; k < c.Count; k++ {
+		if k%labCols != 0 {
+			continue // только левый столбец — дальше от лаборатории к лаборатории
+		}
+		u := c.Head + 4*(k/labCols)
+		if err := add(f.inserter(l, "long-handed-inserter", u, labA+1, bv, tag)); err != nil {
+			return Port{}, err
+		}
+	}
+	port := Port{T: f.tile(u0, bv-2), Dir: f.dir(layout.S), Item: item, In: true}
+	c.Ports = append(c.Ports, port)
+	addFlow(&c.In, item, rate)
+	return port, nil
+}
+
 // AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §2а «Лаборатории»): подача
 // с другой стороны ленты — боком в её голову (на свою полосу), буфер — напротив подачи, на
 // оставленных шаблоном местах. Построенное не трогает; поток item rate — во входы кластера.

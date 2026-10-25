@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -276,6 +277,108 @@ func pipeAlong(l *layout.Layout, x0, x1, y int, tag string) error {
 		x = out + 1
 	}
 	return nil
+}
+
+// UnderLane — труба шины tag в ряду y — подземная везде, где к ней ничего не подходит (решение
+// пользователя: иначе потом обходить): обычная труба остаётся на концах и у отводов (соседняя
+// не своя по ряду труба или соединение), между ними — подземные пары (до дальности прототипа).
+func UnderLane(l *layout.Layout, tag string, y int) {
+	const pipe, ptg = "pipe", "pipe-to-ground"
+	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
+	var xs []int
+	for _, p := range l.List {
+		if p.Tag == tag && world.TileOf(p.Pos).Y == y {
+			xs = append(xs, world.TileOf(p.Pos).X)
+		}
+	}
+	if len(xs) < 2 {
+		return
+	}
+	sort.Ints(xs)
+	keep := map[int]bool{xs[0]: true, xs[len(xs)-1]: true}
+	for _, x := range xs {
+		t := world.Tile{X: x, Y: y}
+		if p := l.At(t); p != nil && p.Name != pipe {
+			keep[x] = true // уже подземка (обход занятого) — на месте
+		}
+		for _, d := range []int{layout.N, layout.S} {
+			n := layout.Step(t, d)
+			if q := l.At(n); q != nil && (q.Name == pipe || q.Name == ptg || len(layout.Connections(l.P, *q)) > 0) {
+				keep[x] = true // отвод
+			}
+		}
+	}
+	// подряд идущие обычные трубы между оставленными — подземными парами
+	var drop []world.Tile
+	var add []layout.Placement
+	run := func(a, b int) { // a, b — оставленные; трубы (a, b) — свободны для замены
+		for x := a + 1; x+1 < b; {
+			out := min(x+maxUG, b-1)
+			add = append(add,
+				layout.Placement{Name: ptg, Pos: world.Tile{X: x, Y: y}.Center(), Dir: layout.W, Tag: tag},
+				layout.Placement{Name: ptg, Pos: world.Tile{X: out, Y: y}.Center(), Dir: layout.E, Tag: tag})
+			for k := x; k <= out; k++ {
+				drop = append(drop, world.Tile{X: k, Y: y})
+			}
+			x = out + 1
+		}
+	}
+	prev := xs[0]
+	for i := 1; i < len(xs); i++ {
+		x := xs[i]
+		if x != xs[i-1]+1 { // разрыв (подземка обхода) — участок кончился
+			prev = x
+			continue
+		}
+		if keep[x] {
+			if x-prev > 2 {
+				run(prev, x)
+			}
+			prev = x
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	gone := map[world.Tile]bool{}
+	for _, t := range drop {
+		gone[t] = true
+	}
+	l.List = slices.DeleteFunc(l.List, func(p layout.Placement) bool {
+		return p.Tag == tag && p.Name == pipe && gone[world.TileOf(p.Pos)]
+	})
+	l.Rollback(-1)
+	for _, p := range add {
+		l.Add(p)
+	}
+}
+
+// UnderPipes — все трубы шин buses (ряды труб жидкостей) — UnderLane.
+func UnderPipes(l *layout.Layout, buses []*ZBus) {
+	// ряд трубы шины — где тайлов с её тегом больше всего (подходы отводов — тем же тегом, но
+	// поперёк)
+	rows := map[string]map[int]int{}
+	for _, bus := range buses {
+		prefix := Tag(bus.Name) + "/"
+		for _, p := range l.List {
+			if (p.Name == "pipe" || p.Name == "pipe-to-ground") && strings.HasPrefix(p.Tag, prefix) {
+				if rows[p.Tag] == nil {
+					rows[p.Tag] = map[int]int{}
+				}
+				rows[p.Tag][world.TileOf(p.Pos).Y]++
+			}
+		}
+	}
+	tags := slices.Sorted(maps.Keys(rows))
+	for _, tag := range tags {
+		best, n := 0, -1
+		for y, k := range rows[tag] {
+			if k > n || k == n && y < best {
+				best, n = y, k
+			}
+		}
+		UnderLane(l, tag, best)
+	}
 }
 
 // fluidNear — рядом с t жидкостное соединение не своей трубы tag (обычная труба смешала бы).

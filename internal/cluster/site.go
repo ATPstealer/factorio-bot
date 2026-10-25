@@ -479,6 +479,9 @@ var short = map[string]string{
 // name — следующее свободное имя продукта.
 // name — свободное имя кластера product: не занятое ни в базе, ни среди also (кластеры, которым
 // имена дают сейчас — два хранения в одном плане оба были storage-1).
+// Name — свободное имя кластера продукта product (с also — ещё не в базе).
+func (b *Base) Name(product string, also []*Cluster) string { return b.name(product, also) }
+
 func (b *Base) name(product string, also []*Cluster) string {
 	if s, ok := short[product]; ok {
 		product = s

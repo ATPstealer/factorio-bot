@@ -138,6 +138,9 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 	L := c.Len()
 	c.Ports = nil
 	add := func(p layout.Placement) error {
+		if q := l.At(world.TileOf(p.Pos)); q != nil && q.Name == p.Name && q.Pos == p.Pos && q.Tag == p.Tag {
+			return nil // уже стоит ровно это (рост вдоль ряда: старые столбы — на месте)
+		}
 		if !l.CanPlace(p, layout.AnyLand) {
 			return fmt.Errorf("cluster %s: не встаёт %s", c.Name, p)
 		}
@@ -768,6 +771,9 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 // станция запускается сама); буфер угля; столбы в промежутках у двигателей.
 func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 	add := func(p layout.Placement) error {
+		if q := l.At(world.TileOf(p.Pos)); q != nil && q.Name == p.Name && q.Pos == p.Pos && q.Tag == p.Tag {
+			return nil // уже стоит ровно это (рост вдоль ряда: старые столбы — на месте)
+		}
 		if !l.CanPlace(p, layout.AnyLand) {
 			return fmt.Errorf("cluster %s: не встаёт %s", c.Name, p)
 		}
