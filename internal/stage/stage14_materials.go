@@ -248,6 +248,33 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 			break
 		}
 	}
+	// места всё ещё мало, а оставлено только ходовое (запас: пластины, уголь…) — и его в
+	// хранение (Ctrl+клик кладёт всё; нужное потом берётся из хранения) (stages.md: держать по пачке; держался весь — 3870 железа и 1450 угля
+	// забили инвентарь, разбор точек встал: 238178543)
+	if p.InventorySize-len(p.InventorySlots) < free && k < len(chests) {
+		needed := neededItems(s.h)
+		for _, it := range reserveItems {
+			st := max(s.h.Protos.Items[it].StackSize, 50)
+			if needed[it] || slices.Contains(need, it) && !slices.Contains(reserveItems, it) || p.Inventory[it] <= st {
+				continue
+			}
+			for p.Inventory[it] > st && k < len(chests) {
+				n, err := s.h.InsertAll(ctx, chests[k], it)
+				if err != nil {
+					return err
+				}
+				if n == 0 {
+					k++
+				}
+				if p, err = s.h.B.Player(); err != nil {
+					return err
+				}
+			}
+			if p.InventorySize-len(p.InventorySlots) >= free {
+				break
+			}
+		}
+	}
 	// все сундуки полны — хранение сразу до 4×8, как на обслуживании (8 сундуков забивались к
 	// стадии 15: разбор точек не помещался — 238178543), и ещё раз
 	if k >= len(chests) && len(chests) < storageChests && !s.growing {
