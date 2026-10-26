@@ -214,6 +214,25 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			extras = append(extras, x)
 		}
 		if len(extras) > 0 {
+			// новый блок добычи — на новом пятне (cluster.md §7): в зонах пятна заняты будущей
+			// добычей стадии 5 — ещё зона того же ресурса (238178543)
+			for _, x := range extras {
+				if x.Kind != cluster.Mine {
+					continue
+				}
+				have := 0.0
+				for _, z := range rough.Zones {
+					if z.Kind == cluster.ZoneMine {
+						have += z.Resources[x.Product]
+					}
+				}
+				if zones := base.MoreMineZones(rough.Zones, x.Product, have+1); len(zones) > len(rough.Zones) {
+					rough.Zones = zones
+					if err := writeState(roughFile, rough); err != nil {
+						return err
+					}
+				}
+			}
 			if _, err := base.PlaceZoned(extras, rough.Zones); err != nil {
 				return err
 			}

@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"factorio-bot/internal/world"
@@ -270,6 +271,11 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 				continue
 			}
 			if r, ok := b.mineRect(c, z, head); ok {
+				// пятно уже под другим блоком добычи — к следующему (стадия 6: новый блок
+				// железа шёл на стартовое пятно, где стоит iron-ore-1 — 238178543)
+				if slices.ContainsFunc(b.Clusters, func(o *Cluster) bool { return o != c && o.Kind == Mine && o.Area.Overlaps(r) }) {
+					continue
+				}
 				if c.Ore == 0 {
 					c.Ore = OreFirst
 				}
