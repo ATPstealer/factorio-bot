@@ -18,7 +18,44 @@
 
 #### CLAUDE.md
 
-(разбор идёт)
+Большинство — просто устаревшее описание: предлагаю обновить CLAUDE.md под код без вопросов
+(отмечено «обновить»); вопросы — где надо решить.
+- **C1. Вступление** («стадии 1–27, до зелёной науки»): в коде и в stages.md стадий 41 —
+  обновить.
+- **C2. Команды `bin/bot`**: в списке нет `stage N`, `plans ОТ ДО`, `rough ФАЙЛ [ДО [ОТ]]`,
+  `worlddump`, `empty N`, флага `map -at X,Y`, флагов `-rcon/-password/-display`, `BOT_PPROF`;
+  «без игры работают calc/tech/raw» — ещё `rough`, `empty` — обновить. В самом `usage`
+  (cmd/bot/main.go:96–97) примеры `bin/bot plan …` и `bin/bot run …` — таких команд нет, у
+  `protos` неверное имя кэша — поправить код.
+- **C3. Нет в коде**: `world.ExploreRing`, `input.Wheel` (есть константы `WheelUp/Down` для
+  `Click`) — убрать из документа. «Файл на стадию» — неверно для 8–10 (`stage8_reserved.go`) и
+  32–41 (`stages_blue.go`) — обновить.
+- **C4. Не описано в пакетах** (есть в коде): `Hands.OnFull`, `TakeItem`, `ErrStuck/ErrFull/
+  ErrNothingToExplore`; `world.Save/Load`, `FrontierFrom`, `NearestUnknownWhere`; `cluster`:
+  `MaxUnits=30`, `MineCover`, константы зон (`maxShift`, `busSpare0`, `floorShift`, `minCols`…),
+  `Steel`, `Station`, `SizePower`, весь нефтехимический блок `oil.go` (`MoreOil`, `Tanks`,
+  `Refinery`, `Chem`, `PipeLane`, `OilTrunk`…); `layout`: `RoutePipeTo`, `JoinPipe`,
+  `WaterPumpR`, `Mark/Rollback`; `stage`: `roughReopen=3`, `roughHoles=5`, `RoughOffline`,
+  сундуки → `iron-chest` с 22-й стадии, файлы состояния стадий 11–41, картинки `zones-fail`,
+  `plan-head`, `plan-fail`, `plan-blue-err`, при `rough` — в `BOT_RUN/`; `run/worlds/<сид>.gob`
+  — обновить (кратко, без перечисления всего).
+- **C5. Доразведка дыр**: stages.md говорит «обязательно, пока есть», код — до 5 попыток и
+  сдаётся, если земля не открылась (недостижимо). Поправить stages.md под код (недостижимое
+  — пропуск)?
+- **C6. RCON**: документ «ответы до 2 МБ», клиент принимает до 16 МБ — обновить.
+- **C7. Мод**: методы совпадают; `get_player`/`get_entity` отдают больше полей, чем описано
+  (`alt_mode`, `character{reach, walking, mining…}`, `slots`, `crafting_progress`,
+  `remaining_fuel`); событие `chunk_charted` на деле по `on_chunk_generated` — обновить.
+- **C8. Скрипты**: `snapshot.sh grab` (снимок из автосейва без остановки), `stage.sh`: `LIMIT`
+  (120, стадия 3 — 180, `PLAN=1` — 60), `PAR=0`, повтор загрузки, логи; `test.sh SKIP_BUILD=1`,
+  хеш мода у экземпляра; `stop.sh` убивает сервер через 120 с; `run.sh LP_NUM_THREADS`,
+  устаревшие комментарии — обновить.
+- **C9. INST=0 по умолчанию**: `stage.sh` с одним сидом и `bench.sh` без `PAR` идут на
+  `INST=0` — противоречит правилу «INST=0 боту не запускать». Сделать по умолчанию `INST=1`
+  в скриптах (или ошибку при `INST=0`)?
+- **C10. «Что выяснено»**: `MenuOpen` проверяет две точки и два цвета (не одну); «~8 для
+  вложить/забрать» — в коде 9 — обновить.
+- **C11. Помощники e2e**: нет `bridgeT`, `runFile`, `spot`, `walkTarget`, `check*` — обновить.
 
 #### stages.md
 
