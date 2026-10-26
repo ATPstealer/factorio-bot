@@ -359,7 +359,10 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 		// не может стоять на самой цели: узкую помеху вплотную к ней не перепрыгнуть)
 		// неровность не длиннее подземки — пара подземок прямо в ряду (обход маршрутом в тесноте
 		// у отводов не находился — 238178543, стадия 7)
-		if ia, oka := l.Index(gp.a); oka && gp.b.X-gp.a.X <= l.P.Entities["underground-belt"].MaxUndergroundDistance {
+		// (за b — ещё разрыв того же ряда (утёс наискось): пару не ставить — обход следующего
+		// разрыва убрал бы выход пары; 264771462, bus-4)
+		next := slices.ContainsFunc(gaps, func(g laneGap) bool { return g.tag == gp.tag && g.item == gp.item && g.a == gp.b })
+		if ia, oka := l.Index(gp.a); oka && !next && gp.b.X-gp.a.X <= l.P.Entities["underground-belt"].MaxUndergroundDistance {
 			if ib, okb := l.Index(gp.b); okb && l.List[ia].Name == "transport-belt" && l.List[ib].Name == "transport-belt" &&
 				l.List[ia].Dir == layout.E && l.List[ib].Dir == layout.E && !ugBetween(l, gp.a, gp.b) {
 				l.Replace(ia, layout.Placement{Name: "underground-belt", Pos: gp.a.Center(), Dir: layout.E, Recipe: "input", Tag: gp.tag})
@@ -469,6 +472,36 @@ func zSidePorts(l *layout.Layout, bus *ZBus, ln *ZoneLane, x0, x1 int) []Port {
 }
 
 // zRoute — лента из from в первый из to, куда проводится; возвращает его.
+// dumpBetween — в журнал карта между тайлами a (O) и b (H) с полями 3: # постройка, S закрыто
+// насовсем (Solid), r резерв, ~ не построить (вода, утёсы), . свободно. Столбцы — X, по Y вниз.
+func (b *Base) dumpBetween(l *layout.Layout, a, h world.Tile) {
+	var row []string
+	for x := min(a.X, h.X) - 3; x <= max(a.X, h.X)+3; x++ {
+		s := ""
+		for y := min(a.Y, h.Y) - 3; y <= max(a.Y, h.Y)+3; y++ {
+			t := world.Tile{X: x, Y: y}
+			switch {
+			case t == a:
+				s += "O"
+			case t == h:
+				s += "H"
+			case l.At(t) != nil:
+				s += "#"
+			case l.Solid[t]:
+				s += "S"
+			case l.Reserved[t]:
+				s += "r"
+			case !l.Free(t, layout.AnyLand):
+				s += "~"
+			default:
+				s += "."
+			}
+		}
+		row = append(row, fmt.Sprintf("x=%d %s", x, s))
+	}
+	b.logf("  карта (столбцы — X, по Y вниз):\n%s", strings.Join(row, "\n"))
+}
+
 func zRoute(l *layout.Layout, from Port, to []Port, tag string) (Port, error) {
 	var err error = layout.ErrNoRoute
 	for _, p := range to {
@@ -731,32 +764,7 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 			b.logf("подвод %s выход %d из (%d,%d): не дошёл ни до одной из %v", c.Name, i+1, op.T.X, op.T.Y, tried)
 			// разбор: где закрыто между выходом и головой
 			if tg := b.feedTargets(l, bus, lns, op); len(tg) > 0 {
-				h := tg[0].T
-				var row []string
-				for x := min(op.T.X, h.X) - 3; x <= max(op.T.X, h.X)+3; x++ {
-					s := ""
-					for y := min(op.T.Y, h.Y) - 3; y <= max(op.T.Y, h.Y)+3; y++ {
-						t := world.Tile{X: x, Y: y}
-						switch {
-						case t == op.T:
-							s += "O"
-						case t == h:
-							s += "H"
-						case l.At(t) != nil:
-							s += "#"
-						case l.Solid[t]:
-							s += "S"
-						case l.Reserved[t]:
-							s += "r"
-						case !l.Free(t, layout.AnyLand):
-							s += "~"
-						default:
-							s += "."
-						}
-					}
-					row = append(row, fmt.Sprintf("x=%d %s", x, s))
-				}
-				b.logf("  карта (столбцы — X, по Y вниз):\n%s", strings.Join(row, "\n"))
+				b.dumpBetween(l, op.T, tg[0].T)
 			}
 			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
 		}
@@ -1250,14 +1258,21 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 			continue
 		}
-		// на станцию — выход, ближний к её входу (дальний уводил ленту в обход всего блока)
-		for _, p := range outPorts(m) {
-			if dist(p.T, pp.T) < dist(op.T, pp.T) {
-				op = p
-			}
-		}
+		// на станцию — выход, ближний к её входу (дальний уводил ленту в обход всего блока); с
+		// него не провести — второй выход
+		ops := outPorts(m)
+		sort.SliceStable(ops, func(i, j int) bool { return dist(ops[i].T, pp.T) < dist(ops[j].T, pp.T) })
 		mark := l.Mark()
-		if _, err := zRoute(l, op, []Port{pp}, LogisticsTag+"/"+pw.Name); err != nil {
+		var err error
+		for _, q := range ops {
+			if _, err = zRoute(l, q, []Port{pp}, LogisticsTag+"/"+pw.Name); err == nil {
+				op = q
+				break
+			}
+			l.Rollback(mark)
+		}
+		if err != nil {
+			b.dumpBetween(l, op.T, pp.T) // разбор: где закрыто
 			return &ConnectError{pw, fmt.Errorf("уголь %s → %s: %w", m.Name, pw.Name, err)}
 		}
 		powered = true
@@ -1268,7 +1283,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			continue
 		}
 		opened := b.fence(l, bus, m)
-		err := layout.ErrNoRoute
+		err = layout.ErrNoRoute
 		for _, p := range b.feedTargets(l, bus, lns, op) {
 			g := guardHeads(l, bus, p.T)
 			err = SplitTap(l, line, p, LogisticsTag+"/"+bus.Name+"/"+m.Name, 60)

@@ -383,6 +383,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	}
 	mines := prefix(mv, g.w, g.h)
 	why := map[string]int{} // почему не встало (журнал: разбор, почему база не встаёт)
+	// лучшее из неудачных мест: сколько ширины этажа 1 набралось и где (разбор: чуть-чуть не
+	// хватило или совсем нет полосы)
+	got1, topGot, topAt := 0, 0, world.Tile{}
 	free := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
@@ -453,6 +456,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			need -= w
 		}
 		if need > 0 {
+			if f == 1 {
+				got1 = max(got1, zw[f]-need)
+			}
 			return nil
 		}
 		sort.Slice(res, func(i, j int) bool { return res[i].Min.X < res[j].Min.X })
@@ -546,8 +552,12 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		}
 		for _, o := range ringOffsets(r) {
 			x0, y0 := ax+o.X*8, ay+o.Y*8+widths[0]/2
+			got1 = 0
 			lo := stack(x0, y0)
 			if lo == nil {
+				if got1 > topGot {
+					topGot, topAt = got1, world.Tile{X: x0, Y: y0}
+				}
 				continue
 			}
 			hx, hy := float64(lo.buses[0].Min.X), float64(lo.buses[0].Min.Y+lo.buses[0].Max.Y)/2
@@ -562,6 +572,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	}
 	if len(why) > 0 {
 		b.logf("этажи: ширина %d — отказы мест %v", width, why)
+		if best == nil && topGot > 0 {
+			b.logf("этажи: лучшее из неудачных мест — этаж 1 набрал %d из %d у bus-1 (%d, %d)", topGot, zw[1], topAt.X, topAt.Y)
+		}
 	}
 	return best
 }

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 
+	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
 
@@ -166,6 +167,27 @@ func (b *Base) commitMine(s *mineSpot, r Rect) {
 		c.Back = float64(s.head.Y) > cy
 	} else {
 		c.Back = float64(s.head.X) > cx
+	}
+	// но выходы — не в воду и утёсы (264771462: оба выхода блока угля смотрели в озеро, уголь на
+	// станцию не провёлся, станцию переставляли 6 раз): с той стороны закрыто — голова к другому
+	// концу блока
+	exitsOK := func(back bool) bool {
+		cc := *c
+		cc.Back = back
+		f := cc.frame()
+		for _, p := range []struct{ v, d int }{{-1, layout.N}, {c.Cross, layout.S}} {
+			t := f.tile(0, p.v)
+			if ok, _ := b.W.Buildable(t); !ok {
+				return false
+			}
+			if ok, _ := b.W.Buildable(layout.Step(t, f.dir(p.d))); !ok {
+				return false
+			}
+		}
+		return true
+	}
+	if !exitsOK(c.Back) && exitsOK(!c.Back) {
+		c.Back = !c.Back
 	}
 	zr := s.z.Rect
 	c.Zone = &zr
