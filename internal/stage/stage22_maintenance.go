@@ -39,12 +39,20 @@ func init() {
 // красной и зелёной ставить в очередь.
 const greenOnFile = "state-green-on.json"
 
+// blueOnFile — отметка: синие пакеты в лабораториях (стадия 41 выполнена) — исследования и на
+// синей.
+const blueOnFile = "state-blue-on.json"
+
 // rocketTechs — нужные для ракеты исследования на тех пакетах, что уже производятся (красная;
-// после стадии 27 — и зелёная), ещё не изученные, по порядку пути (предпосылки раньше).
+// после стадии 27 — и зелёная; после 41 — и синяя), ещё не изученные, по порядку пути
+// (предпосылки раньше); исследования-триггеры (oil-processing) — не в очередь, открываются сами.
 func rocketTechs(h *act.Hands) ([]string, error) {
 	packs := map[string]bool{redPack: true}
 	if _, err := os.Stat(runPath(greenOnFile)); err == nil {
 		packs[greenPack] = true
+	}
+	if _, err := os.Stat(runPath(blueOnFile)); err == nil {
+		packs[bluePack] = true
 	}
 	f, err := h.B.Force()
 	if err != nil {

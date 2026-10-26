@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -116,7 +117,7 @@ func init() {
 		{n: 33, name: "склады цистерн", file: "state-tanks.json", queue: []string{"fluid-handling", "oil-gathering"},
 			wait: []string{"fluid-handling"}, pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Tank }},
 		{n: 34, name: "нефть: качалки и трасса", file: "state-oil.json", wait: []string{"oil-gathering"},
-			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, after: oilOpened},
+			pick: func(c *cluster.Cluster) bool { return c.IsOil() }},
 		{n: 35, name: "вода для химии", file: "state-water.json",
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "water"))},
 		{n: 36, name: "НПЗ", file: "state-refinery.json", wait: []string{"oil-processing"},
@@ -131,8 +132,14 @@ func init() {
 		{n: 40, name: "синяя наука", file: "state-blue-science.json", wait: []string{bluePack},
 			pick: product(bluePack)},
 		{n: 41, name: "синяя в лаборатории", file: "state-labs-blue.json",
-			pick:  func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab },
-			after: func(ctx context.Context, h *act.Hands) error { return queueResearch(ctx, h) }},
+			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab },
+			after: func(ctx context.Context, h *act.Hands) error {
+				// синяя в лабораториях — исследования и на ней (rocketTechs; решение пользователя 26.10)
+				if err := os.WriteFile(runPath(blueOnFile), []byte("{}\n"), 0o644); err != nil {
+					return err
+				}
+				return queueResearch(ctx, h)
+			}},
 	} {
 		register(Stage{N: s.n, Name: s.name, Run: s.run, Check: s.check})
 		blueStages[s.n] = s
@@ -142,11 +149,6 @@ func init() {
 // blueStages — стадии 32–41 по номеру: их раскладка — план стадии для проверки перед стройкой
 // и «нужного» (prepare.go planOf).
 var blueStages = map[int]blueStage{}
-
-// oilOpened — нефть добыта (в складе), `oil-processing` открыт — в очередь (стадия 36).
-func oilOpened(ctx context.Context, h *act.Hands) error {
-	return queueTechs(ctx, h, "oil-processing")
-}
 
 // pipeChest — из одного сборщика труб кластера двигателей — инсертер в сундук: буфер бота
 // (stages.md, стадия 38: трубы на стройку нефти и химии).
