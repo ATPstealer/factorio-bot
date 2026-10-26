@@ -357,7 +357,7 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 		// не может стоять на самой цели: узкую помеху вплотную к ней не перепрыгнуть)
 		// неровность не длиннее подземки — пара подземок прямо в ряду (обход маршрутом в тесноте
 		// у отводов не находился — 238178543, стадия 7)
-		if ia, oka := l.Index(gp.a); oka && gp.b.X-gp.a.X-1 <= l.P.Entities["underground-belt"].MaxUndergroundDistance {
+		if ia, oka := l.Index(gp.a); oka && gp.b.X-gp.a.X <= l.P.Entities["underground-belt"].MaxUndergroundDistance {
 			if ib, okb := l.Index(gp.b); okb && l.List[ia].Name == "transport-belt" && l.List[ib].Name == "transport-belt" &&
 				l.List[ia].Dir == layout.E && l.List[ib].Dir == layout.E && !ugBetween(l, gp.a, gp.b) {
 				l.Replace(ia, layout.Placement{Name: "underground-belt", Pos: gp.a.Center(), Dir: layout.E, Recipe: "input", Tag: gp.tag})

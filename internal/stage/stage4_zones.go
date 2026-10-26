@@ -209,15 +209,19 @@ func saveWorld(h *act.Hands) {
 }
 
 // RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
-// попытка в открытом, без дооткрытий и переходов в другие квадраты.
-func RoughOffline(h *act.Hands, to int) error {
+// попытка в открытом, без дооткрытий и переходов в другие квадраты; from > 4 — без разметки,
+// стадии from…to по состоянию в BOT_RUN.
+func RoughOffline(h *act.Hands, from, to int) error {
 	roughRegion, roughCliffs, roughOffline = nil, false, true
-	if err := roughOnce(h); err != nil {
-		return err
+	if from <= 4 {
+		if err := roughOnce(h); err != nil {
+			return err
+		}
 	}
-	// дальше — стадии планирования до to (их Run читает только карту и состояние)
+	// дальше — стадии планирования до to (их Run читает только карту и состояние; с from > 4 —
+	// состояние прошлых стадий в BOT_RUN, как в снимке)
 	PlanOnly = true
-	for _, n := range Plans(5, to) {
+	for _, n := range Plans(max(from, 5), to) {
 		s, err := Get(n)
 		if err != nil {
 			return err

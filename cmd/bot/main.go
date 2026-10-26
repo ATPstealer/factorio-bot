@@ -54,7 +54,8 @@ const usage = `bot — бот Factorio: действует только мышь
   stage N               выполнить стадию N (stages.md) на текущей карте и проверить её критерии
   plans ОТ ДО           только стадии планирования ОТ…ДО подряд (план прошлых — построен)
   worlddump             открытая карта в run/worlds/<сид>.gob (стадия 4 сохраняет сама)
-  rough ФАЙЛ.gob [ДО]   разметка зон (стадия 4) и планы до стадии ДО без игры по сохранённой карте; сид — из BOT_RUN/map.json
+  rough ФАЙЛ.gob [ДО [ОТ]] разметка зон (стадия 4) и планы до стадии ДО без игры по сохранённой карте; ОТ > 4 —
+                        с состояния прошлых стадий в BOT_RUN (из снимка); сид — из BOT_RUN/map.json
   empty N               код 0 — стадия N пустая (резерв): прогон только копирует снимок
   pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
@@ -137,17 +138,20 @@ func main() {
 	case "rough":
 		// разметка зон (стадия 4) без игры по карте из run/worlds/<сид>.gob
 		if len(args) < 2 {
-			log.Fatal("bot rough ФАЙЛ.gob [ДО]")
+			log.Fatal("bot rough ФАЙЛ.gob [ДО [ОТ]]")
 		}
-		to := 4
+		from, to := 4, 4
 		if len(args) > 2 {
 			to = atoi(args[2])
+		}
+		if len(args) > 3 {
+			from = atoi(args[3])
 		}
 		pr, _ := knowledgeFor("127.0.0.1:1", "")
 		w := world.New(pr)
 		check(w.Load(args[1]))
 		h := &act.Hands{Protos: pr, World: w, Log: log.Printf}
-		check(stage.RoughOffline(h, to))
+		check(stage.RoughOffline(h, from, to))
 		log.Printf("зоны размечены")
 		return
 	case "empty":
