@@ -382,6 +382,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		}
 	}
 	mines := prefix(mv, g.w, g.h)
+	why := map[string]int{} // почему не встало (журнал: разбор, почему база не встаёт)
 	free := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
@@ -475,6 +476,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				// (верхняя шина над конечным продуктом — не длиннее его этажа: пользователь)
 				bus := Rect{world.Tile{X: busL, Y: busY.Min.Y}, world.Tile{X: prevL + max(prevW, 1), Y: busY.Max.Y}}
 				if !freeBus(bus) {
+					why[fmt.Sprintf("шина %d над этажом %d занята", f, f-1)]++
 					return nil
 				}
 				lo.buses[f-1] = bus
@@ -485,7 +487,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			if prevW > 0 {
 				shifts = []float64{floorShift, floorShiftMin}
 			}
-			placed := false
+			placed, reason := false, ""
 			// шина над этажом ниже — выше коридора ещё на 0…maxShift (bus-1 — на месте)
 			low := busY.Max.Y // нижний край шины без зазора (Y растёт вниз)
 			for bg := 0; bg <= maxShift && !placed; bg += 2 {
@@ -499,6 +501,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 					for gap := 0; gap <= maxShift && !placed; gap += 2 {
 						ps := parts(f, l, l+span, y-gap-depths[f], y-gap, f == floors)
 						if ps == nil {
+							reason = "не набралась ширина"
 							continue
 						}
 						left := busL
@@ -507,7 +510,12 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 						}
 						bus := Rect{world.Tile{X: left, Y: busY.Min.Y}, world.Tile{X: ps[len(ps)-1].Max.X, Y: busY.Max.Y}}
 						// шине ресурсов — зазор от добычи: в головы слева входят подводы (zones.md)
-						if !freeBus(bus) || f == 1 && b.nearMine(bus) {
+						if !freeBus(bus) {
+							reason = "шина под ним занята"
+							continue
+						}
+						if f == 1 && b.nearMine(bus) {
+							reason = "шина ресурсов у добычи"
 							continue
 						}
 						lo.buses[f-1], lo.floors[f] = bus, ps
@@ -521,6 +529,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				}
 			}
 			if !placed {
+				why[fmt.Sprintf("этаж %d: %s", f, reason)]++
 				return nil
 			}
 		}
@@ -550,6 +559,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				best = lo
 			}
 		}
+	}
+	if len(why) > 0 {
+		b.logf("этажи: ширина %d — отказы мест %v", width, why)
 	}
 	return best
 }

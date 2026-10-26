@@ -81,7 +81,7 @@ func (l *Layout) Validate() []string {
 			switch {
 			case n == nil:
 				if !l.ends[next] {
-					add("лента %v %s обрывается", t, DirName(pl.Dir))
+					add("лента %v %s обрывается (%s)", t, DirName(pl.Dir), pl.Tag)
 				}
 			case isBelt(n.Name) || isUnderground(n.Name) || l.P.Entities[n.Name].Type == "splitter":
 				if (n.Dir+8)%16 == pl.Dir || l.P.Entities[n.Name].Type == "splitter" && n.Dir != pl.Dir {
