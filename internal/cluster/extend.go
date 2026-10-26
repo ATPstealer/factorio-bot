@@ -379,8 +379,7 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 			}
 		}
 	}()
-	bv := labA - 1
-	u0 := c.Head - 2
+	bv := labB
 	add := func(p layout.Placement) error {
 		for _, t := range layout.Tiles(l.P, p) { // площадь кластера закрыта целиком (Layout) — своё место открыть
 			if t.X >= c.Area.Min.X && t.X < c.Area.Max.X && t.Y >= c.Area.Min.Y && t.Y < c.Area.Max.Y && l.At(t) == nil {
@@ -400,19 +399,27 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		l.Add(p)
 		return nil
 	}
-	// подача — у головы слева (голова блока — сверху, к шине конечных: решение пользователя), с
-	// торца сбоку и поворотом в начало ленты B; лента — вдоль левого столбца лабораторий
-	if err := add(f.at(l, "transport-belt", u0, bv-1, layout.S, tag)); err != nil {
+	// подача — с торца в ряду над B и поворотом боком в голову B (u=1: ряд B у торца занят
+	// подачей красного); лента — через голову (буфер синего) и вдоль левого столбца лабораторий
+	if err := add(f.at(l, "transport-belt", 0, bv-1, layout.E, tag)); err != nil {
+		return Port{}, err
+	}
+	if err := add(f.at(l, "transport-belt", 1, bv-1, layout.S, tag)); err != nil {
 		return Port{}, err
 	}
 	rows := (c.Count + labCols - 1) / labCols
 	end := c.Head + 4*(rows-1) + 3
-	for u := u0; u < end; u++ {
+	for u := 1; u < end; u++ {
 		if err := add(f.at(l, "transport-belt", u, bv, layout.E, tag)); err != nil {
 			return Port{}, err
 		}
 	}
 	l.AllowEnd(f.tile(end, bv))
+	if n := labBufferChests(c); true { // буфер синего — над B, в голове
+		if err := bufferAt(l, f, c, bv, bv-1, bv-2, n, item, tag, 3); err != nil {
+			return Port{}, err
+		}
+	}
 	for k := 0; k < c.Count; k++ {
 		if k%labCols != 0 {
 			continue // только левый столбец — дальше от лаборатории к лаборатории
@@ -422,11 +429,15 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 			return Port{}, err
 		}
 	}
-	port := Port{T: f.tile(u0, bv-2), Dir: f.dir(layout.S), Item: item, In: true}
+	port := Port{T: f.tile(-1, bv-1), Dir: f.dir(layout.E), Item: item, In: true}
 	c.Ports = append(c.Ports, port)
 	addFlow(&c.In, item, rate)
 	return port, nil
 }
+
+// labBufferChests — сундуков в буфере одного пакета блока лабораторий (в голове — по два буфера
+// друг за другом с каждой стороны: Head = 4n + 2).
+func labBufferChests(c *Cluster) int { return (c.Head - 2) / 4 }
 
 // AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §2а «Лаборатории»): подача
 // с другой стороны ленты — боком в её голову (на свою полосу), буфер — напротив подачи, на
@@ -447,8 +458,10 @@ func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		return Port{}, fmt.Errorf("cluster %s: второй вход не встаёт (%s)", c.Name, p)
 	}
 	l.Add(p)
-	if err := bufferAt(l, f, c, labA, labA-1, labA-2, (c.Head-2)/2, item, tag); err != nil {
-		return Port{}, err
+	if n := labBufferChests(c); true { // буфер второго пакета A — под A, за буфером первого
+		if err := bufferAt(l, f, c, labA, labA+1, labA+2, n, item, tag, 2*n+1); err != nil {
+			return Port{}, err
+		}
 	}
 	// столбы к новым инсертерам — внутри площади, на свободных тайлах (не на месте под будущее)
 	keep := map[world.Tile]bool{}

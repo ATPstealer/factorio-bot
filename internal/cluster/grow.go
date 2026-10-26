@@ -77,6 +77,9 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 		if c.Sub != "" { // n — машин, в ряду — пары (основной + SubPer промежуточных)
 			cnt = (n + c.SubPer) / (1 + c.SubPer)
 		}
+		if n > b.GrowCap(c) { // предел ряда (cluster.md §2, §2а «Станция»): остальное — новым кластером
+			return fail(fmt.Errorf("больше предела ряда %d машин", b.GrowCap(c)))
+		}
 		c.Count, room = cnt, cnt
 	default:
 		return fail(fmt.Errorf("вид %s так не растёт", c.Kind))
@@ -196,6 +199,44 @@ func (b *Base) ConnectStation(l *layout.Layout, st, first *Cluster) error {
 		}
 	}
 	return &ConnectError{st, fmt.Errorf("уголь → %s: отвод не провести ни с ленты %s, ни с подводов угля", st.Name, first.Name)}
+}
+
+// GrowCap — до скольких основных машин кластер c растёт вдоль ряда (cluster.md §7 «Предел
+// ряда»): сколько влезает в глубину его этажа, не больше MaxUnits, станция — бойлеров на
+// одну помпу (§2а «Станция»); остальное — новыми кластерами (Extras). Сосед сверху в столбце
+// — отдельный предел (extFree).
+func (b *Base) GrowCap(c *Cluster) int {
+	if c.Kind == Power {
+		return PumpBoilers(b.P)
+	}
+	units := MaxUnits
+	if f := floorOf(c); f > 0 && len(b.floors[f]) > 0 {
+		units = min(max(c.FitUnits(b.floors[f][0].H()), MinUnits), MaxUnits)
+	}
+	if c.Sub != "" {
+		return units * (1 + c.SubPer)
+	}
+	return units
+}
+
+// Extras — новые кластеры на недостающие n−built машин, каждый не больше step основных машин
+// (предел ряда, GrowCap; один Extra резал бы до предела, и недостача терялась); добыча — одним
+// блоком на новое пятно.
+func Extras(p *knowledge.Prototypes, cs []*Cluster, c *Cluster, built, n, step int) ([]*Cluster, error) {
+	if c.Kind == Mine {
+		step = n - built
+	}
+	var res []*Cluster
+	for built < n {
+		m := min(n, built+step)
+		x, err := Extra(p, cs, c, built, m)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, x)
+		built = m
+	}
+	return res, nil
 }
 
 // Extra — новый кластер того же продукта, что c, на недостающие n−Built машин (рост вдоль ряда

@@ -167,7 +167,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 				base.Clusters = append(base.Clusters, c)
 			}
 		}
-		zb, err := base.PlaceZoned(fresh, rough.Zones)
+		fresh, zb, err := base.PlaceZoned(fresh, rough.Zones)
 		if err != nil {
 			return err
 		}
@@ -200,18 +200,23 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 			if n <= have {
 				continue
 			}
-			if err := base.GrowRow(l, c, n); err == nil {
-				h.Say("рост: %s — %s %d → %d вдоль ряда", c.Name, c.MainMachine(), have, n)
-				grow[c] = n
-				continue
+			// вдоль ряда — до предела ряда (GrowCap), остальное — новыми кластерами, каждый не
+			// больше предела (cluster.md §7; решение пользователя 26.10)
+			m := min(n, base.GrowCap(c))
+			if err := base.GrowRow(l, c, m); err == nil {
+				h.Say("рост: %s — %s %d → %d вдоль ряда", c.Name, c.MainMachine(), have, m)
+				grow[c] = m
+				have = m
 			} else {
 				h.Log("рост %s: %v", c.Name, err)
 			}
-			x, err := cluster.Extra(pr, needs, c, have, n)
-			if err != nil {
-				return fmt.Errorf("рост %s (%d → %d): %w", c.Name, have, n, err)
+			if have < n {
+				xs, err := cluster.Extras(pr, needs, c, have, n, base.GrowCap(c))
+				if err != nil {
+					return fmt.Errorf("рост %s (%d → %d): %w", c.Name, have, n, err)
+				}
+				extras = append(extras, xs...)
 			}
-			extras = append(extras, x)
 		}
 		if len(extras) > 0 {
 			// новый блок добычи — на новом пятне (cluster.md §7): в зонах пятна заняты будущей
@@ -233,7 +238,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 					}
 				}
 			}
-			if _, err := base.PlaceZoned(extras, rough.Zones); err != nil {
+			if extras, _, err = base.PlaceZoned(extras, rough.Zones); err != nil {
 				return err
 			}
 			for _, x := range extras {

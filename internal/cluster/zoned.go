@@ -105,10 +105,11 @@ func floorOfZone(z Zone) int {
 // (ближе к шине ресурсов), производство — в зоне своего этажа, станция — в зоне энергии,
 // хранение — вне зон, у стартовых буров (StorageNear). Уже размеченные кластеры базы
 // (b.Clusters) — препятствие. Возвращает шины (ленты — потом, ConnectZoned).
-func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
+func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, error) {
 	b.grid()
 	var buses []*ZBus
 	floor := map[int][]Rect{} // части этажа слева направо
+	b.floors = floor
 	var mines []Zone
 	var power *Rect
 	base := Rect{world.Tile{X: math.MaxInt, Y: math.MaxInt}, world.Tile{X: math.MinInt, Y: math.MinInt}}
@@ -134,7 +135,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 		sort.Slice(ps, func(i, j int) bool { return ps[i].Min.X < ps[j].Min.X })
 	}
 	if len(buses) == 0 {
-		return nil, fmt.Errorf("cluster: в зонах нет шин")
+		return nil, nil, fmt.Errorf("cluster: в зонах нет шин")
 	}
 	head := world.Tile{X: buses[0].Rect.Min.X, Y: buses[0].Rect.Min.Y}
 	for _, c := range cs {
@@ -156,19 +157,21 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 	}
 	// блоки на пятна (cluster.md §2а «Добыча»): по объёму руды, соседи делят место поровну
 	if err := b.placeMines(mineCs, mines, head); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// этажи снизу вверх: поставщики входов стоят раньше потребителей
 	order := slices.Clone(cs)
 	sort.SliceStable(order, func(i, j int) bool { return floorOf(order[i]) < floorOf(order[j]) })
+	var placed []*Cluster // итоговый список: куски кластера (cluster.md §2 «Разбивка») — за ним
 	for _, c := range order {
 		f := floorOf(c)
+		placed = append(placed, c)
 		switch {
 		case c.Kind == Mine:
 			continue
 		case c.Kind == Power:
 			if power == nil {
-				return nil, fmt.Errorf("cluster: нет зоны энергии")
+				return nil, nil, fmt.Errorf("cluster: нет зоны энергии")
 			}
 			r := power.Grow(4)
 			c.Zone = &r
@@ -191,19 +194,20 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 				}
 			}
 			// части этажа слева направо — первая, где есть место; ряд — поперёк шин
-			var err error = fmt.Errorf("cluster: нет зоны этажа %d под %s", f, c.Name)
 			parts := slices.Clone(floor[f])
 			if c.Kind == Lab { // лаборатории — с правой части этажа
 				slices.Reverse(parts)
 			}
-			for _, r := range parts {
-				c.Zone, c.Upright = &r, true
-				if err = b.Place(c); err == nil {
-					break
+			if c.Kind == Smelt || c.Kind == Make {
+				ps, err := b.placePieces(c, parts)
+				if err != nil {
+					return nil, nil, err
 				}
+				placed = append(placed, ps...)
+				continue
 			}
-			if err != nil {
-				return nil, err
+			if err := b.placeIn(c, parts); err != nil {
+				return nil, nil, err
 			}
 			if c.Kind == Lab { // пакеты — с шины над этажом: голова блока (входы, буферы) — сверху,
 				// ленты A и B идут вниз вдоль левого столбца (решение пользователя)
@@ -236,10 +240,73 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 			err = b.Place(c)
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return buses, nil
+	return placed, buses, nil
+}
+
+// placeIn — кластер c в первой части этажа, где есть место.
+func (b *Base) placeIn(c *Cluster, parts []Rect) error {
+	var err error = fmt.Errorf("cluster: нет зоны этажа под %s", c.Name)
+	for _, r := range parts {
+		c.Zone, c.Upright = &r, true
+		if err = b.Place(c); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// placePieces — кластер плавки или производства в части этажа кусками (cluster.md §2
+// «Разбивка на кластеры», решение пользователя 26.10: 30 — потолок, а куски — какие влезают,
+// 20 + 8 тоже годится): первый — сам c, на столько мест, сколько влезает (не длиннее глубины;
+// сначала с местом под рост до minDepthShare глубины, нет — без), остаток — следующими
+// кусками («<имя>.2», «<имя>.3»…), каждый не короче MinUnits; потоки — по доле мест.
+// Возвращает куски после c.
+func (b *Base) placePieces(c *Cluster, parts []Rect) ([]*Cluster, error) {
+	orig := scaleCluster(c, 1)
+	total, need := c.Room, c.Need
+	depth := parts[0].H()
+	cap, spare := max(c.FitUnits(depth), 1), c.FitUnits(int(float64(depth)*minDepthShare))
+	var res []*Cluster
+	cur, rest := c, total
+	for rest > 0 {
+		n := min(rest, cap)
+		var err error = fmt.Errorf("cluster: нет зоны этажа под %s", cur.Name)
+		for ; n >= 1; n-- {
+			if left := rest - n; left > 0 && left < MinUnits {
+				continue // остаток — не короче MinUnits
+			}
+			cur.Count, cur.Need = n, min(n, need)
+			for _, room := range []int{max(n, spare), n} {
+				cur.Room = room
+				if err = b.placeIn(cur, parts); err == nil {
+					break
+				}
+			}
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		sc := scaleCluster(orig, float64(n)/float64(total))
+		cur.In, cur.Out, cur.Internal, cur.PowerW, cur.Units = sc.In, sc.Out, sc.Internal, sc.PowerW, sc.Units
+		rest, need = rest-n, need-cur.Need
+		if cur != c {
+			b.logf("кластер %s: кусок %s на %d мест (из %d)", c.Name, cur.Name, n, total)
+			res = append(res, cur)
+		} else if rest > 0 {
+			b.logf("кластер %s: %d мест в один не влезли — %d, остальное кусками", c.Name, total, n)
+		}
+		if rest > 0 {
+			cur = scaleCluster(orig, 1)
+			cur.Name, cur.MinX = fmt.Sprintf("%s.%d", c.Name, len(res)+2), c.MinX
+		}
+	}
+	return res, nil
 }
 
 // laneHead — лента шины не короче (от начала зоны шины): подводы добычи, сквозные отводы;

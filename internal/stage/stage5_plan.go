@@ -122,7 +122,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		base.Log = h.Log
 		base.Avoid = avoid
 		base.StorageNear, base.Keep = planStart(own)
-		buses, err := base.PlaceZoned(cs, rough.Zones)
+		_, buses, err := base.PlaceZoned(cs, rough.Zones)
 		if err != nil {
 			return err
 		}
@@ -252,10 +252,11 @@ func futureMines(h *act.Hands, base *cluster.Base, rough *RoughPlan, boost map[s
 		return nil, err
 	}
 	bricks.Later = true
-	if _, err := base.PlaceZoned([]*cluster.Cluster{bricks}, rough.Zones); err != nil {
+	ps, _, err := base.PlaceZoned([]*cluster.Cluster{bricks}, rough.Zones)
+	if err != nil {
 		return nil, err
 	}
-	return append(res, bricks), nil
+	return append(res, ps...), nil
 }
 
 // shortOre — ресурс, под бурами которого (по раскладке) меньше цели: имя, сколько, цель; "" — все

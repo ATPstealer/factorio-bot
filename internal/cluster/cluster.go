@@ -522,7 +522,7 @@ func Pair(p *knowledge.Prototypes, main, sub *Cluster) *Cluster {
 	}
 	c.SubPer = min(2, max(1, int(math.Ceil(ns/math.Max(nm, 1e-9)-1e-9))))
 	shape(p, c)
-	// по темпу (не по лентам): пары длинные (шаг 8–12) — 30 пар не влезут в глубину зоны
+	// по темпу (не по лентам): пары длинные (шаг 8–12); длиннее глубины зоны — PlaceZoned режет
 	c.Count = min(max(c.Need, MinUnits), MaxUnits)
 	c.Room = c.Count
 	return c
@@ -643,7 +643,8 @@ func sameCats(e, o knowledge.Entity) bool {
 }
 
 // MinUnits, MaxUnits — мест выхода в кластере плавки, производства и науки (машин; у пар —
-// пар): жёсткие пределы, cluster.md §2 «Размер».
+// пар): жёсткие пределы, cluster.md §2 «Размер» (без потолка база шире на 20% — 26.10);
+// длиннее глубины зоны — PlaceZoned режет на кластеры.
 const (
 	MinUnits = 5
 	MaxUnits = 30
@@ -738,7 +739,8 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	c.Count = max(int(math.Ceil(n-1e-9)), 1)
 	c.Need = c.Count
 	switch c.Kind {
-	case Smelt, Make: // по лентам (наука — по темпу), от MinUnits до MaxUnits (cluster.md §2 «Размер»)
+	case Smelt, Make: // по лентам (наука — по темпу), от MinUnits до MaxUnits (cluster.md §2 «Размер»);
+		// длиннее глубины зоны — PlaceZoned режет на кластеры
 		if !IsScience(c.Product) {
 			c.Count = byBelts(p, c, n)
 		}
@@ -753,8 +755,9 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Smelt || c.Kind == Make {
 		c.Room = c.Count // кластер строится сразу целиком — запаса в ряду нет
 	}
-	if c.Kind == Lab { // блок сразу на все места (cluster.md §2а «Лаборатории»); в голове — ещё лента C и её инсертеры
+	if c.Kind == Lab { // блок сразу на все места (cluster.md §2а «Лаборатории»); в голове — буферы двух
+		// пакетов друг за другом (по n сундуков) и ещё лента C с инсертерами
 		c.Room = max(labRoom, c.Count)
-		c.Head = 2*bufferChests(p, c) + 2
+		c.Head = 4*bufferChests(p, c) + 2
 	}
 }

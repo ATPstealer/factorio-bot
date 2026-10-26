@@ -198,7 +198,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 			base.Clusters = append(base.Clusters, c)
 		}
 	}
-	zb, err := base.PlaceZoned(nil, rough.Zones)
+	_, zb, err := base.PlaceZoned(nil, rough.Zones)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -228,28 +228,29 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	if tank == nil {
 		return nil, nil, fmt.Errorf("нет зоны bus-1")
 	}
-	if _, err := base.PlaceZoned([]*cluster.Cluster{tank}, rough.Zones); err != nil {
+	ps, _, err := base.PlaceZoned([]*cluster.Cluster{tank}, rough.Zones)
+	if err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, tank)
-	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»)
+	fresh = append(fresh, ps...)
+	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»); длиннее глубины — кусками
 	steel := cluster.Steel(pr, planReserve)
-	if _, err := base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {
+	if ps, _, err = base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, steel)
+	fresh = append(fresh, ps...)
 	// НПЗ — простая переработка, только газ, с большим запасом (stages.md, стадия 7)
 	refinery := cluster.Refinery(pr, refineries)
-	if _, err := base.PlaceZoned([]*cluster.Cluster{refinery}, rough.Zones); err != nil {
+	if ps, _, err = base.PlaceZoned([]*cluster.Cluster{refinery}, rough.Zones); err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, refinery)
+	fresh = append(fresh, ps...)
 	// химия: пластик (газ + уголь), сера (газ + вода) — правее НПЗ на этаже переработки
 	chems := []*cluster.Cluster{cluster.Chem(pr, "plastic-bar", chemPlants), cluster.Chem(pr, "sulfur", chemPlants)}
-	if _, err := base.PlaceZoned(chems, rough.Zones); err != nil {
+	if ps, _, err = base.PlaceZoned(chems, rough.Zones); err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, chems...)
+	fresh = append(fresh, ps...)
 	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 7):
 	// шестерни — внутри парами; ленты, инсертеры, схемы — с шины (их кластеры уже есть)
 	fast, err := calc.Solve(pr, map[string]float64{"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate},
@@ -267,20 +268,20 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 			helpers = append(helpers, c)
 		}
 	}
-	if _, err := base.PlaceZoned(helpers, rough.Zones); err != nil {
+	if ps, _, err = base.PlaceZoned(helpers, rough.Zones); err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, helpers...)
+	fresh = append(fresh, ps...)
 	// синяя наука: двигатели (трубы внутри, шестерни — с шины), красные схемы (провод внутри),
 	// сама наука (stages.md, стадия 7)
 	sci, err := blueClusters(pr)
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := base.PlaceZoned(sci, rough.Zones); err != nil {
+	if ps, _, err = base.PlaceZoned(sci, rough.Zones); err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, sci...)
+	fresh = append(fresh, ps...)
 	// склад газа — 5×4 у головы bus-2, на свободном месте (cluster.md §2а «Нефть»)
 	var gasTank *cluster.Cluster
 	for _, z := range rough.Zones {
@@ -292,10 +293,10 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	if gasTank == nil {
 		return nil, nil, fmt.Errorf("нет зоны bus-2")
 	}
-	if _, err := base.PlaceZoned([]*cluster.Cluster{gasTank}, rough.Zones); err != nil {
+	if ps, _, err = base.PlaceZoned([]*cluster.Cluster{gasTank}, rough.Zones); err != nil {
 		return nil, nil, err
 	}
-	fresh = append(fresh, gasTank)
+	fresh = append(fresh, ps...)
 	layoutAll := func() (*layout.Layout, error) {
 		l, err := base.Layout(fresh...)
 		if err != nil {
@@ -359,30 +360,32 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		if n <= have {
 			continue
 		}
-		if err := base.GrowRow(l, c, n); err == nil {
-			h.Say("рост: %s — %s %d → %d вдоль ряда", c.Name, c.MainMachine(), have, n)
-			grow[c] = n
-			continue
+		// вдоль ряда — до предела ряда (GrowCap: 30 машин, станция — бойлеров на одну помпу),
+		// остальное — новыми кластерами (решение пользователя 26.10)
+		m := min(n, base.GrowCap(c))
+		if err := base.GrowRow(l, c, m); err == nil {
+			h.Say("рост: %s — %s %d → %d вдоль ряда", c.Name, c.MainMachine(), have, m)
+			grow[c] = m
 		} else {
 			h.Log("рост %s: %v", c.Name, err)
+			m = have
+			if c.Kind == cluster.Power { // вдоль ряда — сколько влезет
+				for k := min(n, base.GrowCap(c)) - 1; k > have; k-- {
+					if err := base.GrowRow(l, c, k); err == nil {
+						grow[c], m = k, k
+						break
+					} else if k <= c.Room {
+						h.Log("рост %s до %d: %v", c.Name, k, err)
+					}
+				}
+			}
+		}
+		if m >= n {
+			continue
 		}
 		if c.Kind == cluster.Power {
-			// вдоль ряда — сколько влезет, остальное — вторая станция у воды (своя помпа, уголь —
-			// отводом с ленты первой; cluster.md §2а «Станция»)
-			m := n - 1
-			for ; m > have; m-- {
-				err := base.GrowRow(l, c, m)
-				if err == nil {
-					grow[c] = m
-					break
-				}
-				if m <= c.Room {
-					h.Log("рост %s до %d: %v", c.Name, m, err)
-				}
-			}
-			if m <= have {
-				m = have
-			}
+			// остальное — вторая станция у воды (своя помпа, уголь — отводом с ленты первой;
+			// cluster.md §2а «Станция»)
 			stationOf = c
 			for rest := n - m; rest > 0; { // станции — не больше, чем кормит одна помпа
 				k := min(rest, cluster.PumpBoilers(pr))
@@ -401,14 +404,15 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 			}
 			continue
 		}
-		x, err := cluster.Extra(pr, needs, c, have, n)
+		xs, err := cluster.Extras(pr, needs, c, m, n, base.GrowCap(c))
 		if err != nil {
-			return base, l, fmt.Errorf("рост %s (%d → %d): %w", c.Name, have, n, err)
+			return base, l, fmt.Errorf("рост %s (%d → %d): %w", c.Name, m, n, err)
 		}
-		extras = append(extras, x)
+		extras = append(extras, xs...)
 	}
 	if len(extras) > 0 {
-		if _, err := base.PlaceZoned(extras, rough.Zones); err != nil {
+		var err error
+		if extras, _, err = base.PlaceZoned(extras, rough.Zones); err != nil {
 			return base, l, err
 		}
 		for _, x := range extras {

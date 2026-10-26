@@ -74,9 +74,10 @@ type Base struct {
 	// NoMine — где зон добычи не выбирать (MineZones): место базы прошлой разметки
 	NoMine []Rect
 
-	mineZones []Zone // прикидка: зоны добычи (MineZones)
-	zoneRects []Rect // зоны (PlaceZoned): кластеры без зоны — вне их
-	busRects  []Rect // шины (PlaceZoned): подводы с добычи — в обход (fence)
+	mineZones []Zone         // прикидка: зоны добычи (MineZones)
+	zoneRects []Rect         // зоны (PlaceZoned): кластеры без зоны — вне их
+	busRects  []Rect         // шины (PlaceZoned): подводы с добычи — в обход (fence)
+	floors    map[int][]Rect // части этажей (PlaceZoned): глубина этажа — предел длины кластера
 
 	g *grid
 }
@@ -172,11 +173,8 @@ func (b *Base) grid() *grid {
 		wet[i] = water[i] || unknown[i]
 	}
 	g.thickWet = prefix(thickRuns(wet, g.w, g.h), g.w, g.h)
-	// кластерам — не на руду (+Corridor): ленты с добычи идут вдоль месторождений (руду в bad
-	// убирали — на 859088572 лента с добычи железа не проходила); этажам и шинам — можно (fitLayered)
-	for i := range bad {
-		bad[i] = bad[i] || zone[i]
-	}
+	// кластерам производства на руде — можно (решение пользователя 26.10); обходится только
+	// добыча (ring кластеров добычи, зоны добычи — fitLayered)
 	g.bad, g.water, g.unknown = prefix(bad, g.w, g.h), prefix(water, g.w, g.h), prefix(unknown, g.w, g.h)
 	for name, o := range ores {
 		g.ore[name] = prefix(o, g.w, g.h)
@@ -189,14 +187,11 @@ func (b *Base) grid() *grid {
 	return g
 }
 
-// occupied — что кластер c занимает в разметке: Area с бордюром; в зоне производства — весь
-// столбец зоны (рост вдоль ряда, друг над другом кластеры не ставятся).
+// occupied — что кластер c занимает в разметке: Area с бордюром. Остаток столбца зоны над
+// ним — свободен: кластеры ставятся и друг над другом (решение пользователя 26.10), рост
+// вдоль ряда — пока не упрётся в соседа (extFree), дальше — новый кластер (Extras).
 func (b *Base) occupied(c *Cluster) Rect {
-	occ := c.Area.Grow(b.border(c))
-	if c.Upright && c.Zone != nil {
-		occ.Min.Y, occ.Max.Y = min(occ.Min.Y, c.Zone.Min.Y), max(occ.Max.Y, c.Zone.Max.Y)
-	}
-	return occ
+	return c.Area.Grow(b.border(c))
 }
 
 func prefix(v []bool, w, h int) []int32 {
@@ -391,8 +386,8 @@ func (b *Base) find(c *Cluster) *cand {
 }
 
 // pack — место в зоне производства (zones.md): плотно слева направо — первое, что влезает, по
-// столбцам от левого края, в столбце — от низа зоны. Столбец кластера целиком (на всю глубину
-// зоны) — его (Place): друг над другом кластеры не ставятся.
+// столбцам от левого края, в столбце — от низа зоны; над кластером (через коридор 6) — следующий,
+// если влезает в глубину (стопки, zones.md).
 func (b *Base) pack(c *Cluster) *cand {
 	z := *c.Zone
 	w, h := size(c, false)

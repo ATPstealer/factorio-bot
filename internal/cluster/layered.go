@@ -136,16 +136,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 			later = append(later, c)
 		default:
 			if k := int(math.Ceil(float64(c.Len()) / floorDepth)); k > 1 { // длинный — столбцами
-				for i := 0; i < k; i++ {
-					p := scaleCluster(c, 1/float64(k))
-					p.Count = max(1, (c.Count+k-1)/k)
-					p.Room = p.Count
-					p.Need = min(p.Count, max(1, (c.Need+k-1)/k))
-					if i > 0 {
-						p.Name = fmt.Sprintf("%s.%d", c.Name, i+1)
-					}
-					fl[f] = append(fl[f], p)
-				}
+				fl[f] = append(fl[f], splitInto(scaleCluster(c, 1), k)...) // копия: план не трогать
 				continue
 			}
 			fl[f] = append(fl[f], c)
