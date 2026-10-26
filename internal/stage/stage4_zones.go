@@ -351,22 +351,32 @@ func roughUnknown(h *act.Hands) (func(bridge.ChunkPos) bool, bool) {
 // пятна добычи заново от головы её bus-1 и разметка ещё раз (zones.md: добыча — ближняя ко
 // входу bus-1; от центра шина вставала в 300 тайлах от зон добычи — 238178543).
 func roughOnce(h *act.Hands) error {
-	head, err := roughPass(h, nil)
+	head, err := roughPass(h, nil, nil)
 	if err != nil || head == nil {
 		return err
 	}
+	// добыча — не на месте базы (zones.md): иначе база уезжает, добыча — за озером (763180279)
+	var site []cluster.Rect
+	if rp, err := LoadRough(); err == nil {
+		for _, z := range rp.Zones {
+			if z.Kind != cluster.ZoneMine {
+				site = append(site, z.Rect.Grow(16))
+			}
+		}
+	}
 	h.Log("зоны добычи — заново от головы bus-1 (%d, %d)", head.X, head.Y)
-	if _, err := roughPass(h, head); err != nil {
+	if _, err := roughPass(h, head, site); err != nil {
 		h.Log("разметка от головы bus-1 не встала (%v) — остаётся от центра", err)
-		_, err = roughPass(h, nil)
+		_, err = roughPass(h, nil, nil)
 		return err
 	}
 	return nil
 }
 
 // roughPass — одна разметка; origin — от чего ближние пятна добычи и база (nil — центр у крупных
-// пятен по всей карте). Возвращает голову bus-1 (левый край, середина по высоте).
-func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
+// пятен по всей карте); noMine — где зон добычи не брать. Возвращает голову bus-1 (левый край,
+// середина по высоте).
+func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Tile, error) {
 	pr := h.Protos
 	targets, labSec, err := roughTargets(h)
 	if err != nil {
@@ -428,6 +438,7 @@ func roughPass(h *act.Hands, from *world.Tile) (*world.Tile, error) {
 	base := cluster.NewBase(pr, h.World, origin)
 	base.Log, base.Rough, base.CliffZones = h.Log, true, roughCliffs
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
+	base.NoMine = noMine
 	base.MineZones(cs, need)
 	lay, err := base.PlaceLayered(cs, roughBelt)
 	if err != nil {

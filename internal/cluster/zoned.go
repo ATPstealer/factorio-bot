@@ -117,6 +117,7 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*ZBus, error) {
 		case ZoneBus:
 			buses = append(buses, &ZBus{Name: z.Name, Rect: z.Rect})
 			base = union(base, z.Rect)
+			b.busRects = append(b.busRects, z.Rect)
 		case ZoneMine:
 			mines = append(mines, z)
 		case ZonePower:
@@ -395,7 +396,16 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 			ln.Start = gp.b.X
 			continue
 		} else if err != nil {
-			return fmt.Errorf("cluster: %s: лента %s не обходит неровность (%d, %d)–(%d, %d): %w", gp.tag, gp.item, gp.a.X, gp.a.Y, gp.b.X, gp.b.Y, err)
+			in := map[string]bool{} // что в разрыве (разбор)
+			for x := gp.a.X + 1; x < gp.b.X; x++ {
+				t := world.Tile{X: x, Y: gp.a.Y}
+				if p := l.At(t); p != nil {
+					in[p.Name+" "+p.Tag] = true
+				} else if ok, _ := l.W.Buildable(t); !ok {
+					in["неровность"] = true
+				}
+			}
+			return fmt.Errorf("cluster: %s: лента %s не обходит неровность (%d, %d)–(%d, %d) %v: %w", gp.tag, gp.item, gp.a.X, gp.a.Y, gp.b.X, gp.b.Y, slices.Collect(maps.Keys(in)), err)
 		}
 		// предмет ленты — обычным лентам; у подземки в Recipe — вход/выход: затёртый — следующий
 		// обход той же ленты не видел, откуда в него въезжают (feedDir), и ставил вход подземки
@@ -1061,6 +1071,12 @@ func feederSides(l *layout.Layout, bus *ZBus, lns []*ZoneLane, from world.Tile) 
 // ресурсов bus — тоже, кроме рядов лент слева от голов. Возвращает закрытое — открыть (unfence).
 func (b *Base) fence(l *layout.Layout, bus *ZBus, c *Cluster) []world.Tile {
 	rs := []Rect{bus.Rect}
+	// и другие шины: подвод вдоль ряда bus-2 перегородил ей ленту на стадии 6 (954176679)
+	for _, r := range b.busRects {
+		if r != bus.Rect {
+			rs = append(rs, r)
+		}
+	}
 	for _, o := range b.Clusters {
 		if o == c {
 			continue

@@ -157,8 +157,12 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 			if have >= n {
 				break
 			}
+			r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}
+			if slices.ContainsFunc(b.NoMine, r.Overlaps) {
+				continue
+			}
 			if pt.Name == it {
-				rs = append(rs, Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}})
+				rs = append(rs, r)
 				have += float64(pt.Amount)
 			}
 		}

@@ -71,8 +71,12 @@ type Base struct {
 	// Keep — что кластерам без зоны не задевать (стартовые точки до разборки)
 	Keep []Rect
 
+	// NoMine — где зон добычи не выбирать (MineZones): место базы прошлой разметки
+	NoMine []Rect
+
 	mineZones []Zone // прикидка: зоны добычи (MineZones)
 	zoneRects []Rect // зоны (PlaceZoned): кластеры без зоны — вне их
+	busRects  []Rect // шины (PlaceZoned): подводы с добычи — в обход (fence)
 
 	g *grid
 }
