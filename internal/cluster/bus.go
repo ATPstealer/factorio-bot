@@ -6,9 +6,6 @@ package cluster
 
 const Bus Kind = "bus"
 
-// BeltRate — пропускная способность ленты шины, шт/с (жёлтая 15; прикидка базы — красная 30).
-var BeltRate = 15.0
-
 // laneV — ряд j-й ленты: пары через зазоры в 3.
 func laneV(j int) int { return 3 + (j/2)*5 + j%2 }
 

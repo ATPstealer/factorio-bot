@@ -748,7 +748,7 @@ func checkOutposts(h *act.Hands) error {
 func (s *worker) fromBuffers(ctx context.Context, plate string) error {
 	data, err := os.ReadFile(runPath(smeltingFile))
 	if err != nil {
-		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 12): %w", plate, err)
+		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 17): %w", plate, err)
 	}
 	var list []layout.Placement
 	if err := json.Unmarshal(data, &list); err != nil {

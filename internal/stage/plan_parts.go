@@ -186,7 +186,7 @@ func coalBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// smeltingBase — стадия 12 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
+// smeltingBase — стадия 17 из плана: добыча и плавка железа и меди, ленты руды шины с подводами от
 // добычи, отводы руды и угля в плавку (с буферами входа), делители на этих лентах. Пластины на
 // шину — стадия 13.
 func smeltingBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
@@ -204,7 +204,7 @@ func smeltingBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	return withSplitters(h, plan, res)
 }
 
-// busPlatesBase — стадия 13 из плана: ленты пластин шины, подводы в них от плавки, делители на них
+// busPlatesBase — стадия 18 из плана: ленты пластин шины, подводы в них от плавки, делители на них
 // (отводы будущих потребителей стоят в разрыве ленты).
 func busPlatesBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var srcs []string

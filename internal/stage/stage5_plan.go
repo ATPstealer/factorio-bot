@@ -121,7 +121,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 		base := cluster.NewBase(pr, h.World, world.Tile{}) // центр базы — место старта
 		base.Log = h.Log
 		base.Avoid = avoid
-		base.StorageNear, base.Keep = planStart(own)
+		base.Keep = planStart(own) // стартовые точки не задевать; хранение — у головы bus-1 (PlaceZoned)
 		_, buses, err := base.PlaceZoned(cs, rough.Zones)
 		if err != nil {
 			return err
@@ -358,21 +358,13 @@ func checkPlan(h *act.Hands) error {
 	return nil
 }
 
-// planStart — середина стартовых буров (точки стадии 2) и места всех своих построек: хранение —
-// рядом с ними (носить недалеко), но не на них (zones.md).
-func planStart(own []world.Object) (*world.Tile, []cluster.Rect) {
+// planStart — места всех своих построек (точки стадии 2): кластеры без зоны их не задевают
+// (до разборки на стадии 15).
+func planStart(own []world.Object) []cluster.Rect {
 	var keep []cluster.Rect
-	var sx, sy float64
-	n := 0
 	for _, o := range own {
 		t := world.TileOf(o.Pos)
 		keep = append(keep, cluster.Rect{Min: world.Tile{X: t.X - 1, Y: t.Y - 1}, Max: world.Tile{X: t.X + 2, Y: t.Y + 2}})
-		if strings.HasSuffix(o.Name, "mining-drill") {
-			sx, sy, n = sx+o.Pos.X, sy+o.Pos.Y, n+1
-		}
 	}
-	if n == 0 {
-		return nil, keep
-	}
-	return &world.Tile{X: int(math.Round(sx / float64(n))), Y: int(math.Round(sy / float64(n)))}, keep
+	return keep
 }

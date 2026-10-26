@@ -22,7 +22,8 @@ import (
 // Стадия 4 (stages.md): прикидочный план всей базы до запуска ракеты за roughHours часов, конечные
 // машины — AM2 и стальные печи. Без раскладок: блоки (кластеры по продукту) с машинами и
 // площадью, шина по уровням (ленты — красные), хватит ли ресурсов на всю игру, зоны на карте
-// (центр базы — место старта), картинка. Следующие стадии строят внутри зон.
+// (центр базы — у крупных пятен угля, железа и меди, zones.md), картинка. Следующие стадии
+// строят внутри зон.
 
 const (
 	roughFile        = "state-zones.json"
@@ -456,9 +457,6 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 	}
 	restore := h.World.Hide(own)
 	defer restore()
-	saved := cluster.BeltRate
-	cluster.BeltRate = roughBelt
-	defer func() { cluster.BeltRate = saved }()
 	// зоны добычи — по месторождениям: на каждый ресурс — пятна, пока запаса хватит на игру
 	need := map[string]float64{}
 	for it, rate := range plan.Raw {
@@ -472,7 +470,7 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 	}
 	h.Log("центр базы (%d, %d)", origin.X, origin.Y)
 	base := cluster.NewBase(pr, h.World, origin)
-	base.Log, base.Rough, base.CliffZones = h.Log, true, roughCliffs
+	base.Log, base.CliffZones = h.Log, roughCliffs
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
 	base.NoMine = noMine
 	if baseFirst && from == nil {

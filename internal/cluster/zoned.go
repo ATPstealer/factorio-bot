@@ -103,7 +103,7 @@ func floorOfZone(z Zone) int {
 
 // PlaceZoned — места кластерам cs внутри зон zones: добыча — в зонах добычи своего ресурса
 // (ближе к шине ресурсов), производство — в зоне своего этажа, станция — в зоне энергии,
-// хранение — вне зон, у стартовых буров (StorageNear). Уже размеченные кластеры базы
+// хранение — вне зон, у головы bus-1 (storageRight/storageBelow). Уже размеченные кластеры базы
 // (b.Clusters) — препятствие. Возвращает шины (ленты — потом, ConnectZoned).
 func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, error) {
 	b.grid()
@@ -214,13 +214,10 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 				c.Upright, c.Rect = false, c.Area
 			}
 			continue
-		default: // хранение — вне зон, у стартовых буров (или где задано: у головы bus-1)
+		default: // хранение — вне зон, у головы bus-1: под шиной и правее головы, подальше от
+			// развязки подводов (zones.md §3, cluster.md «Хранение»); склады — где задано (Near)
 			if c.Near == nil {
-				cx, cy := base.Center()
-				near := world.Tile{X: int(cx), Y: int(cy)}
-				if b.StorageNear != nil {
-					near = *b.StorageNear
-				}
+				near := world.Tile{X: head.X + storageRight, Y: buses[0].Rect.Max.Y + storageBelow}
 				c.Near = &near
 			}
 		}
@@ -308,6 +305,13 @@ func (b *Base) placePieces(c *Cluster, parts []Rect) ([]*Cluster, error) {
 	}
 	return res, nil
 }
+
+// storageRight, storageBelow — хранение от головы bus-1: правее (подальше от развязки подводов)
+// и ниже шины (zones.md §3).
+const (
+	storageRight = 30
+	storageBelow = 12
+)
 
 // laneHead — лента шины не короче (от начала зоны шины): подводы добычи, сквозные отводы;
 // laneTail — за последним пользователем ленты (отвод делителем, подвод боком).

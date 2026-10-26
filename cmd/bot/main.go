@@ -62,7 +62,7 @@ const usage = `bot — бот Factorio: действует только мышь
                         нарисовать открытую карту вокруг игрока в PNG: радиус R тайлов (150),
                         S пикселей на тайл (3), файл FILE (map.png); руды, вода, деревья, камни, обломки
   patches [R]           месторождения на открытой карте в радиусе R (по умолчанию все): ресурс, запас, расстояние
-  protos [-refresh]     справочник игры (рецепты, предметы, сущности, техи); кэш data/prototypes-<версия>.json
+  protos [-refresh]     справочник игры (рецепты, предметы, сущности, техи); кэш data/prototypes-<игра>-botbridge<мод>.json
   force                 исследования: изучено, текущее, прогресс, доступные рецепты
   shot [-o FILE]        снимок окна клиента в PNG (shot.png) — для отладки и калибровки интерфейса
   mine ЦЕЛЬ [N] [R]     добыть руками N раз в радиусе R тайлов (по умолчанию N=1, R=64)
@@ -93,8 +93,9 @@ const usage = `bot — бот Factorio: действует только мышь
   bin/bot calc -all rocket-part 1/min
   bin/bot calc automation-science-pack 30 logistic-science-pack 30
   bin/bot tech rocket-silo
-  bin/bot plan smelt iron-ore 5
-  bin/bot -t 20m run smelt iron-ore 5
+  bin/bot -t 2h stage 11
+  PLAN=1 scripts/stage.sh 4-10 859088572
+  BOT_RUN=run/i1 bin/bot rough run/worlds/859088572.gob 7
 
 Флаги:
 `

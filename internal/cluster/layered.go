@@ -311,9 +311,8 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		}
 	}
 	// станция — у воды, где меньше сумма «добыча угля → водоём» + «водоём → край базы»;
-	// хранение — рядом с базой
-	cx, cy := lo.area.Center()
-	near := world.Tile{X: int(cx), Y: int(cy)}
+	// хранение — у головы bus-1, под шиной и правее головы (zones.md §3; как в стадии 5)
+	near := world.Tile{X: lo.buses[0].Min.X + storageRight, Y: lo.buses[0].Max.Y + storageBelow}
 	sort.SliceStable(later, func(i, j int) bool { return later[i].Kind == Power })
 	for _, c := range later {
 		c.Near = &near
