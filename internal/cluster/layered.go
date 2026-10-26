@@ -253,28 +253,43 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	slices.SortStableFunc(fl[3], func(a, b *Cluster) int { return right(a) - right(b) })
 	zw := make([]int, floors+1)
 	var pos [floors + 1][]world.Tile
-	base := 0
 	for f := 1; f <= floors; f++ {
 		pos[f], zw[f] = pack(fl[f], depths[f], nil)
 		if len(fl[f]) > 0 { // не уже минимума (zones.md): прикидка даёт мало машин
 			zw[f] = max(zw[f], minCols[f]*colWidth[f])
 		}
-		if f == 1 && zw[f] > 0 { // переработка почти забита — шире на 30% (решение пользователя)
-			zw[f] = zw[f] * 13 / 10
-		}
 		if b.CliffZones && zw[f] > 0 { // утёсы съедают место — шире на половину (zones.md)
 			zw[f] = zw[f] * 3 / 2
 		}
-		base = max(base, zw[f])
 	}
-	width := layerHead + base + layerSlack
-	// части этажей между препятствиями — база шире; из ширин — место ближе к старту (лишний тайл
-	// ширины — как тайл расстояния): у старта препятствия, а узкая база уезжает за сотни тайлов
+	// переработка почти забита — шире на 30% (решение пользователя); не влезает — запас мягкий:
+	// +15%, потом без запаса (решение пользователя 2026-10-26: 689494172 — лучшая полоса 272 из 273)
+	zw1 := zw[1]
 	var lo *layered
-	bestCost := math.Inf(1)
-	for _, extra := range []int{0, base / 4, base / 2, base} {
-		if l := b.fitLayered(zw, colWidth[:], depths, widths, width+extra); l != nil && l.dist+float64(extra) < bestCost {
-			lo, bestCost = l, l.dist+float64(extra)
+	var width int
+	for _, spare := range []int{30, 15, 0} {
+		if zw1 > 0 {
+			zw[1] = zw1 * (100 + spare) / 100
+		}
+		base := 0
+		for f := 1; f <= floors; f++ {
+			base = max(base, zw[f])
+		}
+		width = layerHead + base + layerSlack
+		// части этажей между препятствиями — база шире; из ширин — место ближе к старту (лишний
+		// тайл ширины — как тайл расстояния): у старта препятствия, а узкая база уезжает за сотни
+		// тайлов
+		bestCost := math.Inf(1)
+		for _, extra := range []int{0, base / 4, base / 2, base} {
+			if l := b.fitLayered(zw, colWidth[:], depths, widths, width+extra); l != nil && l.dist+float64(extra) < bestCost {
+				lo, bestCost = l, l.dist+float64(extra)
+			}
+		}
+		if lo != nil {
+			if spare < 30 {
+				b.logf("этажи: переработка с запасом +30%% не встала — запас +%d%%", spare)
+			}
+			break
 		}
 	}
 	if lo == nil {
@@ -385,7 +400,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	why := map[string]int{} // почему не встало (журнал: разбор, почему база не встаёт)
 	// лучшее из неудачных мест: сколько ширины этажа 1 набралось и где (разбор: чуть-чуть не
 	// хватило или совсем нет полосы)
-	got1, topGot, topAt := 0, 0, world.Tile{}
+	var gotF [floors + 1]int // сколько ширины набрал этаж в этом месте
+	topGot, topAt := 0, world.Tile{}
+	failF, failWhy, topF, topWhy := 0, "", 0, "" // на каком этаже и почему место отвергнуто
 	free := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
@@ -456,9 +473,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			need -= w
 		}
 		if need > 0 {
-			if f == 1 {
-				got1 = max(got1, zw[f]-need)
-			}
+			gotF[f] = max(gotF[f], zw[f]-need)
 			return nil
 		}
 		sort.Slice(res, func(i, j int) bool { return res[i].Min.X < res[j].Min.X })
@@ -483,6 +498,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 				bus := Rect{world.Tile{X: busL, Y: busY.Min.Y}, world.Tile{X: prevL + max(prevW, 1), Y: busY.Max.Y}}
 				if !freeBus(bus) {
 					why[fmt.Sprintf("шина %d над этажом %d занята", f, f-1)]++
+					failF, failWhy = f, "шина над этажом занята"
 					return nil
 				}
 				lo.buses[f-1] = bus
@@ -536,6 +552,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			}
 			if !placed {
 				why[fmt.Sprintf("этаж %d: %s", f, reason)]++
+				failF, failWhy = f, reason
 				return nil
 			}
 		}
@@ -552,11 +569,11 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		}
 		for _, o := range ringOffsets(r) {
 			x0, y0 := ax+o.X*8, ay+o.Y*8+widths[0]/2
-			got1 = 0
+			gotF, failF, failWhy = [floors + 1]int{}, 0, ""
 			lo := stack(x0, y0)
 			if lo == nil {
-				if got1 > topGot {
-					topGot, topAt = got1, world.Tile{X: x0, Y: y0}
+				if failF > topF || failF == topF && gotF[failF] > topGot {
+					topF, topWhy, topGot, topAt = failF, failWhy, gotF[failF], world.Tile{X: x0, Y: y0}
 				}
 				continue
 			}
@@ -572,8 +589,8 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	}
 	if len(why) > 0 {
 		b.logf("этажи: ширина %d — отказы мест %v", width, why)
-		if best == nil && topGot > 0 {
-			b.logf("этажи: лучшее из неудачных мест — этаж 1 набрал %d из %d у bus-1 (%d, %d)", topGot, zw[1], topAt.X, topAt.Y)
+		if best == nil && topF > 0 {
+			b.logf("этажи: лучшее из неудачных мест — этажи до %d встали, этаж %d: %s (набирал %d из %d) у bus-1 (%d, %d)", topF-1, topF, topWhy, topGot, zw[topF], topAt.X, topAt.Y)
 		}
 	}
 	return best

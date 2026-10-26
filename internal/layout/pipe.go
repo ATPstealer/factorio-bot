@@ -3,6 +3,7 @@ package layout
 import (
 	"container/heap"
 	"errors"
+	"fmt"
 
 	"factorio-bot/internal/world"
 )
@@ -93,7 +94,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 	start := from.To
 	pipeOK := func(t world.Tile) bool { return l.Free(t, AnyLand) && !l.Solid[t] && !l.fluidNeighbour(t, own) }
 	if !pipeOK(start) {
-		return nil, ErrNoPipe
+		return nil, fmt.Errorf("%w: начало (%d, %d) закрыто (занято, Solid или чужая труба рядом)", ErrNoPipe, start.X, start.Y)
 	}
 	// ugClear — между концами подземной пары нет других подземок на этой оси (спарятся не так)
 	ugClear := func(a world.Tile, d, k int) bool {
@@ -186,7 +187,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		}
 	}
 	if !found {
-		return nil, ErrNoPipe
+		return nil, fmt.Errorf("%w: пути нет (состояний %d из %d)", ErrNoPipe, len(best), limit)
 	}
 	var res []Placement
 	for s := end; s != s0; {

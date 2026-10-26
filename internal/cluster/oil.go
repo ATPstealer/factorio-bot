@@ -774,20 +774,38 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 		return fmt.Errorf("cluster %s: от трубы нефти не отойти", field.Name)
 	}
 	sort.Slice(froms, func(i, j int) bool { return dist(froms[i].To, to) < dist(froms[j].To, to) })
-	cur := froms[0]
 	n := (abs(start.X-to.X) + abs(start.Y-to.Y)) / pumpEvery
 	l.PipeUnder = true
 	defer func() { l.PipeUnder = false }()
+	// насосы — на прямой; отрезок не провёлся (насос встал в тесноте у подводов руды, из его
+	// выхода не выйти — 565937761) — откатить и сдвинуть насосы вдоль прямой
+	mark := l.Mark()
+	var err error
+	for _, off := range []int{0, 40, -40, 80, -80, 120} {
+		if err = b.trunkLegs(l, field, tank, froms[0], start, to, goals, n, off, tag); err == nil {
+			return nil
+		}
+		l.Rollback(mark)
+		b.logf("нефтетрасса %s: насосы со сдвигом %d — %v", field.Name, off, err)
+	}
+	return err
+}
+
+// trunkLegs — отрезки нефтетрассы от cur (у трубы месторождения start) к складу to: n насосов на
+// прямой start → to через равные доли, сдвинутые вдоль прямой на off тайлов; последний отрезок —
+// к любому из goals; столбы вдоль всех отрезков.
+func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn, start, to world.Tile, goals []layout.Conn, n, off int, tag string) error {
 	var legs [][]layout.Placement
+	length := max(abs(start.X-to.X)+abs(start.Y-to.Y), 1)
 	for k := 1; k <= n; k++ {
-		p := world.Tile{X: start.X + (to.X-start.X)*k/(n+1), Y: start.Y + (to.Y-start.Y)*k/(n+1)}
+		p := world.Tile{X: start.X + (to.X-start.X)*(k*length/(n+1)+off)/length, Y: start.Y + (to.Y-start.Y)*(k*length/(n+1)+off)/length}
 		pump, in, out, ok := pumpNear(l, p, to, tag)
 		if !ok {
 			return fmt.Errorf("cluster %s: насосу нет места у (%d, %d)", field.Name, p.X, p.Y)
 		}
 		leg, err := l.RoutePipe(cur, in, tag)
 		if err != nil {
-			return fmt.Errorf("нефтетрасса %s → насос %d: %w", field.Name, k, err)
+			return fmt.Errorf("нефтетрасса %s → насос %d у (%d, %d): %w", field.Name, k, p.X, p.Y, err)
 		}
 		l.Add(pump)
 		legs = append(legs, leg)
@@ -795,6 +813,13 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 	}
 	leg, err := l.RoutePipeTo(cur, goals, tag)
 	if err != nil {
+		var near []string // разбор: что у начала последнего отрезка
+		for _, p := range l.List {
+			if t := world.TileOf(p.Pos); abs(t.X-cur.To.X) <= 2 && abs(t.Y-cur.To.Y) <= 2 {
+				near = append(near, fmt.Sprintf("%v %s %s %s", t, p.Name, layout.DirName(p.Dir), p.Tag))
+			}
+		}
+		b.logf("нефтетрасса %s %v → %s %v от (%d,%d), целей %d: %v; рядом %v", field.Name, field.Area, tank.Name, tank.Area, cur.To.X, cur.To.Y, len(goals), err, near)
 		return fmt.Errorf("нефтетрасса %s → %s: %w", field.Name, tank.Name, err)
 	}
 	legs = append(legs, leg)
@@ -831,7 +856,9 @@ func pumpNear(l *layout.Layout, p, to world.Tile, tag string) (layout.Placement,
 					out = c
 				}
 			}
-			if !l.Free(in.To, layout.AnyLand) || !l.Free(out.To, layout.AnyLand) {
+			// вход и выход — не рядом с чужой трубой (565937761: насос встал на линию трубы воды —
+			// выход сразу «не провести»)
+			if !l.Free(in.To, layout.AnyLand) || !l.Free(out.To, layout.AnyLand) || fluidNear(l, in.To, tag) || fluidNear(l, out.To, tag) {
 				continue
 			}
 			return pl, in, out, true
