@@ -369,6 +369,19 @@ type layered struct {
 // месторождений, неоткрытого, чужих коридоров, утёсов и воды толще maxGap. nil — нет места.
 func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int) *layered {
 	g := b.g
+	// месторождения под этажами и шинами — можно (zones.md, решение пользователя), кроме
+	// выбранных зон добычи (они — не кластеры, в ring их нет: база накрывала mine-5, mine-6 —
+	// 260647970); под базой новые не берутся (MoreMineZones)
+	mv := make([]bool, g.w*g.h)
+	for _, z := range b.mineZones {
+		r := z.Rect.Grow(ZoneBorder)
+		for y := max(r.Min.Y-g.y0, 0); y < min(r.Max.Y-g.y0, g.h); y++ {
+			for x := max(r.Min.X-g.x0, 0); x < min(r.Max.X-g.x0, g.w); x++ {
+				mv[y*g.w+x] = true
+			}
+		}
+	}
+	mines := prefix(mv, g.w, g.h)
 	free := func(r Rect) bool {
 		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
 			return false
@@ -376,8 +389,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 		if n, _ := g.count(g.unknown, r); n > 0 {
 			return false
 		}
-		// месторождения под этажами и шинами — можно (zones.md, решение пользователя): зоны
-		// добычи уже выбраны (ring), под базой новые не берутся (MoreMineZones)
+		if n, _ := g.count(mines, r.Grow(ZoneBorder)); n > 0 {
+			return false
+		}
 		if b.CliffZones { // база с утёсами: в зоне утёсы можно, вода — нет (zones.md)
 			n, _ := g.count(g.thickWet, r)
 			return n == 0
@@ -391,6 +405,9 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			return false
 		}
 		if n, _ := g.count(g.unknown, r); n > 0 {
+			return false
+		}
+		if n, _ := g.count(mines, r.Grow(ZoneBorder)); n > 0 {
 			return false
 		}
 		// неровность длиннее busGap вдоль ряда — ленте не обойти (подземка не перепрыгнет, обход по

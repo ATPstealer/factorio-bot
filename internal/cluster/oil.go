@@ -220,7 +220,7 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 		used[ln.Y-bus.Rect.Min.Y] = true
 	}
 	pipeRow := func(v int) bool { // в ряду уже труба шины
-		for x := bus.Rect.Min.X; x < bus.Rect.Min.X+40; x++ {
+		for x := bus.Rect.Min.X; x < bus.Rect.Min.X+80; x++ {
 			if p := l.At(world.Tile{X: x, Y: bus.Rect.Min.Y + v}); p != nil && strings.HasPrefix(p.Tag, Tag(bus.Name)+"/") {
 				return true
 			}
@@ -232,11 +232,15 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 		if used[v] || pipeRow(v) || pipeRow(v-1) || pipeRow(v+1) {
 			continue
 		}
-		mark := l.Mark()
-		if err := pipeAlong(l, bus.Rect.Min.X, end, bus.Rect.Min.Y+v, tag); err == nil {
-			return tag, nil
+		// начало — у левого края; у головы тесно (подводы с добычи, переброски — 565937761) —
+		// правее: к трубе подключаются в любом месте (JoinPipe)
+		for _, dx := range []int{0, 12, 24, 36} {
+			mark := l.Mark()
+			if err := pipeAlong(l, bus.Rect.Min.X+dx, end, bus.Rect.Min.Y+v, tag); err == nil {
+				return tag, nil
+			}
+			l.Rollback(mark)
 		}
-		l.Rollback(mark)
 	}
 	return "", fmt.Errorf("cluster: %s: нет ряда под трубу %s", bus.Name, fluid)
 }
@@ -262,11 +266,18 @@ func pipeAlong(l *layout.Layout, x0, x1, y int, tag string) error {
 		if !isOwn || l.List[i].Tag != tag || l.List[i].Name != pipe {
 			return fmt.Errorf("cluster: труба %s: не обойти (%d, %d)", tag, x, y)
 		}
+		// выход — где за ним ещё тайл свободен (там следующий вход подземки, если дальше снова
+		// занято): «лента, просвет в тайл, лента…» у головы bus-1 — подводы с добычи, 260647970
 		out := -1
 		for k := 1; k <= maxUG && x+k <= x1+maxUG; k++ {
-			if ok(world.Tile{X: x + k, Y: y}) {
+			if t := (world.Tile{X: x + k, Y: y}); ok(t) && (x+k >= x1 || ok(world.Tile{X: x + k + 1, Y: y})) {
 				out = x + k
 				break
+			}
+		}
+		for k := 1; out < 0 && k <= maxUG && x+k <= x1+maxUG; k++ {
+			if ok(world.Tile{X: x + k, Y: y}) {
+				out = x + k
 			}
 		}
 		if out < 0 {
