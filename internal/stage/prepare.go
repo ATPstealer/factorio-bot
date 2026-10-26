@@ -61,8 +61,52 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		return append(grow, list...), err
 	case 27:
 		return labsGreenLayout(h)
+	case 22: // обслуживание и чертёж: что ещё не стоит из плана (весь план — сотни построек)
+		list, err := planNow()
+		if err != nil {
+			return nil, err
+		}
+		return notBuilt(h, list)
+	case 28:
+		plan, err := LoadPlan()
+		if err != nil {
+			return nil, err
+		}
+		return notBuilt(h, plan.Layout)
+	case 29:
+		return powerBlueLayout(h)
+	case 30:
+		return incomeLayout(h)
+	case 31:
+		return steelLayout(h)
+	}
+	if s, ok := blueStages[n]; ok { // 32–41 (stages_blue.go)
+		return s.layout(h)
 	}
 	return nil, nil
+}
+
+// notBuilt — из list то, чего в игре ещё нет (пачками, как planAudit): нужное стадии и
+// проверка перед стройкой — только по несделанному (решение пользователя 26.10).
+func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) {
+	var res []layout.Placement
+	for i := 0; i < len(list); i += auditBatch {
+		part := list[i:min(len(list), i+auditBatch)]
+		var refs []bridge.EntityRef
+		for _, pl := range part {
+			refs = append(refs, bridge.EntityRef{Name: pl.Name, Position: pl.Pos})
+		}
+		got, err := h.B.GetEntities(refs)
+		if err != nil {
+			return nil, err
+		}
+		for j, pl := range part {
+			if j >= len(got) || got[j] == nil {
+				res = append(res, pl)
+			}
+		}
+	}
+	return res, nil
 }
 
 // makeProduct — продукт завода с шины по стадии (makeLayout).

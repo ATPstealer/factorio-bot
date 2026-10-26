@@ -45,6 +45,10 @@ func neededItems(h *act.Hands) map[string]bool {
 	count := map[string]int{}
 	if curStage > 0 {
 		if list, err := planOf(h, curStage); err == nil {
+			// только то, что ещё не стоит: поставленное — не «нужное» (решение пользователя 26.10)
+			if left, err := notBuilt(h, list); err == nil {
+				list = left
+			}
 			for _, pl := range list {
 				it := h.Protos.ItemFor(pl.Name)
 				add(it, 0)

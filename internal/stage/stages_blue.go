@@ -135,8 +135,13 @@ func init() {
 			after: func(ctx context.Context, h *act.Hands) error { return queueResearch(ctx, h) }},
 	} {
 		register(Stage{N: s.n, Name: s.name, Run: s.run, Check: s.check})
+		blueStages[s.n] = s
 	}
 }
+
+// blueStages — стадии 32–41 по номеру: их раскладка — план стадии для проверки перед стройкой
+// и «нужного» (prepare.go planOf).
+var blueStages = map[int]blueStage{}
 
 // oilOpened — нефть добыта (в складе), `oil-processing` открыт — в очередь (стадия 36).
 func oilOpened(ctx context.Context, h *act.Hands) error {
