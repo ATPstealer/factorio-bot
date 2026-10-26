@@ -21,8 +21,9 @@ import (
 // materialsExtra — запас сверх расчёта: стройке 16 и 17 — до дохода с её же цепочек.
 var materialsExtra = map[string]int{"iron-plate": 1500, "copper-plate": 1000, "coal": 1000}
 
-// outBufferItems — буфер выхода плавки (стадия 17: пластины копятся в контейнерах).
-var outBufferItems = map[string]int{"inserter": 2, chest: 2}
+// outBufferItems — буфер выхода плавки (стадия 17: пластины копятся в контейнере): минимальный —
+// один инсертер и один сундук (cluster.md §6а, решение пользователя 26.10).
+var outBufferItems = map[string]int{"inserter": 1, chest: 1}
 
 func init() {
 	register(Stage{N: 14, Name: "материалы на добычу и плавку", Run: runMaterials, Check: checkMaterials})

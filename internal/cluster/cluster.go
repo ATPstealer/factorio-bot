@@ -705,11 +705,10 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Make && len(c.In) == 3 { // третий вход — ленты за выходом (thirdIn)
 		c.Cross++
 	}
-	// с третьим входом — без буферов в голове: голова длиннее меняла прикидку этажей (859088572:
-	// зоны мельче, подвод добычи у головы bus-1 не проходил); такие кластеры малы
-	if len(c.In) == 1 && c.Kind != Mine || len(c.In) == 2 && c.Kind == Make {
-		// буферы входов — в голове ряда, по разные стороны ленты (cluster.md §6б)
-		c.Head = 2 * bufferChests(p, c)
+	// буферы входов — в голове ряда, у каждого твёрдого входа (cluster.md §6; решение
+	// пользователя 26.10): плавка, сталь, сборка, химия с предметом на входе, станция (уголь)
+	if c.Kind != Mine && c.Kind != Lab && c.solidInputs(p) > 0 {
+		c.Head = bufferHead
 	}
 	m := c.machine()
 	n := 0.0
@@ -758,6 +757,6 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Lab { // блок сразу на все места (cluster.md §2а «Лаборатории»); в голове — буферы двух
 		// пакетов друг за другом (по n сундуков) и ещё лента C с инсертерами
 		c.Room = max(labRoom, c.Count)
-		c.Head = 4*bufferChests(p, c) + 2
+		c.Head = 4*bufferChestsN + 2
 	}
 }

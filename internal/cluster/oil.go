@@ -512,6 +512,9 @@ func (c *Cluster) fluids(p *knowledge.Prototypes) int {
 	return n
 }
 
+// solidInputs — входов-предметов (не жидкостей): им нужны буферы в голове (cluster.md §6).
+func (c *Cluster) solidInputs(p *knowledge.Prototypes) int { return len(c.In) - c.fluids(p) }
+
 // chemRow — химзаводы в ряд (шаг 4), повёрнуты входами жидкости к +v: поперёк — 2 лента входа
 // (предмет), 3 инсертеры, 4–6 химзаводы, 7 — трубы к входам жидкости и длинный инсертер выхода
 // (через ряд 8 — на ленту 9), 8 — труба газа (вход сверху, с bus-2), 9 — лента выхода. Две
@@ -612,6 +615,11 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 			return err
 		}
 		deadEnd(2, end)
+		if c.Head >= bufferHead { // буфер предмета в голове (cluster.md §6): ящики в ряду химзаводов
+			if err := bufferAt(l, f, c, 2, 3, 4, bufferChestsN, in.Item, tag, 1); err != nil {
+				return err
+			}
+		}
 	}
 	if err := row(9, c.Head, L, layout.E); err != nil {
 		return err

@@ -46,7 +46,7 @@ if [[ $PAR -gt 0 ]]; then
   done
   wait
 else
-  for snap in "${snaps[@]}"; do one 0 "$snap" "$@"; done
+  for snap in "${snaps[@]}"; do one "${INST:-1}" "$snap" "$@"; done
 fi
 echo "== готово $(date +%T)" >> run/bench/summary.txt
 cat run/bench/summary.txt

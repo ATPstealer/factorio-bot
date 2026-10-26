@@ -23,7 +23,8 @@ func init() {
 }
 
 func steelLayout(h *act.Hands) ([]layout.Placement, error) {
-	return blueAddedFor(h, steelFile, func(c *cluster.Cluster) bool { return c.IsSteel() }, false)
+	pick := func(c *cluster.Cluster) bool { return c.IsSteel() }
+	return blueAddedFor(h, steelFile, pick, false, endBuffers(h, pick)) // буфер стали для бота (cluster.md §6а)
 }
 
 func runSteel(ctx context.Context, h *act.Hands) error {

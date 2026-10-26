@@ -94,6 +94,29 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 	return nil, fmt.Errorf("у конца ленты %s нет места под буфер выхода %s", product, c.Name)
 }
 
+// endBuffers — буферы выхода (cluster.md §6а) кластеров плана, выбранных pick: у каждого, чей
+// продукт — предмет (не наука, не жидкость): в конце ленты продукта на шине, нет на шине — на
+// выходной ленте кластера. Для стадий синей (blueStage) и стали.
+func endBuffers(h *act.Hands, pick func(*cluster.Cluster) bool) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error) {
+	return func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error) {
+		var res []layout.Placement
+		for _, c := range plan.Clusters {
+			if !pick(c) || c.Kind != cluster.Make && c.Kind != cluster.Smelt || isScience(c.Product) {
+				continue
+			}
+			if _, fluid := h.Protos.Fluids[c.Product]; fluid {
+				continue
+			}
+			buf, err := endBuffer(h, all, plan, c, c.Product)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, buf...)
+		}
+		return res, nil
+	}
+}
+
 // isScience — пакет науки (у кластеров науки нет буфера выхода).
 var isScience = cluster.IsScience
 

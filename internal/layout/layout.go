@@ -17,6 +17,9 @@ type Layout struct {
 	Clear map[world.Tile]bool
 	// Reserved — тайлы, где строить нельзя (запас под будущее, проходы)
 	Reserved map[world.Tile]bool
+	// Costly — штраф за тайл в маршруте ленты (RouteBelt): боковые ряды лент шин — пройти
+	// поперёк можно, а вдоль — дорого (cluster.md §3)
+	Costly map[world.Tile]float64
 	// Solid — тайлы, под которыми и подземкой не идти (кластеры добычи: ленты и трубы никогда не
 	// идут через чужую добычу — правило пользователя)
 	Solid map[world.Tile]bool
@@ -60,7 +63,7 @@ func (l *Layout) anchorAt(t world.Tile) bool {
 func (l *Layout) usable(entity string) bool { return l.Usable == nil || l.Usable(entity) }
 
 func New(p *knowledge.Prototypes, w *world.World) *Layout {
-	return &Layout{P: p, W: w, occ: map[world.Tile]int{}, Clear: map[world.Tile]bool{}, Reserved: map[world.Tile]bool{}}
+	return &Layout{P: p, W: w, occ: map[world.Tile]int{}, Clear: map[world.Tile]bool{}, Reserved: map[world.Tile]bool{}, Costly: map[world.Tile]float64{}}
 }
 
 // Chest — сундук раскладок (буферы, хранение): деревянный до первого обслуживания, после —

@@ -83,8 +83,7 @@ func (b *Base) laneCount(k int, it string) int {
 	return n
 }
 
-// floorOfZone — номер этажа (1–4) зоны производства: Floor; в старых файлах — по виду и
-// порядку (final-1 → 3, final-2 → 4).
+// floorOfZone — номер этажа (1–3) зоны производства: Floor; в старых файлах — по виду.
 func floorOfZone(z Zone) int {
 	switch {
 	case z.Floor > 0:
@@ -93,8 +92,6 @@ func floorOfZone(z Zone) int {
 		return 1
 	case z.Kind == ZoneSupply:
 		return 2
-	case z.Kind == ZoneLab, z.Kind == ZoneFinal && strings.HasSuffix(z.Name, "-2"):
-		return 4
 	case z.Kind == ZoneFinal:
 		return 3
 	}
@@ -625,6 +622,62 @@ func (g *portGuard) open(p Port) {
 	}
 }
 
+// laneGuard — на время прокладки ленты логистики (cluster.md §3): ряды всех лент шин, кроме
+// except (и ещё не положенных — лента до последнего потребителя, потом продлевается), закрыты
+// (поперёк — подземкой можно); боковые ряды всех лент (подводы, делители) — со штрафом
+// laneSidePenalty за тайл: пересечь можно, вдоль — дорого. Иначе ленту, легшую вдоль шины,
+// потом не обойти (954176679: перекидка угля в ряду медной руды; 260647970: сквозная медь
+// вдоль бока ленты меди — подводу некуда). Возвращает, как было.
+func laneGuard(l *layout.Layout, buses []*ZBus, except ...*ZoneLane) func() {
+	var closed []world.Tile
+	costly := map[world.Tile]float64{} // прежние штрафы
+	open := map[int]bool{}             // ряды лент except — открыты (подключение)
+	for _, e := range except {
+		if e != nil {
+			open[e.Y] = true
+		}
+	}
+	for _, bus := range buses {
+		for i := range bus.Lanes {
+			ln := &bus.Lanes[i]
+			for dy := -1; dy <= 1; dy++ {
+				y := ln.Y + dy
+				for x := bus.Rect.Min.X; x < bus.Rect.Max.X; x++ {
+					t := world.Tile{X: x, Y: y}
+					switch {
+					case open[y]:
+					case dy == 0:
+						if !l.Reserved[t] && l.At(t) == nil {
+							l.Reserved[t] = true
+							closed = append(closed, t)
+						}
+					default:
+						if _, seen := costly[t]; !seen {
+							costly[t] = l.Costly[t]
+							l.Costly[t] += laneSidePenalty
+						}
+					}
+				}
+			}
+		}
+	}
+	return func() {
+		for _, t := range closed {
+			delete(l.Reserved, t)
+		}
+		for t, v := range costly {
+			if v == 0 {
+				delete(l.Costly, t)
+			} else {
+				l.Costly[t] = v
+			}
+		}
+	}
+}
+
+// laneSidePenalty — штраф за тайл ленты в боковом ряду ленты шины (laneGuard): вдоль — дорого.
+const laneSidePenalty = 8
+
 // feedOut — выход кластера этажа — боком в ленту шины над собой, у своего столбца (к голове —
 // нельзя: лента ляжет вдоль зазора между лентами шины и закроет его другим).
 func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard) error {
@@ -640,6 +693,7 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 	}
 	x0, x1 := c.Area.Min.X-20, max(c.Area.Max.X+20, ln.Start+40) // лента начинается за неровностью — ближайшие за ней
 	g.open(op)
+	defer laneGuard(l, buses, ln)() // вдоль шин не идти (поперёк — подземкой)
 	tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
 	// в ленту — делителем (cluster.md §5: боком всё ложилось на одну полосу, делитель полосы
 	// сохраняет); не встал — боком
@@ -656,7 +710,8 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 	}
 	p, err := zRoute(l, op, to, tag)
 	if err != nil {
-		return &ConnectError{c, fmt.Errorf("%s → %s (%s): %w", c.Name, bus.Name, op.Item, err)}
+		b.dumpBetween(l, op.T, world.Tile{X: op.T.X, Y: ln.Y}) // разбор: где закрыто
+		return &ConnectError{c, fmt.Errorf("%s → %s (%s), целей %d на x %d…%d: %w", c.Name, bus.Name, op.Item, len(to), x0, x1, err)}
 	}
 	ln.feed(p.T.X)
 	return nil
@@ -697,12 +752,14 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			}
 			to := append([]Port{{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}}, side...)
 			err := layout.ErrNoRoute
+			unguard := laneGuard(l, buses, low, ln) // вдоль шин не идти (поперёк — подземкой)
 			for _, p := range to {
 				if err = SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err == nil {
 					ln.feed(p.T.X)
 					break
 				}
 			}
+			unguard()
 			if err != nil {
 				return &ThroughError{Item: ln.Item, Bus: k, Err: fmt.Errorf("сквозная %s → %s (%s): %w", buses[k-1].Name, buses[k].Name, ln.Item, err)}
 			}
@@ -740,7 +797,10 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 	g.open(p)
 	var err error
 	for i, line := range lines {
-		if err = SplitTap(l, line, p, LogisticsTag+"/"+c.Name, 40); err == nil {
+		unguard := laneGuard(l, buses, used[i]) // вдоль шин не идти (238178543: подвод кирпича в ряду медной руды)
+		err = SplitTap(l, line, p, LogisticsTag+"/"+c.Name, 40)
+		unguard()
+		if err == nil {
 			used[i].Taps++
 			pairBefore(l, buses, used[i], LogisticsTag+"/"+c.Name)
 			return nil
@@ -962,7 +1022,7 @@ func (b *Base) transfers(l *layout.Layout, bus *ZBus) {
 		}
 		tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
 		x0 := max(nl.From, ol.From, nl.Start, ol.Start) + 3
-		if err := transferAt(l, nl, ol, x0, tag); err != nil {
+		if err := transferAt(l, nl, ol, x0, tag, func(y int) bool { return byY[y] != nil }); err != nil {
 			b.logf("перекидка %s → лента %d: %v", c.Name, oy, err)
 		}
 	}
@@ -970,8 +1030,11 @@ func (b *Base) transfers(l *layout.Layout, bus *ZBus) {
 
 // transferAt — перекидка с ленты from на ленту to (лента шины течёт на восток): делитель на from
 // у столбца x (с ряда соседнего в сторону to), его второй выход — лентой (поперёк — подземками)
-// во второй вход делителя на to. Ищет столбец от x0 вправо.
-func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string) error {
+// во второй вход делителя на to. Ищет столбец от x0 вправо. Вторая половина делителя и лента
+// перекидки — не в ряду другой ленты шины (laneRow): ряд соседней ленты пары мог быть ещё пуст
+// (лента — до последнего потребителя), а потом её не продлить (954176679: лента медной руды
+// упёрлась в перекидку угля).
+func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRow func(y int) bool) error {
 	s := 1
 	if to.Y < from.Y {
 		s = -1
@@ -997,6 +1060,9 @@ func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string) error 
 	// делители — со стороны, где рядом не лента пары (сначала к другой ленте, потом наружу)
 	for _, sa := range []int{s, -s} {
 		for _, sb := range []int{-s, s} {
+			if laneRow(from.Y+sa) || laneRow(to.Y+sb) {
+				continue // не занимать ряд другой ленты шины
+			}
 			for x := x0; x < x0+80; x++ {
 				if !straight(x, from.Y) || !l.Free(world.Tile{X: x, Y: from.Y + sa}, layout.AnyLand) ||
 					!l.Free(world.Tile{X: x + 1, Y: from.Y + sa}, layout.AnyLand) {

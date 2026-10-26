@@ -2,9 +2,7 @@ package cluster
 
 import (
 	"fmt"
-	"math"
 
-	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -373,18 +371,18 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			return err
 		}
 		deadEnd(belts, blen)
-		// буфер на общей ленте — только для одного входа; два (руда + уголь) — смешаются,
-		// у каждого свой буфер на его входящей ленте (Connect)
-		if len(c.In) == 1 && c.Head > 1 {
+		// буферы входов в голове (cluster.md §6): один вход — под лентой; два — вход 1 снизу
+		// ленты, вход 2 сверху (третий — лента C за выходом, без буфера: не помещается)
+		if len(c.In) == 1 && c.Head >= bufferHead {
 			if err := buffer(l, f, c, belts, tag); err != nil {
 				return err
 			}
 		}
-		if len(c.In) >= 2 && c.Kind == Make && c.Head > 1 { // вход 1 — снизу ленты, вход 2 — сверху
-			if err := bufferAt(l, f, c, belts, belts+1, belts+2, c.Head/2, c.In[0].Item, tag, 1); err != nil {
+		if len(c.In) >= 2 && c.Kind == Make && c.Head >= bufferHead {
+			if err := bufferAt(l, f, c, belts, belts+1, belts+2, bufferChestsN, c.In[0].Item, tag, 1); err != nil {
 				return err
 			}
-			if err := bufferAt(l, f, c, belts, belts-1, belts-2, c.Head/2, c.In[1].Item, tag, 1); err != nil {
+			if err := bufferAt(l, f, c, belts, belts-1, belts-2, bufferChestsN, c.In[1].Item, tag, 1); err != nil {
 				return err
 			}
 		}
@@ -508,6 +506,9 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 		}
 		deadEnd(v, end)
 	}
+	if err := headBuffers(l, f, c, coalV, oreV, insV, ore, tag); err != nil {
+		return err
+	}
 	c.Ports = append(c.Ports,
 		Port{T: f.tile(-1, coalV), Dir: f.dir(layout.E), Item: coal, In: true},
 		Port{T: f.tile(-1, oreV), Dir: f.dir(layout.E), Item: ore, In: true})
@@ -589,6 +590,14 @@ func steelRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 			return err
 		}
 		deadEnd(v, end)
+	}
+	if err := headBuffers(l, f, c, coalV, oreV, insV, "iron-ore", tag); err != nil {
+		return err
+	}
+	if c.Head >= bufferHead { // уголь 2 — в ряд печей стали (в голове свободен)
+		if err := bufferAt(l, f, c, coal2V, outInsV, steelV, bufferChestsN, "coal", tag, 0); err != nil {
+			return err
+		}
 	}
 	if err := row(outV, c.Head, L, layout.E); err != nil {
 		return err
@@ -865,25 +874,30 @@ func powerRow(l *layout.Layout, f frame, c *Cluster, L int, tag string) error {
 }
 
 // buffer — буфер входа вдоль ленты ряда v в начале ряда (до первой машины: Head): инсертер с
-// ленты в ящик 1 → инсертеры по ящикам → из последнего обратно на ленту ниже по ходу, но выше
-// всех машин (иначе предмет обходит машины в ящики). Ящики — напротив подачи (вход — сверху,
+// ленты в ящик 1 → инсертер → ящик 2 → из него обратно на ленту ниже по ходу, но выше всех
+// машин (иначе предмет обходит машины в ящики). Ящики — напротив подачи (вход — сверху,
 // буфер — снизу): инсертер возврата кладёт на дальнюю полосу — ту, куда предмет и пришёл
-// (cluster.md §6б). Ёмкость — на 10 минут входа кластера.
+// (cluster.md §6б).
 func buffer(l *layout.Layout, f frame, c *Cluster, v int, tag string) error {
 	// что брать — вход кластера (буфер только у одного входа): по ленте может приехать чужое
 	item := ""
 	if len(c.In) > 0 {
 		item = c.In[0].Item
 	}
-	return bufferAt(l, f, c, v, v+1, v+2, c.Head/2, item, tag, 1)
+	return bufferAt(l, f, c, v, v+1, v+2, bufferChestsN, item, tag, 1)
 }
 
 // bufferAt — цепочка буфера item у ленты ряда v: инсертеры в ряду insV, n ящиков в ряду chestV
-// (на нечётных u 1, 3, …, 2n−1, между ними перекладывающие инсертеры).
+// (на u0, u0+2, …, между ними перекладывающие инсертеры). Ряд лент через ряд от инсертеров
+// (|v−insV| = 2, ящики — с другой стороны через ряд) — инсертеры с ленты и на ленту длинные:
+// так буферы угля плавки и стали лежат в голове, не трогая соседнюю ленту руды (cluster.md §6).
 func bufferAt(l *layout.Layout, f frame, c *Cluster, v, insV, chestV, n int, item, tag string, u0 int) error {
-	ins := "inserter"
+	ins, lane := "inserter", "inserter"
 	if c.Kind == Power {
-		ins = "burner-inserter" // станция без электричества стоит — буфер угля отдаёт его и тогда
+		ins, lane = "burner-inserter", "burner-inserter" // станция без электричества стоит — буфер угля отдаёт его и тогда
+	}
+	if abs(v-insV) == 2 {
+		lane = "long-handed-inserter"
 	}
 	for i := 0; i < n; i++ {
 		u := u0 + 2*i
@@ -897,11 +911,26 @@ func bufferAt(l *layout.Layout, f frame, c *Cluster, v, insV, chestV, n int, ite
 			l.Add(layout.Placement{Name: ins, Pos: a.Center(), Dir: layout.InserterDir(l.P, ins, a, f.tile(u, chestV)), Recipe: item, Tag: tag})
 		}
 	}
-	first, last := f.inserter(l, ins, u0, insV, v, tag), f.inserter(l, ins, u0+2*n-2, insV, chestV, tag)
+	first, last := f.inserter(l, lane, u0, insV, v, tag), f.inserter(l, lane, u0+2*n-2, insV, chestV, tag)
 	first.Recipe, last.Recipe = item, item
 	l.Add(first) // с ленты в ящик 1
 	l.Add(last)  // из последнего — на ленту
 	return nil
+}
+
+// headBuffers — буферы входов в голове ряда плавки и стали (cluster.md §6: у каждого твёрдого
+// входа, если помещаются): руда — обычными инсертерами из ряда insV в ящики ряда insV+1 (ряд
+// первой печи, в голове свободен), на u = 0, 2; уголь — длинными из ряда insV через ленту руды в
+// ящики ряда insV+2, на u = 1, 3. Вторая лента угля стали (coal2V) — длинными из ряда outInsV
+// в ящики ряда outInsV−2 (ряд печей стали), на u = 0, 2.
+func headBuffers(l *layout.Layout, f frame, c *Cluster, coalV, oreV, insV int, ore, tag string) error {
+	if c.Head < bufferHead {
+		return nil
+	}
+	if err := bufferAt(l, f, c, oreV, insV, insV+1, bufferChestsN, ore, tag, 0); err != nil {
+		return err
+	}
+	return bufferAt(l, f, c, coalV, insV, insV+2, bufferChestsN, "coal", tag, 1)
 }
 
 // labReserve — место блока лабораторий под будущее (cluster.md §2а «Лаборатории»): подача и буфер второго
@@ -944,18 +973,10 @@ func labReserve(f frame, c *Cluster) []world.Tile {
 	return res
 }
 
-// bufferChests — ящиков в буфере входа: на BufferSeconds входа (деревянный ящик — 16 стопок
-// самого мелкого предмета), не меньше 2.
-func bufferChests(p *knowledge.Prototypes, c *Cluster) int {
-	need, stack := 0.0, 100
-	for _, in := range c.In {
-		need += in.Rate * BufferSeconds
-		if s := p.Items[in.Item].StackSize; s > 0 && s < stack {
-			stack = s
-		}
-	}
-	return max(2, int(math.Ceil(need/float64(16*stack))))
-}
+// bufferChestsN — ящиков в буфере входа: одна минимальная цепочка «инсертер → ящик → инсертер →
+// ящик → инсертер» (cluster.md §6; решение пользователя 26.10: ёмкость не считать).
+const bufferChestsN = 2
 
-// BufferSeconds — на сколько работы без подачи рассчитан буфер входа.
-const BufferSeconds = 600
+// bufferHead — голова ряда под буферы входов: ящики на u = 0…2n−1 (две цепочки разных входов
+// чередуются по u, cluster.md §6б).
+const bufferHead = 2 * bufferChestsN

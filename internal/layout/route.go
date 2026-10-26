@@ -99,7 +99,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 		if !l.Free(t, AnyLand) || t != from && into(t) {
 			return 0, false
 		}
-		c := 1.0
+		c := 1.0 + l.Costly[t]
 		if l.W != nil {
 			if _, ore := l.W.ResourceAt(t); ore {
 				c += 2

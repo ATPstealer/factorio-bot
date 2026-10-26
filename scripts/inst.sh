@@ -1,14 +1,18 @@
-# Экземпляр игры (подключается через source из других скриптов). INST — номер:
-#   0 (по умолчанию) — основной: run/, дисплей :1, RCON 27015, порт игры 34197;
-#   1–4 — параллельные: run/iN, дисплей :N+1, RCON 27015+N, порт 34197+N.
-# Снимки (run/snapshots), логи стадий и бенча — общие.
+# Экземпляр игры (подключается через source из других скриптов). INST — номер 1–4
+# (по умолчанию 1): run/iN, дисплей :N+1, RCON 27015+N, порт игры 34197+N. Экземпляра 0 нет
+# (решение пользователя 26.10): корень run/ — только образец конфигов и общее (снимки
+# run/snapshots, логи стадий и бенча, worlds).
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 F=/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio
 # с 2.1 bin/x64/factorio — скрипт-обёртка (exec bin/x64_/factorio): запускать сам файл игры,
 # иначе процесс не находится по «^$F --config …» (stop.sh не останавливал сервер)
 [[ -x ${F%/x64/factorio}/x64_/factorio ]] && F=${F%/x64/factorio}/x64_/factorio
-INST=${INST:-0}
-if [[ $INST == 0 ]]; then R=$ROOT/run; else R=$ROOT/run/i$INST; fi
+INST=${INST:-1}
+if [[ ! $INST =~ ^[1-4]$ ]]; then
+  echo "INST=$INST: экземпляры только 1–4 (корень run/ не используется)" >&2
+  return 1 2>/dev/null || exit 1
+fi
+R=$ROOT/run/i$INST
 DISPLAY_NUM=${DISPLAY_NUM:-:$((INST + 1))}
 RCON_PORT=$((27015 + INST))
 GAME_PORT=$((34197 + INST))
@@ -16,10 +20,9 @@ GAME_PORT=$((34197 + INST))
 export INST R RCON_PORT
 export BOT_RUN=$R BOT_DISPLAY=$DISPLAY_NUM BOT_RCON=127.0.0.1:$RCON_PORT
 
-# inst_setup — папки экземпляра 1–4 по образцу основного: config.ini (свой write-data),
-# моды (симлинки мода), player-data.json, steam_appid.txt.
+# inst_setup — папки экземпляра по образцу run/: config.ini (свой write-data), моды (симлинки
+# мода), player-data.json, steam_appid.txt.
 inst_setup() {
-  [[ $INST == 0 ]] && return 0
   local side
   for side in server client; do
     mkdir -p "$R/$side/mods" "$R/$side/saves"

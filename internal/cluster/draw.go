@@ -76,7 +76,6 @@ var zoneColors = map[ZoneKind]color.RGBA{
 	ZoneProcessing: {220, 120, 40, 255},
 	ZoneSupply:     {60, 180, 90, 255},
 	ZoneFinal:      {170, 70, 200, 255},
-	ZoneLab:        {70, 170, 200, 255},
 	ZonePower:      {230, 220, 60, 255},
 }
 

@@ -176,7 +176,8 @@ func checkPower(h *act.Hands) error {
 		state[pl.Name] = st
 	}
 	switch {
-	case count["offshore-pump"] < 1, count["boiler"] < 1, count["steam-engine"] < 2, count["small-electric-pole"] < 1:
+	// по документу: 3 бойлера и 6 двигателей (PowerStart, по 2 двигателя на бойлер)
+	case count["offshore-pump"] < 1, count["boiler"] < cluster.PowerStart, count["steam-engine"] < 2*cluster.PowerStart, count["small-electric-pole"] < 1:
 		return fmt.Errorf("станция неполная: %v", count)
 	}
 	if c := state[chest].Inventories["chest"]["coal"] + state["boiler"].Inventories["fuel"]["coal"]; c < powerCoal {

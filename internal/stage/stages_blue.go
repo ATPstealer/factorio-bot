@@ -115,10 +115,13 @@ func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) {
 	if pick == nil {
 		pick = func(*cluster.Cluster) bool { return false }
 	}
-	if s.more == nil {
-		return blueAddedFor(h, s.file, pick, false)
+	// буферы выхода (cluster.md §6а: у каждого кластера с продуктом-предметом) — вместе с
+	// кластерами стадии
+	more := []func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error){endBuffers(h, pick)}
+	if s.more != nil {
+		more = append(more, s.more(h))
 	}
-	return blueAddedFor(h, s.file, pick, false, s.more(h))
+	return blueAddedFor(h, s.file, pick, false, more...)
 }
 
 func (s blueStage) run(ctx context.Context, h *act.Hands) error {
