@@ -258,6 +258,7 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 	skip := map[bridge.Pos]bool{}
 	const maxUnreachable = 5
 	unreachable := 0
+	freed := 0 // раз освобождали место (инвентарь полон)
 	for res.Mined < count {
 		cands, err := h.B.FindMinable(target, radius, 20)
 		if err != nil {
@@ -320,6 +321,16 @@ func (h *Hands) Gather(ctx context.Context, target string, count int, radius flo
 		if errors.Is(err, ErrHover) {
 			h.Say("%s закрыт другими объектами — беру другую цель", e.Name)
 			skip[e.Position] = true
+			continue
+		}
+		// руда при полном инвентаре — освободить место и дальше (как mineOnce; стадия 14 на
+		// 1028292478 падала: «инвентарь полон: coal не поднять»)
+		if errors.Is(err, ErrFull) && h.OnFull != nil && freed < 2 {
+			freed++
+			h.Say("инвентарь полон — освобождаю место")
+			if ferr := h.OnFull(ctx); ferr != nil {
+				return res, fmt.Errorf("%w (освободить место: %v)", err, ferr)
+			}
 			continue
 		}
 		if err != nil {
