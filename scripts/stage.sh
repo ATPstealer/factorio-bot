@@ -97,7 +97,18 @@ for seed in "$@"; do
     rm -f "$R"/state*.json
     SEED=$seed timeout 600 scripts/newmap.sh > /dev/null 2>&1 || { echo "   карта $seed не создалась" | tee -a run/stages/summary.txt; code=1; continue; }
   else
-    timeout 600 scripts/snapshot.sh load "$seed-$((n - 1))" > /dev/null 2>&1 || { echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt; code=1; continue; }
+    # загрузка — до 3 раз: игра сразу после остановки прошлой стадии однажды не поднялась
+    # (1028292478, стадия 2 — «нет снимка», а снимок был); ошибки — в run/stages/load-<сид>.log
+    loaded=0
+    for try in 1 2 3; do
+      if timeout 600 scripts/snapshot.sh load "$seed-$((n - 1))" > /dev/null 2>> "run/stages/load-$seed.log"; then
+        loaded=1
+        break
+      fi
+      echo "стадия $n: загрузка $seed-$((n - 1)) не удалась ($try)" >> "run/stages/load-$seed.log"
+      sleep 15
+    done
+    [[ $loaded == 1 ]] || { echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt; code=1; continue; }
   fi
   start=$(date +%s)
   if timeout $((limit * 60 + 300)) bin/bot -t "${limit}m" stage "$n" > "$log" 2>&1; then
