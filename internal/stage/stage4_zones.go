@@ -32,6 +32,7 @@ const (
 	roughBelt        = 30.0 // лента шины — красная, шт/с
 	roughReopen      = 3    // дооткрыть землю у базы и разметить заново — до стольких раз
 	roughMarginTiles = 64   // у базы: рамка зон + столько тайлов — должно быть открыто
+	roughHoles       = 5    // дыр внутри базы — доразведать столько раз (сверх roughReopen)
 	roughMargin      = 1.0  // запас роста в прикидке: план — уже под конечный темп
 )
 
@@ -94,7 +95,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	saveWorld(h)
-	opened := 0 // дооткрытий у базы (stages.md, стадия 4)
+	opened, holes := 0, 0 // дооткрытий у базы и дыр внутри неё (stages.md, стадия 4)
 	roughRegion, roughCliffs = nil, false
 	var regions []cluster.Rect // соседние квадраты (места в нынешнем нет)
 	for {
@@ -103,14 +104,29 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		if err == nil {
 			// у базы неоткрытая земля — открыть и разметить заново: база жмётся к краю
 			// открытого (264771462, начало bus-1 у неоткрытого)
-			in, ok := roughUnknown(h)
+			// дыры в карте посреди базы — доразведать обязательно, сверх roughReopen (stages.md;
+			// 565937761: неоткрытые чанки посреди зон на плане)
+			if hole, ok := roughUnknown(h, 0); ok && holes < roughHoles {
+				holes++
+				h.Say("внутри базы неоткрытая земля — иду открыть и размечу зоны заново")
+				n0 := len(h.World.Chunks)
+				if err := h.ExploreWhere(ctx, hole, func() bool { _, more := roughUnknown(h, 0); return !more }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+					return err
+				}
+				if len(h.World.Chunks) == n0 {
+					holes = roughHoles // не дойти (вода, утёсы) — разметка та же, дальше не пытаться
+				} else {
+					continue
+				}
+			}
+			in, ok := roughUnknown(h, roughMarginTiles)
 			if !ok || opened >= roughReopen {
 				saveWorld(h) // карта, по которой размечено (после дооткрытий и переходов)
 				return nil
 			}
 			opened++
 			h.Say("у базы неоткрытая земля — иду открыть и размечу зоны заново (%d из %d)", opened, roughReopen)
-			if err := h.ExploreWhere(ctx, in, func() bool { _, more := roughUnknown(h); return !more }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+			if err := h.ExploreWhere(ctx, in, func() bool { _, more := roughUnknown(h, roughMarginTiles); return !more }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
 				return err
 			}
 			continue
@@ -309,7 +325,7 @@ func roughAnchor(h *act.Hands, need map[string]float64) world.Tile {
 
 // roughUnknown — у зон базы (без добычи; рамка + roughMarginTiles) есть неоткрытые чанки, до
 // которых можно дойти (рядом — открытый); in — чанк в этой рамке.
-func roughUnknown(h *act.Hands) (func(bridge.ChunkPos) bool, bool) {
+func roughUnknown(h *act.Hands, margin int) (func(bridge.ChunkPos) bool, bool) {
 	rp, err := LoadRough()
 	if err != nil {
 		return nil, false
@@ -330,7 +346,7 @@ func roughUnknown(h *act.Hands) (func(bridge.ChunkPos) bool, bool) {
 	if box == nil {
 		return nil, false
 	}
-	g := box.Grow(roughMarginTiles)
+	g := box.Grow(margin)
 	in := func(c bridge.ChunkPos) bool {
 		x, y := c.X*32, c.Y*32
 		return x+32 > g.Min.X && x < g.Max.X && y+32 > g.Min.Y && y < g.Max.Y
@@ -549,6 +565,16 @@ func checkRough(h *act.Hands) error {
 	}
 	if st, err := os.Stat(rp.Image); err != nil || st.Size() == 0 {
 		return fmt.Errorf("нет картинки прикидки %s", rp.Image)
+	}
+	// внутри базы неоткрытого, куда можно дойти, нет (stages.md)
+	if hole, ok := roughUnknown(h, 0); ok {
+		if p, err := h.B.Player(); err == nil {
+			for c := range h.World.FrontierFrom(p.Position) {
+				if hole(c) {
+					return fmt.Errorf("внутри базы неоткрытый чанк (%d, %d), куда можно дойти", c.X*32, c.Y*32)
+				}
+			}
+		}
 	}
 	return nil
 }
