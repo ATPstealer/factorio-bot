@@ -112,22 +112,6 @@ func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error)
 // makeProduct — продукт завода с шины по стадии (makeLayout).
 var makeProduct = map[int]string{19: "iron-gear-wheel", 20: "automation-science-pack", 24: "inserter", 25: "transport-belt", 26: greenPack}
 
-// clearable — что расчищать (stages.md): легко устранимое — всегда; вода и скалы — когда есть
-// чем (засыпка, динамит в инвентаре или хранении; кластер, который их делает, — потом).
-type clearable struct {
-	Water, Cliffs bool
-}
-
-func clearOptions(h *act.Hands) clearable {
-	stock := map[string]int{}
-	if s, err := materialsStock(h); err == nil {
-		stock = s
-	} else if p, err := h.B.Player(); err == nil {
-		stock = p.Inventory
-	}
-	return clearable{Water: stock["landfill"] > 0, Cliffs: stock["cliff-explosives"] > 0}
-}
-
 // prepare — перед стадией n: проверка (prepCheck) и расчистка площади плана (prepClear).
 func prepare(ctx context.Context, h *act.Hands, n int) error {
 	list, err := planOf(h, n)
@@ -191,10 +175,6 @@ func prepClear(ctx context.Context, h *act.Hands, list []layout.Placement) error
 	}
 	fp := footprint(h, list)
 	todo := obstacles(h, fp)
-	opt := clearOptions(h)
-	if opt.Water || opt.Cliffs {
-		h.Log("расчистка: засыпку воды и подрыв скал бот пока не умеет — обходит их планом")
-	}
 	if len(todo) == 0 {
 		return nil
 	}
@@ -289,18 +269,21 @@ func prepCheck(ctx context.Context, h *act.Hands, n int, list []layout.Placement
 	return nil
 }
 
-// prepTiles — постройка на воде или скале, когда засыпать/взорвать нечем (план должен был
-// обойти). Помпа — на воде по замыслу.
+// prepTiles — постройка на воде или утёсе: засыпки и взрывчатки не будет (решение пользователя
+// 26.10), план должен был обойти. Помпа — на воде по замыслу.
 func prepTiles(h *act.Hands, list []layout.Placement) []string {
-	opt := clearOptions(h)
 	var res []string
 	for _, pl := range list {
 		if h.Protos.Entities[pl.Name].Type == "offshore-pump" {
 			continue
 		}
 		for _, t := range layout.Tiles(h.Protos, pl) {
-			if h.World.TileAt(t) == world.Water && !opt.Water {
-				res = append(res, fmt.Sprintf("%s в (%.1f, %.1f) на воде", pl.Name, pl.Pos.X, pl.Pos.Y))
+			if ok, _ := h.World.Buildable(t); !ok {
+				where := "на утёсе"
+				if h.World.TileAt(t) != world.Land {
+					where = "на воде"
+				}
+				res = append(res, fmt.Sprintf("%s в (%.1f, %.1f) %s", pl.Name, pl.Pos.X, pl.Pos.Y, where))
 				break
 			}
 		}

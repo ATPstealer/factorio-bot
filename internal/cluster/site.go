@@ -574,12 +574,10 @@ func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
 			}
 		}
 	}
-	// добыча — сплошная: чужие ленты и трубы не идут через неё и подземкой (правило пользователя)
+	// кластеры — сплошные: чужие ленты и трубы не идут через них и подземкой (cluster.md §3;
+	// решение пользователя 26.10 — все, раньше только добыча)
 	l.Solid = map[world.Tile]bool{}
 	solid := func(c *Cluster, on bool) {
-		if c.Kind != Mine {
-			return
-		}
 		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
 			for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
 				if t := (world.Tile{X: x, Y: y}); on {

@@ -735,15 +735,19 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 			}
 		}
 	}()
-	// через кластеры базы — нет, ни поверху, ни подземкой (cluster.md, решение пользователя):
-	// их площади закрыты на время трассы
+	// через кластеры базы и шины — нет, ни поверху, ни подземкой (cluster.md §3, решение
+	// пользователя 26.10): их площади закрыты на время трассы
 	var shut []world.Tile
+	rects := slices.Clone(b.busRects)
 	for _, c := range b.Clusters {
 		if c == field || c == tank || c.Kind == Bus || c.Area.W() == 0 {
 			continue
 		}
-		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
-			for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+		rects = append(rects, c.Area)
+	}
+	for _, r := range rects {
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
 				if t := (world.Tile{X: x, Y: y}); !l.Solid[t] {
 					l.Solid[t] = true
 					shut = append(shut, t)

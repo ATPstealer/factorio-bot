@@ -110,6 +110,9 @@ func checkPowerBlue(h *act.Hands) error {
 			if st.Inventories["fuel"]["coal"] == 0 {
 				return fmt.Errorf("бойлер (%.1f, %.1f) без угля", pl.Pos.X, pl.Pos.Y)
 			}
+			if st.Fluids["water"] == 0 { // по факту (stages.md): без воды станция бесполезна — жёстко
+				return fmt.Errorf("бойлер (%.1f, %.1f) без воды", pl.Pos.X, pl.Pos.Y)
+			}
 		case "small-electric-pole":
 			if st.Network == 0 {
 				return fmt.Errorf("столб (%.1f, %.1f) без сети", pl.Pos.X, pl.Pos.Y)
