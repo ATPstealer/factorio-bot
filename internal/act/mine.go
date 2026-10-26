@@ -72,6 +72,7 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 		*held = true
 	}
 	var idleSince, fullSince time.Time
+	items := -1 // предметов в инвентаре: прибавляется — копаем (в неполную пачку), не «полон»
 	repressed := false
 	flips := 0
 	for {
@@ -122,8 +123,16 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 		}
 		if p.Character != nil && p.Character.Mining {
 			idleSince = time.Time{}
-			// инвентарь полон — сундук с содержимым/постройку не поднять, копает вечно
-			if p.InventorySize == 0 || len(p.InventorySlots) < p.InventorySize {
+			// инвентарь полон — сундук с содержимым/постройку не поднять, копает вечно; все
+			// ячейки заняты, но руда идёт в неполную пачку — не полон (стадия 14: уголь к
+			// 1028292478 «не поднять», а он поднимался)
+			n := 0
+			for _, k := range p.Inventory {
+				n += k
+			}
+			grew := items >= 0 && n > items
+			items = n
+			if p.InventorySize == 0 || len(p.InventorySlots) < p.InventorySize || grew {
 				fullSince = time.Time{}
 			} else if fullSince.IsZero() {
 				fullSince = time.Now()
