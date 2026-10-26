@@ -105,6 +105,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			// открытого (264771462, начало bus-1 у неоткрытого)
 			in, ok := roughUnknown(h)
 			if !ok || opened >= roughReopen {
+				saveWorld(h) // карта, по которой размечено (после дооткрытий и переходов)
 				return nil
 			}
 			opened++
