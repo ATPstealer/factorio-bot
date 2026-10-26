@@ -124,7 +124,7 @@ func init() {
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "crude-oil"), cluster.PipeLaneTag("bus-2", "petroleum-gas"))},
 		{n: 37, name: "пластик и сера", file: "state-chem.json", wait: []string{"plastics", "sulfur-processing"},
 			queue: []string{"advanced-circuit", "engine"}, pick: func(c *cluster.Cluster) bool { return c.IsChem() }},
-		{n: 38, name: "двигатели", file: "state-engines.json", wait: []string{"engine"},
+		{n: 38, name: "двигатели", file: "state-engines.json", wait: []string{"engine", "automation-2"},
 			pick: product("engine-unit"), more: pipeChest},
 		{n: 39, name: "красные схемы", file: "state-adv-circuits.json", wait: []string{"advanced-circuit"},
 			pick: product("advanced-circuit")},

@@ -460,10 +460,10 @@ func planAudit(h *act.Hands, list []layout.Placement) ([]planDiff, error) {
 			res = append(res, planDiff{pl, nil, "нет"})
 		case directed(pl.Name) && st.Direction != nil && *st.Direction != pl.Dir:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
-		case strings.HasPrefix(pl.Name, "assembling-machine") && pl.Recipe != "" && st.Recipe != pl.Recipe:
+		case recipeMachine(pl.Name) && pl.Recipe != "" && st.Recipe != pl.Recipe:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
 		// у твердотопливного манипулятора фильтров нет (Recipe в плане — что он носит)
-		case strings.HasSuffix(pl.Name, "inserter") && pl.Name != "burner-inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
+		case filterInserter(pl.Name) && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
 			!(locked[pl.Recipe] && slices.Contains(st.Filters, filterHold)):
 			res = append(res, planDiff{pl, st, "нет фильтра " + pl.Recipe})
 		}

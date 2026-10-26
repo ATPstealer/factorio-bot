@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -65,16 +66,28 @@ func lockedItems(h *act.Hands) (map[string]bool, error) {
 	return res, nil
 }
 
-// configure — рецепты сборщиков и фильтры инсертеров list по плану (Recipe). Фильтр на ещё не
-// открытый предмет — заглушка filterHold, настоящий ставит стадия, которая предмет вводит;
-// рецепт сборщика ещё не открыт — пропустить (waitOpen, потом configure ещё раз).
+// recipeMachine — у постройки есть рецепт, который ставит бот (сборщики, НПЗ, химзавод).
+func recipeMachine(name string) bool {
+	return strings.HasPrefix(name, "assembling-machine") || name == "oil-refinery" || name == "chemical-plant"
+}
+
+// filterInserter — инсертер с фильтром (у твердотопливного фильтров нет).
+func filterInserter(name string) bool {
+	return strings.HasSuffix(name, "inserter") && name != "burner-inserter"
+}
+
+// configure — рецепты машин (recipeMachine) и фильтры инсертеров (filterInserter) list по плану
+// (Recipe). Фильтр на ещё не открытый предмет — заглушка filterHold, настоящий ставит стадия,
+// которая предмет вводит; рецепт ещё не открыт — пропустить (waitOpen, потом configure ещё
+// раз). Раньше — только сборщик 1 и обычный инсертер: сборщики 2, НПЗ, химзаводы, длинные и
+// быстрые инсертеры синих стадий оставались без настройки (решение пользователя 26.10).
 func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error {
 	locked, err := lockedItems(h)
 	if err != nil {
 		return err
 	}
 	for _, pl := range list {
-		if pl.Recipe == "" || pl.Name != "assembling-machine-1" && pl.Name != "inserter" {
+		if pl.Recipe == "" || !recipeMachine(pl.Name) && !filterInserter(pl.Name) {
 			continue
 		}
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
@@ -82,7 +95,7 @@ func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error
 			return fmt.Errorf("нет %s в (%.1f, %.1f): %v", pl.Name, pl.Pos.X, pl.Pos.Y, err)
 		}
 		switch item := pl.Recipe; {
-		case pl.Name == "assembling-machine-1":
+		case recipeMachine(pl.Name):
 			if st.Recipe != pl.Recipe && !locked[pl.Recipe] {
 				err = h.SetRecipe(ctx, st.Entity, pl.Recipe)
 			}
@@ -104,8 +117,8 @@ func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error
 // openWait — сколько ждать исследования рецепта (зелёная наука: в очереди с обслуживания).
 const openWait = 40 * time.Minute
 
-// waitOpen — рецепты сборщиков list открыты; нет — доставлять в очередь нужные исследования
-// и ждать (страховка: обычно изучено заранее).
+// waitOpen — рецепты машин (recipeMachine) list открыты; нет — доставлять в очередь нужные
+// исследования и ждать (страховка: обычно изучено заранее).
 func waitOpen(ctx context.Context, h *act.Hands, list []layout.Placement) error {
 	deadline := time.Now().Add(openWait)
 	for said := false; ; said = true {
@@ -115,7 +128,7 @@ func waitOpen(ctx context.Context, h *act.Hands, list []layout.Placement) error 
 		}
 		var miss []string
 		for _, pl := range list {
-			if pl.Name == "assembling-machine-1" && pl.Recipe != "" && !slices.Contains(f.Recipes, pl.Recipe) && !slices.Contains(miss, pl.Recipe) {
+			if recipeMachine(pl.Name) && pl.Recipe != "" && !slices.Contains(f.Recipes, pl.Recipe) && !slices.Contains(miss, pl.Recipe) {
 				miss = append(miss, pl.Recipe)
 			}
 		}
