@@ -68,6 +68,9 @@ func labsTech(h *act.Hands) (string, error) {
 	if len(cands) == 0 {
 		return "", fmt.Errorf("нет исследований на одной красной науке")
 	}
+	if slices.Contains(cands, greenPack) { // первым — рецепт зелёной науки (stages.md, стадия 21)
+		return greenPack, nil
+	}
 	cost := func(n string) float64 { t := h.Protos.Technologies[n]; return t.UnitCount * t.UnitTime }
 	sort.Slice(cands, func(i, j int) bool {
 		if cost(cands[i]) != cost(cands[j]) {

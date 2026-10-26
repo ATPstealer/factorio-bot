@@ -322,7 +322,6 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	grow := map[*cluster.Cluster]int{}
 	var extras []*cluster.Cluster
-	ironExtra := false
 	var stationOf *cluster.Cluster
 	var stations []*cluster.Cluster
 	order := slices.Clone(base.Clusters)
@@ -346,16 +345,8 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 			n, w = cluster.PowerNeed(pr, l)
 			h.Say("энергия плана: %.1f МВт — бойлеров %d (стоит %d)", w/1e6, n, have)
 		}
-		// плавка железа под быстрые ленты (~16 железа/с) — ещё кластер, выход — в старую ленту
-		// ниже по течению (решение пользователя)
-		if c.Kind == cluster.Smelt && c.Product == "iron-plate" && !ironExtra {
-			ironExtra = true
-			x, err := cluster.Extra(pr, needs, c, have, 2*have)
-			if err != nil {
-				return base, l, fmt.Errorf("плавка железа под быстрые ленты: %w", err)
-			}
-			extras = append(extras, x)
-		}
+		// плавка железа под быстрые ленты — по расчёту (blueNeeds считает их входы), как у всех:
+		// вдоль ряда, не влезло — ещё кластер (было удвоение старой — заплатка; stages.md, 30)
 		h.Log("рост: %s — нужно %d, стоит %d", c.Name, n, have)
 		if n <= have {
 			continue
