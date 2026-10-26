@@ -91,7 +91,7 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 	const pipe, ptg = "pipe", "pipe-to-ground"
 	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
 	start := from.To
-	pipeOK := func(t world.Tile) bool { return l.Free(t, AnyLand) && !l.fluidNeighbour(t, own) }
+	pipeOK := func(t world.Tile) bool { return l.Free(t, AnyLand) && !l.Solid[t] && !l.fluidNeighbour(t, own) }
 	if !pipeOK(start) {
 		return nil, ErrNoPipe
 	}
