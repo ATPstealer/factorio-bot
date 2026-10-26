@@ -312,7 +312,9 @@ func (b *Base) laneEnd(buses []*ZBus, k int, it string) int {
 			use = use || in.Item == it && (f == k+1 || f == k && c.TakesAbove())
 		}
 		for _, o := range c.Out {
-			use = use || o.Item == it && f == k
+			// добыча кладёт в голову ленты (подвод слева), где бы ни стояла: длину ленты не
+			// задаёт (руда тянулась до края bus-1 к блокам добычи правее базы — 208708719)
+			use = use || o.Item == it && f == k && c.Kind != Mine
 		}
 		if use {
 			end = max(end, c.Area.Max.X+laneTail)
