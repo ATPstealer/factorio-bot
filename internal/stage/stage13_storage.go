@@ -120,13 +120,21 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 		if strings.HasPrefix(name, "underground") {
 			todo = ugPairs(todo)
 		}
-		if err := s.have(ctx, name, len(todo)); err != nil {
-			return err
-		}
 		// одинаковое — подряд одним вызовом (рука не меняется между постановками), пачками по
-		// buildBatch: между пачками — место в инвентаре под срубленное
+		// buildBatch: между пачками — место в инвентаре под срубленное. Добирать — сколько
+		// влезает в инвентарь, не всё сразу (1244 лент в него не помещались — 1028292478,
+		// стадия 16)
 		for len(todo) > 0 {
-			batch := todo[:min(len(todo), buildBatch)]
+			n := min(len(todo), buildBatch)
+			if s.inv(name) < n {
+				if err := s.have(ctx, name, min(len(todo), max(n, s.roomFor(name)))); err != nil {
+					return err
+				}
+			}
+			batch := todo[:min(n, s.inv(name))]
+			if len(batch) == 0 {
+				return fmt.Errorf("нет %s в инвентаре для стройки", name)
+			}
 			todo = todo[len(batch):]
 			if s.useStore { // место под срубленное на месте постройки (деревья, камни): в
 				// хранение — только сырьё с вырубки, постройки и запас стадии остаются
@@ -153,6 +161,16 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 		}
 	}
 	return nil
+}
+
+// roomFor — сколько item поместится в инвентарь: что уже есть плюс свободные ячейки пачками.
+func (s *worker) roomFor(item string) int {
+	p, err := s.h.B.Player()
+	if err != nil {
+		return 0
+	}
+	stack := max(s.h.Protos.Items[item].StackSize, 1)
+	return p.Inventory[item] + (p.InventorySize-len(p.InventorySlots))*stack
 }
 
 func checkStorage(h *act.Hands) error {

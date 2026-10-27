@@ -1289,6 +1289,10 @@ func (h *Hands) TakeItem(ctx context.Context, e bridge.Entity, item string, n in
 		return err
 	}
 	if got(p) < n {
+		if got(p) > 0 && len(p.InventorySlots) >= p.InventorySize { // инвентарь полон — взято, сколько влезло
+			h.Log("из %s взято %s ×%d из %d: инвентарь полон", e.Name, item, got(p), n)
+			return nil
+		}
 		h.debugShot("chest-take")
 		return fmt.Errorf("act: из %s взято %s ×%d из %d", e.Name, item, got(p), n)
 	}
