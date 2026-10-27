@@ -29,22 +29,31 @@ func init() {
 // рядом месторождения; решение пользователя 27.10), потом старт (дерево, камень, обломки — те,
 // что рядом) и добывающие точки вне зон базы.
 func runStartOutposts(ctx context.Context, h *act.Hands) error {
-	if r, err := LoadRough(); err == nil {
-		for _, z := range r.Zones {
-			if z.Name != "bus-1" {
-				continue
-			}
-			c := world.Tile{X: z.Rect.Min.X - 4, Y: (z.Rect.Min.Y + z.Rect.Max.Y) / 2}
-			h.Say("к центру базы — голова bus-1 (%d, %d)", c.X, c.Y)
-			if err := h.WalkTo(ctx, c.Center(), 3); err != nil && !errors.Is(err, act.ErrNotReached) {
-				return err
-			}
+	if c, ok := baseCenter(); ok {
+		h.Say("к центру базы — голова bus-1 (%d, %d)", c.X, c.Y)
+		if err := h.WalkTo(ctx, c.Center(), 3); err != nil && !errors.Is(err, act.ErrNotReached) {
+			return err
 		}
 	}
 	if err := runStart(ctx, h); err != nil {
 		return err
 	}
 	return runOutposts(ctx, h)
+}
+
+// baseCenter — центр размеченной базы: у головы bus-1 (stages.md, стадия 10: туда первым делом,
+// точки — рядом). false — разметки ещё нет.
+func baseCenter() (world.Tile, bool) {
+	r, err := LoadRough()
+	if err != nil {
+		return world.Tile{}, false
+	}
+	for _, z := range r.Zones {
+		if z.Name == "bus-1" {
+			return world.Tile{X: z.Rect.Min.X - 4, Y: (z.Rect.Min.Y + z.Rect.Max.Y) / 2}, true
+		}
+	}
+	return world.Tile{}, false
 }
 
 // startTargets — какие цели ещё нужны: обломки — всегда (пока есть), камни — пока камня мало,

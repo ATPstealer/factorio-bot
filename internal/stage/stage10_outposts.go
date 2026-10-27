@@ -72,8 +72,14 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 	if err != nil {
 		return nil, err
 	}
+	// от центра базы (голова bus-1), а не от персонажа: план считается до стадии (проверка), когда
+	// персонаж ещё там, где кончилась разведка, — точки легли на краю квадрата, в 1300 тайлах от
+	// базы, без пути (260647970). Разметки нет — от персонажа.
 	near := world.TileOf(p.Position)
-	// patches — пятна ore (не меньше min тайлов) по близости к старту: сначала в пределах
+	if c, ok := baseCenter(); ok {
+		near = c
+	}
+	// patches — пятна ore (не меньше min тайлов) по близости к near: сначала в пределах
 	// outpostReach (на бег между точками время не терять), дальше — только если в них не влезло
 	type patchAt struct {
 		world.Patch
@@ -94,7 +100,7 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 			if pt.Name != ore || len(pt.Tiles) < min {
 				continue
 			}
-			d := math.Hypot(pt.Center.X-p.Position.X, pt.Center.Y-p.Position.Y)
+			d := math.Hypot(pt.Center.X-float64(near.X), pt.Center.Y-float64(near.Y))
 			if len(used) > 0 {
 				d = math.Inf(1)
 				for _, u := range used {
