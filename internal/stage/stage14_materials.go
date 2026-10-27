@@ -275,6 +275,15 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	if len(order) == 0 {
 		return nil // выложить нечего: всё нужное или пластины
 	}
+	// выложить можно меньше, чем нужно до четверти (занято пластинами и нужным), — ходка ничего не
+	// меняет: только когда полон
+	freeable := 0
+	for _, it := range order {
+		freeable += slots(it)
+	}
+	if freeNow() > fullSlots && freeNow()+freeable < size/4 {
+		return nil
+	}
 	list, err := storageNear(s.h)
 	if err != nil {
 		return fmt.Errorf("%w: %v", errNoStorage, err) // плана ещё нет (до стадии 3)
