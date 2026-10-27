@@ -171,14 +171,22 @@ func main() {
 		for _, pl := range plan.Layout {
 			l.Add(pl)
 		}
-		errs, trace := l.FlowTrace(stage.SkipLater(plan.Clusters))
+		skip := stage.SkipLater(plan.Clusters) // «all» последним аргументом — и будущие блоки (план стадии 7)
+		if args[len(args)-1] == "all" {
+			skip, args = nil, args[:len(args)-1]
+		}
+		errs, trace := l.FlowTrace(skip)
 		for _, e := range errs {
 			fmt.Println(e)
 		}
 		fmt.Printf("машин без входа: %d\n", len(errs))
 		if len(args) >= 5 {
 			t := world.Tile{X: atoi(args[3]), Y: atoi(args[4])}
-			fmt.Printf("%v: %v; дотекло %v\n", t, l.At(t), trace[t])
+			r, ok := w.ResourceAt(t)
+			fmt.Printf("%v: %v; дотекло %v; ресурс %v %v\n", t, l.At(t), trace[t], r, ok)
+			if pl := l.At(t); pl != nil && pr.Entities[pl.Name].Type == "mining-drill" {
+				fmt.Printf("выход бура: %v\n", layout.DrillOutput(pr, *pl))
+			}
 		}
 		return
 	case "empty":

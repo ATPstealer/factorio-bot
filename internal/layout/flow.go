@@ -305,10 +305,8 @@ func (f *flow) itemsAt(t world.Tile) set {
 	if s := f.items[t]; s != nil {
 		return s
 	}
-	if j, ok := f.at[t]; ok {
-		if m := f.machine[j]; m != nil {
-			return f.productsOf(j, m)
-		}
+	if j, ok := f.at[t]; ok { // машина: её продукты (и у машин без твёрдых входов — химия на газе и воде)
+		return f.productsOf(j, f.machine[j])
 	}
 	return set{}
 }
@@ -463,7 +461,13 @@ func (f *flow) report() []string {
 			if !fuel(have) {
 				missing = append(missing, "топлива")
 			}
-			ore := pl.Recipe == "" && (have["iron-ore"] || have["copper-ore"] || have["stone"]) || pl.Recipe != "" && have["iron-plate"]
+			ore := pl.Recipe == "" && (have["iron-ore"] || have["copper-ore"] || have["stone"])
+			if r, ok := f.p.Recipes[pl.Recipe]; ok { // печь с рецептом (пластины и сталь в парах)
+				ore = true
+				for _, a := range r.Ingredients {
+					ore = ore && have[a.Name]
+				}
+			}
 			if !ore {
 				missing = append(missing, "руды")
 			}
