@@ -211,6 +211,15 @@ func (s *worker) inv(item string) int {
 	return p.Inventory[item]
 }
 
+// freeSlots — свободных ячеек инвентаря.
+func (s *worker) freeSlots() int {
+	p, err := s.h.B.Player()
+	if err != nil {
+		return 0
+	}
+	return p.InventorySize - len(p.InventorySlots)
+}
+
 func runOutposts(ctx context.Context, h *act.Hands) error {
 	sites, err := outpostsLayout(h)
 	if err != nil {
@@ -314,6 +323,17 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		// хранения ещё нет — как есть
 		if err := s.store(ctx, freeBefore, item); err != nil && !errors.Is(err, errNoStorage) {
 			return err
+		}
+		if s.useStore && !s.any && s.freeSlots() < 2 {
+			// инвентарь полон нужным стадии (буры, столбы, пластины) — брать некуда (260647970,
+			// стадия 16: «взято transport-belt ×0 из 40»): нужное, кроме item, временно в
+			// хранение — стройка идёт пачками, остальное доберётся потом
+			s.any = true
+			err := s.store(ctx, freeBefore, item)
+			s.any = false
+			if err != nil && !errors.Is(err, errNoStorage) {
+				return err
+			}
 		}
 		lack := n - s.inv(item)
 		if s.useStore {
