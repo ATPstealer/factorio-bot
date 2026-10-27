@@ -207,8 +207,13 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, *limit)
-	defer cancel()
+	if args[0] == "stage" { // лимит стадии — в stage.Do: жирной стадии он больше (полторы оценки)
+		stage.Limit = *limit
+	} else {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *limit)
+		defer cancel()
+	}
 
 	hands := func() *act.Hands {
 		in, err := input.Open(*display)

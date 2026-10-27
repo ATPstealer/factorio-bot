@@ -2,6 +2,7 @@ package stage
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -131,6 +132,11 @@ func paperStages(h *act.Hands, to int) error {
 		var bad []string
 		bad = append(bad, prepTiles(h, list)...)
 		bad = append(bad, prepReach(h, list)...)
+		// обслуживание: всё из чертежа уже поставили стадии (при обновлении чертежа в игре — не
+		// ошибка: недостающее обслуживание и достроит)
+		if (n == 22 || n == 28) && len(list) > 0 && !freshLayouts {
+			bad = append(bad, unbuilt(list))
+		}
 		bad = append(bad, paper.add(h, list)...)
 		h.Log("стадия %d на бумаге: %d построек, нарушений %d", n, len(list), len(bad))
 		if len(bad) > 0 {
@@ -144,6 +150,25 @@ func paperStages(h *act.Hands, to int) error {
 		}
 	}
 	return nil
+}
+
+// unbuilt — к обслуживанию из чертежа не поставлено стадиями list: по тегам плана (второй кусок
+// кластера плавки не строился ни одной стадией — 957 построек на обслуживании, 260647970).
+func unbuilt(list []layout.Placement) string {
+	byTag := map[string]int{}
+	var tags []string
+	for _, pl := range list {
+		if byTag[pl.Tag] == 0 {
+			tags = append(tags, pl.Tag)
+		}
+		byTag[pl.Tag]++
+	}
+	sort.Slice(tags, func(i, j int) bool { return byTag[tags[i]] > byTag[tags[j]] })
+	var parts []string
+	for _, t := range tags {
+		parts = append(parts, fmt.Sprintf("%s ×%d", t, byTag[t]))
+	}
+	return fmt.Sprintf("чертежа не поставила ни одна стадия: %d (%s)", len(list), strings.Join(parts, ", "))
 }
 
 // refreshLayouts — обновить чертёж (stages.md, стадия 22: код поменялся, а карта построена по

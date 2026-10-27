@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"time"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/layout"
@@ -104,11 +105,25 @@ func List() []int {
 	return res
 }
 
+// Limit — лимит стадии (bin/bot -t); 0 — без лимита. Жирной стадии Do сразу даёт полторы оценки
+// из проверки перед стройкой, если это больше (stages.md, общее: лимит с запасом).
+var Limit time.Duration
+
+// estimate — оценка времени стройки текущей стадии (prepTime).
+var estimate time.Duration
+
 // Do — выполнить стадию и проверить критерии.
 func Do(ctx context.Context, h *act.Hands, n int) error {
 	s, err := Get(n)
 	if err != nil {
 		return err
+	}
+	start, base := time.Now(), ctx
+	estimate = 0
+	if Limit > 0 { // до оценки — обычный лимит
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(base, start.Add(Limit))
+		defer cancel()
 	}
 	h.Say("стадия %d: %s", s.N, s.Name)
 	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
@@ -157,6 +172,12 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
 		return fmt.Errorf("стадия %d: %w", n, err)
+	}
+	if lim := estimate * 3 / 2; Limit > 0 && lim > Limit { // жирная стадия — время с запасом
+		h.Say("лимит стадии — %v (полторы оценки %v)", lim.Round(time.Minute), estimate.Round(time.Minute))
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(base, start.Add(lim))
+		defer cancel()
 	}
 	if err := s.Run(ctx, h); err != nil {
 		return fmt.Errorf("стадия %d: %w", n, err)

@@ -118,7 +118,9 @@ for seed in "$@"; do
   fi
   start=$(date +%s)
   [[ ${CONT:-0} == 1 ]] && echo "== продолжение $(date +%T)" >> "$log" || : > "$log"
-  if timeout $((limit * 60 + 300)) bin/bot -t "${limit}m" stage "$n" >> "$log" 2>&1; then
+  # лимит стадии — у бота (жирной стадии он сам даёт полторы оценки); timeout — страховка от
+  # зависания: сутки, но не меньше лимита
+  if timeout $(( (limit > 1440 ? limit : 1440) * 60 + 300 )) bin/bot -t "${limit}m" stage "$n" >> "$log" 2>&1; then
     if timeout 300 scripts/snapshot.sh save "$seed-$n" "сид $seed: после стадии $n" > /dev/null 2>> "$log"; then
       touch "run/stages/ok-$n-$seed"
       echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
