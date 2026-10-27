@@ -1083,6 +1083,11 @@ func (h *Hands) InsertAll(ctx context.Context, e bridge.Entity, item string) (in
 	if err := h.reach(ctx, e, buildReach); err != nil {
 		return 0, err
 	}
+	// после подхода (бывает полторы минуты) предмета может уже не быть: предыдущий вызов
+	// доложил остаток по ещё не обновлённому инвентарю (859088572, стадия 14: «нет stone»)
+	if p, err := h.B.Player(); err == nil && held(p, item) == 0 {
+		return 0, nil
+	}
 	if err := h.Pick(ctx, item); err != nil {
 		return 0, err
 	}
