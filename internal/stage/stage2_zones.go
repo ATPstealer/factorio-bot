@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
@@ -19,7 +20,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 4 (stages.md): прикидочный план всей базы до запуска ракеты за roughHours часов, конечные
+// Стадия 2 (stages.md): прикидочный план всей базы до запуска ракеты за roughHours часов, конечные
 // машины — AM2 и стальные печи. Без раскладок: блоки (кластеры по продукту) с машинами и
 // площадью, шина по уровням (ленты — красные), хватит ли ресурсов на всю игру, зоны на карте
 // (центр базы — у крупных пятен угля, железа и меди, zones.md), картинка. Следующие стадии
@@ -57,14 +58,14 @@ type Resource struct {
 }
 
 func init() {
-	register(Stage{N: 4, Name: "зоны всей базы", Run: runRough, Check: checkRough, Plan: true})
+	register(Stage{N: 2, Name: "зоны всей базы", Run: runRough, Check: checkRough, Plan: true})
 }
 
 // LoadRough — прикидка базы этой карты (для следующих стадий).
 func LoadRough() (*RoughPlan, error) {
 	data, err := os.ReadFile(runPath(roughFile))
 	if err != nil {
-		return nil, fmt.Errorf("нет прикидки базы (стадия 4): %w", err)
+		return nil, fmt.Errorf("нет прикидки базы (стадия 2): %w", err)
 	}
 	var r RoughPlan
 	return &r, json.Unmarshal(data, &r)
@@ -96,11 +97,15 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	saveWorld(h)
-	opened, holes := 0, 0 // дооткрытий у базы и дыр внутри неё (stages.md, стадия 4)
+	opened, holes := 0, 0 // дооткрытий у базы и дыр внутри неё (stages.md, стадия 2)
 	roughRegion, roughCliffs = nil, false
-	var regions []cluster.Rect // соседние квадраты (места в нынешнем нет)
+	planned := false // searchBase уже сделал полную разметку
 	for {
-		err := roughOnce(h)
+		var err error
+		if !planned {
+			err = roughOnce(h)
+		}
+		planned = false
 		var ns *cluster.NoSiteError
 		if err == nil {
 			// у базы неоткрытая земля — открыть и разметить заново: база жмётся к краю
@@ -135,72 +140,30 @@ func runRough(ctx context.Context, h *act.Hands) error {
 		if !errors.As(err, &ns) {
 			return err
 		}
-		// места нет — другой квадрат 2048×2048 в 2000 тайлах (один из 8 соседних, ближние
-		// первыми): сходить, открыть, разметить только в нём (stages.md, решение пользователя)
-		if regions == nil {
+		// места нет — следующие квадраты разведки по кольцам (stages.md, стадии 1–2): прикидка
+		// после каждого, потом полная разметка; все пройдены — база с утёсами, потом падение
+		st, lerr := loadSquares()
+		if lerr != nil {
 			need, err := roughNeed(h)
 			if err != nil {
 				return err
 			}
-			regions = roughRegions(h, roughAnchor(h, need))
+			st = &squareState{Center: roughAnchor(h, need)}
 		}
-		if len(regions) == 0 {
+		h.Say("%v — ищу дальше по квадратам (пройдено %s)", err, squaresProgress(st))
+		if serr := searchBase(ctx, h, st, true); serr != nil {
+			if !errors.Is(serr, errNoSquares) {
+				return serr
+			}
 			if roughCliffs {
-				return fmt.Errorf("%w; и в 8 соседних квадратах, и базой с утёсами тоже", err)
+				return fmt.Errorf("%w; и во всех квадратах разведки, и базой с утёсами тоже", err)
 			}
 			// последнее — база с утёсами по всей открытой карте (zones.md, решение пользователя)
-			h.Say("%v — и в 8 соседних квадратах нет: размечаю базу с утёсами в зонах (зоны шире)", err)
+			h.Say("%v — и во всех квадратах нет: размечаю базу с утёсами в зонах (зоны шире)", err)
 			roughCliffs, roughRegion = true, nil
 			continue
 		}
-		r := regions[0]
-		regions = regions[1:]
-		roughRegion = &r
-		cx, cy := r.Center()
-		h.Say("%v — перехожу в другой квадрат: центр (%.0f, %.0f), открываю его", err, cx, cy)
-		in := func(c bridge.ChunkPos) bool {
-			return c.X*32+32 > r.Min.X && c.X*32 < r.Max.X && c.Y*32+32 > r.Min.Y && c.Y*32 < r.Max.Y
-		}
-		more := func() bool {
-			for c := range h.World.Chunks {
-				for _, d := range []bridge.ChunkPos{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
-					u := bridge.ChunkPos{X: c.X + d.X, Y: c.Y + d.Y}
-					if h.World.Chunks[u] == nil && in(u) {
-						return true
-					}
-				}
-			}
-			return false
-		}
-		// туда — коридором от игрока к центру квадрата (разведка берёт только край открытого:
-		// дальний квадрат с ним не граничит — «открывался» за секунду, 1028292478)
-		if p, err := h.B.Player(); err == nil {
-			ax, ay := p.Position.X, p.Position.Y
-			corridor := func(c bridge.ChunkPos) bool {
-				// расстояние от чанка до отрезка игрок — центр, в чанках
-				px, py := float64(c.X*32+16), float64(c.Y*32+16)
-				dx, dy := cx-ax, cy-ay
-				l2 := dx*dx + dy*dy
-				t := 0.0
-				if l2 > 0 {
-					t = math.Max(0, math.Min(1, ((px-ax)*dx+(py-ay)*dy)/l2))
-				}
-				return math.Hypot(px-ax-t*dx, py-ay-t*dy) <= 96
-			}
-			// дошёл — персонаж в квадрате (не «центральный чанк открыт»: он бывает сгенерирован
-			// заранее, отдельно от открытого — коридор кончался сразу, 264771462, 208708719)
-			arrived := func() bool {
-				q, err := h.B.Player()
-				return err != nil || math.Hypot(q.Position.X-cx, q.Position.Y-cy) < 512
-			}
-			err := h.ExploreWhere(ctx, corridor, arrived)
-			if err != nil && !errors.Is(err, act.ErrNothingToExplore) {
-				return err
-			}
-		}
-		if err := h.ExploreWhere(ctx, in, func() bool { return !more() }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
-			return err
-		}
+		planned = true
 		opened = 0
 	}
 }
@@ -212,8 +175,6 @@ var roughCliffs bool
 // нашлось — следующий из соседних (runRough).
 var roughRegion *cluster.Rect
 
-// roughRegions — 8 квадратов 2048×2048 со сдвигом на 2000 тайлов от center, ближние к игроку
-// первыми.
 // WorldFile — открытая карта перед разметкой зон: run/worlds/<сид>.gob (разметка без игры —
 // bin/bot rough).
 func WorldFile() string { return filepath.Join("run/worlds", seedOf()+".gob") }
@@ -226,19 +187,21 @@ func saveWorld(h *act.Hands) {
 }
 
 // RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
+
+// RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
 // попытка в открытом, без дооткрытий и переходов в другие квадраты; from > 4 — без разметки,
 // стадии from…to по состоянию в BOT_RUN.
 func RoughOffline(h *act.Hands, from, to int) error {
 	roughRegion, roughCliffs, roughOffline = nil, false, true
-	if from <= 4 {
+	if from <= 2 {
 		if err := roughOnce(h); err != nil {
 			return err
 		}
 	}
-	// дальше — стадии планирования до to (их Run читает только карту и состояние; с from > 4 —
+	// дальше — стадии планирования до to (их Run читает только карту и состояние; с from > 2 —
 	// состояние прошлых стадий в BOT_RUN, как в снимке)
 	PlanOnly = true
-	for _, n := range Plans(max(from, 5), to) {
+	for _, n := range Plans(max(from, 3), to) {
 		s, err := Get(n)
 		if err != nil {
 			return err
@@ -267,22 +230,6 @@ func roughBlocked(h *act.Hands, base *cluster.Base, origin world.Tile) {
 	if err := png.Encode(f, img); err != nil {
 		h.Log("картинка помех: %v", err)
 	}
-}
-
-func roughRegions(h *act.Hands, center world.Tile) []cluster.Rect {
-	var res []cluster.Rect
-	for _, d := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
-		c := world.Tile{X: center.X + d[0]*2000, Y: center.Y + d[1]*2000}
-		res = append(res, cluster.Rect{Min: world.Tile{X: c.X - 1024, Y: c.Y - 1024}, Max: world.Tile{X: c.X + 1024, Y: c.Y + 1024}})
-	}
-	if p, err := h.B.Player(); err == nil {
-		sort.SliceStable(res, func(i, j int) bool {
-			xi, yi := res[i].Center()
-			xj, yj := res[j].Center()
-			return math.Hypot(xi-p.Position.X, yi-p.Position.Y) < math.Hypot(xj-p.Position.X, yj-p.Position.Y)
-		})
-	}
-	return res
 }
 
 // roughAnchor — центр базы по всей открытой карте (zones.md): у какого пятна угля, железа или
@@ -448,7 +395,7 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 	}
 	// станция и её зона — под одну помпу (cluster.md §2а «Станция»)
 	cluster.SizePower(pr, cs)
-	// свои постройки (точки стадии 2) — не помеха: их разберут
+	// свои постройки (точки стадии 10) — не помеха: их разберут
 	var own []world.Object
 	for _, o := range h.World.Objects() {
 		if o.Own {
@@ -472,6 +419,9 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 	base := cluster.NewBase(pr, h.World, origin)
 	base.Log, base.CliffZones = h.Log, roughCliffs
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
+	if roughQuick {  // прикидка стадии 1 (stages.md): быстро, с лимитом времени
+		base.Quick, base.Deadline = true, time.Now().Add(roughQuickLimit)
+	}
 	base.NoMine = noMine
 	if baseFirst && from == nil {
 		base.MineZones(cs, nil) // сначала база — без добычи (roughOnce)

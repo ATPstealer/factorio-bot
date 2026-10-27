@@ -25,7 +25,7 @@ import (
 // planOf — план постройки стадии n (что и где ставить); nil — стадия ничего не строит.
 func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 	switch n {
-	case 2:
+	case 10:
 		sites, err := outpostsLayout(h)
 		if err != nil {
 			return nil, err
@@ -571,7 +571,7 @@ func forward(n int) int {
 	return 1
 }
 
-// prepForward — планы следующих стадий (forward) «на бумаге» (по нынешней карте и плану стадии 5):
+// prepForward — планы следующих стадий (forward) «на бумаге» (по нынешней карте и плану стадии 3):
 // ошибка плана дальше — видна сразу. Файлы состояния, созданные при этом, удаляются (стадия
 // построит свой план, когда до неё дойдёт).
 func prepForward(h *act.Hands, n int) {

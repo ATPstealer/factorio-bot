@@ -9,7 +9,7 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 30 (stages.md): расширение дохода — из плана стадии 7 добыча до 2M (старые блоки — на
+// Стадия 30 (stages.md): расширение дохода — из плана стадии 5 добыча до 2M (старые блоки — на
 // всё месторождение, новые блоки со своими лентами bus-1 и делителями на подводах) и ещё плавка
 // железа (выход — в ленту железа bus-2), отводы и делители на шинах, столбы к сети базы. В
 // самом начале — сталь в очередь исследований (стадия долгая).
@@ -20,7 +20,7 @@ func init() {
 	register(Stage{N: 30, Name: "расширение дохода", Run: runIncome, Check: checkIncome})
 }
 
-// incomeLayout — будущая добыча из плана стадии 5 (Later: блоки до 2M, камень, кирпич, буры на
+// incomeLayout — будущая добыча из плана стадии 3 (Later: блоки до 2M, камень, кирпич, буры на
 // потом в блоках первой итерации, их подводы и перекидки) и дописанное стадией 7 в плавку (не
 // сталь); буфер кирпича; столбы к сети.
 func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
@@ -69,7 +69,7 @@ func runIncome(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	h.Say("доход: %d построек по плану стадии 7", len(list))
+	h.Say("доход: %d построек по плану стадии 5", len(list))
 	order := []string{"electric-mining-drill", "stone-furnace", chest, "inserter", "long-handed-inserter",
 		"burner-inserter", "transport-belt", "underground-belt", "splitter", "small-electric-pole"}
 	return buildSorted(ctx, h, list, order)

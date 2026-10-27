@@ -14,7 +14,7 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Нефть (cluster.md §2а «Нефть», stages.md — стадия 7): месторождение — качалки на каждой
+// Нефть (cluster.md §2а «Нефть», stages.md — стадия 5): месторождение — качалки на каждой
 // скважине, трубы между ними, столбы; выход — конец трубы у ближней к базе качалки (оттуда —
 // трасса на базу).
 
@@ -630,7 +630,7 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 }
 
 // ChemPipes — трубы химии: газ — с трубы bus-2 (tag gas), вода — своей трубой в bus-1 от своей
-// помпы (stages.md, стадия 7: вода для химии — своя помпа и своя линия).
+// помпы (stages.md, стадия 5: вода для химии — своя помпа и своя линия).
 func (b *Base) ChemPipes(l *layout.Layout, buses []*ZBus, chems []*Cluster, gas string) error {
 	end := 0
 	water := false

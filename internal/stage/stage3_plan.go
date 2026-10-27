@@ -18,11 +18,11 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 5 (stages.md): план первых кластеров «на бумаге» (cluster.md) внутри зон стадии 4
+// Стадия 3 (stages.md): план первых кластеров «на бумаге» (cluster.md) внутри зон стадии 2
 // (zones.md) — добыча угля, железа, меди; плавка железа и меди; станция; шины; шестерни;
 // красная наука; лаборатории; хранение. Цель — красная наука redRate/с, без запаса роста
 // (запасы — в зонах). Картинка — зоны и кластеры с раскладкой поверх карты.
-// Постройки точек стадии 2 при разметке не мешают: их разберут (стадия 15).
+// Постройки точек стадии 10 при разметке не мешают: их разберут (стадия 15).
 
 const (
 	planFile    = "state-plan.json"
@@ -44,15 +44,15 @@ type ClusterPlan struct {
 }
 
 func init() {
-	register(Stage{N: 5, Name: "план кластеров", Run: runPlan, Check: checkPlan, Plan: true})
+	register(Stage{N: 3, Name: "план кластеров", Run: runPlan, Check: checkPlan, Plan: true})
 }
 
-// LoadPlan — план кластеров этой карты для стройки стадий 11–28: стадий 5–6 (дописанное
+// LoadPlan — план кластеров этой карты для стройки стадий 11–28: стадий 3–4 (дописанное
 // стадией 7 — синяя наука — строится потом, его план — LoadBluePlan).
 func LoadPlan() (*ClusterPlan, error) {
 	data, err := os.ReadFile(runPath(planNowFile()))
 	if err != nil {
-		return nil, fmt.Errorf("нет плана кластеров (стадия 5): %w", err)
+		return nil, fmt.Errorf("нет плана кластеров (стадия 3): %w", err)
 	}
 	var s ClusterPlan
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -61,7 +61,7 @@ func LoadPlan() (*ClusterPlan, error) {
 	return &s, nil
 }
 
-// planNowFile — файл плана стройки стадий 11–28: план до стадии 7, если она уже дописала
+// planNowFile — файл плана стройки стадий 11–28: план до стадии 5, если она уже дописала
 // свой (иначе — общий).
 func planNowFile() string {
 	if _, err := os.Stat(runPath(blueBaseFile)); err == nil {
@@ -70,7 +70,7 @@ func planNowFile() string {
 	return planFile
 }
 
-// LoadBluePlan — весь план с проектом синей науки (стадия 7).
+// LoadBluePlan — весь план с проектом синей науки (стадия 5).
 func LoadBluePlan() (*ClusterPlan, error) { return loadPlanFile(runPath(planFile)) }
 
 func runPlan(ctx context.Context, h *act.Hands) error {
@@ -88,7 +88,7 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	// свои постройки (точки стадии 2) — не помеха
+	// свои постройки (точки стадии 10) — не помеха
 	var own []world.Object
 	for _, o := range h.World.Objects() {
 		if o.Own {
@@ -361,7 +361,7 @@ func checkPlan(h *act.Hands) error {
 	return nil
 }
 
-// planStart — места всех своих построек (точки стадии 2): кластеры без зоны их не задевают
+// planStart — места всех своих построек (точки стадии 10): кластеры без зоны их не задевают
 // (до разборки на стадии 15).
 func planStart(own []world.Object) []cluster.Rect {
 	var keep []cluster.Rect

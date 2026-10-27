@@ -9,16 +9,17 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/calc"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/world"
 )
 
-// Стадия 3 (stages.md): разведка места под базу. Бот прикидывает центр базы (как стадия 4 —
+// Стадия 1 (stages.md): разведка места под базу. Бот прикидывает центр базы (как стадия 2 —
 // где ближе всего друг к другу крупные пятна угля, железа и меди) и идёт открывать: нет ещё
 // всех трёх — к краю открытого, где видна руда или ровная суша; есть — пятна у центра,
 // уходящие за край, и рамку под базу вокруг центра. Центр пересчитывается после каждого похода.
 
 const (
-	scoutBox   = 32 // чанков от центра базы: рамка 2048×2048 тайлов (1000×1000 часто не хватало базе)
+	scoutBox   = 31 // чанков от центра базы: центральный квадрат ~2000×2000 тайлов (squareSide; 1000×1000 часто не хватало базе)
 	scoutHop   = 24 // новых чанков за один поход к краю (пока крупных пятен нет)
 	scoutTrips = 60 // походов не больше
 )
@@ -27,10 +28,10 @@ const (
 var scoutRes = []string{"coal", "iron-ore", "copper-ore"}
 
 func init() {
-	register(Stage{N: 3, Name: "разведка места под базу", Run: runExplore, Check: checkExplore})
+	register(Stage{N: 1, Name: "разведка места под базу", Run: runExplore, Check: checkExplore})
 }
 
-// roughNeed — сколько угля, железной и медной руды нужно за игру (как стадия 4).
+// roughNeed — сколько угля, железной и медной руды нужно за игру (как стадия 2).
 func roughNeed(h *act.Hands) (map[string]float64, error) {
 	targets, _, err := roughTargets(h)
 	if err != nil {
@@ -169,7 +170,7 @@ func runExplore(ctx context.Context, h *act.Hands) error {
 		center := roughAnchor(h, need)
 		if trip > 0 && math.Hypot(float64(center.X-last.X), float64(center.Y-last.Y)) < 64 && !scoutMore(h, center, need) {
 			h.Say("разведка: место под базу у (%d, %d) открыто", center.X, center.Y)
-			return nil
+			return exploreDone(ctx, h, center)
 		}
 		last = center
 		h.Say("разведка: центр базы у (%d, %d) — открываю место вокруг и пятна за краем", center.X, center.Y)
@@ -179,13 +180,27 @@ func runExplore(ctx context.Context, h *act.Hands) error {
 			// в рамке дойти больше некуда (за водой, утёсами) — место открыто, сколько можно
 			// (иначе те же недоступные чанки — по кругу до лимита стадии: 238178543)
 			h.Say("разведка: место под базу у (%d, %d) открыто (остальное недоступно)", center.X, center.Y)
-			return nil
+			return exploreDone(ctx, h, center)
 		}
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// exploreDone — центральный квадрат открыт: состояние поиска квадратами, прикидка «встанет ли
+// база»; не встала — следующие квадраты по кольцам (searchBase; stages.md, стадия 1).
+func exploreDone(ctx context.Context, h *act.Hands, center world.Tile) error {
+	st := &squareState{Center: center, Done: []cluster.Rect{squareAt(center, 0, 0)}}
+	if err := writeState(squaresFile, st); err != nil {
+		return err
+	}
+	saveWorld(h)
+	if roughEstimate(h) {
+		return nil
+	}
+	return searchBase(ctx, h, st, false)
 }
 
 // scoutMore — у центра есть неоткрытое, куда можно дойти (сосед открыт).

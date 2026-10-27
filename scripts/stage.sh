@@ -6,7 +6,7 @@
 #   scripts/stage.sh N-M СИД…  — стадии N…M по очереди: следующая — когда все карты закончили
 #                                прошлую; не выполнена хоть на одной — стоп (чинить, потом
 #                                продолжить с неё же: scripts/stage.sh K-M …)
-#   стадия 1 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
+#   стадия 10 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
 #   пустая стадия (резерв, bin/bot empty N) — без игры: снимок <сид>-(N-1) копируется в <сид>-N
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 1); после — он остановлен
 #   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 180)
@@ -72,7 +72,7 @@ if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
   exit 0
 fi
 source scripts/inst.sh
-limit=${LIMIT:-$([[ $n == 3 ]] && echo 180 || echo 120)}
+limit=${LIMIT:-$([[ $n == 1 ]] && echo 1080 || echo 120)}
 code=0
 for seed in "$@"; do
   log=run/stages/s$n-$seed.log
@@ -98,7 +98,7 @@ for seed in "$@"; do
     SEED=$seed timeout 600 scripts/newmap.sh > /dev/null 2>&1 || { echo "   карта $seed не создалась" | tee -a run/stages/summary.txt; code=1; continue; }
   else
     # загрузка — до 3 раз: игра сразу после остановки прошлой стадии однажды не поднялась
-    # (1028292478, стадия 2 — «нет снимка», а снимок был); ошибки — в run/stages/load-<сид>.log
+    # (1028292478, стадия 10 — «нет снимка», а снимок был); ошибки — в run/stages/load-<сид>.log
     loaded=0
     for try in 1 2 3; do
       if timeout 600 scripts/snapshot.sh load "$seed-$((n - 1))" > /dev/null 2>> "run/stages/load-$seed.log"; then

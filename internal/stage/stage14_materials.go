@@ -14,7 +14,7 @@ import (
 )
 
 // Стадия 14 (stages.md): материалы на кластеры добычи угля, железа, меди и плавки железа и
-// меди по плану стадии 5 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
+// меди по плану стадии 3 (с лентами между ними и лентой угля на станцию) — скрафтить руками;
 // сверх расчёта — запас materialsExtra; не влезает в инвентарь — в кластер хранения. Только
 // материалы: строят стадии 16 (добыча угля) и 17 (добыча и плавка железа и меди).
 
@@ -256,7 +256,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	}
 	list, err := storageNear(s.h)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errNoStorage, err) // плана ещё нет (до стадии 5)
+		return fmt.Errorf("%w: %v", errNoStorage, err) // плана ещё нет (до стадии 3)
 	}
 	var chests []bridge.Entity
 	for _, pl := range list {

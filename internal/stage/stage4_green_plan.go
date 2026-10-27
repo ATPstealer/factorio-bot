@@ -15,13 +15,13 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 6 (stages.md): проект кластеров зелёной науки — план стадии 5 дописывается, а не
+// Стадия 4 (stages.md): проект кластеров зелёной науки — план стадии 3 дописывается, а не
 // перестраивается: построенное — препятствие, новые кластеры (провод и схемы, инсертеры, ленты —
 // шестерни внутри парами, зелёная наука) встают в свои зоны, лаборатории получают второй вход.
 
 const (
 	greenRate = 0.1 // зелёная наука, шт/с
-	// greenBaseFile — план стадии 5 до дописывания: перезапуск стадии — с него, не с дописанного
+	// greenBaseFile — план стадии 3 до дописывания: перезапуск стадии — с него, не с дописанного
 	greenBaseFile = "state-plan-base.json"
 	greenPack     = "logistic-science-pack"
 )
@@ -34,7 +34,7 @@ var greenSeparate = []string{"electronic-circuit", "inserter", "transport-belt"}
 var greenOrder = []string{"electronic-circuit", "transport-belt", "inserter", greenPack}
 
 func init() {
-	register(Stage{N: 6, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan, Plan: true})
+	register(Stage{N: 4, Name: "проект зелёной науки", Run: runGreenPlan, Check: checkGreenPlan, Plan: true})
 }
 
 // loadPlanFile — план кластеров из файла path.
@@ -78,12 +78,12 @@ func builtOutside(h *act.Hands, old *ClusterPlan) map[world.Tile]bool {
 // greenImage — картинка плана с проектом зелёной науки: run/stages/plan-green-<сид>.png.
 func greenImage() string { return image("plan-green") }
 
-// greenBase — план до дописывания (при первом запуске — копия плана стадии 5).
+// greenBase — план до дописывания (при первом запуске — копия плана стадии 3).
 func greenBase() (*ClusterPlan, error) {
 	if _, err := os.Stat(runPath(greenBaseFile)); err != nil {
 		data, err := os.ReadFile(runPath(planFile))
 		if err != nil {
-			return nil, fmt.Errorf("нет плана кластеров (стадия 5): %w", err)
+			return nil, fmt.Errorf("нет плана кластеров (стадия 3): %w", err)
 		}
 		if err := os.WriteFile(runPath(greenBaseFile), data, 0o644); err != nil {
 			return nil, err
@@ -111,8 +111,8 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	built := builtOutside(h, old)
-	// стадия 6 — сразу после плана стадии 5, стройки ещё не было: свои постройки на карте (точки
-	// стадии 2) к стройке разобраны — не помеха; план стадии 5 считается построенным
+	// стадия 4 — сразу после плана стадии 3, стройки ещё не было: свои постройки на карте (точки
+	// стадии 10) к стройке разобраны — не помеха; план стадии 3 считается построенным
 	var own []world.Object
 	for _, o := range h.World.Objects() {
 		if o.Own {
@@ -223,7 +223,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 		}
 		if len(extras) > 0 {
 			// новый блок добычи — на новом пятне (cluster.md §7): в зонах пятна заняты будущей
-			// добычей стадии 5 — ещё зона того же ресурса (238178543)
+			// добычей стадии 3 — ещё зона того же ресурса (238178543)
 			for _, x := range extras {
 				if x.Kind != cluster.Mine {
 					continue

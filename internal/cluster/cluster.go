@@ -1,7 +1,7 @@
 // Package cluster — кластерная база (cluster.md, zones.md): кластер — прямоугольник на карте с
 // известными входами и выходами (шт/с, Вт). Split режет план калькулятора на кластеры; зоны —
-// MineZones и PlaceLayered (стадия 4); места кластеров в зонах — PlaceZoned, связи —
-// ConnectZoned (стадия 5), дописывание — ConnectMore, рост — GrowRow/Extra (стадия 6).
+// MineZones и PlaceLayered (стадия 2); места кластеров в зонах — PlaceZoned, связи —
+// ConnectZoned (стадия 3), дописывание — ConnectMore, рост — GrowRow/Extra (стадия 4).
 package cluster
 
 import (
@@ -495,7 +495,7 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 const StorageChest = "iron-chest"
 
 // Pair — кластер main с промежуточным sub внутри (пары прямой подачи: сборщик sub → инсертер →
-// main; stages.md, стадия 7: провод — в красных схемах, трубы — в двигателях): входы sub вместо
+// main; stages.md, стадия 5: провод — в красных схемах, трубы — в двигателях): входы sub вместо
 // его продукта.
 func Pair(p *knowledge.Prototypes, main, sub *Cluster) *Cluster {
 	c := &Cluster{Kind: Make, Product: main.Product, Reserve: main.Reserve,

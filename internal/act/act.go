@@ -504,7 +504,7 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		stucks    int
 		cuts      int // срублено застряв (деревья впереди)
 		// топчется на месте: идёт, но за roamLimit не ушёл дальше roamR от точки (качался у
-		// упавшего ствола час без единой записи в логе — стадия 3 на 954176679)
+		// упавшего ствола час без единой записи в логе — стадия 1 на 954176679)
 		roamAt    bridge.Pos
 		roamSince = time.Now()
 	)

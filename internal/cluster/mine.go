@@ -197,7 +197,7 @@ func (b *Base) commitMine(s *mineSpot, r Rect) {
 	b.Clusters = append(b.Clusters, c)
 }
 
-// MoreMines — блоки добычи ресурса it на месторождениях целиком (stages.md, стадия 7), пока руды
+// MoreMines — блоки добычи ресурса it на месторождениях целиком (stages.md, стадия 5), пока руды
 // под бурами меньше want: have — сколько уже под бурами; пятна в зонах добычи — ближние к голове
 // шины ресурсов первыми, уже занятые блоками — остатком мимо них; остаток меньше minBlockOre —
 // мимо. like — кластер добычи для образца (машина); Ore — без предела (пятно целиком).
@@ -293,7 +293,7 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 				continue
 			}
 			if r, ok := b.mineRect(c, z, head); ok {
-				// пятно уже под другим блоком добычи — к следующему (стадия 6: новый блок
+				// пятно уже под другим блоком добычи — к следующему (стадия 4: новый блок
 				// железа шёл на стартовое пятно, где стоит iron-ore-1 — 238178543)
 				if slices.ContainsFunc(b.Clusters, func(o *Cluster) bool { return o != c && o.Kind == Mine && o.Area.Overlaps(r) }) {
 					continue

@@ -15,16 +15,16 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 7 (stages.md): проект кластеров синей науки — план стадии 6 дописывается: добыча до 2M
+// Стадия 5 (stages.md): проект кластеров синей науки — план стадии 4 дописывается: добыча до 2M
 // руды под бурами (месторождения целиком), дальше — сталь, быстрые ленты и инсертеры, нефть,
 // двигатели, красные схемы, синяя наука (по шагам).
 
 const (
-	// blueBaseFile — план стадии 6 до дописывания: перезапуск стадии — с него
+	// blueBaseFile — план стадии 4 до дописывания: перезапуск стадии — с него
 	blueBaseFile = "state-plan-green.json"
 	oreTarget    = 2_000_000 // руды под бурами на ресурс (железо, медь, уголь)
-	stoneTarget  = 500_000   // камня под бурами (кирпич; stages.md, стадия 7)
-	// быстрые ленты и инсертеры, шт/с: ~10k лент и ~500 инсертеров за 2 ч (stages.md, стадия 7)
+	stoneTarget  = 500_000   // камня под бурами (кирпич; stages.md, стадия 5)
+	// быстрые ленты и инсертеры, шт/с: ~10k лент и ~500 инсертеров за 2 ч (stages.md, стадия 5)
 	fastBeltRate     = 1.4
 	fastInserterRate = 0.07
 	// refineries — НПЗ на простой переработке: газа с большим запасом (на синюю ~4/с, один НПЗ
@@ -37,18 +37,18 @@ const (
 var blueOres = []string{"iron-ore", "copper-ore", "coal"}
 
 func init() {
-	register(Stage{N: 7, Name: "проект синей науки", Run: runBluePlan, Check: checkBluePlan, Plan: true})
+	register(Stage{N: 5, Name: "проект синей науки", Run: runBluePlan, Check: checkBluePlan, Plan: true})
 }
 
 // blueImage — картинка плана с проектом синей науки: run/stages/plan-blue-<сид>.png.
 func blueImage() string { return image("plan-blue") }
 
-// blueBase — план до дописывания (при первом запуске — копия плана стадии 6).
+// blueBase — план до дописывания (при первом запуске — копия плана стадии 4).
 func blueBase() (*ClusterPlan, error) {
 	if _, err := os.Stat(runPath(blueBaseFile)); err != nil {
 		data, err := os.ReadFile(runPath(planFile))
 		if err != nil {
-			return nil, fmt.Errorf("нет плана кластеров (стадия 6): %w", err)
+			return nil, fmt.Errorf("нет плана кластеров (стадия 4): %w", err)
 		}
 		if err := os.WriteFile(runPath(blueBaseFile), data, 0o644); err != nil {
 			return nil, err
@@ -132,7 +132,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	// построенное по плану — препятствие (стадия 7 — до стройки: свои постройки на карте не мешают)
+	// построенное по плану — препятствие (стадия 5 — до стройки: свои постройки на карте не мешают)
 	var own []world.Object
 	for _, o := range h.World.Objects() {
 		if o.Own {
@@ -147,7 +147,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 		avoid[t] = true
 	}
 	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток, как на
-	// стадии 6)
+	// стадии 4)
 	for try := 0; ; try++ {
 		base, l, err := blueTry(h, rough, built, avoid)
 		if err == nil {
@@ -179,7 +179,7 @@ func runBluePlan(ctx context.Context, h *act.Hands) error {
 	}
 }
 
-// blueTry — одна попытка проекта синей науки: план стадии 6 — заново из файла (прошлая попытка
+// blueTry — одна попытка проекта синей науки: план стадии 4 — заново из файла (прошлая попытка
 // меняла кластеры), avoid — куда новые кластеры не ставить; удалось — план записан.
 func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (*cluster.Base, *layout.Layout, error) {
 	pr := h.Protos
@@ -203,7 +203,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	cluster.FillLanes(zb, old.Layout, cluster.LaterNames(old.Clusters))
-	// добыча до 2M, камень, кирпич — уже в плане стадии 5 (zones.md: ленты bus-1 — все сразу)
+	// добыча до 2M, камень, кирпич — уже в плане стадии 3 (zones.md: ленты bus-1 — все сразу)
 	var fresh []*cluster.Cluster
 	// нефть — до конца игры: 2 месторождения, ближние к голове bus-1 (cluster.md §2а «Нефть»)
 	zones, oil, err := base.MoreOil(rough.Zones)
@@ -239,7 +239,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, ps...)
-	// НПЗ — простая переработка, только газ, с большим запасом (stages.md, стадия 7)
+	// НПЗ — простая переработка, только газ, с большим запасом (stages.md, стадия 5)
 	refinery := cluster.Refinery(pr, refineries)
 	if ps, _, err = base.PlaceZoned([]*cluster.Cluster{refinery}, rough.Zones); err != nil {
 		return nil, nil, err
@@ -251,7 +251,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, ps...)
-	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 7):
+	// быстрые ленты и инсертеры — на замену всего стоящего за ~2 ч (stages.md, стадия 5):
 	// шестерни — внутри парами; ленты, инсертеры, схемы — с шины (их кластеры уже есть)
 	fast, err := calc.Solve(pr, map[string]float64{"fast-transport-belt": fastBeltRate, "fast-inserter": fastInserterRate},
 		calc.Options{All: true, Machines: map[string]string{"smelting": "stone-furnace", "crafting": "assembling-machine-1"}})
@@ -273,7 +273,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	fresh = append(fresh, ps...)
 	// синяя наука: двигатели (трубы внутри, шестерни — с шины), красные схемы (провод внутри),
-	// сама наука (stages.md, стадия 7)
+	// сама наука (stages.md, стадия 5)
 	sci, err := blueClusters(pr)
 	if err != nil {
 		return nil, nil, err

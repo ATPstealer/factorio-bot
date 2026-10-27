@@ -11,7 +11,7 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 18 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 5).
+// Стадия 18 (stages.md): пластины железа и меди с плавки — в их ленты шины (по плану стадии 3).
 // Больше ничего.
 
 const busPlatesFile = "state-bus-plates.json"

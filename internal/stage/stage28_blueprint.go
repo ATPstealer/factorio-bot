@@ -108,7 +108,7 @@ func blueprint(h *act.Hands) ([]layout.Placement, error) {
 		}
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) != nil {
-			continue // не раскладка (зоны, точки стадии 2…)
+			continue // не раскладка (зоны, точки стадии 10…)
 		}
 		for _, pl := range list {
 			if pl.Name == "" || have[pl] || pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {

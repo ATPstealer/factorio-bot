@@ -9,7 +9,7 @@ import (
 	"factorio-bot/internal/layout"
 )
 
-// Стадия 31 (stages.md): сталь — кластер стали из плана стадии 7 (пары печей «пластины → сталь»,
+// Стадия 31 (stages.md): сталь — кластер стали из плана стадии 5 (пары печей «пластины → сталь»,
 // уголь второй лентой), отводы руды и угля с bus-1, лента стали bus-2 с буфером выхода, столбы.
 // Исследование стали — поставлено на стадии 30; здесь — ждать, пока изучено.
 
@@ -38,7 +38,7 @@ func runSteel(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	h.Say("сталь: %d построек по плану стадии 7", len(list))
+	h.Say("сталь: %d построек по плану стадии 5", len(list))
 	order := []string{"stone-furnace", chest, "inserter", "long-handed-inserter", "transport-belt",
 		"underground-belt", "splitter", "small-electric-pole"}
 	return buildSorted(ctx, h, list, order)

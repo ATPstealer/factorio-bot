@@ -99,7 +99,7 @@ func (b *Base) GrowRow(l *layout.Layout, c *Cluster, n int) error {
 	return nil
 }
 
-// FillMine — блок добычи c дописан на всё пятно в своей площади (stages.md, стадия 7:
+// FillMine — блок добычи c дописан на всё пятно в своей площади (stages.md, стадия 5:
 // месторождения целиком): предел руды снят, буры — дальше по тому же шаблону, старые на месте.
 func (b *Base) FillMine(l *layout.Layout, c *Cluster, tag string) error {
 	if c.Kind != Mine {

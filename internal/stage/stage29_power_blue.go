@@ -10,7 +10,7 @@ import (
 )
 
 // Стадия 29 (stages.md): энергия под синюю науку — первым делом (решение пользователя): всё, что
-// стадия 7 дописала в станции, — бойлеры и двигатели дальше по ряду первой станции, новые станции
+// стадия 5 дописала в станции, — бойлеры и двигатели дальше по ряду первой станции, новые станции
 // у воды (помпа, трубы, бойлеры, двигатели, отвод угля); новые бойлеры при запуске — углём руками;
 // столбы — к сети базы.
 
@@ -31,7 +31,7 @@ func blueAdded() ([]layout.Placement, *ClusterPlan, error) {
 	}
 	base, err := loadPlanFile(runPath(blueBaseFile))
 	if err != nil {
-		return nil, nil, fmt.Errorf("нет плана до стадии 7: %w", err)
+		return nil, nil, fmt.Errorf("нет плана до стадии 5: %w", err)
 	}
 	was := map[layout.Placement]bool{}
 	for _, pl := range base.Layout {
@@ -57,7 +57,7 @@ func runPowerBlue(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	h.Say("энергия: %d построек по плану стадии 7", len(list))
+	h.Say("энергия: %d построек по плану стадии 5", len(list))
 	order := []string{"offshore-pump", "pipe-to-ground", "pipe", "boiler", "steam-engine", chest, "burner-inserter",
 		"inserter", "transport-belt", "underground-belt", "splitter", "small-electric-pole"}
 	if err := buildSorted(ctx, h, list, order); err != nil {

@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"time"
 
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
@@ -61,6 +62,10 @@ type Base struct {
 	// CliffZones — база с утёсами (zones.md): в зонах производства утёсы любой толщины можно
 	// (вода — нет), зоны шире на половину
 	CliffZones bool
+	// Quick — быстрая прикидка «встанет ли база» (stages.md, стадия 1): без вариантов запаса
+	// и ширины, поиск мест — до Deadline (нулевой — без предела); ошибка в ~20% допустима
+	Quick    bool
+	Deadline time.Time
 
 	// feedLane — выход блока добычи → Y его ленты bus-1 (orderedMineLanes)
 	feedLane map[world.Tile]int

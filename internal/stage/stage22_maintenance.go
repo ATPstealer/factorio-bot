@@ -418,7 +418,7 @@ func directed(name string) bool {
 	return name == "transport-belt" || name == "underground-belt" || name == "splitter" || name == "inserter" || name == "burner-inserter"
 }
 
-// planNow — что из плана уже должно стоять: дописанное проектом зелёной науки (стадия 6) строят
+// planNow — что из плана уже должно стоять: дописанное проектом зелёной науки (стадия 4) строят
 // стадии после обслуживания — не сверять.
 func planNow() ([]layout.Placement, error) {
 	plan, err := LoadPlan()

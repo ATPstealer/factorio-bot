@@ -54,8 +54,8 @@ const usage = `bot — бот Factorio: действует только мышь
   research ТЕХНОЛОГИЯ   запустить исследование (окно технологий, T)
   stage N               выполнить стадию N (stages.md) на текущей карте и проверить её критерии
   plans ОТ ДО           только стадии планирования ОТ…ДО подряд (план прошлых — построен)
-  worlddump             открытая карта в run/worlds/<сид>.gob (стадия 4 сохраняет сама)
-  rough ФАЙЛ.gob [ДО [ОТ]] разметка зон (стадия 4) и планы до стадии ДО без игры по сохранённой карте; ОТ > 4 —
+  worlddump             открытая карта в run/worlds/<сид>.gob (стадия 2 сохраняет сама)
+  rough ФАЙЛ.gob [ДО [ОТ]] разметка зон (стадия 2) и планы до стадии ДО без игры по сохранённой карте; ОТ > 4 —
                         с состояния прошлых стадий в BOT_RUN (из снимка); сид — из BOT_RUN/map.json
   empty N               код 0 — стадия N пустая (резерв): прогон только копирует снимок
   pickup X Y            подобрать свою постройку в точке (X, Y)
@@ -138,11 +138,11 @@ func main() {
 		runRaw(args[1:], *addr, *pass)
 		return
 	case "rough":
-		// разметка зон (стадия 4) без игры по карте из run/worlds/<сид>.gob
+		// разметка зон (стадия 2) без игры по карте из run/worlds/<сид>.gob
 		if len(args) < 2 {
 			log.Fatal("bot rough ФАЙЛ.gob [ДО [ОТ]]")
 		}
-		from, to := 4, 4
+		from, to := 2, 2
 		if len(args) > 2 {
 			to = atoi(args[2])
 		}
@@ -171,7 +171,7 @@ func main() {
 		for _, pl := range plan.Layout {
 			l.Add(pl)
 		}
-		skip := stage.SkipLater(plan.Clusters) // «all» последним аргументом — и будущие блоки (план стадии 7)
+		skip := stage.SkipLater(plan.Clusters) // «all» последним аргументом — и будущие блоки (план стадии 5)
 		if args[len(args)-1] == "all" {
 			skip, args = nil, args[:len(args)-1]
 		}

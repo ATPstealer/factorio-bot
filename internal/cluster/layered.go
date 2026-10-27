@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"factorio-bot/internal/world"
 )
@@ -256,7 +257,11 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	var lo *layered
 	var width int
 	b.logf("этажи: ширины зон %v, глубины %v, шины %v (кластеров по этажам %d/%d/%d)", zw[1:], depths[1:], widths, len(fl[1]), len(fl[2]), len(fl[3]))
-	for _, spare := range []int{30, 15, 0} {
+	spares, extrasOf := []int{30, 15, 0}, func(base int) []int { return []int{0, base / 4, base / 2, base} }
+	if b.Quick { // прикидка (stages.md, стадия 1): меньше вариантов
+		spares, extrasOf = []int{30, 0}, func(base int) []int { return []int{0, base / 2} }
+	}
+	for _, spare := range spares {
 		if zw1 > 0 {
 			zw[1] = zw1 * (100 + spare) / 100
 		}
@@ -269,7 +274,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		// тайл ширины — как тайл расстояния): у старта препятствия, а узкая база уезжает за сотни
 		// тайлов
 		bestCost := math.Inf(1)
-		for _, extra := range []int{0, base / 4, base / 2, base} {
+		for _, extra := range extrasOf(base) {
 			if l := b.fitLayered(zw, colWidth[:], depths, widths, width+extra); l != nil && l.dist+float64(extra) < bestCost {
 				lo, bestCost = l, l.dist+float64(extra)
 			}
@@ -309,7 +314,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		}
 	}
 	// станция — у воды, где меньше сумма «добыча угля → водоём» + «водоём → край базы»;
-	// хранение — у головы bus-1, под шиной и правее головы (zones.md §3; как в стадии 5)
+	// хранение — у головы bus-1, под шиной и правее головы (zones.md §3; как в стадии 3)
 	near := world.Tile{X: lo.buses[0].Min.X + storageRight, Y: lo.buses[0].Max.Y + storageBelow}
 	sort.SliceStable(later, func(i, j int) bool { return later[i].Kind == Power })
 	for _, c := range later {
@@ -420,7 +425,7 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 			return false
 		}
 		// неровность длиннее busGap вдоль ряда — ленте не обойти (подземка не перепрыгнет, обход по
-		// зазорам к стадии 7 занят): такой шине не место (решение пользователя; 3% площади
+		// зазорам к стадии 5 занят): такой шине не место (решение пользователя; 3% площади
 		// пропускали утёс поперёк bus-3 — 859088572)
 		n, _ := g.count(g.rowThick, r)
 		return n == 0
@@ -555,6 +560,10 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	for r := 0; r*8 <= b.MaxR; r++ {
 		if best != nil && float64(r*8) > best.dist+16 {
 			break
+		}
+		if !b.Deadline.IsZero() && time.Now().After(b.Deadline) {
+			b.logf("этажи: время прикидки вышло на кольце %d", r)
+			break // прикидка (Quick): что нашли — то нашли
 		}
 		for _, o := range ringOffsets(r) {
 			x0, y0 := ax+o.X*8, ay+o.Y*8+widths[0]/2

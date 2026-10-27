@@ -15,15 +15,16 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/calc"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
 
-// Стадия 2 (stages.md): добывающие точки на твердотопливных бурах — outpostCoal угольных пар
+// Стадия 10 (stages.md): добывающие точки на твердотопливных бурах — outpostCoal угольных пар
 // (буры носом друг в друга), outpostIron пар «бур → печь» на железе, outpostCopper на меди, 4
 // бура носом в сундук на камне.
 
-// Точки стадии 2: железа на стройку добычи, плавки и шины нужно ~11 000 — 30 пар копят его за
+// Точки стадии 10: железа на стройку добычи, плавки и шины нужно ~11 000 — 30 пар копят его за
 // ~25 минут, пока идут стадии 11–14 (10 пар — ~75 минут); уголь — топливо всем точкам.
 const (
 	outpostIron   = 30
@@ -54,10 +55,6 @@ var chest = "wooden-chest"
 type outpostSite struct {
 	Ore   string             `json:"ore"`
 	Items []layout.Placement `json:"items"`
-}
-
-func init() {
-	register(Stage{N: 2, Name: "добывающие точки на твердотопливных бурах", Run: runOutposts, Check: checkOutposts})
 }
 
 // outpostsLayout — раскладка всех точек у ближайших месторождений; один раз на карту (файл).
@@ -110,6 +107,18 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 		return all
 	}
 	l := layout.New(h.Protos, h.World)
+	// точки — вне зон базы (план уже есть: стадии 1–5 раньше стадии 10, stages.md): зоны с
+	// бордюром закрыты, пятно целиком в зоне — не подходит (build не встанет — следующее)
+	if r, err := LoadRough(); err == nil {
+		for _, z := range r.Zones {
+			rc := z.Rect.Grow(cluster.ZoneBorder)
+			for y := rc.Min.Y; y < rc.Max.Y; y++ {
+				for x := rc.Min.X; x < rc.Max.X; x++ {
+					l.Reserved[world.Tile{X: x, Y: y}] = true
+				}
+			}
+		}
+	}
 	var sites []outpostSite
 	add := func(ore string, build func(tiles []world.Tile, at world.Tile) error, n int) error {
 		ps := patches(ore, 60)
@@ -347,7 +356,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		var err error
 		switch item {
 		case "iron-plate", "copper-plate":
-			if s.useStore { // точек стадии 2 уже нет — из буферов выхода плавки, ждать их
+			if s.useStore { // точек стадии 10 уже нет — из буферов выхода плавки, ждать их
 				err = s.fromBuffers(ctx, item)
 				break
 			}

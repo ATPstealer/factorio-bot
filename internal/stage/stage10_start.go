@@ -8,9 +8,10 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/world"
 )
 
-// Стадия 1 (stages.md): с новой карты после заставки — 50 дерева, 200 камня с больших камней
+// Стадия 10 (stages.md): с новой карты после заставки — 50 дерева, 200 камня с больших камней
 // (лучше huge-rock: камень + уголь), разобрать обломки корабля. Ходить меньше: каждый раз —
 // ближайшая из нужных целей.
 
@@ -21,7 +22,29 @@ const (
 )
 
 func init() {
-	register(Stage{N: 1, Name: "старт: дерево, камень, обломки корабля", Run: runStart, Check: checkStart})
+	register(Stage{N: 10, Name: "старт и добывающие точки", Run: runStartOutposts, Check: checkOutposts})
+}
+
+// runStartOutposts — стадия 10 (stages.md): сначала к центру размеченной базы (голова bus-1 —
+// рядом месторождения; решение пользователя 27.10), потом старт (дерево, камень, обломки — те,
+// что рядом) и добывающие точки вне зон базы.
+func runStartOutposts(ctx context.Context, h *act.Hands) error {
+	if r, err := LoadRough(); err == nil {
+		for _, z := range r.Zones {
+			if z.Name != "bus-1" {
+				continue
+			}
+			c := world.Tile{X: z.Rect.Min.X - 4, Y: (z.Rect.Min.Y + z.Rect.Max.Y) / 2}
+			h.Say("к центру базы — голова bus-1 (%d, %d)", c.X, c.Y)
+			if err := h.WalkTo(ctx, c.Center(), 3); err != nil && !errors.Is(err, act.ErrNotReached) {
+				return err
+			}
+		}
+	}
+	if err := runStart(ctx, h); err != nil {
+		return err
+	}
+	return runOutposts(ctx, h)
 }
 
 // startTargets — какие цели ещё нужны: обломки — всегда (пока есть), камни — пока камня мало,
@@ -92,23 +115,4 @@ func runStart(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	return fmt.Errorf("слишком много шагов")
-}
-
-func checkStart(h *act.Hands) error {
-	p, err := h.B.Player()
-	if err != nil {
-		return err
-	}
-	if w := p.Inventory["wood"]; w < startWood {
-		return fmt.Errorf("дерева %d из %d", w, startWood)
-	}
-	if s := p.Inventory["stone"]; s < startStone {
-		return fmt.Errorf("камня %d из %d", s, startStone)
-	}
-	if es, err := h.B.FindMinable("wreck", startR, 1); err != nil {
-		return err
-	} else if len(es) > 0 {
-		return fmt.Errorf("остались обломки корабля: %s (%.0f, %.0f)", es[0].Name, es[0].Position.X, es[0].Position.Y)
-	}
-	return nil
 }

@@ -9,7 +9,7 @@ import (
 	"factorio-bot/internal/bridge"
 )
 
-// Стадия 15 (stages.md): разобрать точки стадии 2 (печи, буры, угольные пары, сундук) и
+// Стадия 15 (stages.md): разобрать точки стадии 10 (печи, буры, угольные пары, сундук) и
 // сложить в кластер хранения; содержимое точек забрать (подбор отдаёт его в инвентарь),
 // не помещается — в хранение (сначала ненужное).
 
@@ -17,7 +17,7 @@ func init() {
 	register(Stage{N: 15, Name: "разбор временных точек", Run: runDismantle, Check: checkDismantle})
 }
 
-// standing — постройки точек стадии 2, которые ещё стоят.
+// standing — постройки точек стадии 10, которые ещё стоят.
 func (s *worker) standing() ([]bridge.Entity, error) {
 	var res []bridge.Entity
 	for _, site := range s.sites {
@@ -128,7 +128,7 @@ func checkDismantle(h *act.Hands) error {
 		return err
 	}
 	if len(es) > 0 {
-		return fmt.Errorf("точки стадии 2 не разобраны: %d построек (%s в (%.1f, %.1f) …)", len(es), es[0].Name, es[0].Position.X, es[0].Position.Y)
+		return fmt.Errorf("точки стадии 10 не разобраны: %d построек (%s в (%.1f, %.1f) …)", len(es), es[0].Name, es[0].Position.X, es[0].Position.Y)
 	}
 	stock, err := materialsStock(h)
 	if err != nil {

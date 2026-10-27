@@ -236,7 +236,7 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 }
 
 // MoreMineZones — зоны добычи ресурса it дописаны, пока запаса в них (с уже стоящими блоками)
-// меньше want (stages.md, стадия 7: 2M под бурами): пятна от ближних к голове bus-1, зона — пятно
+// меньше want (stages.md, стадия 5: 2M под бурами): пятна от ближних к голове bus-1, зона — пятно
 // целиком (+ZoneBorder), только мимо всех зон (части базы не трогаются).
 func (b *Base) MoreMineZones(zones []Zone, it string, want float64) []Zone {
 	var head world.Tile
