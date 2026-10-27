@@ -57,6 +57,67 @@ type outpostSite struct {
 	Items []layout.Placement `json:"items"`
 }
 
+// outpostOres — руды точек стадии 10 и сколько свободных тайлов руды им нужно в одном пятне:
+// по ~8 тайлов на бур (2×2 и проходы), не меньше 60.
+var outpostOres = map[string]int{
+	"iron-ore":   max(60, 8*outpostIron),
+	"copper-ore": max(60, 8*outpostCopper),
+	"coal":       max(60, 8*2*outpostCoal),
+	"stone":      60,
+}
+
+// outpostAnchor — место точек (stages.md, стадия 10; решение пользователя 27.10): где меньше
+// всего бегать между рудами — сумма расстояний до ближайшего пятна каждой руды, куда влезают все
+// её точки (свободных от закрытого в l тайлов руды — outpostOres). Кандидаты — центр базы и
+// центры пятен; к сумме — четверть расстояния до центра базы: при равенстве — ближе к нему.
+// Какой-то руды нет — центр. (Без размера: место у маленького пятна железа — 30 пар расползлись
+// до 477 тайлов, 260647970.)
+func outpostAnchor(h *act.Hands, l *layout.Layout, center world.Tile) world.Tile {
+	var usable []world.Patch
+	for _, pt := range h.World.Patches() {
+		need, ok := outpostOres[pt.Name]
+		if !ok || len(pt.Tiles) < need {
+			continue
+		}
+		free := 0
+		for _, t := range pt.Tiles {
+			if !l.Reserved[t] {
+				free++
+			}
+		}
+		if free >= need {
+			usable = append(usable, pt)
+		}
+	}
+	// до пятна — от точки до его рамки
+	to := func(c world.Tile, pt world.Patch) float64 {
+		dx := max(0, pt.Min.X-c.X, c.X-pt.Max.X)
+		dy := max(0, pt.Min.Y-c.Y, c.Y-pt.Max.Y)
+		return math.Hypot(float64(dx), float64(dy))
+	}
+	cost := func(c world.Tile) float64 {
+		sum := 0.25 * math.Hypot(float64(c.X-center.X), float64(c.Y-center.Y))
+		for ore := range outpostOres {
+			best := math.Inf(1)
+			for _, pt := range usable {
+				if pt.Name == ore {
+					best = math.Min(best, to(c, pt))
+				}
+			}
+			sum += best
+		}
+		return sum
+	}
+	best, bestCost := center, cost(center)
+	for _, pt := range usable {
+		c := world.Tile{X: int(pt.Center.X), Y: int(pt.Center.Y)}
+		if v := cost(c); v < bestCost {
+			best, bestCost = c, v
+		}
+	}
+	return best
+}
+
 // reserveRect — тайлы r закрыты для раскладки l.
 func reserveRect(l *layout.Layout, r cluster.Rect) {
 	for y := r.Min.Y; y < r.Max.Y; y++ {
@@ -141,6 +202,8 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 			}
 		}
 	}
+	near = outpostAnchor(h, l, near)
+	h.Log("место точек — (%d, %d)", near.X, near.Y)
 	var sites []outpostSite
 	add := func(ore string, build func(tiles []world.Tile, at world.Tile) error, n int) error {
 		ps := patches(ore, 60)
@@ -163,6 +226,10 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 				}
 				k++
 				if ps[k].d > outpostReach && ps[k-1].d <= outpostReach {
+					if i >= (n+1)/2 { // половина уже стоит — дальше не бегать (stages.md, стадия 10)
+						h.Say("точки %s: %d из %d — дальше %d тайлов от занятых пятен не ставлю", ore, i, n, outpostReach)
+						return nil
+					}
 					h.Say("точки %s: в %d тайлах от занятых пятен места нет — дальше (%.0f)", ore, outpostReach, ps[k].d)
 				}
 			}
@@ -785,7 +852,15 @@ func checkOutposts(h *act.Hands) error {
 			}
 		}
 	}
-	want := map[string]int{"coal": 2 * outpostCoal, "iron-ore": outpostIron, "copper-ore": outpostCopper, "stone": 4}
+	// буров — сколько в плане точек (дальше outpostReach план может поставить меньше нужного)
+	want := map[string]int{}
+	for _, site := range sites {
+		for _, pl := range site.Items {
+			if pl.Name == drill {
+				want[site.Ore]++
+			}
+		}
+	}
 	for ore, n := range want {
 		if count[ore] != n {
 			return fmt.Errorf("буров на %s: %d из %d", ore, count[ore], n)

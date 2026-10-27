@@ -29,8 +29,10 @@ func init() {
 // рядом месторождения; решение пользователя 27.10), потом старт (дерево, камень, обломки — те,
 // что рядом) и добывающие точки вне зон базы.
 func runStartOutposts(ctx context.Context, h *act.Hands) error {
-	if c, ok := baseCenter(); ok {
-		h.Say("к центру базы — голова bus-1 (%d, %d)", c.X, c.Y)
+	// к месту точек (outpostAnchor: где меньше всего бегать между рудами, обычно у центра базы)
+	if sites, err := outpostsLayout(h); err == nil && len(sites) > 0 && len(sites[0].Items) > 0 {
+		c := world.TileOf(sites[0].Items[0].Pos)
+		h.Say("к месту точек (%d, %d)", c.X, c.Y)
 		if err := h.WalkTo(ctx, c.Center(), 3); err != nil && !errors.Is(err, act.ErrNotReached) {
 			return err
 		}
