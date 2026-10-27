@@ -127,6 +127,13 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 		// стадия 16)
 		for len(todo) > 0 {
 			n := min(len(todo), buildBatch)
+			if s.inv(name) < n && s.useStore {
+				// к хранению — за всем, что нужно на оставшуюся стройку, одним заходом (stages.md,
+				// инвентарь); чего там нет — have (крафт)
+				if err := s.restock(ctx, list, name); err != nil {
+					return err
+				}
+			}
 			if s.inv(name) < n {
 				if err := s.have(ctx, name, min(len(todo), max(n, s.roomFor(name)))); err != nil {
 					return err
@@ -177,6 +184,91 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 		if s.placed != nil {
 			if err := s.placed(ctx, name); err != nil {
 				return err
+			}
+		}
+	}
+	return nil
+}
+
+// restock — один заход к хранению за всем, что нужно на оставшуюся стройку list начиная с вида
+// from (stages.md, инвентарь; просьба пользователя 27.10: раньше — ходка за каждым видом,
+// на стадии 16 восемь): по видам в порядке стройки, недостающее в инвентаре — из сундуков
+// хранения, пока есть свободные ячейки (freeSlots — под срубленное). Чего в хранении нет —
+// не берёт (have потом скрафтит).
+func (s *worker) restock(ctx context.Context, list []layout.Placement, from string) error {
+	var names []string
+	for _, pl := range list {
+		if !slices.Contains(names, pl.Name) {
+			names = append(names, pl.Name)
+		}
+	}
+	if i := slices.Index(names, from); i > 0 {
+		names = names[i:]
+	}
+	var rest []layout.Placement
+	for _, pl := range list {
+		if slices.Contains(names, pl.Name) {
+			rest = append(rest, pl)
+		}
+	}
+	left, err := notBuilt(s.h, rest)
+	if err != nil {
+		return err
+	}
+	need := map[string]int{}
+	for _, pl := range left {
+		need[s.h.Protos.ItemFor(pl.Name)]++
+	}
+	chests, err := storageNear(s.h)
+	if err != nil {
+		return nil // хранения ещё нет — как раньше (have)
+	}
+	type stock struct {
+		e    bridge.Entity
+		have map[string]int
+	}
+	var store []stock
+	for _, pl := range chests {
+		st, err := s.h.B.GetEntity(pl.Name, pl.Pos)
+		if err != nil || st == nil {
+			continue
+		}
+		store = append(store, stock{st.Entity, st.Inventories["chest"]})
+	}
+	took := false
+	for _, name := range names {
+		it := s.h.Protos.ItemFor(name)
+		want := need[it] - s.inv(it)
+		if want <= 0 {
+			continue
+		}
+		stack := max(s.h.Protos.Items[it].StackSize, 1)
+		if room := (s.freeSlots() - freeSlots) * stack; room < want {
+			want = room
+		}
+		for _, c := range store {
+			if want <= 0 {
+				break
+			}
+			n := min(want, c.have[it])
+			if n <= 0 {
+				continue
+			}
+			if !took { // перед первым взятием — ненужное в хранение (место)
+				if err := s.tidy(ctx); err != nil && !errors.Is(err, errNoStorage) {
+					return err
+				}
+				took = true
+			}
+			before := s.inv(it)
+			if err := s.h.TakeItem(ctx, c.e, it, n); err != nil {
+				return err
+			}
+			got := s.inv(it) - before
+			c.have[it] -= got
+			want -= got
+			if got == 0 {
+				break // инвентарь полон
 			}
 		}
 	}
