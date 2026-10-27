@@ -130,6 +130,11 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			s.any = true
 			err = s.store(ctx, craftFree+5, keep...)
+			// всё ещё полон (одни постройки стадии — 260647970, стадия 16: бур с пути не
+			// поднять) — и постройки: стройка доберёт их из хранения пачками (have)
+			if p, perr := h.B.Player(); err == nil && perr == nil && p.InventorySize-len(p.InventorySlots) < craftFree {
+				err = s.store(ctx, craftFree+5)
+			}
 		}
 		if errors.Is(err, errNoStorage) {
 			return nil // хранения ещё нет — как есть
