@@ -57,6 +57,15 @@ type outpostSite struct {
 	Items []layout.Placement `json:"items"`
 }
 
+// reserveRect — тайлы r закрыты для раскладки l.
+func reserveRect(l *layout.Layout, r cluster.Rect) {
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			l.Reserved[world.Tile{X: x, Y: y}] = true
+		}
+	}
+}
+
 // outpostsLayout — раскладка всех точек у ближайших месторождений; один раз на карту (файл).
 func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 	if data, err := os.ReadFile(runPath(outpostsFile)); err == nil {
@@ -113,15 +122,22 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 		return all
 	}
 	l := layout.New(h.Protos, h.World)
-	// точки — вне зон базы (план уже есть: стадии 1–5 раньше стадии 10, stages.md): зоны с
-	// бордюром закрыты, пятно целиком в зоне — не подходит (build не встанет — следующее)
+	// точки — не в зонах, которые строятся до их разбора (стадия 15): энергия, шины, производство,
+	// конечный продукт; зоны добычи — можно (добыча строится на 16–17, stages.md). Закрытые зоны
+	// добычи уводили точки в 600–1000 тайлов от базы: пятна у центра — под ними целиком
 	if r, err := LoadRough(); err == nil {
 		for _, z := range r.Zones {
-			rc := z.Rect.Grow(cluster.ZoneBorder)
-			for y := rc.Min.Y; y < rc.Max.Y; y++ {
-				for x := rc.Min.X; x < rc.Max.X; x++ {
-					l.Reserved[world.Tile{X: x, Y: y}] = true
-				}
+			if z.Kind == cluster.ZoneMine {
+				continue
+			}
+			reserveRect(l, z.Rect.Grow(cluster.ZoneBorder))
+		}
+	}
+	// и кластеры плана вне зон, кроме добычи (хранение у головы bus-1 — стадия 13, до разбора точек)
+	if plan, err := LoadPlan(); err == nil {
+		for _, c := range plan.Clusters {
+			if c.Kind != cluster.Mine && c.Kind != cluster.Bus {
+				reserveRect(l, c.Area.Grow(cluster.ZoneBorder))
 			}
 		}
 	}
