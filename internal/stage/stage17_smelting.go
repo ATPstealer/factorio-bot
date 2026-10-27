@@ -35,7 +35,7 @@ func smeltingLayout(h *act.Hands) ([]layout.Placement, error) {
 		var allow []string
 		for _, c := range plan.Clusters {
 			switch {
-			case c.Kind == cluster.Smelt && (c.Product == "iron-plate" || c.Product == "copper-plate"):
+			case c.Kind == cluster.Smelt && (c.Product == "iron-plate" || c.Product == "copper-plate") && !c.Later:
 				smelt = append(smelt, c)
 				allow = append(allow, c.Name)
 			case c.Kind == cluster.Mine && (c.Product == "iron-ore" || c.Product == "copper-ore" || c.Product == "coal"):

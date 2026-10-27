@@ -23,6 +23,19 @@ func clusterOf(plan *ClusterPlan, kind cluster.Kind, product string) *cluster.Cl
 	return nil
 }
 
+// clustersOf — все кластеры плана вида kind и продукта product, кроме будущей добычи (стадия 30):
+// длинный кластер план режет на куски (iron-plate-1, iron-plate-1.2 — PlaceZoned), каждый кусок
+// — свой кластер; первый — не весь (стадия 17 ставила только первый кусок плавки: 260647970).
+func clustersOf(plan *ClusterPlan, kind cluster.Kind, product string) []*cluster.Cluster {
+	var res []*cluster.Cluster
+	for _, c := range plan.Clusters {
+		if c.Kind == kind && c.Product == product && !c.Later {
+			res = append(res, c)
+		}
+	}
+	return res
+}
+
 // clusterOfName — кластер плана по имени (пустой — нет).
 func clusterOfName(plan *ClusterPlan, name string) cluster.Cluster {
 	for _, c := range plan.Clusters {
@@ -193,12 +206,19 @@ func smeltingBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var res []layout.Placement
 	var srcs []string
 	for _, it := range []string{"iron", "copper"} {
-		mine, smelt := clusterOf(plan, cluster.Mine, it+"-ore"), clusterOf(plan, cluster.Smelt, it+"-plate")
-		if mine == nil || smelt == nil {
+		mines, smelts := clustersOf(plan, cluster.Mine, it+"-ore"), clustersOf(plan, cluster.Smelt, it+"-plate")
+		if len(mines) == 0 || len(smelts) == 0 {
 			continue
 		}
-		srcs = append(srcs, mine.Name)
-		res = append(res, tagged(plan, cluster.Tag(mine.Name), cluster.Tag(smelt.Name), cluster.LogisticsTag+"/"+smelt.Name)...)
+		var tags []string
+		for _, m := range mines {
+			srcs = append(srcs, m.Name)
+			tags = append(tags, cluster.Tag(m.Name))
+		}
+		for _, s := range smelts {
+			tags = append(tags, cluster.Tag(s.Name), cluster.LogisticsTag+"/"+s.Name)
+		}
+		res = append(res, tagged(plan, tags...)...)
 	}
 	res = append(res, busParts(plan, []string{"iron-ore", "copper-ore"}, srcs)...)
 	return withSplitters(h, plan, res)
@@ -209,7 +229,7 @@ func smeltingBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 func busPlatesBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	var srcs []string
 	for _, it := range []string{"iron-plate", "copper-plate"} {
-		if c := clusterOf(plan, cluster.Smelt, it); c != nil {
+		for _, c := range clustersOf(plan, cluster.Smelt, it) {
 			srcs = append(srcs, c.Name)
 		}
 	}

@@ -61,18 +61,16 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		return append(grow, list...), err
 	case 27:
 		return labsGreenLayout(h)
-	case 22: // обслуживание и чертёж: что ещё не стоит из плана (весь план — сотни построек)
-		list, err := planNow()
+	case 22, 28: // обслуживание: что из чертежа ещё не стоит (будущая добыча — стадии 30, не здесь)
+		base := planNow
+		if n == 28 {
+			base = planAll
+		}
+		list, err := blueprint(h, base)
 		if err != nil {
 			return nil, err
 		}
 		return notBuilt(h, list)
-	case 28:
-		plan, err := LoadPlan()
-		if err != nil {
-			return nil, err
-		}
-		return notBuilt(h, plan.Layout)
 	case 29:
 		return powerBlueLayout(h)
 	case 30:
