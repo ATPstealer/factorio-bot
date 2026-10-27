@@ -160,6 +160,11 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 			if slices.ContainsFunc(b.NoMine, r.Overlaps) {
 				continue
 			}
+			// пятно меньше блока добычи (minBlockOre) — не зона: блок на нём не встанет, план
+			// кластеров падал «ни одного бура» (17466282: ближайшее к голове bus-1 железо — 6.5k)
+			if _, fluid := b.P.Fluids[pt.Name]; !fluid && pt.Amount < minBlockOre {
+				continue
+			}
 			if pt.Name == it {
 				rs = append(rs, r)
 				have += float64(pt.Amount)
@@ -261,6 +266,9 @@ func (b *Base) MoreMineZones(zones []Zone, it string, want float64) []Zone {
 		}
 		if pt.Name != it {
 			continue
+		}
+		if _, fluid := b.P.Fluids[pt.Name]; !fluid && pt.Amount < minBlockOre {
+			continue // меньше блока добычи — не зона (MineZones)
 		}
 		r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(ZoneBorder)
 		if slices.ContainsFunc(zones, func(z Zone) bool { return z.Rect.Overlaps(r) }) || b.avoids(r) {
