@@ -942,7 +942,21 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 		if !h.noRestore {
 			near, _ = h.B.FindNearest(bridge.FindArgs{Radius: 2.5, Limit: 30, Position: &e.Position})
 		}
-		if err := h.mineHeld(ctx, e, nil, &held); err != nil {
+		err = h.mineHeld(ctx, e, nil, &held)
+		if errors.Is(err, ErrFull) && h.OnFull != nil {
+			// инвентарь полон — освободить место (стадии — в хранение) и ещё раз (260647970,
+			// стадия 16: поднять свой бур с пути — «не поднять»)
+			h.Say("инвентарь полон — освобождаю место")
+			release()
+			if ferr := h.OnFull(ctx); ferr != nil {
+				return fmt.Errorf("%w (освободить место: %v)", err, ferr)
+			}
+			if err := h.reachMine(ctx, e); err != nil {
+				return err
+			}
+			err = h.mineHeld(ctx, e, nil, &held)
+		}
+		if err != nil {
 			return err
 		}
 		h.Log("подбор: ходьба %.2f, добыча %.2f", t1.Sub(t0).Seconds(), time.Since(t1).Seconds())
