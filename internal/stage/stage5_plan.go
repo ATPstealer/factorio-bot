@@ -165,6 +165,9 @@ func runPlan(ctx context.Context, h *act.Hands) error {
 					return fmt.Errorf("раскладка: %v", e)
 				}
 			}
+			if err := flowCheck(h, l, all); err != nil {
+				return err
+			}
 			for _, c := range all {
 				h.Say("кластер %v", c)
 			}

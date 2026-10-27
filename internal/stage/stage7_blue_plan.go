@@ -488,6 +488,9 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	for _, it := range blueOres {
 		h.Say("добыча %s: под бурами %d", it, oreUnder(base.Clusters, it))
 	}
+	if err := flowCheck(h, l, base.Clusters); err != nil {
+		return base, l, err
+	}
 	for _, c := range fresh {
 		h.Say("кластер %v", c)
 	}

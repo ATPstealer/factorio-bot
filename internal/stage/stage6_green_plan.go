@@ -279,6 +279,9 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 					return fmt.Errorf("раскладка: %v", e)
 				}
 			}
+			if err := flowCheck(h, l, base.Clusters); err != nil {
+				return err
+			}
 			for _, c := range fresh {
 				h.Say("кластер %v", c)
 			}
