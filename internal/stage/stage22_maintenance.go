@@ -430,7 +430,7 @@ func directed(name string) bool {
 
 // planNow — что из плана уже должно стоять: дописанное проектом зелёной науки (стадия 4) строят
 // стадии после обслуживания — не сверять.
-func planNow() ([]layout.Placement, error) {
+func planNow(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
@@ -447,7 +447,7 @@ func planNow() ([]layout.Placement, error) {
 			res = append(res, pl)
 		}
 	}
-	return withoutLater(plan, res), nil // будущая добыча — на стадии 30
+	return withoutLater(h, plan, res), nil // будущая добыча — на стадии 30
 }
 
 // planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр

@@ -48,16 +48,16 @@ func runBlueprint(ctx context.Context, h *act.Hands) error {
 func checkBlueprint(h *act.Hands) error { return checkDrawing(h, planAll) }
 
 // planAll — весь план стройки (без будущей добычи — она на стадии 30).
-func planAll() ([]layout.Placement, error) {
+func planAll(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
-	return withoutLater(plan, plan.Layout), nil
+	return withoutLater(h, plan, plan.Layout), nil
 }
 
 // checkDrawing — проверка обслуживания по чертежу (план — base): лишнего нет, остальное — checkKept.
-func checkDrawing(h *act.Hands, base func() ([]layout.Placement, error)) error {
+func checkDrawing(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) error {
 	want, err := blueprint(h, base)
 	if err != nil {
 		return err
@@ -96,12 +96,12 @@ func upgradePlan(h *act.Hands) error {
 // стадий (state-*.json — столбы, буферы, хранение); где раскладка стадии расходится с планом
 // (план обновлён — делитель на месте ленты), прав план. Временное (сундук и инсертер станции
 // стадии 11, их убирает стадия 16) — не чертёж.
-func blueprint(h *act.Hands, base func() ([]layout.Placement, error)) ([]layout.Placement, error) {
+func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
-	res, err := base()
+	res, err := base(h)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +162,13 @@ func extras(h *act.Hands, want []layout.Placement) ([]world.Object, error) {
 	in := map[key]bool{}
 	for _, pl := range want {
 		in[k(pl.Name, pl.Pos)] = true
+	}
+	// что есть в плане на потом (весь план с синей) — не лишнее: поставленное раньше срока не
+	// разбирать (лента камня bus-1 — старым кодом на стадии 22, а по чертежу — стадия 30)
+	if full, err := LoadBluePlan(); err == nil {
+		for _, pl := range full.Layout {
+			in[k(pl.Name, pl.Pos)] = true
+		}
 	}
 	var res []world.Object
 	for _, o := range h.World.Objects() {

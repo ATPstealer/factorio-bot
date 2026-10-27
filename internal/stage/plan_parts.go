@@ -2,6 +2,7 @@ package stage
 
 import (
 	"slices"
+	"sort"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -65,10 +66,43 @@ func laterTags(plan *ClusterPlan) map[string]bool {
 	return res
 }
 
-// withoutLater — list без будущей добычи (её строит стадия 30).
-func withoutLater(plan *ClusterPlan, list []layout.Placement) []layout.Placement {
+// withoutLater — list без будущей добычи и её лент шин (их строит стадия 30).
+func withoutLater(h *act.Hands, plan *ClusterPlan, list []layout.Placement) []layout.Placement {
 	later := laterTags(plan)
-	return slices.DeleteFunc(slices.Clone(list), func(pl layout.Placement) bool { return later[pl.Tag] })
+	lanes := map[layout.Placement]bool{}
+	for _, pl := range laterLanes(h, plan) {
+		lanes[pl] = true
+	}
+	return slices.DeleteFunc(slices.Clone(list), func(pl layout.Placement) bool { return later[pl.Tag] || lanes[pl] })
+}
+
+// laterLanes — ленты шин предметов, которые даёт только будущая добыча (камень, кирпич — кластеры
+// Later), с подземками и делителями в разрыве: их строит стадия 30 вместе с добычей (stages.md:
+// «добыча камня, свои ленты bus-1»). Лента камня bus-1 — в плане первой итерации, а не в
+// будущей добыче: её не ставила ни одна стадия (на бумаге, 260647970).
+func laterLanes(h *act.Hands, plan *ClusterPlan) []layout.Placement {
+	now, later := map[string]bool{}, map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind != cluster.Mine && c.Kind != cluster.Smelt {
+			continue
+		}
+		if c.Later {
+			later[c.Product] = true
+		} else {
+			now[c.Product] = true
+		}
+	}
+	var items []string
+	for it := range later {
+		if !now[it] {
+			items = append(items, it)
+		}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	sort.Strings(items)
+	return withSplitters(h, plan, busParts(plan, items, nil))
 }
 
 // busNames — шины плана (зоны шин: bus-1 … bus-4).
@@ -132,16 +166,21 @@ func busParts(plan *ClusterPlan, items []string, srcs []string) []layout.Placeme
 			}
 			near := pl.Recipe == "input" && line[layout.Step(t, (pl.Dir+8)%16)] ||
 				pl.Recipe == "output" && line[layout.Step(t, pl.Dir)]
-			if !near && pl.Recipe == "output" { // выход пары уже взятого входа
-				for k := 1; k <= 10 && !near; k++ {
-					b := t
-					for j := 0; j < k; j++ {
-						b = layout.Step(b, (pl.Dir+8)%16)
-					}
-					near = line[b] && slices.ContainsFunc(res, func(q layout.Placement) bool {
-						return q.Name == "underground-belt" && q.Recipe == "input" && world.TileOf(q.Pos) == b
-					})
+			// пара — вместе: выход уже взятого входа (назад по ходу) и вход уже взятого выхода
+			// (вперёд: начало ленты подземкой под подводом — за входом пусто; стадии ставили
+			// один выход, 859088572 на бумаге)
+			toward, want := (pl.Dir+8)%16, "input"
+			if pl.Recipe == "input" {
+				toward, want = pl.Dir, "output"
+			}
+			for k := 1; k <= 10 && !near; k++ {
+				b := t
+				for j := 0; j < k; j++ {
+					b = layout.Step(b, toward)
 				}
+				near = line[b] && slices.ContainsFunc(res, func(q layout.Placement) bool {
+					return q.Name == "underground-belt" && q.Recipe == want && world.TileOf(q.Pos) == b
+				})
 			}
 			if near {
 				res = append(res, pl)
