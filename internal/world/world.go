@@ -277,6 +277,31 @@ func (w *World) TreeOnly(t Tile) bool {
 
 // Blocked — занят ли тайл объектом (без учёта воды). Объект у края чанка может
 // перекрывать тайлы соседнего — проверяем и соседей.
+// CliffAt — тайл под утёсом (его рамкой коллизии): постройка там — ошибка плана (взрывчатки не
+// будет, stages.md). Свои постройки и устранимое — не утёс.
+func (w *World) CliffAt(t Tile) bool {
+	cp := ChunkOf(t)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			c := w.Chunks[bridge.ChunkPos{X: cp.X + dx, Y: cp.Y + dy}]
+			if c == nil {
+				continue
+			}
+			for _, o := range c.Objects {
+				if o.Type != "cliff" {
+					continue
+				}
+				for _, u := range BoxTiles(w.CollisionBox(o)) {
+					if u == t {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (w *World) Blocked(t Tile) bool {
 	cp := ChunkOf(t)
 	for dy := -1; dy <= 1; dy++ {

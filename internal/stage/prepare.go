@@ -278,11 +278,16 @@ func prepTiles(h *act.Hands, list []layout.Placement) []string {
 			continue
 		}
 		for _, t := range layout.Tiles(h.Protos, pl) {
-			if ok, _ := h.World.Buildable(t); !ok {
-				where := "на утёсе"
-				if h.World.TileAt(t) != world.Land {
-					where = "на воде"
-				}
+			// только вода и утёсы: свои постройки на месте плана (сундук угля у бойлера до
+			// ленты, 1028292478, стадия 16) стадия убирает сама
+			where := ""
+			switch {
+			case h.World.TileAt(t) != world.Land:
+				where = "на воде"
+			case h.World.CliffAt(t):
+				where = "на утёсе"
+			}
+			if where != "" {
 				res = append(res, fmt.Sprintf("%s в (%.1f, %.1f) %s", pl.Name, pl.Pos.X, pl.Pos.Y, where))
 				break
 			}
