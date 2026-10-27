@@ -753,3 +753,18 @@ func (w *World) Hide(objs []Object) (restore func()) {
 		}
 	}
 }
+
+// Keep — запомнить объекты всей модели; restore — вернуть как были (раскладка на бумаге поверх
+// игры: Put и Hide — только на время).
+func (w *World) Keep() (restore func()) {
+	saved := make(map[*Chunk][]Object, len(w.Chunks))
+	for _, c := range w.Chunks {
+		saved[c] = c.Objects
+	}
+	return func() {
+		for c, objs := range saved {
+			c.Objects = objs
+			c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+		}
+	}
+}

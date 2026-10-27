@@ -146,6 +146,33 @@ func paperStages(h *act.Hands, to int) error {
 	return nil
 }
 
+// refreshLayouts — обновить чертёж (stages.md, стадия 22: код поменялся, а карта построена по
+// старому): раскладки стадий стройки 10…to — заново текущим кодом, на бумаге по очереди; своё
+// построенное в расчёт не берётся; файлы раскладок перезаписываются. Модель мира и общее
+// состояние стадии после — как были.
+func refreshLayouts(h *act.Hands, to int) error {
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
+	restore := h.World.Keep()
+	defer restore()
+	var own []world.Object
+	for _, o := range h.World.Objects() {
+		if o.Own && o.Type != "character" {
+			own = append(own, o)
+		}
+	}
+	h.World.Hide(own)
+	stage, need, lc, c := curStage, needCache, layout.Chest, chest
+	freshLayouts = true
+	defer func() {
+		curStage, needCache, layout.Chest, chest = stage, need, lc, c
+		freshLayouts = false
+	}()
+	h.Say("обновляю чертёж: раскладки стадий 10–%d заново текущим кодом", to)
+	return paperStages(h, to)
+}
+
 // hereOrBase — где персонаж; на бумаге (без игры) — центр базы (голова bus-1).
 func hereOrBase(h *act.Hands) (world.Tile, error) {
 	if h.B == nil {

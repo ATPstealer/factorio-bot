@@ -62,10 +62,15 @@ func writeState(file string, v any) error {
 	return os.WriteFile(runPath(file), data, 0o644)
 }
 
+// freshLayouts — раскладки стадий считать заново, не из файла (обновление чертежа на
+// обслуживании — refreshLayouts).
+var freshLayouts bool
+
 // onceLayout — раскладка стадии один раз на карту: есть файл file — из него, нет — build и в
-// файл (стройка, проверка и перезапуск стадии видят одну и ту же раскладку).
+// файл (стройка, проверка и перезапуск стадии видят одну и ту же раскладку); freshLayouts —
+// заново и в файл.
 func onceLayout(file string, build func() ([]layout.Placement, error)) ([]layout.Placement, error) {
-	if data, err := os.ReadFile(runPath(file)); err == nil {
+	if data, err := os.ReadFile(runPath(file)); err == nil && !freshLayouts {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
 			return list, nil

@@ -39,11 +39,26 @@ func runBlueprint(ctx context.Context, h *act.Hands) error {
 	if err := upgradePlan(h); err != nil {
 		return err
 	}
-	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h) }, true)
+	if err := refreshLayouts(h, 27); err != nil {
+		return err
+	}
+	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planAll) }, true)
 }
 
-func checkBlueprint(h *act.Hands) error {
-	want, err := blueprint(h)
+func checkBlueprint(h *act.Hands) error { return checkDrawing(h, planAll) }
+
+// planAll — весь план стройки (без будущей добычи — она на стадии 30).
+func planAll() ([]layout.Placement, error) {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil, err
+	}
+	return withoutLater(plan, plan.Layout), nil
+}
+
+// checkDrawing — проверка обслуживания по чертежу (план — base): лишнего нет, остальное — checkKept.
+func checkDrawing(h *act.Hands, base func() ([]layout.Placement, error)) error {
+	want, err := blueprint(h, base)
 	if err != nil {
 		return err
 	}
@@ -77,15 +92,19 @@ func upgradePlan(h *act.Hands) error {
 	return nil
 }
 
-// blueprint — чертёж: план и раскладки стадий (state-*.json — столбы, буферы, хранение); где
-// раскладка стадии расходится с планом (план обновлён — делитель на месте ленты), прав план.
-// Временное (сундук и инсертер станции стадии 11, их убирает стадия 16) — не чертёж.
-func blueprint(h *act.Hands) ([]layout.Placement, error) {
+// blueprint — чертёж: из плана — base (стадия 22 — что уже должно стоять, 28 — весь) и раскладки
+// стадий (state-*.json — столбы, буферы, хранение); где раскладка стадии расходится с планом
+// (план обновлён — делитель на месте ленты), прав план. Временное (сундук и инсертер станции
+// стадии 11, их убирает стадия 16) — не чертёж.
+func blueprint(h *act.Hands, base func() ([]layout.Placement, error)) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, err
 	}
-	res := withoutLater(plan, plan.Layout) // будущая добыча — на стадии 30 (её файл — ниже, со state-*)
+	res, err := base()
+	if err != nil {
+		return nil, err
+	}
 	taken := map[world.Tile]layout.Placement{}
 	for _, pl := range plan.Layout {
 		for _, t := range layout.Tiles(h.Protos, pl) { // все тайлы (делитель — два)
@@ -156,20 +175,51 @@ func extras(h *act.Hands, want []layout.Placement) ([]world.Object, error) {
 	return res, nil
 }
 
-// removeExtras — лишнее (своё, чего нет в чертежа) — поднять и в хранение (stages.md, стадия 28:
-// построенное — в точном соответствии с планом).
-func removeExtras(ctx context.Context, h *act.Hands, s *worker, want []layout.Placement) error {
-	extra, err := extras(h, want)
+// removeExtras — лишнее (своё, чего нет в чертеже) — поднять и в хранение (stages.md, стадии 22
+// и 28: построенное — в точном соответствии с чертежом). onSpots — только то, что стоит на месте
+// чертежа (до достройки); остальное — после (старые столбы — когда новые уже стоят).
+func removeExtras(ctx context.Context, h *act.Hands, s *worker, want []layout.Placement, onSpots bool) error {
+	all, err := extras(h, want)
 	if err != nil {
 		return err
+	}
+	// порог — без столбов сети: её пересчитали, старые столбы все лишние
+	var notPoles []world.Object
+	for _, o := range all {
+		if o.Type != "electric-pole" {
+			notPoles = append(notPoles, o)
+		}
+	}
+	if len(notPoles) > maxExtras {
+		o := notPoles[0]
+		return fmt.Errorf("лишнего (нет в чертеже, не столбов) %d — больше %d: чертёж неполный? первое — %s в (%.1f, %.1f)", len(notPoles), maxExtras, o.Name, o.Pos.X, o.Pos.Y)
+	}
+	extra := all
+	if onSpots {
+		spots := map[world.Tile]bool{}
+		for _, pl := range want {
+			for _, t := range layout.Tiles(h.Protos, pl) {
+				spots[t] = true
+			}
+		}
+		extra = nil
+		for _, o := range all {
+			for _, t := range layout.Tiles(h.Protos, layout.Placement{Name: o.Name, Pos: o.Pos, Dir: o.Direction}) {
+				if spots[t] {
+					extra = append(extra, o)
+					break
+				}
+			}
+		}
 	}
 	if len(extra) == 0 {
 		return nil
 	}
-	if len(extra) > maxExtras {
-		return fmt.Errorf("лишнего (нет в чертеже) %d — больше %d: чертёж неполный? первое — %s в (%.1f, %.1f)", len(extra), maxExtras, extra[0].Name, extra[0].Pos.X, extra[0].Pos.Y)
+	if onSpots {
+		h.Say("чертёж: лишнего на месте чертежа %d — убираю до достройки", len(extra))
+	} else {
+		h.Say("чертёж: лишнего %d — убираю", len(extra))
 	}
-	h.Say("чертёж: лишнего %d — убираю", len(extra))
 	var es []bridge.Entity
 	for _, o := range extra {
 		h.Log("лишнее: %s в (%.1f, %.1f)", o.Name, o.Pos.X, o.Pos.Y)

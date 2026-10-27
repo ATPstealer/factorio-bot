@@ -249,3 +249,22 @@ func TestPathThroughTrees(t *testing.T) {
 		t.Errorf("рубить %v, ждали одно дерево (5.5, 2.5)", r.Cuts)
 	}
 }
+
+// Keep: после Hide и Put модель возвращается как была (обновление чертежа на обслуживании —
+// раскладка на бумаге поверх игры).
+func TestKeepRestores(t *testing.T) {
+	w := grid(t, "#.", "..")
+	if !w.Blocked(Tile{X: 0, Y: 0}) {
+		t.Fatal("дерево в (0, 0) не занимает тайл")
+	}
+	restore := w.Keep()
+	w.Hide(w.Objects())
+	w.Put([]Object{{Name: "tree", Type: "tree", Pos: bridge.Pos{X: 1.5, Y: 1.5}}})
+	if w.Blocked(Tile{X: 0, Y: 0}) || !w.Blocked(Tile{X: 1, Y: 1}) {
+		t.Fatal("Hide/Put не подействовали")
+	}
+	restore()
+	if !w.Blocked(Tile{X: 0, Y: 0}) || w.Blocked(Tile{X: 1, Y: 1}) || len(w.Objects()) != 1 {
+		t.Fatalf("после restore модель не та: объектов %d", len(w.Objects()))
+	}
+}

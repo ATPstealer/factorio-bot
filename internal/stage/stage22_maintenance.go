@@ -113,12 +113,15 @@ func queueResearch(ctx context.Context, h *act.Hands) error {
 }
 
 func runMaintenance(ctx context.Context, h *act.Hands) error {
-	return maintain(ctx, h, planNow, false)
+	if err := refreshLayouts(h, 21); err != nil {
+		return err
+	}
+	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planNow) }, true)
 }
 
-// maintain — обслуживание: list — с чем сверять построенное (стадия 22 — план без того, что
-// строят следующие стадии; стадия 28 — весь чертёж); strict — лишнее (своё, чего нет в list)
-// убрать в хранение.
+// maintain — обслуживание: list — с чем сверять построенное (чертёж: стадия 22 — без того, что
+// строят следующие стадии; стадия 28 — весь); strict — лишнее (своё, чего нет в list) убрать в
+// хранение.
 func maintain(ctx context.Context, h *act.Hands, list func() ([]layout.Placement, error), strict bool) error {
 	// в самом начале — очередь исследований: лаборатории учат, пока идёт остальное
 	if err := queueResearch(ctx, h); err != nil {
@@ -176,13 +179,20 @@ func maintain(ctx context.Context, h *act.Hands, list func() ([]layout.Placement
 	if err != nil {
 		return err
 	}
-	if strict { // лишнее — до достройки: может стоять на месте чертежа
-		if err := removeExtras(ctx, h, s, want); err != nil {
+	// лишнее на месте чертежа — до достройки, остальное — после (старые столбы — когда новые
+	// уже стоят: сеть не рвётся)
+	if strict {
+		if err := removeExtras(ctx, h, s, want, true); err != nil {
 			return err
 		}
 	}
 	if err := planFix(ctx, h, s, want); err != nil {
 		return err
+	}
+	if strict {
+		if err := removeExtras(ctx, h, s, want, false); err != nil {
+			return err
+		}
 	}
 	if err := queueResearch(ctx, h); err != nil {
 		return err
@@ -556,14 +566,8 @@ func renameChests() error {
 }
 
 // checkMaintenance — нет своих деревянных сундуков; каждое нужное исследование изучено или в
-// очереди; построенное — по плану.
-func checkMaintenance(h *act.Hands) error {
-	now, err := planNow()
-	if err != nil {
-		return err
-	}
-	return checkKept(h, now)
-}
+// очереди; построенное — по чертежу, лишнего нет.
+func checkMaintenance(h *act.Hands) error { return checkDrawing(h, planNow) }
 
 // checkKept — проверка обслуживания со сверкой по list (стадия 28 — чертёж: одна сверка, не две).
 func checkKept(h *act.Hands, list []layout.Placement) error {
