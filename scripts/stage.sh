@@ -9,7 +9,10 @@
 #   стадия 10 без снимка <сид>-0 — с новой карты SEED=<сид> (scripts/newmap.sh)
 #   пустая стадия (резерв, bin/bot empty N) — без игры: снимок <сид>-(N-1) копируется в <сид>-N
 #   PAR=0 scripts/stage.sh …   — по картам подряд на экземпляре INST (по умолчанию 1); после — он остановлен
-#   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 180)
+#   LIMIT=мин                  — лимит стадии (по умолчанию 120, разведка — 1080)
+#   CONT=1                     — первая стадия — продолжение на текущем сохранении экземпляра (не
+#                                со снимка): стадия, упавшая по лимиту, достраивает недостающее,
+#                                а не начинает заново; журнал дописывается
 #   PLAN=1 scripts/stage.sh N-M СИД… — только стадии планирования N…M подряд (bin/bot plans), со
 #                                снимка <сид>-(N-1), без стройки между ними: план прошлых
 #                                считается построенным; снимки не сохраняются (новые картинки —
@@ -46,7 +49,7 @@ if [[ ${PLAN:-0} == 1 ]]; then
 fi
 if [[ $from != "$to" ]]; then
   for ((n = from; n <= to; n++)); do
-    if ! "$0" "$n" "$@"; then
+    if ! CONT=$([[ $n == "$from" ]] && echo "${CONT:-0}" || echo 0) "$0" "$n" "$@"; then
       echo "== стоп: стадия $n выполнена не на всех картах" | tee -a run/stages/summary.txt
       exit 1
     fi
@@ -93,7 +96,10 @@ for seed in "$@"; do
     fi
     continue
   fi
-  if [[ $n == 1 && ! -f run/snapshots/$seed-0/bot.zip ]]; then
+  if [[ ${CONT:-0} == 1 ]]; then
+    # продолжение: игра — на сохранении экземпляра, состояние стадий — его же
+    NEW_MAP=0 timeout 600 scripts/newmap.sh > /dev/null 2>> "run/stages/load-$seed.log" || { echo "   нет сохранения экземпляра $INST" | tee -a run/stages/summary.txt; code=1; continue; }
+  elif [[ $n == 1 && ! -f run/snapshots/$seed-0/bot.zip ]]; then
     rm -f "$R"/state*.json
     SEED=$seed timeout 600 scripts/newmap.sh > /dev/null 2>&1 || { echo "   карта $seed не создалась" | tee -a run/stages/summary.txt; code=1; continue; }
   else
@@ -111,7 +117,8 @@ for seed in "$@"; do
     [[ $loaded == 1 ]] || { echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt; code=1; continue; }
   fi
   start=$(date +%s)
-  if timeout $((limit * 60 + 300)) bin/bot -t "${limit}m" stage "$n" > "$log" 2>&1; then
+  [[ ${CONT:-0} == 1 ]] && echo "== продолжение $(date +%T)" >> "$log" || : > "$log"
+  if timeout $((limit * 60 + 300)) bin/bot -t "${limit}m" stage "$n" >> "$log" 2>&1; then
     if timeout 300 scripts/snapshot.sh save "$seed-$n" "сид $seed: после стадии $n" > /dev/null 2>> "$log"; then
       touch "run/stages/ok-$n-$seed"
       echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
