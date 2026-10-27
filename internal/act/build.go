@@ -119,16 +119,27 @@ func (h *Hands) standNear(ctx context.Context, fp bridge.Box) error {
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
 	if h.World != nil {
+		// сначала — не у ленты и с запасом вокруг (коридор в тайл между рядами лент шины: доводка
+		// с инерцией роняла на ленту — «не сойти с ленты», стадия 22 на 1028292478), дальше —
+		// до досягаемости; нет такого — любое, где можно стоять
 		best := math.Inf(1)
-		for _, r := range []float64{1.5, 2.5, 4} {
-			for k := 0; k < 16; k++ {
-				a := float64(k) * math.Pi / 8
-				q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
-				if inBox(q, fp, 0.8) || !h.World.Standable(q) {
-					continue
+		for _, strict := range []bool{true, false} {
+			for _, r := range []float64{1.5, 2.5, 4, 6} {
+				if !strict && r > 4 {
+					break
 				}
-				if d := dist(p.Position, q); d < best {
-					best, spot = d, q
+				for k := 0; k < 16; k++ {
+					a := float64(k) * math.Pi / 8
+					q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
+					if inBox(q, fp, 0.8) || !h.World.Standable(q) || strict && (h.nearBelt(q) || !h.World.Roomy(q)) {
+						continue
+					}
+					if d := dist(p.Position, q); d < best {
+						best, spot = d, q
+					}
+				}
+				if !math.IsInf(best, 1) {
+					break
 				}
 			}
 			if !math.IsInf(best, 1) {
