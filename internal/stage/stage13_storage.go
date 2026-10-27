@@ -154,8 +154,18 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 			_, err := s.h.PlaceDirs(ctx, name, pos, dirs)
 			for tries := 0; errors.Is(err, act.ErrNoItem) && tries < 3; tries++ {
 				// предмет ушёл в хранение по дороге (OnFull: место под подъём своей постройки) —
-				// добрать и ещё раз (260647970, стадия 16)
-				if herr := s.have(ctx, name, min(len(batch), s.roomFor(name))); herr != nil {
+				// добрать и ещё раз, только не поставленное (260647970, стадия 16)
+				pos, dirs = pos[:0], dirs[:0]
+				for _, pl := range batch {
+					if e, eerr := s.entity(pl); eerr == nil && e == nil {
+						pos, dirs = append(pos, pl.Pos), append(dirs, pl.Dir)
+					}
+				}
+				if len(pos) == 0 {
+					err = nil
+					break
+				}
+				if herr := s.have(ctx, name, min(len(pos), s.roomFor(name))); herr != nil {
 					return herr
 				}
 				_, err = s.h.PlaceDirs(ctx, name, pos, dirs)
