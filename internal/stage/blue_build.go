@@ -104,14 +104,28 @@ func waitResearch(ctx context.Context, h *act.Hands, techs ...string) error {
 		if err != nil {
 			return err
 		}
-		var miss []string
+		var miss, out []string // не изучены; из них не в очереди
 		for _, t := range techs {
 			if !slices.Contains(f.Researched, t) {
 				miss = append(miss, t)
+				if f.Current != t && !slices.Contains(f.Queue, t) {
+					out = append(out, t)
+				}
 			}
 		}
 		if len(miss) == 0 {
 			return nil
+		}
+		// не встало в очередь (была полна — stages.md, общее: исследования в начале каждой
+		// стадии) — доставить, как только там место
+		busy := len(f.Queue)
+		if f.Current != "" && !slices.Contains(f.Queue, f.Current) {
+			busy++
+		}
+		if len(out) > 0 && busy < 7 {
+			if err := queueTechs(ctx, h, out...); err != nil {
+				return err
+			}
 		}
 		if !said {
 			h.Say("жду исследований: %v", miss)

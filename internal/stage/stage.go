@@ -147,7 +147,14 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 		return err
 	}
 	defer func() { h.OnFull = nil }()
-	// перед стройкой — проверка и расчистка площади плана (stages.md, общее)
+	// в начале — очередь исследований (stages.md, общее): лаборатории учат, пока идут подготовка
+	// и стройка; лаборатории стоят со стадии 12
+	if n > 12 && !s.Plan && !s.Empty {
+		if err := queueResearch(ctx, h); err != nil {
+			return fmt.Errorf("стадия %d: очередь исследований: %w", n, err)
+		}
+	}
+	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
 		return fmt.Errorf("стадия %d: %w", n, err)
 	}
