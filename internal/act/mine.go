@@ -23,6 +23,10 @@ const notMiningGrace = 1500 * time.Millisecond
 // ErrFull — добытое некуда класть: инвентарь полон.
 var ErrFull = errors.New("act: инвентарь полон")
 
+// ErrNoItem — предмета нет в инвентаре (Pick): стройка добирает его из хранения и повторяет —
+// освобождение места (OnFull) могло выложить и его (260647970, стадия 16).
+var ErrNoItem = errors.New("act: нет предмета в инвентаре")
+
 // MineUntil наводит курсор на e и держит ПКМ, пока сущность не исчезнет или done не вернёт true.
 func (h *Hands) MineUntil(ctx context.Context, e bridge.Entity, done func(bridge.Player) bool) error {
 	held := false

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -150,7 +151,16 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 			for i, pl := range batch {
 				pos[i], dirs[i] = pl.Pos, pl.Dir
 			}
-			if _, err := s.h.PlaceDirs(ctx, name, pos, dirs); err != nil {
+			_, err := s.h.PlaceDirs(ctx, name, pos, dirs)
+			for tries := 0; errors.Is(err, act.ErrNoItem) && tries < 3; tries++ {
+				// предмет ушёл в хранение по дороге (OnFull: место под подъём своей постройки) —
+				// добрать и ещё раз (260647970, стадия 16)
+				if herr := s.have(ctx, name, min(len(batch), s.roomFor(name))); herr != nil {
+					return herr
+				}
+				_, err = s.h.PlaceDirs(ctx, name, pos, dirs)
+			}
+			if err != nil {
 				return fmt.Errorf("поставить %s ×%d с (%.1f, %.1f): %w", name, len(batch), pos[0].X, pos[0].Y, err)
 			}
 		}

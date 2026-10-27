@@ -483,7 +483,7 @@ func (h *Hands) Pick(ctx context.Context, item string) error {
 		return h.CloseGUI(ctx)
 	}
 	if p.Inventory[item] == 0 {
-		return fmt.Errorf("act: нет %s в инвентаре", item)
+		return fmt.Errorf("%w: %s", ErrNoItem, item)
 	}
 	if err := h.CloseGUI(ctx); err != nil {
 		return err
