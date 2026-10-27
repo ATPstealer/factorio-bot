@@ -62,8 +62,14 @@ func (p *paperBuilt) add(h *act.Hands, list []layout.Placement) []string {
 		for _, t := range layout.Tiles(h.Protos, pl) {
 			p.at[t] = len(p.list) - 1
 		}
+		h.World.Put([]world.Object{paperObject(h, pl)}) // занимает тайлы, как в игре
 	}
 	return res
+}
+
+// paperObject — постройка на бумаге как свой объект модели мира.
+func paperObject(h *act.Hands, pl layout.Placement) world.Object {
+	return world.Object{Name: pl.Name, Type: h.Protos.Entities[pl.Name].Type, Pos: pl.Pos, Direction: pl.Dir, Own: true}
 }
 
 // remove — разобрать (точки стадии 10 — на стадии 15).
@@ -73,13 +79,21 @@ func (p *paperBuilt) remove(h *act.Hands, list []layout.Placement) {
 		gone[pl] = true
 	}
 	var keep []layout.Placement
+	var objs []world.Object
 	for _, pl := range p.list {
 		if !gone[pl] {
 			keep = append(keep, pl)
+		} else {
+			objs = append(objs, paperObject(h, pl))
 		}
 	}
-	p.list, p.at = nil, map[world.Tile]int{}
-	p.add(h, keep)
+	h.World.Hide(objs) // разобрано — тайлы свободны
+	p.list, p.at = keep, map[world.Tile]int{}
+	for i, pl := range keep {
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			p.at[t] = i
+		}
+	}
 }
 
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.

@@ -707,6 +707,17 @@ func (w *World) onBelt(cl Cell) bool {
 	return in != nil && in.belt
 }
 
+// Put — добавить объекты в модель (стройка на бумаге: построенное прошлыми стадиями занимает
+// тайлы, как в игре).
+func (w *World) Put(objs []Object) {
+	for _, o := range objs {
+		if c := w.Chunks[ChunkOf(TileOf(o.Pos))]; c != nil {
+			c.Objects = append(c.Objects, o)
+			c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+		}
+	}
+}
+
 // Hide — убрать объекты из модели (план поверх того, что потом разберут); restore — вернуть.
 func (w *World) Hide(objs []Object) (restore func()) {
 	type saved struct {
