@@ -38,6 +38,9 @@ func init() {
 }
 
 // loadPlanFile — план кластеров из файла path.
+// LoadPlanFile — план кластеров из файла состояния (bin/bot flow — разбор течения по плану).
+func LoadPlanFile(path string) (*ClusterPlan, error) { return loadPlanFile(path) }
+
 func loadPlanFile(path string) (*ClusterPlan, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -279,7 +282,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 					return fmt.Errorf("раскладка: %v", e)
 				}
 			}
-			if err := flowCheck(h, l, base.Clusters); err != nil {
+			if err := flowCheck(h, l, base.Clusters, false); err != nil {
 				return err
 			}
 			for _, c := range fresh {

@@ -20,6 +20,13 @@ import (
 // Так нашлось: печи плавки брали с ленты, которую кормила только будущая добыча (1028292478,
 // стадия 17).
 func (l *Layout) Flow(skip func(pl Placement) bool) []string {
+	errs, _ := l.FlowTrace(skip)
+	return errs
+}
+
+// FlowTrace — Flow и вдобавок, что куда дотекло: предметы по тайлам лент и ящиков и по машинам
+// (центр машины) — для разбора (bin/bot flow).
+func (l *Layout) FlowTrace(skip func(pl Placement) bool) ([]string, map[world.Tile][]string) {
 	f := &flow{l: l, p: l.P, items: map[world.Tile]set{}, machine: map[int]set{}, net: map[int]int{}, netFluids: map[int]set{}}
 	for i, pl := range l.List {
 		if skip != nil && skip(pl) {
@@ -37,7 +44,20 @@ func (l *Layout) Flow(skip func(pl Placement) bool) []string {
 			}
 		}
 	}
-	return f.report()
+	trace := map[world.Tile][]string{}
+	for t, s := range f.items {
+		trace[t] = slices.Sorted(mapsKeys(s))
+	}
+	for i, s := range f.machine {
+		t := world.TileOf(f.l.List[i].Pos)
+		trace[t] = append(trace[t], slices.Sorted(mapsKeys(s))...)
+	}
+	for i, r := range f.net { // жидкости — у всего трубного (и машин с жидкостными ящиками)
+		t := world.TileOf(f.l.List[i].Pos)
+		trace[t] = append(trace[t], fmt.Sprintf("сеть %d:", r))
+		trace[t] = append(trace[t], slices.Sorted(mapsKeys(f.netFluids[r]))...)
+	}
+	return f.report(), trace
 }
 
 type set map[string]bool
@@ -143,8 +163,9 @@ func (f *flow) pipes() {
 				if j, ok := f.at[cur]; ok {
 					if n := f.l.List[j]; n.Name == pl.Name && n.Dir == d {
 						union(i, j)
+						break
 					}
-					break
+					// поверху — что угодно (ленты поперёк): под ними и идёт труба
 				}
 			}
 		}
@@ -165,7 +186,10 @@ func (f *flow) fluidsOf(i int) (out, in []string) {
 	switch e.Type {
 	case "offshore-pump":
 		return []string{"water"}, nil
-	case "mining-drill": // качалка
+	case "mining-drill": // качалка (электрический бур — предметы, step)
+		if !slices.Contains(e.ResourceCategories, "basic-fluid") {
+			return nil, nil
+		}
 		if f.l.W != nil {
 			if r, ok := f.l.W.ResourceAt(world.TileOf(pl.Pos)); ok {
 				if _, fluid := f.p.Fluids[r.Name]; fluid {
@@ -239,8 +263,8 @@ func (f *flow) step(i int) bool {
 		}
 		changed = f.deliver(drop, have)
 	case e.Type == "mining-drill":
-		if _, fluid := f.p.Fluids["crude-oil"]; fluid && len(Connections(f.p, pl)) > 0 {
-			break // качалка — жидкость (pipes)
+		if slices.Contains(e.ResourceCategories, "basic-fluid") {
+			break // качалка — жидкость (pipes); у электрического бура тоже есть жидкостный ящик (кислота)
 		}
 		ore := set{}
 		if f.l.W != nil {
@@ -296,6 +320,8 @@ func (f *flow) productsOf(j int, have set) set {
 	e := f.p.Entities[pl.Name]
 	switch e.Type {
 	case "container", "logistic-container":
+		return have
+	case "lab": // пакеты передаются из лаборатории в лабораторию инсертером (блок лабораторий)
 		return have
 	case "furnace":
 		res := set{}

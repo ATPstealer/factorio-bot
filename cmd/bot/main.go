@@ -23,6 +23,7 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/input"
 	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/layout"
 	"factorio-bot/internal/stage"
 	"factorio-bot/internal/world"
 )
@@ -154,6 +155,31 @@ func main() {
 		h := &act.Hands{Protos: pr, World: w, Log: log.Printf}
 		check(stage.RoughOffline(h, from, to))
 		log.Printf("зоны размечены")
+		return
+	case "flow":
+		// проверка течения по плану без игры (layout.Flow): bot flow КАРТА.gob ПЛАН.json [X Y]
+		// — машины без входа; с X Y — что дотекло до тайла (разбор)
+		if len(args) < 3 {
+			log.Fatal("bot flow КАРТА.gob ПЛАН.json [X Y]")
+		}
+		pr, _ := knowledgeFor("127.0.0.1:1", "")
+		w := world.New(pr)
+		check(w.Load(args[1]))
+		plan, err := stage.LoadPlanFile(args[2])
+		check(err)
+		l := layout.New(pr, w)
+		for _, pl := range plan.Layout {
+			l.Add(pl)
+		}
+		errs, trace := l.FlowTrace(stage.SkipLater(plan.Clusters))
+		for _, e := range errs {
+			fmt.Println(e)
+		}
+		fmt.Printf("машин без входа: %d\n", len(errs))
+		if len(args) >= 5 {
+			t := world.Tile{X: atoi(args[3]), Y: atoi(args[4])}
+			fmt.Printf("%v: %v; дотекло %v\n", t, l.At(t), trace[t])
+		}
 		return
 	case "empty":
 		// пустая стадия (резерв) — код 0: scripts/stage.sh только копирует снимок
