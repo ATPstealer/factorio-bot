@@ -262,6 +262,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			})
 		}
 		for _, i := range here {
+			moved := false
 			pos, dir := positions[i], dirs[i]
 			// выход подземки (позади — свой непарный вход туда же): обычно игра сама делает
 			// поставленную выходом и спаривает; не вышло — см. ugExit ниже
@@ -335,7 +336,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 				if e, err = h.replace(ctx, item, e, pos, want); err != nil {
 					return built, err
 				}
-				held, hand = false, want
+				held, hand, moved = false, want, true
 			}
 			if exit {
 				if e, err = h.ugExit(ctx, item, e, pos, dir); err != nil {
@@ -364,6 +365,11 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			if e.Direction != nil && !exit && !ug && w == hh {
 				// рука смотрит, куда встала постройка (сверка памяти): следующая довернёт от неё
 				hand = *e.Direction
+			}
+			if moved || exit {
+				// перестановка (replace, ugExit) водит персонажа: что отсюда достаётся — заново
+				// (делитель за 13 тайлов — «Cannot reach», стадия 16 на 1028292478)
+				break
 			}
 		}
 	}
