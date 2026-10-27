@@ -202,7 +202,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	if err != nil {
 		return nil, nil, err
 	}
-	cluster.FillLanes(zb, old.Layout)
+	cluster.FillLanes(zb, old.Layout, cluster.LaterNames(old.Clusters))
 	// добыча до 2M, камень, кирпич — уже в плане стадии 5 (zones.md: ленты bus-1 — все сразу)
 	var fresh []*cluster.Cluster
 	// нефть — до конца игры: 2 месторождения, ближние к голове bus-1 (cluster.md §2а «Нефть»)

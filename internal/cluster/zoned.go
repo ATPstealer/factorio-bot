@@ -31,17 +31,21 @@ type ZoneLane struct {
 	Item  string `json:"item"`
 	Y     int    `json:"y"`
 	Fed   bool   `json:"fed,omitempty"`
+	Now   bool   `json:"now,omitempty"`  // подвод от уже строящегося блока (не только будущего, Later)
 	From  int    `json:"from,omitempty"` // X самого раннего подвода: отводы — только ниже по течению
 	Start int    `json:"start"`          // X начала ленты (голова; у неровности у головы — за ней)
 	Taps  int    `json:"taps,omitempty"` // отводов с ленты: из двух лент предмета — с менее занятой
 }
 
-// feed — подвод в ленту у x: запомнить самый ранний.
-func (ln *ZoneLane) feed(x int) {
+// feed — подвод в ленту у x: запомнить самый ранний; now — подвод от блока, который строится
+// сейчас (не Later): потребители берут с таких лент, пока будущих блоков нет (1028292478,
+// стадия 17: плавка тянула с ленты, которую кормит только добыча стадии 30, — печи пустые).
+func (ln *ZoneLane) feed(x int, now bool) {
 	if !ln.Fed || x < ln.From {
 		ln.From = x
 	}
 	ln.Fed = true
+	ln.Now = ln.Now || now
 }
 
 func (zb *ZBus) lane(item string) *ZoneLane {
@@ -698,7 +702,7 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 	// в ленту — делителем (cluster.md §5: боком всё ложилось на одну полосу, делитель полосы
 	// сохраняет); не встал — боком
 	if t, err := SplitJoin(l, zLaneBelts(l, bus, ln, x0, x1), op, tag, 40); err == nil {
-		ln.feed(t.X)
+		ln.feed(t.X, !c.Later)
 		return nil
 	}
 	to := zSidePorts(l, bus, ln, x0, x1)
@@ -713,7 +717,7 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 		b.dumpBetween(l, op.T, world.Tile{X: op.T.X, Y: ln.Y}) // разбор: где закрыто
 		return &ConnectError{c, fmt.Errorf("%s → %s (%s), целей %d на x %d…%d: %w", c.Name, bus.Name, op.Item, len(to), x0, x1, err)}
 	}
-	ln.feed(p.T.X)
+	ln.feed(p.T.X, !c.Later)
 	return nil
 }
 
@@ -755,7 +759,7 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			unguard := laneGuard(l, buses, low, ln) // вдоль шин не идти (поперёк — подземкой)
 			for _, p := range to {
 				if err = SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err == nil {
-					ln.feed(p.T.X)
+					ln.feed(p.T.X, low.Now) // сквозная течёт, когда течёт нижняя
 					break
 				}
 			}
@@ -782,6 +786,11 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 		// подвод (второй подвод не дошёл до головы и влился сбоку в первый — вторая лента
 		// пустая: стадия 17 на 859088572, печи железа без угля)
 		lns := slices.DeleteFunc(buses[k].lanes(p.Item), func(ln *ZoneLane) bool { return !ln.Fed })
+		// есть ленты с подводом от блоков, которые строятся сейчас, — только они (с ленты одной
+		// будущей добычи до стадии 30 ничего не приедет: 1028292478, стадия 17)
+		if slices.ContainsFunc(lns, func(ln *ZoneLane) bool { return ln.Now }) {
+			lns = slices.DeleteFunc(lns, func(ln *ZoneLane) bool { return !ln.Now })
+		}
 		sort.SliceStable(lns, func(i, j int) bool { return lns[i].Taps < lns[j].Taps })
 		for _, ln := range lns {
 			// только ниже подвода: выше по течению предмета на ленте нет
@@ -899,7 +908,7 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 			}
 			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
 		}
-		fedHead(lns, p)
+		fedHead(lns, p, !c.Later)
 	}
 	return nil
 }
@@ -1135,11 +1144,12 @@ func guardHeads(l *layout.Layout, bus *ZBus, at world.Tile) []world.Tile {
 	return res
 }
 
-// fedHead — подвод пришёл в p: голова ленты — запомнить подвод.
-func fedHead(lns []*ZoneLane, p Port) {
+// fedHead — подвод пришёл в p: голова ленты — запомнить подвод (now — блок строится сейчас,
+// не Later).
+func fedHead(lns []*ZoneLane, p Port, now bool) {
 	for _, ln := range lns {
 		if ln.head().T == p.T {
-			ln.feed(p.T.X)
+			ln.feed(p.T.X, now)
 		}
 	}
 }
@@ -1426,7 +1436,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			err = SplitTap(l, line, p, LogisticsTag+"/"+bus.Name+"/"+m.Name, 60)
 			unfence(l, g)
 			if err == nil {
-				fedHead(lns, p)
+				fedHead(lns, p, !m.Later)
 				break
 			}
 		}

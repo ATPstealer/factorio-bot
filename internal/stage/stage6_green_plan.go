@@ -171,7 +171,7 @@ func runGreenPlan(ctx context.Context, h *act.Hands) error {
 		if err != nil {
 			return err
 		}
-		cluster.FillLanes(zb, old.Layout)
+		cluster.FillLanes(zb, old.Layout, cluster.LaterNames(old.Clusters))
 		layoutAll := func() (*layout.Layout, error) {
 			l, err := base.Layout(fresh...)
 			if err != nil {

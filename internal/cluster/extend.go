@@ -17,7 +17,19 @@ import (
 
 // FillLanes — ленты шин buses по раскладке прошлого плана list: предмет, ряд, голова, самый
 // ранний подвод (отводы — только ниже по течению).
-func FillLanes(buses []*ZBus, list []layout.Placement) {
+// LaterNames — имена будущих блоков (Later) среди cs: для FillLanes.
+func LaterNames(cs []*Cluster) map[string]bool {
+	res := map[string]bool{}
+	for _, c := range cs {
+		if c.Later {
+			res[c.Name] = true
+		}
+	}
+	return res
+}
+
+// later — имена будущих блоков (Later): их подводы ленту «сейчас» не кормят.
+func FillLanes(buses []*ZBus, list []layout.Placement, later map[string]bool) {
 	for _, bus := range buses {
 		tag := Tag(bus.Name)
 		rows := map[string]map[int]int{} // предмет → ряд → лент
@@ -42,14 +54,14 @@ func FillLanes(buses []*ZBus, list []layout.Placement) {
 			var lns []ZoneLane
 			for y, k := range ys {
 				if laneRow(y-bus.Rect.Min.Y, bus.Rect.H()) && 2*k >= n {
-					lns = append(lns, fillLane(bus, list, it, y))
+					lns = append(lns, fillLane(bus, list, it, y, later))
 				}
 			}
 			// подвода не нашли (бывает подземкой) — отводы где угодно, но только если у
 			// предмета нет ленты с найденным подводом: вторая лента без подвода пустая
 			if !slices.ContainsFunc(lns, func(ln ZoneLane) bool { return ln.Fed }) {
 				for i := range lns {
-					lns[i].feed(lns[i].Start)
+					lns[i].feed(lns[i].Start, true)
 				}
 			}
 			bus.Lanes = append(bus.Lanes, lns...)
@@ -59,7 +71,7 @@ func FillLanes(buses []*ZBus, list []layout.Placement) {
 }
 
 // fillLane — лента it в ряду y шины bus по раскладке list: голова, самый ранний подвод.
-func fillLane(bus *ZBus, list []layout.Placement, it string, y int) ZoneLane {
+func fillLane(bus *ZBus, list []layout.Placement, it string, y int, later map[string]bool) ZoneLane {
 	tag := Tag(bus.Name)
 	ln := ZoneLane{Item: it, Y: y, Start: bus.Rect.Max.X}
 	for _, p := range list {
@@ -75,7 +87,7 @@ func fillLane(bus *ZBus, list []layout.Placement, it string, y int) ZoneLane {
 		}
 		t := world.TileOf(p.Pos)
 		if t.Y == y-1 && p.Dir == layout.S || t.Y == y+1 && p.Dir == layout.N || t.Y == y && t.X == ln.Start-1 && p.Dir == layout.E {
-			ln.feed(t.X)
+			ln.feed(t.X, !later[strings.TrimPrefix(p.Tag, prefix)])
 		}
 	}
 	return ln
@@ -308,14 +320,14 @@ func (b *Base) moreMine(l *layout.Layout, buses []*ZBus, c *Cluster) error {
 			l.Add(sp)
 			if q, err := route(a, op.Dir, heads); err == nil {
 				if _, err := route(s, op.Dir, feederSides(l, bus, old, s)); err == nil {
-					fedHead(fresh, q)
+					fedHead(fresh, q, !c.Later)
 					continue
 				}
 			}
 			l.Rollback(mark)
 		}
 		if q, err := route(op.T, op.Dir, heads); err == nil {
-			fedHead(fresh, q)
+			fedHead(fresh, q, !c.Later)
 			continue
 		}
 		// до головы не дойти (у головы bus-1 тесно от старых подводов) — весь выход боком в
