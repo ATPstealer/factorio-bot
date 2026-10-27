@@ -73,6 +73,7 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 		return outBuffer(h, all, c, 1) // продукт выше не нужен — буфер на выходной ленте
 	}
 	tag := "outbuf/" + c.Name
+	future := planTaken(h)
 	t := world.TileOf(end.Pos)
 	for k := 0; k < 12; k++ {
 		if b := all.At(t); b == nil || b.Name != "transport-belt" || b.Recipe != product {
@@ -80,7 +81,7 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 		}
 		for _, side := range []int{(end.Dir + 4) % 16, (end.Dir + 12) % 16} {
 			ins, box := layout.Step(t, side), layout.Step(layout.Step(t, side), side)
-			if !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
+			if !bufferFree(all, future, ins) || !bufferFree(all, future, box) {
 				continue
 			}
 			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: product, Tag: tag}
@@ -115,6 +116,28 @@ func endBuffers(h *act.Hands, pick func(*cluster.Cluster) bool) func(*ClusterPla
 		}
 		return res, nil
 	}
+}
+
+// planTaken — тайлы под постройками полного плана (синяя, стадия 5; все планы — до стройки):
+// буфер выхода стадии сюда не ставить — на стадии 30 по ним кладутся новые ленты шин (на бумаге,
+// 954176679: лента bus-3 на месте инсертера буфера лент).
+func planTaken(h *act.Hands) map[world.Tile]bool {
+	res := map[world.Tile]bool{}
+	full, err := LoadBluePlan()
+	if err != nil {
+		return res
+	}
+	for _, pl := range full.Layout {
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			res[t] = true
+		}
+	}
+	return res
+}
+
+// bufferFree — тайл буфера свободен сейчас и по полному плану.
+func bufferFree(all *layout.Layout, future map[world.Tile]bool, t world.Tile) bool {
+	return all.Free(t, layout.AnyLand) && !future[t]
 }
 
 // isScience — пакет науки (у кластеров науки нет буфера выхода).

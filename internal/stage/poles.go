@@ -43,6 +43,20 @@ func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, st
 			areas = append(areas, c.Area)
 		}
 	}
+	// и полный план (синяя, стадия 5; все планы — до стройки): столбы ранних стадий вставали на
+	// место будущих кластеров и лент (двигатель power-2 на столбе — 954176679, на бумаге)
+	if full, err := LoadBluePlan(); err == nil {
+		for _, pl := range full.Layout {
+			if all.At(world.TileOf(pl.Pos)) == nil {
+				all.Add(pl)
+			}
+		}
+		for _, c := range full.Clusters {
+			if c.Kind != cluster.Bus && !slices.Contains(allow, c.Name) {
+				areas = append(areas, c.Area)
+			}
+		}
+	}
 	inArea := func(t world.Tile) bool {
 		for _, a := range areas {
 			if t.X >= a.Min.X && t.X < a.Max.X && t.Y >= a.Min.Y && t.Y < a.Max.Y {
@@ -156,17 +170,25 @@ func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allo
 	}
 	const pole = "small-electric-pole"
 	reach := h.Protos.Entities[pole].MaxWireDistance
-	p, err := h.B.Player()
-	if err != nil {
-		return nil, err
-	}
-	built, err := h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &p.Position, Limit: 1000})
-	if err != nil {
-		return nil, err
-	}
 	var net []bridge.Pos
-	for _, e := range built {
-		net = append(net, e.Position)
+	if paper != nil { // на бумаге: сеть — столбы прошлых стадий (paper.go)
+		for _, pl := range paper.list {
+			if h.Protos.Entities[pl.Name].Type == "electric-pole" {
+				net = append(net, pl.Pos)
+			}
+		}
+	} else {
+		p, err := h.B.Player()
+		if err != nil {
+			return nil, err
+		}
+		built, err := h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &p.Position, Limit: 1000})
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range built {
+			net = append(net, e.Position)
+		}
 	}
 	near := func(a bridge.Pos, set []bridge.Pos) bool {
 		for _, b := range set {

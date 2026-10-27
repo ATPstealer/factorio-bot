@@ -21,8 +21,10 @@ import (
 // materialsExtra — запас сверх расчёта: стройке 16 и 17 — до дохода с её же цепочек.
 var materialsExtra = map[string]int{"iron-plate": 1500, "copper-plate": 1000, "coal": 1000}
 
-// outBufferItems — буфер выхода плавки (стадия 17: пластины копятся в контейнере): минимальный —
-// один инсертер и один сундук (cluster.md §6а, решение пользователя 26.10).
+// outBufferItems — материалы буфера выхода плавки (стадия 17: пластины копятся в контейнере):
+// минимальный — один инсертер и один сундук (cluster.md §6а, решение пользователя 26.10). Только
+// для расчёта материалов: ключ chest — деревянный сундук (до стадии 22); outBuffer берёт 1 пару
+// (с 22-й chest — железный, и outBufferItems[chest] был 0: буфер кирпича на стадии 30 не вставал).
 var outBufferItems = map[string]int{"inserter": 1, chest: 1}
 
 func init() {
@@ -144,26 +146,45 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		return false
 	}
 	sort.SliceStable(names, func(i, j int) bool { return uses(names[i], names[j]) && !uses(names[j], names[i]) })
-	for pass := 0; pass < 3; pass++ {
-		short := false
-		for _, it := range names {
-			stock, err := materialsStock(h)
-			if err != nil {
-				return err
-			}
-			if lack := need[it] - stock[it]; lack > 0 {
-				short = true
-				if err := s.store(ctx, 8); err != nil {
+	// passes — недостающее: крафт в очередь; noWait — не ждать готового (идёт, пока бот носит
+	// пластины на следующее), в очереди — как уже есть
+	passes := func() error {
+		for pass := 0; pass < 3; pass++ {
+			short := false
+			for _, it := range names {
+				stock, err := materialsStock(h)
+				if err != nil {
 					return err
 				}
-				if err := s.have(ctx, it, s.inv(it)+lack); err != nil {
-					return fmt.Errorf("%s: %w", it, err)
+				if lack := need[it] - stock[it] - s.pending(it); lack > 0 {
+					short = true
+					if err := s.store(ctx, 8); err != nil {
+						return err
+					}
+					if err := s.have(ctx, it, s.inv(it)+lack); err != nil {
+						return fmt.Errorf("%s: %w", it, err)
+					}
 				}
 			}
+			if !short {
+				return nil
+			}
 		}
-		if !short {
-			break
-		}
+		return nil
+	}
+	// сначала всё в очередь без ожидания (правила скорости 27.10: бот стоял 39–57 мин, пока шёл
+	// крафт), потом — конец очереди и сверка с ожиданием
+	s.noWait = true
+	err = passes()
+	s.noWait = false
+	if err != nil {
+		return err
+	}
+	if err := s.waitQueue(ctx); err != nil {
+		return err
+	}
+	if err := passes(); err != nil {
+		return err
 	}
 	for _, it := range []string{"wood", "stone", "copper-plate", "iron-plate", "coal"} {
 		stock, err := materialsStock(h)

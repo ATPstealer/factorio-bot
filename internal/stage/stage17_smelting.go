@@ -47,7 +47,7 @@ func smeltingLayout(h *act.Hands) ([]layout.Placement, error) {
 			all.Add(pl)
 		}
 		for _, c := range smelt {
-			buf, err := outBuffer(h, all, c, outBufferItems[chest])
+			buf, err := outBuffer(h, all, c, 1)
 			if err != nil {
 				return nil, err
 			}
@@ -73,6 +73,7 @@ func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) 
 		return nil, fmt.Errorf("у %s нет порта выхода", c.Name)
 	}
 	tag := "outbuf/" + c.Name
+	future := planTaken(h)
 	var res []layout.Placement
 	t := layout.Step(out.T, (out.Dir+8)%16)
 	for k := 0; k < 12 && len(res) < 2*pairs; k++ {
@@ -82,7 +83,7 @@ func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) 
 		}
 		for _, side := range []int{(b.Dir + 4) % 16, (b.Dir + 12) % 16} {
 			ins, box := layout.Step(t, side), layout.Step(layout.Step(t, side), side)
-			if len(res) >= 2*pairs || !all.Free(ins, layout.AnyLand) || !all.Free(box, layout.AnyLand) {
+			if len(res) >= 2*pairs || !bufferFree(all, future, ins) || !bufferFree(all, future, box) {
 				continue
 			}
 			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: out.Item, Tag: tag}
@@ -107,7 +108,22 @@ func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) 
 		t = next
 	}
 	if len(res) == 0 {
-		return nil, fmt.Errorf("у выходной ленты %s нет места под буфер выхода", c.Name)
+		// почему: что у первой ленты от порта по бокам (разбор)
+		t := layout.Step(out.T, (out.Dir+8)%16)
+		var why []string
+		for _, side := range []int{(out.Dir + 4) % 16, (out.Dir + 12) % 16} {
+			for _, q := range []world.Tile{layout.Step(t, side), layout.Step(layout.Step(t, side), side)} {
+				switch ok, _ := h.World.Buildable(q); {
+				case all.At(q) != nil:
+					why = append(why, fmt.Sprintf("%v: %s [%s]", q, all.At(q).Name, all.At(q).Tag))
+				case all.Reserved[q]:
+					why = append(why, fmt.Sprintf("%v: резерв", q))
+				case !ok:
+					why = append(why, fmt.Sprintf("%v: не суша/утёс", q))
+				}
+			}
+		}
+		return nil, fmt.Errorf("у выходной ленты %s нет места под буфер выхода (порт %v %s, у %v — %v: %s)", c.Name, out.T, layout.DirName(out.Dir), t, all.At(t), strings.Join(why, "; "))
 	}
 	return res, nil
 }

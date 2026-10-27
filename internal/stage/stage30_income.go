@@ -50,7 +50,7 @@ func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
 		// кирпич — в буфер у кластера (на шину — когда появится потребитель): бот берёт на крафт
 		for _, c := range plan.Clusters {
 			if c.Kind == cluster.Smelt && c.Product == "stone-brick" {
-				buf, err := outBuffer(h, all, c, outBufferItems[chest])
+				buf, err := outBuffer(h, all, c, 1)
 				if err != nil {
 					return nil, err
 				}

@@ -135,17 +135,18 @@ func outpostsLayout(h *act.Hands) ([]outpostSite, error) {
 			return sites, nil
 		}
 	}
-	if _, err := h.World.Sync(h.B, true); err != nil {
-		return nil, err
-	}
-	p, err := h.B.Player()
-	if err != nil {
-		return nil, err
+	if h.B != nil { // на бумаге (paper.go) — карта уже вся в h.World
+		if _, err := h.World.Sync(h.B, true); err != nil {
+			return nil, err
+		}
 	}
 	// от центра базы (голова bus-1), а не от персонажа: план считается до стадии (проверка), когда
 	// персонаж ещё там, где кончилась разведка, — точки легли на краю квадрата, в 1300 тайлах от
 	// базы, без пути (260647970). Разметки нет — от персонажа.
-	near := world.TileOf(p.Position)
+	near, err := hereOrBase(h)
+	if err != nil {
+		return nil, err
+	}
 	if c, ok := baseCenter(); ok {
 		near = c
 	}
@@ -295,6 +296,57 @@ type worker struct {
 	placed func(ctx context.Context, name string) error
 	// growing — store расширяет хранение (стройка сундуков сама зовёт store — не по кругу)
 	growing bool
+	// noWait — крафт в очередь и дальше, не ждать готового: стоящее в очереди считается как
+	// уже есть (have); конец очереди — waitQueue (стадия 14: бот стоял 39–57 мин из 62–86, пока
+	// шёл ручной крафт, — правила скорости 27.10)
+	noWait bool
+}
+
+// pending — сколько item будет из очереди крафта (только в режиме noWait).
+func (s *worker) pending(item string) int {
+	if !s.noWait {
+		return 0
+	}
+	return s.queued(item) * s.perCraft(item)
+}
+
+// waitQueue — дождаться конца очереди крафта; готовое некуда класть — ненужное в хранение (как
+// waitInv). Очередь 3 мин не убывает — ошибка.
+func (s *worker) waitQueue(ctx context.Context) error {
+	left := func() (int, error) {
+		p, err := s.h.B.Player()
+		if err != nil {
+			return 0, err
+		}
+		n := 0
+		for _, q := range p.CraftingQueue {
+			n += q.Count
+		}
+		return n, nil
+	}
+	n, err := left()
+	if err != nil || n == 0 {
+		return err
+	}
+	s.h.Say("жду конца очереди крафта: %d крафтов", n)
+	last, since := n, time.Now()
+	for n > 0 {
+		if err := s.store(ctx, craftFree); err != nil && !errors.Is(err, errNoStorage) {
+			return err
+		}
+		if err := sleepCtx(ctx, 2*time.Second); err != nil {
+			return err
+		}
+		if n, err = left(); err != nil {
+			return err
+		}
+		if n < last {
+			last, since = n, time.Now()
+		} else if time.Since(since) > 3*time.Minute {
+			return fmt.Errorf("очередь крафта стоит: %d крафтов за 3 мин не убавилось", n)
+		}
+	}
+	return nil
 }
 
 func (s *worker) entity(pl layout.Placement) (*bridge.Entity, error) {
@@ -412,7 +464,7 @@ func (s *worker) fuelTo(ctx context.Context, e bridge.Entity, low, to int) error
 // have — довести предмет в инвентаре до n: сырьё — добыть (уголь и камень — с точек, если
 // есть), пластины — с печей точек или руда руками в печи, остальное — скрафтить.
 func (s *worker) have(ctx context.Context, item string, n int) error {
-	for tries := 0; s.inv(item) < n; tries++ {
+	for tries := 0; s.inv(item)+s.pending(item) < n; tries++ { // noWait: в очереди — как есть
 		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
 		}
@@ -433,7 +485,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 				return err
 			}
 		}
-		lack := n - s.inv(item)
+		lack := n - s.inv(item) - s.pending(item)
 		if s.useStore {
 			if got, err := s.fromStorage(ctx, item, lack); err != nil || got {
 				if err != nil {
@@ -472,6 +524,9 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 // очереди крафта — только дождаться.
 func (s *worker) craft(ctx context.Context, item string, n int) error {
 	if s.queued(item)*s.perCraft(item) >= n {
+		if s.noWait {
+			return nil
+		}
 		return s.waitInv(ctx, item, s.inv(item)+n, s.craftLimit(item, 0))
 	}
 	need := map[string]int{}
@@ -523,6 +578,9 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 	per := s.perCraft(item)
 	if err := s.h.Craft(ctx, item, (total+per-1)/per); err != nil {
 		return err
+	}
+	if s.noWait { // крафтится, пока бот делает остальное (waitQueue — в конце)
+		return nil
 	}
 	return s.waitInv(ctx, item, before+n, s.craftLimit(item, 0))
 }

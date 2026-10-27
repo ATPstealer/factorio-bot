@@ -90,6 +90,14 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 // проверка перед стройкой — только по несделанному (решение пользователя 26.10).
 func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) {
 	var res []layout.Placement
+	if paper != nil { // на бумаге: построено — раскладки прошлых стадий (paper.go)
+		for _, pl := range list {
+			if !paper.has(pl) {
+				res = append(res, pl)
+			}
+		}
+		return res, nil
+	}
 	for i := 0; i < len(list); i += auditBatch {
 		part := list[i:min(len(list), i+auditBatch)]
 		var refs []bridge.EntityRef
@@ -301,7 +309,7 @@ func prepTiles(h *act.Hands, list []layout.Placement) []string {
 // вдвое длиннее прямой — рамкой не ограничивать), место — в досягаемости (9) от залитого
 // тайла; заливка — пока не найдены все места.
 func prepReach(h *act.Hands, list []layout.Placement) []string {
-	p, err := h.B.Player()
+	here, err := hereOrBase(h)
 	if err != nil {
 		return []string{err.Error()}
 	}
@@ -326,7 +334,7 @@ func prepReach(h *act.Hands, list []layout.Placement) []string {
 	found := make([]bool, len(list))
 	left := len(list)
 	seen := map[world.Tile]bool{}
-	start := world.TileOf(p.Position)
+	start := here
 	queue := []world.Tile{start}
 	seen[start] = true
 	for len(queue) > 0 && left > 0 {

@@ -211,6 +211,13 @@ func RoughOffline(h *act.Hands, from, to int) error {
 		}
 		h.Log("стадия %d выполнена", n)
 	}
+	// стадии стройки 10…to — на бумаге (paper.go): раскладки и проверки без игры
+	if to >= 10 {
+		if err := paperStages(h, to); err != nil {
+			return err
+		}
+		h.Log("стадии 10–%d на бумаге — без нарушений", to)
+	}
 	return nil
 }
 
