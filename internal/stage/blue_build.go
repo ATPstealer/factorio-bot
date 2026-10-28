@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -84,6 +85,19 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 	plan, err := LoadBluePlan()
 	if err != nil {
 		return nil, err
+	}
+	// подтеги кластеров стадии — их постройки тоже: трубы качалок («c/oil-1/oil»), внутренние
+	// трубы НПЗ и химии («c/…/petroleum-gas»); не строились — качалки по одной, трасса пуста,
+	// НПЗ без нефти (стадии 34–41 на 859088572); «/later» — будущая добыча (стадия 30)
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Bus || !pick(c) {
+			continue
+		}
+		for _, pl := range plan.Layout {
+			if strings.HasPrefix(pl.Tag, cluster.Tag(c.Name)+"/") && !strings.HasSuffix(pl.Tag, "/later") {
+				list = append(list, pl)
+			}
+		}
 	}
 	return uniq(withSplitters(h, plan, list)), nil
 }

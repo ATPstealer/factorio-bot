@@ -30,8 +30,10 @@ type blueStage struct {
 	after func(ctx context.Context, h *act.Hands) error // после стройки
 	// fact — проверка по факту работы (stages.md: машины работают, жидкость в трубе, пакеты в
 	// лабораториях): ждать до factWait, не подтвердилось — предупреждение, не падение
-	// (решение пользователя 26.10: мягко; жёстко — только вода в бойлерах, стадия 29)
+	// (решение пользователя 26.10: мягко); hard — падение: без этого следующие стадии
+	// бессмысленны (нефть на складе, НПЗ)
 	fact func(h *act.Hands, list []layout.Placement) error
+	hard bool
 }
 
 // factWait — сколько ждать подтверждения по факту работы; factPoll — шаг опроса.
@@ -104,6 +106,18 @@ func holds(item string, names ...string) func(h *act.Hands, list []layout.Placem
 	}
 }
 
+// inTanks — fluid дошла до склада: есть в цистернах складов (раскладка стадии 33), а не только у
+// качалок (стадия 34 на 859088572: трубы месторождений не строились — до склада не дошло ничего).
+func inTanks(fluid string) func(h *act.Hands, list []layout.Placement) error {
+	return func(h *act.Hands, _ []layout.Placement) error {
+		tanks, err := blueStages[33].layout(h)
+		if err != nil {
+			return err
+		}
+		return holds(fluid, "storage-tank")(h, tanks)
+	}
+}
+
 // blueOrder — порядок стройки: машины, жидкости, инсертеры, ленты, столбы.
 var blueOrder = []string{"offshore-pump", "pumpjack", "storage-tank", "oil-refinery", "chemical-plant",
 	"assembling-machine-2", "assembling-machine-1", "stone-furnace", "pump", "pipe-to-ground", "pipe", chest,
@@ -141,8 +155,8 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 	}
 	if s.fact != nil {
 		if err := waitFact(ctx, h, list, s.fact); err != nil {
-			if ctx.Err() != nil {
-				return err
+			if ctx.Err() != nil || s.hard {
+				return fmt.Errorf("%s: по факту не работает: %w", s.name, err)
 			}
 			h.Say("%s: по факту не подтвердилось за %v — %v (предупреждение)", s.name, factWait, err)
 		} else {
@@ -206,13 +220,13 @@ func init() {
 		{n: 33, name: "склады цистерн", file: "state-tanks.json", queue: []string{"fluid-handling", "oil-gathering", "engine"},
 			wait: []string{"fluid-handling"}, pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Tank }},
 		{n: 34, name: "нефть: качалки и трасса", file: "state-oil.json", wait: []string{"oil-gathering", "engine"}, // engine — насосы трассы
-			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, fact: holds("crude-oil", "pumpjack", "pipe", "pipe-to-ground")},
+			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, fact: inTanks("crude-oil"), hard: true},
 		{n: 35, name: "вода для химии", file: "state-water.json",
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "water")), fact: holds("water", "pipe", "pipe-to-ground")},
 		{n: 36, name: "НПЗ", file: "state-refinery.json", wait: []string{"oil-processing"},
 			queue: []string{"plastics", "sulfur-processing"}, pick: func(c *cluster.Cluster) bool { return c.IsRefinery() },
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "crude-oil"), cluster.PipeLaneTag("bus-2", "petroleum-gas")),
-			fact: working("oil-refinery")},
+			fact: working("oil-refinery"), hard: true},
 		{n: 37, name: "пластик и сера", file: "state-chem.json", wait: []string{"plastics", "sulfur-processing"},
 			queue: []string{"advanced-circuit", "engine"}, pick: func(c *cluster.Cluster) bool { return c.IsChem() },
 			fact: working("chemical-plant")},
