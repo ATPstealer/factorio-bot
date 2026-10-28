@@ -56,14 +56,17 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 	seen := map[bridge.Pos]bool{}
 	for _, fp := range fps {
 		c := bridge.Pos{X: (fp.LeftTop.X + fp.RightBottom.X) / 2, Y: (fp.LeftTop.Y + fp.RightBottom.Y) / 2}
-		r := math.Max(fp.RightBottom.X-fp.LeftTop.X, fp.RightBottom.Y-fp.LeftTop.Y)/2 + 2
+		// + 9: центр большого объекта далеко от места (корабль крушения — 16×8 тайлов: «Spaceship
+		// is in the way», стадия 28 на 1028292478); пересечение — ниже, по рамке
+		r := math.Max(fp.RightBottom.X-fp.LeftTop.X, fp.RightBottom.Y-fp.LeftTop.Y)/2 + 9
 		for _, o := range h.World.ObjectsNear(c, r) {
 			rock := o.Type == "simple-entity" && strings.Contains(o.Name, "rock")
+			wreck := !o.Own && strings.HasPrefix(o.Name, "crash-site-") // обломки корабля — руками
 			// своё на месте — помеха, кроме быстрой замены: ленты друг друга, сундук сундуком
 			// (железный поверх деревянного — содержимое остаётся, стадия 22)
 			pt := h.Protos.Entities[entity].Type
 			own := o.Own && o.Type != "character" && !(beltLike(o.Type) && beltLike(pt)) && !(o.Type == "container" && pt == "container")
-			if o.Type != "tree" && !rock && !own || seen[o.Pos] {
+			if o.Type != "tree" && !rock && !wreck && !own || seen[o.Pos] {
 				continue
 			}
 			b := h.World.CollisionBox(o)
