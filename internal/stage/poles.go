@@ -312,10 +312,9 @@ func healPower(ctx context.Context, h *act.Hands) error {
 	if len(islands) == 0 {
 		return nil
 	}
+	// только по коридорам: площади кластеров и места плана — под то, что там потом встанет
+	// (решение пользователя 28.10); шина и станции — можно (connectNet)
 	var allow []string
-	for _, c := range plan.Clusters {
-		allow = append(allow, c.Name)
-	}
 	ids := slices.Sorted(maps.Keys(islands))
 	var add []layout.Placement
 	n := 0
