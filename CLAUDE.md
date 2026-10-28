@@ -23,11 +23,11 @@
 
 - Игра: `/mnt/games/steam/steamapps/common/Factorio/bin/x64/factorio` — с 2.1 это скрипт-обёртка, скрипты запускают сам файл `bin/x64_/factorio` (`scripts/inst.sh`, иначе процесс не находится по командной строке). Пользовательский `~/.factorio` не трогать.
 - 2.1 против 2.0 для мода: `LuaRecipePrototype::category` → список `categories` (в base одна), `fuel_category` → список `fuel_categories`, `LuaEntity::neighbours` убран (подземка — `underground_belt_neighbour`), `get_quick_bar_slot(страница, ячейка)` отдаёт `{type="filter", filter={name…}}`; клавиша пустой ячейки панели — «быстрая пипетка».
-- `run/server/` — write-data сервера (`config.ini`, `mods/`, `saves/bot.zip`); `run/client/` — клиента (`config.ini`, `mods/`, `player-data.json`, `steam_appid.txt`, `home/`).
-- Логи: `run/server.log`, `run/client.log`, `run/xephyr.log`. Сид текущей карты — `run/map.json`. У экземпляра N (`INST=N`, 1–4) — то же в `run/iN/`.
+- `run/iN/server/` — write-data сервера экземпляра N (`config.ini`, `mods/`, `saves/bot.zip`); `run/iN/client/` — клиента (`config.ini`, `mods/`, `player-data.json`, `steam_appid.txt`, `home/`); `run/server/`, `run/client/` — образцы конфигов (в git).
+- Логи экземпляра N (`INST=N`, 1–4): `run/iN/server.log`, `run/iN/client.log`, `run/iN/xephyr.log`. Сид его карты — `run/iN/map.json`.
 
 ```bash
-scripts/run.sh                      # сервер → Xephyr :1 → клиент; Ctrl+C — остановить всё
+scripts/run.sh                      # сервер → Xephyr :N+1 → клиент (INST=N, по умолчанию 1); Ctrl+C — остановить всё
 scripts/stop.sh                     # остановить извне (сервер по SIGTERM, с сохранением)
 scripts/newmap.sh                   # новая СЛУЧАЙНАЯ карта, игра в фоне, ждёт персонажа
 SEED=123 scripts/newmap.sh          # конкретная карта
@@ -115,7 +115,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 Интерфейс:
 - Мышь пользователя над окном Xephyr двигает курсор в игре — клик бота уходит не туда (столб встал в стороне). Во время прогонов над окнами игры мышью не водить.
 - В Xephyr нет WM: фокус клавиатуры следует за указателем — `Hands.Focus()` перед клавишами; курсор — в `Layout.Focus` (60,300), т.к. центр окна — кнопка «Save game» в меню.
-- Окно клиента 1856x1016 со смещением +32+32. UI scale и звук — в `run/client/config.ini`. Координаты `bin/bot shot` — относительно окна (+32+32 к экрану); `shot` закрывает окна при старте — для снимка открытого окна: `DISPLAY=:1 import -window root -crop 1856x1016+32+32 F.png`.
+- Окно клиента 1856x1016 со смещением +32+32. UI scale и звук — в `run/client/config.ini`. Координаты `bin/bot shot` — относительно окна (+32+32 к экрану); `shot` закрывает окна при старте — для снимка открытого окна (экземпляр N — дисплей `:N+1`): `DISPLAY=:2 import -window root -crop 1856x1016+32+32 F.png`.
 - Где можно — хоткеи (пользователь просил); клики только в точки `Layout`, каждый шаг подтверждается модом (`opened_gui`, `cursor`, `quickbar`, очередь крафта, события, recipe, filters).
 - `Tap` держит клавишу 50 мс (`Input.Hold`): нажатие короче ~30 мс игра теряет (Z, E). Повторное `E` не жать (окно, открывшееся с опозданием, закроется).
 - `Esc` без окна — меню игры (мод не видит; `MenuOpen` по пикселям кнопки Resume: две точки (880,413) и (927,400), два оттенка зелёного (94,182,99) и (146,232,151) — `Layout.MenuProbe/MenuColors`). `CloseGUI` жмёт Esc только при `opened_gui_type != 0` и ждёт закрытия до 1 с. `guard` закрывает меню и карту в начале действий.
@@ -128,7 +128,7 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 - Исследование (`StartResearch`): T → Ctrl+F → название → первая в списке (доступные первыми) → «Start research» (`Layout.TechFirst/TechStart`); окно технологий мод не видит — по пикселям `TechProbe`.
 - `Hands.Say(...)` — перед каждым значимым действием: лог + консоль игры. Новые действия — тоже с `Say`.
 - При сбое действия снимок экрана — в `Hands.DebugDir` (тесты: `run/debug/`).
-- Зажатый ввод переживает процесс: `Input.Close/ReleaseAll` на выходе (SIGINT/SIGTERM), `Input.Reset()` при старте. Вручную: `DISPLAY=:1 xdotool mouseup 3 keyup w keyup a keyup s keyup d`.
+- Зажатый ввод переживает процесс: `Input.Close/ReleaseAll` на выходе (SIGINT/SIGTERM), `Input.Reset()` при старте. Вручную (экземпляр 1 — дисплей `:2`): `DISPLAY=:2 xdotool mouseup 3 keyup w keyup a keyup s keyup d`.
 
 Ходьба:
 - ~8.9 тайл/с, инерция 0.6–1.2 тайла. `WalkTo`: бег до `stop+1`, затем доводка нажатиями с адаптивной длительностью. Точность ≤0.5 тайла.
@@ -156,5 +156,5 @@ RES=2560x1440 scripts/run.sh        # другое разрешение Xephyr
 ## Shell и окружение
 
 - `pkill -f`/`pgrep -f` с шаблоном из командной строки матчат собственный bash-процесс инструмента и убивают его (exit 144). Игру останавливать `scripts/stop.sh`.
-- `xdotool` установлен — для ручной отладки (`DISPLAY=:1 xdotool ...`).
+- `xdotool` установлен — для ручной отладки (`DISPLAY=:N+1 xdotool ...`, экземпляр N).
 - Сессия X11 (XFCE), основной экран 5120x1440.
