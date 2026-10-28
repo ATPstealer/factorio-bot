@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -331,7 +332,12 @@ func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
 		if err != nil {
 			return err
 		}
-		if err := writeState(storageExtraFile, extra); err != nil {
+		// к прежним сундукам расширения (часть убрана: стояла на месте плана — prepOwn)
+		var was []layout.Placement
+		if data, err := os.ReadFile(runPath(storageExtraFile)); err == nil {
+			_ = json.Unmarshal(data, &was)
+		}
+		if err := writeState(storageExtraFile, append(was, extra...)); err != nil {
 			return err
 		}
 		if list, err = storageLayout(); err != nil {
@@ -342,12 +348,34 @@ func growStorage(ctx context.Context, h *act.Hands, s *worker) error {
 	return s.build(ctx, list)
 }
 
+// dropStorageExtra — сундук расширения хранения в pos — больше не хранение (убран с места плана).
+func dropStorageExtra(pos bridge.Pos) error {
+	data, err := os.ReadFile(runPath(storageExtraFile))
+	if err != nil {
+		return nil
+	}
+	var extra []layout.Placement
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	n := len(extra)
+	extra = slices.DeleteFunc(extra, func(pl layout.Placement) bool { return pl.Pos == pos })
+	if len(extra) == n {
+		return nil
+	}
+	return writeState(storageExtraFile, extra)
+}
+
 // storageExtra — n мест под сундуки расширения ряда хранения list: ряды той же длины вплотную
 // сбоку (прямоугольник).
 func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placement, error) {
-	plan, err := LoadPlan()
+	// весь план, с синей: места трассы нефти и прочего проекта синей — не под сундуки (стадия 34
+	// на 1028292478: сундук встал на месте подземной трубы)
+	plan, err := LoadBluePlan()
 	if err != nil {
-		return nil, err
+		if plan, err = LoadPlan(); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return nil, err

@@ -141,7 +141,100 @@ func prepare(ctx context.Context, h *act.Hands, n int) error {
 	if len(list) == 0 {
 		return nil
 	}
+	if err := prepOwn(ctx, h, list); err != nil {
+		return err
+	}
 	return prepClear(ctx, h, list)
+}
+
+// family — род постройки: того же рода игра ставит поверх (лента под делителем, труба под
+// подземной, сундук под сундуком).
+func family(h *act.Hands, name string) string {
+	switch t := h.Protos.Entities[name].Type; t {
+	case "transport-belt", "underground-belt", "splitter":
+		return "belt"
+	case "pipe", "pipe-to-ground":
+		return "pipe"
+	default:
+		return t
+	}
+}
+
+// prepOwn — свои постройки не по раскладке стадии на её месте (stages.md, общее: прав план;
+// сундук хранения, поставленный расширением на место трассы плана синей, — стадия 34 на
+// 1028292478) — убрать до стройки: сундук — из хранения (файл расширения), его содержимое — в
+// хранение. Того же рода, что по раскладке, — нет: игра заменит сама.
+func prepOwn(ctx context.Context, h *act.Hands, list []layout.Placement) error {
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
+	at := map[world.Tile]layout.Placement{}
+	type key struct {
+		name string
+		x, y int
+	}
+	want := map[key]bool{}
+	for _, pl := range list {
+		want[key{pl.Name, int(pl.Pos.X * 2), int(pl.Pos.Y * 2)}] = true
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			at[t] = pl
+		}
+	}
+	var bad []world.Object
+	for _, o := range h.World.Objects() {
+		if !o.Own || o.Type == "character" || h.Protos.ItemFor(o.Name) == "" || want[key{o.Name, int(o.Pos.X * 2), int(o.Pos.Y * 2)}] {
+			continue
+		}
+		for _, t := range layout.Tiles(h.Protos, layout.Placement{Name: o.Name, Pos: o.Pos, Dir: o.Direction}) {
+			if pl, ok := at[t]; ok && family(h, pl.Name) != family(h, o.Name) {
+				bad = append(bad, o)
+				break
+			}
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	if len(bad) > maxExtras {
+		return fmt.Errorf("на месте раскладки стадии своих построек не по ней %d — больше %d: первая — %s в (%.1f, %.1f)", len(bad), maxExtras, bad[0].Name, bad[0].Pos.X, bad[0].Pos.Y)
+	}
+	h.Say("на месте раскладки стадии своих построек не по ней: %d — убираю", len(bad))
+	s := &worker{h: h, useStore: true}
+	for _, o := range bad {
+		h.Log("не по раскладке: %s в (%.1f, %.1f)", o.Name, o.Pos.X, o.Pos.Y)
+		if err := dropStorageExtra(o.Pos); err != nil { // хранение — без него
+			return err
+		}
+		for k := 0; ; k++ {
+			st, err := h.B.GetEntity(o.Name, o.Pos)
+			if err != nil {
+				return err
+			}
+			if st == nil {
+				break
+			}
+			if len(st.Inventories) == 0 || o.Type != "container" {
+				if err := h.Pickup(ctx, st.Entity); err != nil {
+					return err
+				}
+				break
+			}
+			if k >= 10 {
+				return fmt.Errorf("%s в (%.1f, %.1f): не опустошить", o.Name, o.Pos.X, o.Pos.Y)
+			}
+			// содержимое — в инвентарь и в хранение, пока сундук не пуст
+			if _, err := h.Take(ctx, st.Entity); err != nil {
+				return err
+			}
+			s.any = true
+			err = s.store(ctx, freeBefore)
+			s.any = false
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // footprint — тайлы под постройками плана.
