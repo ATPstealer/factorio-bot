@@ -118,6 +118,16 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 			continue
 		}
 		if strings.HasPrefix(name, "underground") {
+			// стоящие не тем концом (вход/выход не как в раскладке; беспорядок прошлых заходов) —
+			// снять и поставить заново по порядку: новые иначе встают в пары с ними (вход спарен
+			// с будущим входом — «встал не тем направлением», стадия 30 на 260647970)
+			if fixed, err := s.unpairWrong(ctx, these); err != nil {
+				return err
+			} else if fixed {
+				if todo, err = notBuilt(s.h, these); err != nil {
+					return err
+				}
+			}
 			todo = ugPairs(todo)
 		}
 		// одинаковое — подряд одним вызовом (рука не меняется между постановками), пачками по
@@ -343,4 +353,24 @@ func ugPairs(list []layout.Placement) []layout.Placement {
 		res = append(res, g...)
 	}
 	return res
+}
+
+// unpairWrong — подземки list, что стоят не тем концом (ug_type ≠ вход/выход раскладки), —
+// снять; true — снято что-то.
+func (s *worker) unpairWrong(ctx context.Context, list []layout.Placement) (bool, error) {
+	states, err := entityStates(s.h, list)
+	if err != nil {
+		return false, err
+	}
+	var wrong []bridge.Entity
+	for i, st := range states {
+		if st != nil && list[i].Recipe != "" && st.UGType != "" && st.UGType != list[i].Recipe {
+			wrong = append(wrong, st.Entity)
+		}
+	}
+	if len(wrong) == 0 {
+		return false, nil
+	}
+	s.h.Say("%d подземок стоят не тем концом — снимаю и ставлю по порядку", len(wrong))
+	return true, s.h.PickupAll(ctx, wrong)
 }
