@@ -50,6 +50,7 @@ func loadPlanFile(path string) (*ClusterPlan, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
+	s.Layout = withoutCrossBuffers(s.Layout) // входы буферов на чужую полосу — не ставятся
 	return &s, nil
 }
 

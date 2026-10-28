@@ -50,6 +50,16 @@ func init() {
 // LoadPlan — план кластеров этой карты для стройки стадий 11–28: стадий 3–4 (дописанное
 // стадией 7 — синяя наука — строится потом, его план — LoadBluePlan).
 func LoadPlan() (*ClusterPlan, error) {
+	s, err := rawPlan()
+	if err != nil {
+		return nil, err
+	}
+	s.Layout = withoutCrossBuffers(s.Layout) // входы буферов на чужую полосу — не ставятся
+	return s, nil
+}
+
+// rawPlan — план стройки как сохранён (с входами буферов на чужую полосу — crossBuffers).
+func rawPlan() (*ClusterPlan, error) {
 	data, err := os.ReadFile(runPath(planNowFile()))
 	if err != nil {
 		return nil, fmt.Errorf("нет плана кластеров (стадия 3): %w", err)

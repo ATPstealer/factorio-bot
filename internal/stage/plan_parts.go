@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -22,6 +23,129 @@ func clusterOf(plan *ClusterPlan, kind cluster.Kind, product string) *cluster.Cl
 		}
 	}
 	return nil
+}
+
+// crossBuffers — входы буферов, чей выход кладёт на чужую полосу ленты (cluster.md §6: выход —
+// обратно на ленту, на свою полосу). Инсертер кладёт на дальнюю от себя полосу; полоса предмета
+// — сторона, с которой его подача входит в ленту боком (по подаче вверх до ленты шины с этим
+// предметом). Буферы двух пакетов одной ленты с одной стороны (лаборатории: красный и зелёный на
+// ленте A) — выход второго ложится на полосу первого: вход забирает пакет с ленты весь, а вернуть
+// может только на чужую полосу, забитую первым, — лабораториям зелёный не доходил (стадия 27 на
+// 260647970). Такой вход не ставится: пакет идёт мимо буфера к потребителям.
+func crossBuffers(list []layout.Placement) map[layout.Placement]bool {
+	isBelt := func(pl layout.Placement) bool {
+		return strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") || strings.HasSuffix(pl.Name, "splitter")
+	}
+	// feeds — выдаёт в тайл перед собой: вход подземки — нет (уходит под землю; лента шины
+	// подземкой под подачей «подавала» в неё — подача считалась синей наукой)
+	feeds := func(pl layout.Placement) bool {
+		return isBelt(pl) && !(strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "input")
+	}
+	at := map[world.Tile]layout.Placement{}
+	pair := map[world.Tile]world.Tile{} // тайл делителя → его второй тайл
+	for _, pl := range list {
+		if strings.HasSuffix(pl.Name, "splitter") { // делитель — два тайла поперёк хода
+			a, b := bridge.Pos{X: pl.Pos.X - 0.5, Y: pl.Pos.Y}, bridge.Pos{X: pl.Pos.X + 0.5, Y: pl.Pos.Y}
+			if pl.Dir == layout.E || pl.Dir == layout.W {
+				a, b = bridge.Pos{X: pl.Pos.X, Y: pl.Pos.Y - 0.5}, bridge.Pos{X: pl.Pos.X, Y: pl.Pos.Y + 0.5}
+			}
+			ta, tb := world.TileOf(a), world.TileOf(b)
+			at[ta], at[tb] = pl, pl
+			pair[ta], pair[tb] = tb, ta
+			continue
+		}
+		at[world.TileOf(pl.Pos)] = pl
+	}
+	// item — предмет, который приходит в t: вверх по подаче до ленты с предметом (ленты шин)
+	item := func(t world.Tile) string {
+		seen := map[world.Tile]bool{}
+		queue := []world.Tile{t}
+		for len(queue) > 0 && len(seen) < 2000 {
+			t := queue[0]
+			queue = queue[1:]
+			pl, ok := at[t]
+			if seen[t] || !ok || !isBelt(pl) {
+				continue
+			}
+			seen[t] = true
+			if pl.Recipe != "" && pl.Recipe != "input" && pl.Recipe != "output" {
+				return pl.Recipe
+			}
+			if o, ok := pair[t]; ok { // делитель: в любой его выход — с любого входа
+				queue = append(queue, o)
+			}
+			if strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "output" {
+				b := t
+				for k := 0; k < 10; k++ {
+					b = layout.Step(b, (pl.Dir+8)%16)
+					if q, ok := at[b]; ok && strings.HasSuffix(q.Name, "underground-belt") && q.Recipe == "input" && q.Dir == pl.Dir {
+						queue = append(queue, b)
+						break
+					}
+				}
+			}
+			for _, d := range []int{(pl.Dir + 8) % 16, (pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
+				n := layout.Step(t, d)
+				if q, ok := at[n]; ok && feeds(q) && layout.Step(n, q.Dir) == t {
+					queue = append(queue, n)
+				}
+			}
+		}
+		return ""
+	}
+	res := map[layout.Placement]bool{}
+	for _, out := range list {
+		if !strings.HasSuffix(out.Name, "inserter") || out.Recipe == "" {
+			continue
+		}
+		ins := world.TileOf(out.Pos)
+		drop := layout.Step(ins, (out.Dir+8)%16)
+		chestAt, beltAt := at[layout.Step(ins, out.Dir)], at[drop]
+		if !strings.HasSuffix(chestAt.Name, "chest") || !strings.HasSuffix(beltAt.Name, "transport-belt") {
+			continue // не выход буфера (сундук → лента)
+		}
+		far, lane := (out.Dir+8)%16, beltAt.Dir // дальняя полоса — по ходу руки
+		// что подаётся на каждую полосу (вверх по ленте до головы): чужой предмет на дальней — тупик;
+		// дальняя пустая или с тем же (лента руды плавки) — не беда
+		side := map[int]string{}
+		cur := drop
+		var tiles []world.Tile
+		for k := 0; k < 80; k++ {
+			tiles = append(tiles, cur)
+			for _, s := range []int{(lane + 4) % 16, (lane + 12) % 16} {
+				n := layout.Step(cur, s)
+				if q, ok := at[n]; ok && feeds(q) && q.Dir != lane && layout.Step(n, q.Dir) == cur && side[s] == "" {
+					side[s] = item(n)
+				}
+			}
+			cur = layout.Step(cur, (lane+8)%16)
+			if q, ok := at[cur]; !ok || !strings.HasSuffix(q.Name, "transport-belt") || q.Dir != lane {
+				break
+			}
+		}
+		if side[(far+8)%16] != out.Recipe || side[far] == "" || side[far] == out.Recipe {
+			continue
+		}
+		for _, in := range list { // вход того же буфера: с этой ленты (выше выхода) в сундук
+			if !strings.HasSuffix(in.Name, "inserter") || in.Recipe != out.Recipe {
+				continue
+			}
+			t := world.TileOf(in.Pos)
+			if strings.HasSuffix(at[layout.Step(t, (in.Dir+8)%16)].Name, "chest") && slices.Contains(tiles, layout.Step(t, in.Dir)) {
+				res[in] = true
+			}
+		}
+	}
+	return res
+}
+
+// withoutCrossBuffers — список без входов буферов, кладущих на чужую полосу (crossBuffers).
+func withoutCrossBuffers(list []layout.Placement) []layout.Placement {
+	cross := crossBuffers(list)
+	if len(cross) == 0 {
+		return list
+	}
+	return slices.DeleteFunc(slices.Clone(list), func(pl layout.Placement) bool { return cross[pl] })
 }
 
 // clustersOf — все кластеры плана вида kind и продукта product, кроме будущей добычи (стадия 30):

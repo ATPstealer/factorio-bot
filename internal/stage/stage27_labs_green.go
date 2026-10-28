@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
@@ -119,7 +120,29 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	if err := configure(ctx, h, append(slices.Clone(list), labs...)); err != nil {
+	// вход буфера, чей выход кладёт на чужую полосу (crossBuffers), — снять, если уже стоит
+	// (раскладка стадии 21 его ставила): иначе забирает зелёный с ленты весь
+	raw, err := rawPlan() // по плану целиком: подачи — до лент шины
+	if err != nil {
+		return err
+	}
+	cross := crossBuffers(raw.Layout)
+	var stray []bridge.Entity
+	for pl := range cross {
+		if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
+			stray = append(stray, *e)
+		}
+	}
+	if len(stray) > 0 {
+		h.Say("вход буфера кладёт на чужую полосу — снимаю %d", len(stray))
+		if err := h.PickupAll(ctx, stray); err != nil {
+			return err
+		}
+	}
+	keep := func(l []layout.Placement) []layout.Placement {
+		return slices.DeleteFunc(slices.Clone(l), func(pl layout.Placement) bool { return cross[pl] })
+	}
+	if err := configure(ctx, h, append(keep(list), keep(labs)...)); err != nil {
 		return err
 	}
 	// зелёные пошли — в очередь сразу все нужные для ракеты на красной и зелёной (stages.md);
