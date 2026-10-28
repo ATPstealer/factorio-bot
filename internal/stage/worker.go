@@ -261,6 +261,9 @@ func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
 		return fmt.Errorf("%s: руками не сделать, а сборщика под %s нет", item, rec.Category)
 	}
 	mitem := s.h.Protos.ItemFor(m.Name)
+	// сразу на всю оставшуюся стройку стадии (насосы трассы — по одному двигателю: сборщик
+	// ставился и поднимался на каждый)
+	n = max(n, s.treeNeed(item, f.Researched)-s.inv(item))
 	crafts := (n + s.perCraft(item) - 1) / s.perCraft(item)
 	need := map[string]int{}
 	for _, in := range rec.Ingredients {
@@ -338,6 +341,30 @@ func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
 
 // smallPole — столб к временному сборщику, если у стоящих столбов места нет.
 const smallPole = "small-electric-pole"
+
+// treeNeed — сколько item (руками не делается) уходит на всё недостроенное стадии (s.all), по
+// дереву ручных рецептов того, что ещё не в инвентаре; не по участкам — 0.
+func (s *worker) treeNeed(item string, researched []string) int {
+	if s.all == nil {
+		return 0
+	}
+	left, err := notBuilt(s.h, s.all)
+	if err != nil {
+		return 0
+	}
+	count := map[string]int{}
+	for _, pl := range left {
+		count[s.h.Protos.ItemFor(pl.Name)]++
+	}
+	av := s.h.Protos.NewAvailability(researched, false)
+	need := 0.0
+	for it, k := range count {
+		if k -= s.inv(it); k > 0 && it != item {
+			need += calc.Handcraft(s.h.Protos, av, it, float64(k)).Base[item]
+		}
+	}
+	return int(math.Ceil(need - 1e-9))
+}
 
 // machineSpot — место временного сборщика name: у хранения (дальше — у любых своих столбов,
 // ближние к хранению первыми) в зоне питания своего столба, все тайлы свободны; нет — в пределах
