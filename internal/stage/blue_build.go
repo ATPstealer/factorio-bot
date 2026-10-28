@@ -10,6 +10,7 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Общее для стройки проекта синей науки (стадии 29–41): постройки, которые стадия 5 дописала в
@@ -99,7 +100,41 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 			}
 		}
 	}
+	// сквозные ленты шин (c/logistics/bus-3/bus-2) с продуктами стадии — тоже: их не брал ни один
+	// кластер — пластик и сера с bus-2 на bus-3 не шли (стадии 37–41 на всех трёх картах)
+	items := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind != cluster.Bus && pick(c) {
+			items[c.Product] = true
+			for _, o := range c.Out {
+				items[o.Item] = true
+			}
+		}
+	}
+	list = append(list, throughLanes(plan, items)...)
 	return uniq(withSplitters(h, plan, list)), nil
+}
+
+// throughLanes — сквозные ленты между шинами (тег LogisticsTag/шина/шина), по которым идёт
+// предмет из items (вверх по подаче — до ленты шины с ним).
+func throughLanes(plan *ClusterPlan, items map[string]bool) []layout.Placement {
+	buses := map[string]bool{}
+	for _, b := range busNames(plan) {
+		buses[b] = true
+	}
+	at, pair := beltTiles(plan.Layout)
+	var res []layout.Placement
+	for _, pl := range plan.Layout {
+		rest, ok := strings.CutPrefix(pl.Tag, cluster.LogisticsTag+"/")
+		p := strings.Split(rest, "/")
+		if !ok || len(p) != 2 || !buses[p[0]] || !buses[p[1]] || !isBelt(pl) {
+			continue
+		}
+		if items[upstreamItem(at, pair, world.TileOf(pl.Pos))] {
+			res = append(res, pl)
+		}
+	}
+	return res
 }
 
 // queueTechs — исследования techs — в очередь, если ещё не изучены и не стоят.

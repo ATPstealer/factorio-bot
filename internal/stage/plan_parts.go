@@ -32,6 +32,50 @@ func clusterOf(plan *ClusterPlan, kind cluster.Kind, product string) *cluster.Cl
 // ленте A) — выход второго ложится на полосу первого: вход забирает пакет с ленты весь, а вернуть
 // может только на чужую полосу, забитую первым, — лабораториям зелёный не доходил (стадия 27 на
 // 260647970). Такой вход не ставится: пакет идёт мимо буфера к потребителям.
+// upstreamItem — предмет, который приходит в t: вверх по подаче до ленты с предметом (ленты шин).
+func upstreamItem(at map[world.Tile]layout.Placement, pair map[world.Tile]world.Tile, t world.Tile) string {
+	seen := map[world.Tile]bool{}
+	queue := []world.Tile{t}
+	for len(queue) > 0 && len(seen) < 2000 {
+		t := queue[0]
+		queue = queue[1:]
+		pl, ok := at[t]
+		if seen[t] || !ok || !isBelt(pl) {
+			continue
+		}
+		seen[t] = true
+		if pl.Recipe != "" && pl.Recipe != "input" && pl.Recipe != "output" {
+			return pl.Recipe
+		}
+		if o, ok := pair[t]; ok { // делитель: в любой его выход — с любого входа
+			queue = append(queue, o)
+		}
+		if strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "output" {
+			b := t
+			for k := 0; k < 10; k++ {
+				b = layout.Step(b, (pl.Dir+8)%16)
+				if q, ok := at[b]; ok && strings.HasSuffix(q.Name, "underground-belt") && q.Recipe == "input" && q.Dir == pl.Dir {
+					queue = append(queue, b)
+					break
+				}
+			}
+		}
+		for _, d := range []int{(pl.Dir + 8) % 16, (pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
+			n := layout.Step(t, d)
+			if q, ok := at[n]; ok && feedsInto(q) && layout.Step(n, q.Dir) == t {
+				queue = append(queue, n)
+			}
+		}
+	}
+	return ""
+}
+
+// feedsInto — выдаёт в тайл перед собой: вход подземки — нет (уходит под землю; лента шины
+// подземкой под подачей «подавала» в неё — подача считалась синей наукой).
+func feedsInto(pl layout.Placement) bool {
+	return isBelt(pl) && !(strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "input")
+}
+
 // isBelt — лента, подземка или делитель (любого уровня).
 func isBelt(pl layout.Placement) bool {
 	return strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") || strings.HasSuffix(pl.Name, "splitter")
@@ -65,42 +109,7 @@ func crossBuffers(list []layout.Placement) map[layout.Placement]bool {
 	}
 	at, pair := beltTiles(list)
 	// item — предмет, который приходит в t: вверх по подаче до ленты с предметом (ленты шин)
-	item := func(t world.Tile) string {
-		seen := map[world.Tile]bool{}
-		queue := []world.Tile{t}
-		for len(queue) > 0 && len(seen) < 2000 {
-			t := queue[0]
-			queue = queue[1:]
-			pl, ok := at[t]
-			if seen[t] || !ok || !isBelt(pl) {
-				continue
-			}
-			seen[t] = true
-			if pl.Recipe != "" && pl.Recipe != "input" && pl.Recipe != "output" {
-				return pl.Recipe
-			}
-			if o, ok := pair[t]; ok { // делитель: в любой его выход — с любого входа
-				queue = append(queue, o)
-			}
-			if strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "output" {
-				b := t
-				for k := 0; k < 10; k++ {
-					b = layout.Step(b, (pl.Dir+8)%16)
-					if q, ok := at[b]; ok && strings.HasSuffix(q.Name, "underground-belt") && q.Recipe == "input" && q.Dir == pl.Dir {
-						queue = append(queue, b)
-						break
-					}
-				}
-			}
-			for _, d := range []int{(pl.Dir + 8) % 16, (pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
-				n := layout.Step(t, d)
-				if q, ok := at[n]; ok && feeds(q) && layout.Step(n, q.Dir) == t {
-					queue = append(queue, n)
-				}
-			}
-		}
-		return ""
-	}
+	item := func(t world.Tile) string { return upstreamItem(at, pair, t) }
 	res := map[layout.Placement]bool{}
 	for _, out := range list {
 		if !strings.HasSuffix(out.Name, "inserter") || out.Recipe == "" {
