@@ -214,8 +214,12 @@ var errNoStorage = errors.New("инвентарь полон, а хранени�
 // fullSlots — свободных ячеек не больше стольких — инвентарь полон.
 const fullSlots = 2
 
-// neverStore — не выкладывать никогда: пластины всё равно используем (stages.md, инвентарь).
+// neverStore — не выкладывать никогда: пластины всё равно используем (stages.md, инвентарь);
+// кроме полного инвентаря, где выложить больше нечего, — сверх plateKeep (store).
 var neverStore = map[string]bool{"iron-plate": true, "copper-plate": true, "steel-plate": true}
+
+// plateKeep — пластин каждого вида оставить при себе, когда излишек всё же выкладывается.
+const plateKeep = 1000
 
 // storeRank — ходовость предмета для выкладки (stages.md: от самого неходового к ходовому):
 // меньше — выкладывать раньше.
@@ -272,9 +276,6 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 		}
 		return order[i] < order[j]
 	})
-	if len(order) == 0 {
-		return nil // выложить нечего: всё нужное или пластины
-	}
 	// выложить можно меньше, чем нужно до четверти (занято пластинами и нужным), — ходка ничего не
 	// меняет: только когда полон
 	freeable := 0
@@ -283,6 +284,19 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	}
 	if freeNow() > fullSlots && freeNow()+freeable < size/4 {
 		return nil
+	}
+	// полон, а выложить почти нечего — и пластины сверх plateKeep (stages.md, инвентарь): иначе
+	// крафт стоит, готовому некуда лечь (стадия 28 на 859088572: 6120 железных — 62 ячейки из 80)
+	spare := map[string]bool{}
+	if freeNow() <= fullSlots && freeNow()+freeable < size/4 {
+		for _, it := range []string{"iron-plate", "copper-plate", "steel-plate"} {
+			if p.Inventory[it] > 2*plateKeep {
+				order, spare[it] = append(order, it), true
+			}
+		}
+	}
+	if len(order) == 0 {
+		return nil // выложить нечего: всё нужное или пластины
 	}
 	list, err := storageNear(s.h)
 	if err != nil {
@@ -304,9 +318,10 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	}
 	k := 0
 	for _, it := range order {
-		if freeNow() >= size/2 || k >= len(chests) {
+		if freeNow() >= size/2 || k >= len(chests) || spare[it] && freeNow() >= size/4 {
 			break
 		}
+		last := -1 // куда легло (сундук полон — следующий)
 		for p.Inventory[it] > 0 && k < len(chests) {
 			n, err := s.h.InsertAll(ctx, chests[k], it)
 			if err != nil {
@@ -314,6 +329,17 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 			}
 			if n == 0 { // сундук полон — следующий
 				k++
+			} else {
+				last = k
+			}
+			if p, err = s.h.B.Player(); err != nil {
+				return err
+			}
+		}
+		// пластины — все в сундук и plateKeep обратно (положить «всё» — Ctrl, часть — нет)
+		if spare[it] && last >= 0 {
+			if err := s.h.TakeItem(ctx, chests[last], it, plateKeep); err != nil {
+				return err
 			}
 			if p, err = s.h.B.Player(); err != nil {
 				return err

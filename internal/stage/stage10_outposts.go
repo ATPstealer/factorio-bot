@@ -498,7 +498,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		switch item {
 		case "iron-plate", "copper-plate":
 			if s.useStore { // точек стадии 10 уже нет — из буферов выхода плавки, ждать их
-				err = s.fromBuffers(ctx, item)
+				err = s.fromBuffers(ctx, item, lack)
 				break
 			}
 			err = s.plates(ctx, item, lack)
@@ -927,9 +927,10 @@ func checkOutposts(h *act.Hands) error {
 	return nil
 }
 
-// fromBuffers — пластины из буферов выхода плавки (стадия 17): забрать со всех, где есть;
-// нигде нет — подождать.
-func (s *worker) fromBuffers(ctx context.Context, plate string) error {
+// fromBuffers — пластины из буферов выхода плавки (стадия 17): сколько не хватает (lack) и
+// две стопки запаса, с ближних; нигде нет — подождать. Не всё подряд: «забрать всё» набирало
+// тысячи пластин, их не выкладывают — инвентарь забит, крафт стоит (стадия 28 на 859088572).
+func (s *worker) fromBuffers(ctx context.Context, plate string, lack int) error {
 	data, err := os.ReadFile(runPath(smeltingFile))
 	if err != nil {
 		return fmt.Errorf("%s: нет буферов выхода плавки (стадия 17): %w", plate, err)
@@ -951,6 +952,19 @@ func (s *worker) fromBuffers(ctx context.Context, plate string) error {
 		s.h.Say("жду %s в буферах выхода плавки", plate)
 		return sleepCtx(ctx, 20*time.Second)
 	}
-	_, err = s.takeAll(ctx, es, "chest")
-	return err
+	p, err := s.h.B.Player()
+	if err != nil {
+		return err
+	}
+	sort.Slice(es, func(i, j int) bool { return dist2(es[i].Position, p.Position) < dist2(es[j].Position, p.Position) })
+	want := s.inv(plate) + max(lack, 1) + 200
+	for _, e := range es {
+		if s.inv(plate) >= want {
+			break
+		}
+		if err := s.h.TakeItem(ctx, e, plate, want-s.inv(plate)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
