@@ -183,7 +183,9 @@ func refreshLayouts(h *act.Hands, to int) error {
 	defer restore()
 	var own []world.Object
 	for _, o := range h.World.Objects() {
-		if o.Own && o.Type != "character" {
+		// обломки корабля — сила игрока, но не постройки бота: остаются (корабль крушения
+		// прятался — столб по чертежу встал на него, стадия 28 на 1028292478)
+		if o.Own && o.Type != "character" && !strings.HasPrefix(o.Name, "crash-site-") {
 			own = append(own, o)
 		}
 	}
