@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -502,6 +503,16 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 				}
 				continue
 			}
+			// готовое — из буферов выхода своих кластеров, руками — только чего там нет
+			// (stages.md, инвентарь)
+			if _, made := s.h.Protos.Recipes[item]; made && item != "iron-plate" && item != "copper-plate" {
+				if got, err := s.fromProducts(ctx, item, lack); err != nil || got {
+					if err != nil {
+						return err
+					}
+					continue
+				}
+			}
 		}
 		var err error
 		switch item {
@@ -554,12 +565,35 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 		// сырьё — на целое число крафтов (ленты — по 2 за крафт: на 65 считалось 97.5 железа,
 		// а крафтов 33 — нужно 99, последнему не хватило: стадия 21 на 954176679)
 		per := s.perCraft(item)
-		hc := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, float64((n+per-1)/per*per))
-		for raw, v := range hc.Base {
-			if raw != "iron-plate" && raw != "copper-plate" && raw != "stone" && raw != "wood" {
-				return fmt.Errorf("крафт %s: нужно %s — руками не сделать", item, raw)
+		av := s.h.Protos.NewAvailability(f.Researched, false)
+		raw := func(it string) bool {
+			return it == "iron-plate" || it == "copper-plate" || it == "stone" || it == "wood"
+		}
+		crafts := float64((n + per - 1) / per)
+		// по ингредиентам: готовое — из инвентаря и буферов выхода своих кластеров, крафт руками
+		// (и пластины на него) — только на недостающее (stages.md, инвентарь: шестерни и схемы
+		// в буферах лежали тысячами, а бур крафтился из пластин)
+		for _, in := range s.h.Protos.Recipes[item].Ingredients {
+			k := int(math.Ceil(in.Amount*crafts - 1e-9))
+			if raw(in.Name) {
+				need[in.Name] += k
+				continue
 			}
-			need[raw] = int(math.Ceil(v - 1e-9))
+			if s.useStore && s.inv(in.Name) < k {
+				if _, err := s.fromProducts(ctx, in.Name, k-s.inv(in.Name)); err != nil {
+					return err
+				}
+			}
+			lack := k - s.inv(in.Name)
+			if lack <= 0 {
+				continue
+			}
+			for r, v := range calc.Handcraft(s.h.Protos, av, in.Name, float64(lack)).Base {
+				if !raw(r) {
+					return fmt.Errorf("крафт %s: нужно %s — руками не сделать", item, r)
+				}
+				need[r] += int(math.Ceil(v - 1e-9))
+			}
 		}
 	}
 	// сырьё на всю партию не влезет в инвентарь (стадия 30 на 859088572: 316 буров — ~7 тыс.
@@ -955,6 +989,68 @@ func checkOutposts(h *act.Hands) error {
 		}
 	}
 	return nil
+}
+
+// fromProducts — готовое item из буферов выхода своих кластеров (раскладки стадий, тег
+// «outbuf/…»; stages.md, инвентарь): сколько не хватает (n) и стопку запаса, не больше, чем
+// влезет; с ближних. true — что-то взято.
+func (s *worker) fromProducts(ctx context.Context, item string, n int) (bool, error) {
+	files, _ := filepath.Glob(runPath("state-*.json"))
+	var bufs []layout.Placement
+	seen := map[layout.Placement]bool{}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var list []layout.Placement
+		if json.Unmarshal(data, &list) != nil {
+			continue // не раскладка
+		}
+		for _, pl := range list {
+			if strings.HasPrefix(pl.Tag, "outbuf/") && strings.HasSuffix(pl.Name, "chest") && !seen[pl] {
+				seen[pl] = true
+				bufs = append(bufs, pl)
+			}
+		}
+	}
+	if len(bufs) == 0 {
+		return false, nil
+	}
+	states, err := entityStates(s.h, bufs)
+	if err != nil {
+		return false, err
+	}
+	var es []bridge.Entity
+	for _, st := range states {
+		if st != nil && st.Inventories["chest"][item] > 0 {
+			es = append(es, st.Entity)
+		}
+	}
+	if len(es) == 0 {
+		return false, nil
+	}
+	p, err := s.h.B.Player()
+	if err != nil {
+		return false, err
+	}
+	sort.Slice(es, func(i, j int) bool { return dist2(es[i].Position, p.Position) < dist2(es[j].Position, p.Position) })
+	stack := max(s.h.Protos.Items[item].StackSize, 1)
+	room := (s.freeSlots() - 2) * stack
+	if room <= 0 {
+		return false, nil
+	}
+	before := s.inv(item)
+	want := before + min(max(n, 1)+stack, room)
+	for _, e := range es {
+		if s.inv(item) >= want {
+			break
+		}
+		if err := s.h.TakeItem(ctx, e, item, want-s.inv(item)); err != nil {
+			return false, err
+		}
+	}
+	return s.inv(item) > before, nil
 }
 
 // fromBuffers — пластины из буферов выхода плавки (стадия 17): сколько не хватает (lack) и
