@@ -132,3 +132,27 @@ func TestCraftSearchOneTab(t *testing.T) {
 		t.Errorf("слово %q: %v", text, err)
 	}
 }
+
+// Совпадения на разных вкладках при любом слове (насос «pump»: ещё помпа и качалка на
+// «производстве», стадия 34) — сначала слово только с вкладки насоса, потом «pump» на ней.
+func TestCraftSearchOtherTab(t *testing.T) {
+	p, err := knowledge.Load("../knowledge/testdata/prototypes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Hands{Protos: p}
+	avail := []string{"pump", "offshore-pump", "pumpjack", "transport-belt", "inserter", "pipe", "iron-gear-wheel"}
+	all := func(knowledge.Recipe) bool { return true }
+	if _, _, err := craftSlot(p, avail, all, "pump", "pump"); err == nil {
+		t.Fatal("«pump» — совпадения на двух вкладках, а ошибки нет")
+	}
+	g := p.Recipes["pump"].Group
+	w := h.tabWord(avail, all, g)
+	if w == "" {
+		t.Fatalf("нет слова только с вкладки %s", g)
+	}
+	if _, _, err := craftSlotIn(p, avail, all, "pump", "pump", g); err != nil {
+		t.Errorf("насос на вкладке %s: %v", g, err)
+	}
+	t.Logf("вкладка %s, слово %q", g, w)
+}

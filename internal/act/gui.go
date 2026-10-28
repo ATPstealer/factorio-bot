@@ -421,6 +421,39 @@ func (h *Hands) search(ctx context.Context, text string) error {
 	return h.inInventory()
 }
 
+// retype — в поле поиска, где уже идёт поиск (search), — другой текст (без Ctrl+F).
+func (h *Hands) retype(ctx context.Context, text string) error {
+	if err := h.inInventory(); err != nil {
+		return err
+	}
+	if err := h.In.Tap("a", "ctrl"); err != nil {
+		return err
+	}
+	if err := h.In.Type(text); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 250*time.Millisecond); err != nil {
+		return err
+	}
+	return h.inInventory()
+}
+
+// tabWord — слово имени доступного рецепта, все совпадения которого — на вкладке group (поиск
+// по нему переводит окно на неё); нет такого — "".
+func (h *Hands) tabWord(available []string, shown func(knowledge.Recipe) bool, group string) string {
+	for _, name := range slices.Sorted(slices.Values(available)) {
+		if r, ok := h.Protos.Recipes[name]; !ok || r.Group != group || r.Hidden || !shown(r) {
+			continue
+		}
+		for _, w := range strings.Split(name, "-") {
+			if _, _, err := craftSlot(h.Protos, available, shown, name, w); len(w) >= 3 && err == nil {
+				return w
+			}
+		}
+	}
+	return ""
+}
+
 // searchWord — что набирать в поиске рецепта: слово имени, которое встречается в наименьшем
 // числе рецептов (при равенстве — длиннее), из тех, где рецепт окажется на первой вкладке
 // результатов (fits; «burner» — сначала burner-inserter из «логистики», а бур — в
@@ -636,6 +669,12 @@ func (h *Hands) bindQuickbar(ctx context.Context, i int, item string, busy bool)
 // на текущей вкладке, если на ней есть совпадения (крафт iron-chest по «iron» кликнул
 // iron-plate на вкладке промежуточных). Совпадение — по английскому названию ≈ имени без дефисов.
 func craftSlot(protos *knowledge.Prototypes, available []string, shown func(knowledge.Recipe) bool, recipe, text string) (row, col int, err error) {
+	return craftSlotIn(protos, available, shown, recipe, text, "")
+}
+
+// craftSlotIn — craftSlot, когда окно уже на вкладке group (не пусто): совпадения на других
+// вкладках не мешают.
+func craftSlotIn(protos *knowledge.Prototypes, available []string, shown func(knowledge.Recipe) bool, recipe, text, group string) (row, col int, err error) {
 	type rec struct {
 		name string
 		r    knowledge.Recipe
@@ -647,7 +686,7 @@ func craftSlot(protos *knowledge.Prototypes, available []string, shown func(know
 	var match []rec
 	for _, name := range available {
 		r, ok := protos.Recipes[name]
-		if !ok || r.Hidden || !shown(r) {
+		if !ok || r.Hidden || !shown(r) || group != "" && r.Group != group {
 			continue
 		}
 		if strings.Contains(name, key) {
@@ -670,7 +709,7 @@ func craftSlot(protos *knowledge.Prototypes, available []string, shown func(know
 	if len(match) == 0 {
 		return 0, 0, fmt.Errorf("act: рецепт %s недоступен здесь", recipe)
 	}
-	group := match[0].r.Group
+	group = match[0].r.Group
 	for _, m := range match {
 		if m.r.Group != group {
 			return 0, 0, fmt.Errorf("act: поиск %q — совпадения на разных вкладках (%s, %s)", text, group, m.r.Group)
@@ -730,8 +769,18 @@ func (h *Hands) Craft(ctx context.Context, recipe string, n int) error {
 		return err == nil
 	})
 	row, col, err := craftSlot(h.Protos, f.Recipes, all, recipe, text)
+	tab := "" // слово, что есть только на вкладке рецепта
 	if err != nil {
-		return err
+		// совпадения на разных вкладках при любом слове (насос: «pump» — ещё помпа и качалка на
+		// «производстве», стадия 34): сначала поиск слова только с вкладки рецепта — окно
+		// переходит на неё, потом text — поиск остаётся на ней, раз там есть совпадения (2.1)
+		g := h.Protos.Recipes[recipe].Group
+		if tab = h.tabWord(f.Recipes, all, g); tab == "" {
+			return err
+		}
+		if row, col, err = craftSlotIn(h.Protos, f.Recipes, all, recipe, text, g); err != nil {
+			return err
+		}
 	}
 	if err := h.ClearCursor(ctx); err != nil {
 		return err
@@ -748,7 +797,14 @@ func (h *Hands) Craft(ctx context.Context, recipe string, n int) error {
 	if err := h.OpenInventory(ctx); err != nil {
 		return err
 	}
-	if err := h.search(ctx, text); err != nil {
+	if tab != "" {
+		if err := h.search(ctx, tab); err != nil {
+			return err
+		}
+		if err := h.retype(ctx, text); err != nil {
+			return err
+		}
+	} else if err := h.search(ctx, text); err != nil {
 		return err
 	}
 	L := h.Layout
