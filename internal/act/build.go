@@ -374,7 +374,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			built[i] = e
 			left = removeInt(left, i)
 			// подземку R не поворачивает, а меняет вход/выход — её переставляет replace выше
-			if !exit && !ug && e.Direction != nil && *e.Direction != dir && !(h.Protos.Entities[e.Name].Type == "generator" && *e.Direction%8 == dir%8) {
+			if !exit && !ug && e.Direction != nil && !h.sameDir(e.Name, *e.Direction, dir) {
 				misrotated = append(misrotated, i)
 			}
 			if e.Direction != nil && !exit && !ug && w == hh {
@@ -402,6 +402,17 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 		return built, fmt.Errorf("%w %s в %d местах, первое (%.1f, %.1f)", ErrPlace, it.PlaceResult, len(failed), failed[0].X, failed[0].Y)
 	}
 	return built, nil
+}
+
+// sameDir — направления a и b у постройки name одно: у симметричных (паровой двигатель,
+// цистерна — в игре два положения) d и d+8 — одно (стадия 33 на 1028292478: цистерна «не
+// повернулась» на запад — встала на восток, а это то же).
+func (h *Hands) sameDir(name string, a, b int) bool {
+	switch h.Protos.Entities[name].Type {
+	case "generator", "storage-tank":
+		return a%8 == b%8
+	}
+	return a == b
 }
 
 func removeInt(xs []int, x int) []int {
@@ -607,8 +618,8 @@ func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
 		if err != nil {
 			return err
 		}
-		if d == dir || h.Protos.Entities[e.Name].Type == "generator" && d%8 == dir%8 {
-			return nil // у симметричных (паровой двигатель) d и d+8 — одно
+		if h.sameDir(e.Name, d, dir) {
+			return nil
 		}
 		// R — только когда выделена именно она: ленты вплотную, курсор мог выделить соседнюю
 		// (стадия 13 на 851731946: «не повернулся» — поворачивалась соседняя)
