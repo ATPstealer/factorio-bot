@@ -215,6 +215,11 @@ func maintain(ctx context.Context, h *act.Hands, list func() ([]layout.Placement
 	if err := cleanBuffers(ctx, h); err != nil {
 		return err
 	}
+	// ленты — чужое (не тот предмет, что кластер или шина несут) убрать: ленту поднять и
+	// поставить назад (просьба пользователя 28.10; так же — в начале каждой стадии стройки)
+	if err := healBelts(ctx, h); err != nil {
+		return err
+	}
 	// хранение — расширить до storageChests (до того, как складывать туда инвентарь)
 	if err := growStorage(ctx, h, s); err != nil {
 		return err
