@@ -326,9 +326,29 @@ func TestFlushPipeline(t *testing.T) {
 	have(t, h, "pipe", 10)
 	ctx := ctxT(t, 6*time.Minute)
 	l := layout.New(h.Protos, h.World)
-	pump, err := l.WaterPump(world.TileOf(p.Position), "test", nil)
+	// у помпы место: 3 трубы по ходу выхода и цистерна 3×3 за ними
+	pump, err := l.WaterPump(world.TileOf(p.Position), "test", func(pm layout.Placement) bool {
+		cs := layout.Connections(h.Protos, pm)
+		if len(cs) == 0 || !l.CanPlace(pm, layout.AnyLand) {
+			return false
+		}
+		tl := cs[0].To
+		for i := 0; i < 6; i++ {
+			for _, side := range []int{0, 4, 12} {
+				q := tl
+				if side != 0 && i >= 3 {
+					q = layout.Step(tl, (cs[0].Dir+side)%16)
+				}
+				if !l.Free(q, layout.AnyLand) {
+					return false
+				}
+			}
+			tl = layout.Step(tl, cs[0].Dir)
+		}
+		return true
+	})
 	if err != nil {
-		t.Skipf("нет воды рядом: %v", err)
+		t.Skipf("нет воды рядом с местом под трубы и цистерну: %v", err)
 	}
 	conn := layout.Connections(h.Protos, pump)[0]
 	pe, err := h.Place(ctx, "offshore-pump", pump.Pos, pump.Dir)

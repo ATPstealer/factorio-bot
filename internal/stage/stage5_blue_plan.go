@@ -488,6 +488,16 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	for _, it := range blueOres {
 		h.Say("добыча %s: под бурами %d", it, oreUnder(base.Clusters, it))
 	}
+	// выравниватели между лентами одного предмета — и в плане синей (решение пользователя 28.10):
+	// без них выработанная добыча оставляет свою ленту пустой, а печи на ней — без руды, пока
+	// соседняя лента той же руды полна (260647970: 6 кластеров плавки стояли)
+	var busList []string
+	for _, b := range buses {
+		busList = append(busList, b.Name)
+	}
+	if n := cluster.BalancePlan(l, busList); n > 0 {
+		h.Say("план синей: +%d делителей между лентами одного предмета", n)
+	}
 	if err := flowCheck(h, l, base.Clusters, true); err != nil { // синяя строится после стадии 30: будущие блоки уже есть
 		return base, l, err
 	}
