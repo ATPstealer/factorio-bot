@@ -180,6 +180,13 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		case "iron-ore", "copper-ore":
 			_, err = s.h.Gather(ctx, item, lack, 300)
 		default:
+			if s.useStore && !s.handcraftable(item) {
+				// руками не сделать (сталь) — только из буферов выхода кластеров: ждать, как
+				// пластины (stages.md, инвентарь)
+				s.h.Say("жду %s в буферах выхода кластеров", item)
+				err = sleepCtx(ctx, 20*time.Second)
+				break
+			}
 			err = s.craft(ctx, item, lack)
 		}
 		if err != nil && !errors.Is(err, act.ErrNoTargets) {
@@ -187,6 +194,16 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		}
 	}
 	return nil
+}
+
+// handcraftable — item делается руками (сталь — нет: только в печи).
+func (s *worker) handcraftable(item string) bool {
+	f, err := s.h.B.Force()
+	if err != nil {
+		return true
+	}
+	_, base := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, 1).Base[item]
+	return !base
 }
 
 // craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в
@@ -238,10 +255,17 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 				continue
 			}
 			for r, v := range calc.Handcraft(s.h.Protos, av, in.Name, float64(lack)).Base {
-				if !raw(r) {
+				if raw(r) {
+					need[r] += int(math.Ceil(v - 1e-9))
+					continue
+				}
+				if !s.useStore {
 					return fmt.Errorf("крафт %s: нужно %s — руками не сделать", item, r)
 				}
-				need[r] += int(math.Ceil(v - 1e-9))
+				// руками не сделать (сталь) — из буферов выхода кластеров, дождаться (have)
+				if err := s.have(ctx, r, s.inv(r)+int(math.Ceil(v-1e-9))); err != nil {
+					return err
+				}
 			}
 		}
 	}
