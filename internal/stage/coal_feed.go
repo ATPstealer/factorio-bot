@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -27,32 +28,33 @@ const (
 )
 
 // healCoal — подвод угля станции, если она голодает (четверть бойлеров без угля или половина
-// буров её добычи на выработанном); подвод уже посчитан — достроить недостающее.
+// буров её добычи на выработанном); подвод уже посчитан — достроить недостающее. Подвод старого
+// вида (боком в ленту станции — уголь на одну полосу) — отвод поднять и проложить заново от того
+// же делителя, во вход делителя на ленте станции.
 func healCoal(ctx context.Context, h *act.Hands) error {
-	if _, err := os.Stat(runPath(coalFeedFile)); err != nil {
-		plan, err := LoadBluePlan()
-		if err != nil {
-			if plan, err = LoadPlan(); err != nil {
-				return nil // плана нет — нечего
-			}
+	plan, err := LoadBluePlan()
+	if err != nil {
+		if plan, err = LoadPlan(); err != nil {
+			return nil // плана нет — нечего
 		}
+	}
+	var list []layout.Placement
+	if data, err := os.ReadFile(runPath(coalFeedFile)); err == nil && json.Unmarshal(data, &list) == nil && len(list) > 0 {
+		if list, err = coalFeedJoin(ctx, h, plan, list); err != nil {
+			return err
+		}
+	} else {
 		hungry, why, err := coalHungry(h, plan)
 		if err != nil || !hungry {
 			return err
 		}
 		h.Say("уголь станции: %s — подвожу уголь другой добычи", why)
-	}
-	list, err := onceLayout(coalFeedFile, func() ([]layout.Placement, error) {
-		plan, err := LoadBluePlan()
-		if err != nil {
-			if plan, err = LoadPlan(); err != nil {
-				return nil, err
-			}
+		if list, err = coalFeed(h, plan, nil); err != nil {
+			return err
 		}
-		return coalFeed(h, plan)
-	})
-	if err != nil {
-		return err
+		if err := writeState(coalFeedFile, list); err != nil {
+			return err
+		}
 	}
 	left, err := notBuilt(h, list)
 	if err != nil || len(left) == 0 {
@@ -66,7 +68,7 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 			belts = append(belts, pl)
 		}
 	}
-	// сначала отвод, делитель — последним (на месте ленты подвода: её поднять)
+	// сначала отвод, делители — последними (на месте лент подвода и станции: их поднять)
 	if err := buildSorted(ctx, h, belts, []string{"transport-belt", "underground-belt"}); err != nil {
 		return err
 	}
@@ -81,6 +83,41 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	return buildSorted(ctx, h, splitters, []string{"splitter"})
+}
+
+// coalFeedJoin — подвод list старого вида (один делитель — у источника, в ленту станции боком):
+// отвод поднять, проложить заново от того же делителя во вход делителя на ленте станции; новый —
+// как есть.
+func coalFeedJoin(ctx context.Context, h *act.Hands, plan *ClusterPlan, list []layout.Placement) ([]layout.Placement, error) {
+	var src *layout.Placement
+	n := 0
+	for i, pl := range list {
+		if pl.Name == "splitter" {
+			n++
+			src = &list[i]
+		}
+	}
+	if n != 1 {
+		return list, nil
+	}
+	h.Say("уголь станции: подвод боком (уголь на одну полосу) — перекладываю во вход делителя")
+	var es []bridge.Entity
+	for _, pl := range list {
+		if pl.Name == "splitter" {
+			continue
+		}
+		if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
+			es = append(es, *e)
+		}
+	}
+	if err := h.PickupAll(ctx, es); err != nil {
+		return nil, err
+	}
+	res, err := coalFeed(h, plan, src)
+	if err != nil {
+		return nil, err
+	}
+	return res, writeState(coalFeedFile, res)
 }
 
 // stationTags — теги построек станций плана (ряд и логистика).
@@ -221,9 +258,10 @@ func straight(at map[world.Tile]layout.Placement, t world.Tile) bool {
 }
 
 // coalFeed — раскладка подвода: делитель на прямой ленте подвода угля другой добычи (второй
-// тайл — сбоку, свободен) и лента от его второго выхода боком в начало ленты угля станции
-// (лента, с которой уголь доходит до большего числа лент ряда станций).
-func coalFeed(h *act.Hands, plan *ClusterPlan) ([]layout.Placement, error) {
+// тайл — сбоку, свободен; keep — этот, уже стоящий) и лента от его второго выхода во второй вход
+// делителя на начале ленты угля станции (лента, с которой уголь доходит до большего числа лент
+// ряда станций): уголь — на обе полосы (боком — только на одну).
+func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout.Placement, error) {
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return nil, err
 	}
@@ -285,61 +323,98 @@ func coalFeed(h *act.Hands, plan *ClusterPlan) ([]layout.Placement, error) {
 		return nil, fmt.Errorf("уголь станции: нет ленты подачи станции в игре")
 	}
 	// источники: прямые ленты подводов угля другой добычи в шину, на них уголь
-	var sources []cand
+	l := layout.New(h.Protos, h.World)
+	for _, pl := range plan.Layout {
+		l.Add(pl)
+	}
+	// источники: делитель на прямой ленте подвода угля другой добычи в шину (на ней уголь),
+	// второй тайл — сбоку, свободен; keep — уже стоящий
+	type source struct {
+		s, o world.Tile // тайл ленты подвода, второй тайл делителя
+		sp   layout.Placement
+	}
+	var sources []source
+	if keep != nil {
+		ts := layout.Tiles(h.Protos, *keep)
+		s, o := ts[0], ts[1]
+		if _, ok := at[s]; !ok {
+			s, o = o, s
+		}
+		l.Add(*keep)
+		sources = append(sources, source{s, o, *keep})
+	}
 	for _, pl := range belts {
 		t := world.TileOf(pl.Pos)
 		name, ok := strings.CutPrefix(pl.Tag, cluster.LogisticsTag+"/")
-		if !ok || !built[t] || !coal[t] || !straight(at, t) {
+		if keep != nil || !ok || !built[t] || !coal[t] || !straight(at, t) {
 			continue
 		}
 		parts := strings.Split(name, "/") // шина/добыча
 		if len(parts) != 2 || !coalMine[parts[1]] {
 			continue
 		}
-		sources = append(sources, cand{t: t, pl: pl})
+		for _, side := range []int{(pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
+			if o := layout.Step(t, side); l.Free(o, layout.AnyLand) {
+				sources = append(sources, source{t, o, layout.Placement{Name: "splitter", Dir: pl.Dir, Tag: coalFeedTag,
+					Pos: bridge.Pos{X: (float64(t.X+o.X) + 1) / 2, Y: (float64(t.Y+o.Y) + 1) / 2}}})
+			}
+		}
 	}
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("уголь станции: нет подвода угля другой добычи в игре")
 	}
+	// цели: делитель на ленте станции, второй тайл сбоку — его вход (позади — конец отвода, по
+	// ходу), выход перед ним свободен (там ничего не будет: всё — в ленту станции)
+	type join struct {
+		g, to world.Tile
+		sp    layout.Placement
+	}
+	var joins []join
+	for _, g := range targets {
+		d := g.pl.Dir
+		for _, side := range []int{(d + 4) % 16, (d + 12) % 16} {
+			o := layout.Step(g.t, side)
+			to := layout.Step(o, (d+8)%16)
+			if l.Free(o, layout.AnyLand) && l.Free(layout.Step(o, d), layout.AnyLand) && l.Free(to, layout.AnyLand) {
+				joins = append(joins, join{g.t, to, layout.Placement{Name: "splitter", Dir: d, Tag: coalFeedTag,
+					Pos: bridge.Pos{X: (float64(g.t.X+o.X) + 1) / 2, Y: (float64(g.t.Y+o.Y) + 1) / 2}}})
+			}
+		}
+	}
+	if len(joins) == 0 {
+		return nil, fmt.Errorf("уголь станции: на ленте станции нет места под делитель входа")
+	}
 	type try struct {
-		s, g cand
-		d    int
+		s source
+		j join
+		d int
 	}
 	var tries []try
 	for _, s := range sources {
-		for _, g := range targets {
-			tries = append(tries, try{s, g, abs(s.t.X-g.t.X) + abs(s.t.Y-g.t.Y)})
+		for _, j := range joins {
+			tries = append(tries, try{s, j, abs(s.o.X-j.to.X) + abs(s.o.Y-j.to.Y)})
 		}
 	}
 	sort.Slice(tries, func(i, j int) bool { return tries[i].d < tries[j].d })
-	l := layout.New(h.Protos, h.World)
-	for _, pl := range plan.Layout {
-		l.Add(pl)
-	}
 	for k, tr := range tries {
 		if k >= 60 {
 			break
 		}
-		s, d := tr.s.t, tr.s.pl.Dir
-		for _, side := range []int{(d + 4) % 16, (d + 12) % 16} {
-			o := layout.Step(s, side)
-			if !l.Free(o, layout.AnyLand) || !l.Free(layout.Step(o, d), layout.AnyLand) {
-				continue
-			}
-			sp := layout.Placement{Name: "splitter", Dir: d, Tag: coalFeedTag,
-				Pos: bridge.Pos{X: (float64(s.X+o.X) + 1) / 2, Y: (float64(s.Y+o.Y) + 1) / 2}}
-			for _, gs := range []int{(tr.g.pl.Dir + 4) % 16, (tr.g.pl.Dir + 12) % 16} {
-				to := layout.Step(tr.g.t, gs)
-				mark := l.Mark()
-				l.Add(sp)
-				if _, err := l.RouteBelt(layout.Step(o, d), d, to, (gs+8)%16, coalFeedTag); err == nil {
-					res := slices.Clone(l.List[mark:])
-					h.Log("уголь станции: делитель в (%.1f, %.1f), отвод %d построек до (%d, %d)", sp.Pos.X, sp.Pos.Y, len(res)-1, tr.g.t.X, tr.g.t.Y)
-					return res, nil
-				}
-				l.Rollback(mark)
-			}
+		d := tr.s.sp.Dir
+		mark := l.Mark()
+		if keep == nil {
+			l.Add(tr.s.sp)
 		}
+		l.Add(tr.j.sp)
+		if _, err := l.RouteBelt(layout.Step(tr.s.o, d), d, tr.j.to, tr.j.sp.Dir, coalFeedTag); err == nil {
+			res := slices.Clone(l.List[mark:])
+			if keep != nil {
+				res = append([]layout.Placement{*keep}, res...)
+			}
+			h.Log("уголь станции: делитель в (%.1f, %.1f), отвод %d построек до делителя в (%.1f, %.1f)", tr.s.sp.Pos.X, tr.s.sp.Pos.Y, len(res)-2, tr.j.sp.Pos.X, tr.j.sp.Pos.Y)
+			return res, nil
+		}
+		l.Rollback(mark)
 	}
 	return nil, fmt.Errorf("уголь станции: отвод не проложить (источников %d, целей %d)", len(sources), len(targets))
 }
