@@ -427,11 +427,6 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		}
 	}
 	l.AllowEnd(f.tile(end, bv))
-	if n := labBufferChests(c); true { // буфер синего — над B, в голове
-		if err := bufferAt(l, f, c, bv, bv-1, bv-2, n, item, tag, 3); err != nil {
-			return Port{}, err
-		}
-	}
 	for k := 0; k < c.Count; k++ {
 		if k%labCols != 0 {
 			continue // только левый столбец — дальше от лаборатории к лаборатории
@@ -470,11 +465,6 @@ func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		return Port{}, fmt.Errorf("cluster %s: второй вход не встаёт (%s)", c.Name, p)
 	}
 	l.Add(p)
-	if n := labBufferChests(c); true { // буфер второго пакета A — под A, за буфером первого
-		if err := bufferAt(l, f, c, labA, labA+1, labA+2, n, item, tag, 2*n+1); err != nil {
-			return Port{}, err
-		}
-	}
 	// столбы к новым инсертерам — внутри площади, на свободных тайлах (не на месте под будущее)
 	keep := map[world.Tile]bool{}
 	for _, t := range labReserve(f, c) {

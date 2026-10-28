@@ -272,18 +272,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			return err
 		}
 		deadEnd(labA, blen)
-		// буферы пакетов A — под лентой A, друг за другом вдоль головы
-		n := labBufferChests(c)
-		if len(c.In) >= 1 {
-			if err := bufferAt(l, f, c, labA, labA+1, labA+2, n, c.In[0].Item, tag, 1); err != nil {
-				return err
-			}
-		}
-		if len(c.In) >= 2 {
-			if err := bufferAt(l, f, c, labA, labA+1, labA+2, n, c.In[1].Item, tag, 2*n+1); err != nil {
-				return err
-			}
-		}
+		// буферов входа у лабораторий нет (§6, решение пользователя 28.10): места в голове пустые
 		// место под второй вход ленты A, ленты B и C с инсертерами — не под столбы (§2а «Лаборатории»)
 		for _, t := range labReserve(f, c) {
 			if l.At(t) == nil {
@@ -899,11 +888,14 @@ func bufferAt(l *layout.Layout, f frame, c *Cluster, v, insV, chestV, n int, ite
 	if abs(v-insV) == 2 {
 		lane = "long-handed-inserter"
 	}
+	// буфер входа — по возможности (§6, решение пользователя 28.10): не встаёт — без него
+	mark := l.Mark()
 	for i := 0; i < n; i++ {
 		u := u0 + 2*i
 		ch := f.at(l, layout.Chest, u, chestV, layout.N, tag)
 		if !l.CanPlace(ch, layout.AnyLand) {
-			return fmt.Errorf("cluster %s: буфер не встаёт (%s)", c.Name, ch)
+			l.Rollback(mark)
+			return nil
 		}
 		l.Add(ch)
 		if i+1 < n {

@@ -280,6 +280,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("чужое с лент не убралось: %v", err)
 		}
+		// буферов входа у лабораторий нет (cluster.md §6): стоящие — снять
+		if err := dropLabBuffers(ctx, h); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("буферы лабораторий не снялись: %v", err)
+		}
 	}
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {

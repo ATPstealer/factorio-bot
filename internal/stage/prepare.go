@@ -205,36 +205,40 @@ func prepOwn(ctx context.Context, h *act.Hands, list []layout.Placement) error {
 		if err := dropStorageExtra(o.Pos); err != nil { // хранение — без него
 			return err
 		}
-		for k := 0; ; k++ {
-			st, err := h.B.GetEntity(o.Name, o.Pos)
-			if err != nil {
-				return err
-			}
-			if st == nil {
-				break
-			}
-			if len(st.Inventories) == 0 || o.Type != "container" {
-				if err := h.Pickup(ctx, st.Entity); err != nil {
-					return err
-				}
-				break
-			}
-			if k >= 10 {
-				return fmt.Errorf("%s в (%.1f, %.1f): не опустошить", o.Name, o.Pos.X, o.Pos.Y)
-			}
-			// содержимое — в инвентарь и в хранение, пока сундук не пуст
-			if _, err := h.Take(ctx, st.Entity); err != nil {
-				return err
-			}
-			s.any = true
-			err = s.store(ctx, freeBefore)
-			s.any = false
-			if err != nil {
-				return err
-			}
+		if err := removeOwn(ctx, h, s, o.Name, o.Pos); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// removeOwn — поднять свою постройку name в pos; сундук — сначала опустошить в хранение.
+func removeOwn(ctx context.Context, h *act.Hands, s *worker, name string, pos bridge.Pos) error {
+	for k := 0; ; k++ {
+		st, err := h.B.GetEntity(name, pos)
+		if err != nil {
+			return err
+		}
+		if st == nil {
+			return nil
+		}
+		if len(st.Inventories) == 0 || h.Protos.Entities[name].Type != "container" {
+			return h.Pickup(ctx, st.Entity)
+		}
+		if k >= 10 {
+			return fmt.Errorf("%s в (%.1f, %.1f): не опустошить", name, pos.X, pos.Y)
+		}
+		// содержимое — в инвентарь и в хранение, пока сундук не пуст
+		if _, err := h.Take(ctx, st.Entity); err != nil {
+			return err
+		}
+		s.any = true
+		err = s.store(ctx, freeBefore)
+		s.any = false
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // footprint — тайлы под постройками плана.

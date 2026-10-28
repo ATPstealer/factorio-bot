@@ -165,6 +165,32 @@ func withoutCrossBuffers(list []layout.Placement) []layout.Placement {
 	return slices.DeleteFunc(slices.Clone(list), func(pl layout.Placement) bool { return cross[pl] })
 }
 
+// labBuffers — буферы входа лабораторий в плане (сундуки и инсертеры с фильтром кластера
+// лабораторий): их нет (cluster.md §6, решение пользователя 28.10); в планах, посчитанных
+// раньше, — есть.
+func labBuffers(plan *ClusterPlan) map[layout.Placement]bool {
+	tags := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Lab {
+			tags[cluster.Tag(c.Name)] = true
+		}
+	}
+	res := map[layout.Placement]bool{}
+	for _, pl := range plan.Layout {
+		if tags[pl.Tag] && (strings.HasSuffix(pl.Name, "chest") || strings.HasSuffix(pl.Name, "inserter") && pl.Recipe != "") {
+			res[pl] = true
+		}
+	}
+	return res
+}
+
+// withoutLabBuffers — план без буферов входа лабораторий.
+func withoutLabBuffers(plan *ClusterPlan) {
+	if bufs := labBuffers(plan); len(bufs) > 0 {
+		plan.Layout = slices.DeleteFunc(slices.Clone(plan.Layout), func(pl layout.Placement) bool { return bufs[pl] })
+	}
+}
+
 // clustersOf — все кластеры плана вида kind и продукта product, кроме будущей добычи (стадия 30):
 // длинный кластер план режет на куски (iron-plate-1, iron-plate-1.2 — PlaceZoned), каждый кусок
 // — свой кластер; первый — не весь (стадия 17 ставила только первый кусок плавки: 260647970).

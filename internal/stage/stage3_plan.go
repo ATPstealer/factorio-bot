@@ -55,6 +55,7 @@ func LoadPlan() (*ClusterPlan, error) {
 		return nil, err
 	}
 	s.Layout = withoutCrossBuffers(s.Layout) // входы буферов на чужую полосу — не ставятся
+	withoutLabBuffers(s)                     // буферов входа у лабораторий нет (cluster.md §6)
 	return s, nil
 }
 

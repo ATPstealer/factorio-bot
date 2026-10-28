@@ -2,6 +2,10 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
+	"maps"
+	"os"
+	"slices"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -122,4 +126,63 @@ func healBelts(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	return s.store(ctx, p.InventorySize-10)
+}
+
+// dropLabBuffers — буферов входа у лабораторий нет (cluster.md §6, решение пользователя 28.10):
+// стоящие (построены по старому плану) — снять: инсертеры, потом сундуки (содержимое — в
+// хранение).
+func dropLabBuffers(ctx context.Context, h *act.Hands) error {
+	bufs := map[layout.Placement]bool{}
+	for _, path := range []string{runPath(planNowFile()), runPath(planFile)} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var p ClusterPlan
+		if json.Unmarshal(data, &p) != nil {
+			continue
+		}
+		for pl := range labBuffers(&p) {
+			bufs[pl] = true
+		}
+	}
+	if len(bufs) == 0 {
+		return nil
+	}
+	list := slices.Collect(maps.Keys(bufs))
+	left, err := notBuilt(h, list)
+	if err != nil || len(left) == len(list) {
+		return err
+	}
+	h.Say("буферы входа лабораторий: %d построек — снимаю (их больше нет)", len(list)-len(left))
+	gone := map[layout.Placement]bool{}
+	for _, pl := range left {
+		gone[pl] = true
+	}
+	var ins []bridge.Entity
+	var chests []layout.Placement
+	states, err := entityStates(h, list)
+	if err != nil {
+		return err
+	}
+	for i, st := range states {
+		if st == nil || gone[list[i]] {
+			continue
+		}
+		if strings.HasSuffix(list[i].Name, "chest") {
+			chests = append(chests, list[i])
+		} else {
+			ins = append(ins, st.Entity)
+		}
+	}
+	if err := h.PickupAll(ctx, ins); err != nil {
+		return err
+	}
+	s := &worker{h: h, useStore: true}
+	for _, pl := range chests {
+		if err := removeOwn(ctx, h, s, pl.Name, pl.Pos); err != nil {
+			return err
+		}
+	}
+	return nil
 }
