@@ -115,6 +115,28 @@ func onceLayout(file string, build func() ([]layout.Placement, error)) ([]layout
 	return list, writeState(file, list)
 }
 
+// stateLayouts — раскладки из состояния (state-*.json, что читается как список построек; зоны,
+// точки стадии 10 и т. п. — нет), в порядке имён файлов: имя файла → раскладка.
+func stateLayouts() ([]string, map[string][]layout.Placement) {
+	files, _ := filepath.Glob(runPath("state-*.json"))
+	var names []string
+	res := map[string][]layout.Placement{}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var list []layout.Placement
+		if json.Unmarshal(data, &list) != nil {
+			continue // не раскладка
+		}
+		base := filepath.Base(f)
+		names = append(names, base)
+		res[base] = list
+	}
+	return names, res
+}
+
 // uniq — без повторов одного места (порядок — первого появления): вторую такую же постройку игра
 // не ставит (лента камня стадии 30 — дважды, 859088572).
 func uniq(list []layout.Placement) []layout.Placement {

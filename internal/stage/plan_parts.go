@@ -353,7 +353,7 @@ func coalBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	for _, pl := range plan.Layout {
 		switch {
 		case pl.Tag == cluster.LogisticsTag+"/"+power.Name && !strings.HasPrefix(pl.Name, "pipe") && pl.Name != "offshore-pump":
-		case pl.Tag == cluster.Tag(power.Name) && (pl.Name == "transport-belt" || pl.Name == "burner-inserter" || pl.Name == chest):
+		case pl.Tag == cluster.Tag(power.Name) && (pl.Name == "transport-belt" || pl.Name == "burner-inserter" || strings.HasSuffix(pl.Name, "chest")): // сундук — любой (обслуживание переименовывает деревянные в железные во всех файлах)
 		default:
 			continue
 		}

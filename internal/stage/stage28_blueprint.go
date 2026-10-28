@@ -2,10 +2,7 @@ package stage
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -115,21 +112,12 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 	for _, pl := range res {
 		have[pl] = true
 	}
-	files, _ := filepath.Glob(runPath("state-*.json"))
-	for _, f := range files {
-		base := filepath.Base(f)
+	names, lists := stateLayouts()
+	for _, base := range names {
 		if base == planFile || base == greenBaseFile || base == blueBaseFile {
 			continue
 		}
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) != nil {
-			continue // не раскладка (зоны, точки стадии 10…)
-		}
-		for _, pl := range list {
+		for _, pl := range lists[base] {
 			if pl.Name == "" || have[pl] || pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {
 				continue
 			}

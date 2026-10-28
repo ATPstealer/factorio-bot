@@ -114,20 +114,13 @@ func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error)
 		}
 		return res, nil
 	}
-	for i := 0; i < len(list); i += auditBatch {
-		part := list[i:min(len(list), i+auditBatch)]
-		var refs []bridge.EntityRef
-		for _, pl := range part {
-			refs = append(refs, bridge.EntityRef{Name: pl.Name, Position: pl.Pos})
-		}
-		got, err := h.B.GetEntities(refs)
-		if err != nil {
-			return nil, err
-		}
-		for j, pl := range part {
-			if j >= len(got) || got[j] == nil {
-				res = append(res, pl)
-			}
+	states, err := entityStates(h, list)
+	if err != nil {
+		return nil, err
+	}
+	for i, pl := range list {
+		if i >= len(states) || states[i] == nil {
+			res = append(res, pl)
 		}
 	}
 	return res, nil

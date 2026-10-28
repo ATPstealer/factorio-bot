@@ -18,7 +18,7 @@ func TestBuildRegions(t *testing.T) {
 		pl("inserter", 1.5, 1.5, 0, ""),
 		pl("inserter", 40.5, 1.5, 0, ""),
 		pl("transport-belt", 2.5, 1.5, 4, ""),
-		pl("underground-belt", 30.5, 5.5, layout.E, "input"), // вход в чанке 0
+		pl("underground-belt", 30.5, 5.5, layout.E, "input"),  // вход в чанке 0
 		pl("underground-belt", 34.5, 5.5, layout.E, "output"), // выход — уже в чанке 1
 		pl("transport-belt", 41.5, 1.5, 4, ""),
 	}

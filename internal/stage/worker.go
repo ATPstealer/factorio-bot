@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -36,6 +35,8 @@ type worker struct {
 	// all — вся стройка стадии, когда build идёт по участкам (buildSorted): из хранения — на
 	// всю оставшуюся, не на участок
 	all []layout.Placement
+	// far — буферы, до которых не дойти (fromProducts): больше не ходить
+	far map[bridge.Pos]bool
 	// noWait — крафт в очередь и дальше, не ждать готового: стоящее в очереди считается как
 	// уже есть (have); конец очереди — waitQueue (стадия 14: бот стоял 39–57 мин из 62–86, пока
 	// шёл ручной крафт, — правила скорости 27.10)
@@ -384,19 +385,11 @@ func (s *worker) remaining(item string) int {
 // «outbuf/…»; stages.md, инвентарь): сколько не хватает (n) и стопку запаса, не больше, чем
 // влезет; с ближних. true — что-то взято.
 func (s *worker) fromProducts(ctx context.Context, item string, n int) (bool, error) {
-	files, _ := filepath.Glob(runPath("state-*.json"))
 	var bufs []layout.Placement
 	seen := map[layout.Placement]bool{}
-	for _, f := range files {
-		data, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		var list []layout.Placement
-		if json.Unmarshal(data, &list) != nil {
-			continue // не раскладка
-		}
-		for _, pl := range list {
+	names, lists := stateLayouts()
+	for _, base := range names {
+		for _, pl := range lists[base] {
 			if strings.HasPrefix(pl.Tag, "outbuf/") && strings.HasSuffix(pl.Name, "chest") && !seen[pl] {
 				seen[pl] = true
 				bufs = append(bufs, pl)
@@ -412,7 +405,7 @@ func (s *worker) fromProducts(ctx context.Context, item string, n int) (bool, er
 	}
 	var es []bridge.Entity
 	for _, st := range states {
-		if st != nil && st.Inventories["chest"][item] > 0 {
+		if st != nil && st.Inventories["chest"][item] > 0 && !s.far[st.Position] {
 			es = append(es, st.Entity)
 		}
 	}
@@ -436,6 +429,16 @@ func (s *worker) fromProducts(ctx context.Context, item string, n int) (bool, er
 			break
 		}
 		if err := s.h.TakeItem(ctx, e, item, want-s.inv(item)); err != nil {
+			if errors.Is(err, act.ErrNotReached) && ctx.Err() == nil {
+				// до буфера не дойти (внутри кольца своих построек: стадия 30 на 859088572) —
+				// следующий; нигде — крафт руками
+				s.h.Say("до буфера %s не дойти — дальше", item)
+				if s.far == nil {
+					s.far = map[bridge.Pos]bool{}
+				}
+				s.far[e.Position] = true
+				continue
+			}
 			return false, err
 		}
 	}
