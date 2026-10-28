@@ -67,6 +67,30 @@ func writeState(file string, v any) error {
 // обслуживании — refreshLayouts).
 var freshLayouts bool
 
+// crossCache — входы буферов на чужую полосу по плану (planCross): план — ~10 тыс. построек,
+// считать один раз на файл плана.
+var crossCache struct {
+	key string
+	set map[layout.Placement]bool
+}
+
+// planCross — crossBuffers плана стройки (как сохранён); плана нет — пусто.
+func planCross() map[layout.Placement]bool {
+	fi, err := os.Stat(runPath(planNowFile()))
+	if err != nil {
+		return nil
+	}
+	key := fmt.Sprint(runPath(planNowFile()), fi.ModTime().UnixNano(), fi.Size())
+	if crossCache.key != key {
+		raw, err := rawPlan()
+		if err != nil {
+			return nil
+		}
+		crossCache.key, crossCache.set = key, crossBuffers(raw.Layout)
+	}
+	return crossCache.set
+}
+
 // onceLayout — раскладка стадии один раз на карту: есть файл file — из него, нет — build и в
 // файл (стройка, проверка и перезапуск стадии видят одну и ту же раскладку); freshLayouts —
 // заново и в файл.
@@ -74,6 +98,11 @@ func onceLayout(file string, build func() ([]layout.Placement, error)) ([]layout
 	if data, err := os.ReadFile(runPath(file)); err == nil && !freshLayouts {
 		var list []layout.Placement
 		if json.Unmarshal(data, &list) == nil && len(list) > 0 {
+			// посчитанная до правила о буферах на чужую полосу — без их входов (стадия 27 на
+			// 260647970: проверка ждала снятый вход буфера зелёного)
+			if cross := planCross(); len(cross) > 0 {
+				list = slices.DeleteFunc(list, func(pl layout.Placement) bool { return cross[pl] })
+			}
 			return list, nil
 		}
 	}
