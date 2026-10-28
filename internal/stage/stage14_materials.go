@@ -70,14 +70,12 @@ func materialsNeed(h *act.Hands) (map[string]int, error) {
 		return nil, err
 	}
 	need := map[string]int{}
-	for _, pl := range list {
-		e, err := h.B.EntityAt(pl.Name, pl.Pos)
-		if err != nil {
-			return nil, err
-		}
-		if e == nil {
-			need[pl.Name]++
-		}
+	miss, err := notBuilt(h, list) // пачками: по одной — 1 мин 40 с в начале и в проверке
+	if err != nil {
+		return nil, err
+	}
+	for _, pl := range miss {
+		need[pl.Name]++
 	}
 	plan, _ := LoadPlan()
 	for _, c := range materialsClusters(plan) {

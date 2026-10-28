@@ -295,14 +295,12 @@ func checkStorage(h *act.Hands) error {
 
 // checkBuilt — всё из list стоит.
 func checkBuilt(h *act.Hands, list []layout.Placement) error {
-	for _, pl := range list {
-		e, err := h.B.EntityAt(pl.Name, pl.Pos)
-		if err != nil {
-			return err
-		}
-		if e == nil {
-			return fmt.Errorf("не стоит %s в (%.1f, %.1f)", pl.Name, pl.Pos.X, pl.Pos.Y)
-		}
+	miss, err := notBuilt(h, list) // пачками: по одной — минуты на больших стадиях
+	if err != nil {
+		return err
+	}
+	if len(miss) > 0 {
+		return fmt.Errorf("не стоит %s в (%.1f, %.1f)", miss[0].Name, miss[0].Pos.X, miss[0].Pos.Y)
 	}
 	return nil
 }

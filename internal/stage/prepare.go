@@ -84,6 +84,24 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 	return nil, nil
 }
 
+// entityStates — состояние построек list в игре, пачками (по одной — тысячи запросов); нет —
+// nil на её месте.
+func entityStates(h *act.Hands, list []layout.Placement) ([]*bridge.EntityState, error) {
+	res := make([]*bridge.EntityState, 0, len(list))
+	for i := 0; i < len(list); i += auditBatch {
+		var refs []bridge.EntityRef
+		for _, pl := range list[i:min(len(list), i+auditBatch)] {
+			refs = append(refs, bridge.EntityRef{Name: pl.Name, Position: pl.Pos})
+		}
+		got, err := h.B.GetEntities(refs)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, got...)
+	}
+	return res, nil
+}
+
 // notBuilt — из list то, чего в игре ещё нет (пачками, как planAudit): нужное стадии и
 // проверка перед стройкой — только по несделанному (решение пользователя 26.10).
 func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) {
@@ -431,11 +449,10 @@ func prepStock(h *act.Hands) map[string]int {
 
 // missing — постройки плана, которых ещё нет.
 func missing(h *act.Hands, list []layout.Placement) []layout.Placement {
-	var res []layout.Placement
-	for _, pl := range list {
-		if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e == nil {
-			res = append(res, pl)
-		}
+	// пачками (notBuilt): по одной — 15 тыс. запросов на стадию 30, подготовка шла 10–20 мин
+	res, err := notBuilt(h, list)
+	if err != nil {
+		return nil
 	}
 	return res
 }

@@ -87,12 +87,19 @@ func checkIncome(h *act.Hands) error {
 	if err := checkBuilt(h, list); err != nil {
 		return err
 	}
+	var drills []layout.Placement
 	for _, pl := range list {
-		if pl.Name != "electric-mining-drill" {
-			continue
+		if pl.Name == "electric-mining-drill" {
+			drills = append(drills, pl)
 		}
-		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Network == 0 {
-			return fmt.Errorf("бур (%.1f, %.1f) без сети", pl.Pos.X, pl.Pos.Y)
+	}
+	states, err := entityStates(h, drills) // пачками: буров — сотни
+	if err != nil {
+		return err
+	}
+	for i, st := range states {
+		if st != nil && st.Network == 0 {
+			return fmt.Errorf("бур (%.1f, %.1f) без сети", drills[i].Pos.X, drills[i].Pos.Y)
 		}
 	}
 	return nil
