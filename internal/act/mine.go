@@ -78,7 +78,7 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 	var idleSince, fullSince time.Time
 	items := -1 // предметов в инвентаре: прибавляется — копаем (в неполную пачку), не «полон»
 	repressed := false
-	flips := 0
+	flips, chopped := 0, 0 // уходов выделения на соседа подряд; срублено накрывших деревьев
 	for {
 		if err := sleep(ctx, pollEvery); err != nil {
 			return err
@@ -99,10 +99,34 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 			if got == nil {
 				return nil // цель добыта, выделение перешло на соседа
 			}
-			// выделение раз за разом уходит на соседа (цель под его кроной) — пусть Mine
-			// сначала срубит соседей
+			// выделение раз за разом уходит на соседа (цель под его кроной): своя постройка под
+			// деревом — срубить именно это дерево и снова (крон бывает несколько: третье дерево
+			// закрыло столб после двух срубленных — стадия 28 на 859088572); дерево под деревом —
+			// пусть Mine сначала срубит соседей
 			if flips++; flips >= 3 {
-				return fmt.Errorf("%w: %s под %s", ErrHover, e.Name, p.Selected.Name)
+				sel := p.Selected
+				if e.Type == "tree" || sel.Type != "tree" || chopped >= 5 {
+					return fmt.Errorf("%w: %s под %s", ErrHover, e.Name, sel.Name)
+				}
+				h.Say("%s под кроной %s — рублю дерево", e.Name, sel.Name)
+				t, err := h.B.EntityAt(sel.Name, sel.Position)
+				if err != nil {
+					return err
+				}
+				if t != nil {
+					if err := h.WalkToMine(ctx, *t); err != nil && !errors.Is(err, ErrNotReached) {
+						return err
+					}
+					if err := h.mineOnce(ctx, *t, 20*time.Second); err != nil {
+						return err
+					}
+					if h.World != nil {
+						if _, err := h.World.Sync(h.B, false); err != nil {
+							return err
+						}
+					}
+				}
+				chopped, flips = chopped+1, 0
 			}
 			h.Say("под курсором %s вместо %s — отпускаю и навожу заново", p.Selected.Name, e.Name)
 			if err := h.Hover(ctx, e); err != nil {
