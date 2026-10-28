@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -298,7 +299,18 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	fresh = append(fresh, ps...)
 	layoutAll := func() (*layout.Layout, error) {
+		// старый план — препятствие для внутренностей новых кластеров: они раскладываются раньше,
+		// чем он добавляется (подвод угля будущей добычи шёл по пятну нефти — столб и качалки
+		// встали на его ленту: стадия 34 на бумаге, 238178543 и 208708719)
+		saved := base.Avoid
+		base.Avoid = maps.Clone(avoid)
+		for _, pl := range old.Layout {
+			for _, t := range layout.Tiles(pr, pl) {
+				base.Avoid[t] = true
+			}
+		}
 		l, err := base.Layout(fresh...)
+		base.Avoid = saved
 		if err != nil {
 			return l, err
 		}
