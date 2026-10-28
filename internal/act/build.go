@@ -745,7 +745,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	}
 	_, werr := h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
 	// нажатие могло потеряться — доложить недостающее (до 3 заходов, курсор — заново: в игре
-	// терялись и повторные нажатия, стадия 10 на 794457638)
+	// терялись и повторные нажатия — 794457638)
 	for try := 0; try < 3 && werr != nil; try++ {
 		p, err := h.B.Player()
 		if err != nil {

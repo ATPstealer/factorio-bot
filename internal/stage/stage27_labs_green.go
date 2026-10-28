@@ -26,7 +26,7 @@ func init() {
 	register(Stage{N: 27, Name: "зелёная наука в лаборатории", Run: runLabsGreen, Check: checkLabsGreen})
 }
 
-// labsGreenLayout — дописанное стадией 6 в кластер лабораторий и его отводы, лента зелёной науки
+// labsGreenLayout — дописанное стадией 4 в кластер лабораторий и его отводы, лента зелёной науки
 // шины конечных с подводом, делители, столбы; один раз на карту (файл).
 func labsGreenLayout(h *act.Hands) ([]layout.Placement, error) {
 	return onceLayout(labsGreenFile, func() ([]layout.Placement, error) {

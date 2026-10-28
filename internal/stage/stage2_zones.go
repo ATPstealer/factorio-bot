@@ -189,7 +189,7 @@ func saveWorld(h *act.Hands) {
 // RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
 
 // RoughOffline — разметка зон без игры по сохранённой карте (h.World загружен, h.B нет): одна
-// попытка в открытом, без дооткрытий и переходов в другие квадраты; from > 4 — без разметки,
+// попытка в открытом, без дооткрытий и переходов в другие квадраты; from > 2 — без разметки,
 // стадии from…to по состоянию в BOT_RUN.
 func RoughOffline(h *act.Hands, from, to int) error {
 	roughRegion, roughCliffs, roughOffline = nil, false, true

@@ -24,7 +24,7 @@ func init() {
 	register(Stage{N: 29, Name: "энергия под синюю науку", Run: runPowerBlue, Check: checkPowerBlue})
 }
 
-// blueAdded — дописанное стадией 7 (весь план минус план до неё) и весь план.
+// blueAdded — дописанное стадией 5 (весь план минус план до неё) и весь план.
 func blueAdded() ([]layout.Placement, *ClusterPlan, error) {
 	plan, err := LoadBluePlan()
 	if err != nil {

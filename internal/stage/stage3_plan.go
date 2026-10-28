@@ -48,7 +48,7 @@ func init() {
 }
 
 // LoadPlan — план кластеров этой карты для стройки стадий 11–28: стадий 3–4 (дописанное
-// стадией 7 — синяя наука — строится потом, его план — LoadBluePlan).
+// стадией 5 — синяя наука — строится потом, его план — LoadBluePlan).
 func LoadPlan() (*ClusterPlan, error) {
 	s, err := rawPlan()
 	if err != nil {

@@ -131,7 +131,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 	heap.Push(open, &rnode{s: start, f: h(from)})
 	var goal *rstate
 	// предел поиска — по расстоянию: пути нет — короткий маршрут (отвод с шины) не обходит всю
-	// открытую карту (12 мин на попытку, стадия 5); дальний — как раньше, до 1.5M состояний
+	// открытую карту (12 мин на попытку); дальний — как раньше, до 1.5M состояний
 	d := abs(from.X-to.X) + abs(from.Y-to.Y) + 60
 	limit := min(max(16*d*d, 100_000), 1_500_000)
 	for open.Len() > 0 && len(best) < limit {
