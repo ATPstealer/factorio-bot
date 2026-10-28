@@ -104,14 +104,29 @@ func onceLayout(file string, build func() ([]layout.Placement, error)) ([]layout
 			if cross := planCross(); len(cross) > 0 {
 				list = slices.DeleteFunc(list, func(pl layout.Placement) bool { return cross[pl] })
 			}
-			return list, nil
+			return uniq(list), nil
 		}
 	}
 	list, err := build()
 	if err != nil {
 		return nil, err
 	}
+	list = uniq(list)
 	return list, writeState(file, list)
+}
+
+// uniq — без повторов одного места (порядок — первого появления): вторую такую же постройку игра
+// не ставит (лента камня стадии 30 — дважды, 859088572).
+func uniq(list []layout.Placement) []layout.Placement {
+	seen := map[layout.Placement]bool{}
+	res := list[:0:0]
+	for _, pl := range list {
+		if !seen[pl] {
+			seen[pl] = true
+			res = append(res, pl)
+		}
+	}
+	return res
 }
 
 func register(s Stage) { all[s.N] = s }

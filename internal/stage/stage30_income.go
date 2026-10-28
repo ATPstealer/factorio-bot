@@ -36,7 +36,15 @@ func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
 		}
 		// ленты шин, которые кормит только будущая добыча (камень): в плане они — с первой
 		// итерацией, а не с добычей
-		res = append(res, laterLanes(h, plan)...)
+		have := map[layout.Placement]bool{}
+		for _, pl := range res {
+			have[pl] = true
+		}
+		for _, pl := range laterLanes(h, plan) { // часть их бывает и в дописанном проектом синей
+			if !have[pl] {
+				res = append(res, pl)
+			}
+		}
 		// ленты шин, дописанные стадией 7 (продления, новые ленты, их подземки и делители) — здесь
 		// все сразу: стадия долгая и раньше всех частей синей (пустые ленты подождут)
 		if added, _, err := blueAdded(); err == nil {

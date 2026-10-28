@@ -34,7 +34,17 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 		}
 		return configure(ctx, h, these)
 	}
-	sorted := slices.Clone(list)
+	// повторы одного места — один раз (лента камня стадии 30 — и из лент будущей добычи, и из
+	// дописанного проектом синей: вторую такую же игра не ставит — «не удалось поставить»,
+	// 859088572)
+	seen := map[layout.Placement]bool{}
+	var sorted []layout.Placement
+	for _, pl := range list {
+		if !seen[pl] {
+			seen[pl] = true
+			sorted = append(sorted, pl)
+		}
+	}
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
 		ia, ib := slices.Index(order, a.Name), slices.Index(order, b.Name)
 		if ia < 0 {
