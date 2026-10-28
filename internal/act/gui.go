@@ -23,12 +23,15 @@ type point struct{ X, Y int }
 // Layout — координаты элементов интерфейса относительно окна клиента.
 // Сняты со скриншотов (bot shot) для окна 1856x1016, UI scale 1.
 type Layout struct {
-	InvSlot1   point     // центр первой ячейки инвентаря (окно E)
-	CraftSlot1 point     // центр первой ячейки крафта (окно E, после поиска)
-	ChestSlot1 point     // центр первой ячейки сундука (окно сундука, справа; по Cols в строке)
-	SlotStep   int       // шаг ячеек
-	Cols       int       // ячеек в строке (инвентарь и крафт)
-	Quickbar   [10]point // ряд 1 быстрой панели: клавиши 1..0
+	InvSlot1   point // центр первой ячейки инвентаря (окно E)
+	CraftSlot1 point // центр первой ячейки крафта (окно E, после поиска)
+	ChestSlot1 point // центр первой ячейки сундука (окно сундука, справа; по Cols в строке)
+	SlotStep   int   // шаг ячеек
+	// FlushX — столбец красных кнопок-корзин окна цистерны (слить её содержимое; ниже — слить
+	// всю сеть труб): по нему кнопки ищутся по пикселям — окно по высоте разное
+	FlushX   int
+	Cols     int       // ячеек в строке (инвентарь и крафт)
+	Quickbar [10]point // ряд 1 быстрой панели: клавиши 1..0
 	// Меню игры (Esc без открытого окна) мод не видит — узнаём по зелёной кнопке Resume
 	// (два оттенка: обычный и под курсором).
 	MenuProbe  []point
@@ -66,6 +69,7 @@ var Layout1856 = Layout{
 	CraftSlot1: point{966, 390},
 	ChestSlot1: point{966, 505},
 	SlotStep:   40,
+	FlushX:     1103,
 	Cols:       10,
 	Quickbar: [10]point{{745, 946}, {785, 946}, {826, 946}, {866, 946}, {906, 946},
 		{950, 946}, {990, 946}, {1030, 946}, {1070, 946}, {1110, 946}},
@@ -1356,6 +1360,78 @@ func (h *Hands) TakeItem(ctx context.Context, e bridge.Entity, item string, n in
 		return fmt.Errorf("act: из %s взято %s ×%d из %d", e.Name, item, got(p), n)
 	}
 	return nil
+}
+
+// FlushPipeline — слить всю сеть труб, к которой подключена цистерна e (в ней чужая жидкость,
+// решение пользователя 28.10: кнопка в окне): окно цистерны, нижняя красная кнопка-корзина
+// («Pipeline contents»; верхняя — содержимое самой цистерны). Подтверждение — в цистерне больше
+// нет жидкости fluid (своя натечёт сразу).
+func (h *Hands) FlushPipeline(ctx context.Context, e bridge.Entity, fluid string) error {
+	h.Say("сливаю сеть труб у %s в (%.1f, %.1f): в ней %s", e.Name, e.Position.X, e.Position.Y, fluid)
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
+	if err := h.ClearCursor(ctx); err != nil {
+		return err
+	}
+	if err := h.openEntity(ctx, e, "flush"); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	y, ok := h.flushButton()
+	if !ok {
+		h.debugShot("flush")
+		return fmt.Errorf("act: в окне %s кнопки слива сети нет", e.Name)
+	}
+	if err := h.at(point{h.Layout.FlushX, y}); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	for i := 0; i < 10; i++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err != nil {
+			return err
+		}
+		if st == nil || st.Fluids[fluid] == 0 {
+			return nil
+		}
+	}
+	h.debugShot("flush")
+	return fmt.Errorf("act: %s в сети %s не слилась", fluid, e.Name)
+}
+
+// flushButton — y середины нижней красной кнопки в столбце FlushX открытого окна.
+func (h *Hands) flushButton() (int, bool) {
+	const y0, n = 400, 400
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + h.Layout.FlushX, Y: h.Win.Y + y0, W: 1, H: n})
+	if err != nil {
+		return 0, false
+	}
+	red := func(y int) bool {
+		c := img.RGBAAt(0, y)
+		return c.R > 180 && c.G < 120 && c.B < 120
+	}
+	last, top := -1, -1
+	for y := 0; y < n; y++ {
+		if red(y) {
+			if y == 0 || !red(y-1) {
+				top = y
+			}
+			last = (top + y) / 2
+		}
+	}
+	if last < 0 {
+		return 0, false
+	}
+	return y0 + last, true
 }
 
 // openEntity — открыть окно постройки e кликом. Не открылось, а под курсором дерево (крона

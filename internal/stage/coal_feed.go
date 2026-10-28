@@ -409,3 +409,53 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 	}
 	return nil, fmt.Errorf("уголь станции: отвод не проложить (источников %d, целей %d)", len(sources), len(targets))
 }
+
+// healFluids — в цистернах складов жидкость не по плану (вода в нефти: поворот подземных труб
+// воды рядом с трубой нефти — стадия 35 на 1028292478) — слить всю сеть труб кнопкой в окне
+// цистерны (решение пользователя 28.10); своя жидкость натечёт сама. Сеть — один раз: после
+// слива остальные её цистерны уже чисты.
+func healFluids(ctx context.Context, h *act.Hands) error {
+	plan, err := LoadBluePlan()
+	if err != nil {
+		return nil
+	}
+	for _, c := range plan.Clusters {
+		if c.Kind != cluster.Tank {
+			continue
+		}
+		var tanks []layout.Placement
+		for _, pl := range plan.Layout {
+			if pl.Tag == cluster.Tag(c.Name) && pl.Name == "storage-tank" {
+				tanks = append(tanks, pl)
+			}
+		}
+		for {
+			states, err := entityStates(h, tanks)
+			if err != nil {
+				return err
+			}
+			var bad *bridge.EntityState
+			alien := ""
+			for _, st := range states {
+				if st == nil {
+					continue
+				}
+				for f, v := range st.Fluids {
+					if f != c.Product && v > 0 {
+						bad, alien = st, f
+					}
+				}
+				if bad != nil {
+					break
+				}
+			}
+			if bad == nil {
+				break
+			}
+			if err := h.FlushPipeline(ctx, bad.Entity, alien); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

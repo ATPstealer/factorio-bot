@@ -266,6 +266,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("уголь станции: подвод не вышел: %v", err)
 		}
+		// чужая жидкость в сети складов — слить (stages.md, общее)
+		if err := healFluids(ctx, h); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("слив чужой жидкости не вышел: %v", err)
+		}
 	}
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
