@@ -345,7 +345,9 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			}
 			w, hh := h.Protos.Entities[e.Name].TileWidth, h.Protos.Entities[e.Name].TileHeight
 			ug := h.Protos.Entities[e.Name].Type == "underground-belt"
-			if e.Direction != nil && (w != hh && *e.Direction%8 != want%8 || ug && !exit && *e.Direction != want) {
+			fl := h.fluidLinked(e.Name)
+			if e.Direction != nil && (w != hh && *e.Direction%8 != want%8 || ug && !exit && *e.Direction != want ||
+				fl && !h.sameDir(e.Name, *e.Direction, want)) {
 				// прямоугольная встала поперёк (поворот на месте сдвинет центр) или подземка
 				// не туда (R у подземки меняет вход/выход) — поднять, довернуть руку, поставить
 				if e, err = h.replace(ctx, item, e, pos, want); err != nil {
@@ -374,7 +376,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			built[i] = e
 			left = removeInt(left, i)
 			// подземку R не поворачивает, а меняет вход/выход — её переставляет replace выше
-			if !exit && !ug && e.Direction != nil && !h.sameDir(e.Name, *e.Direction, dir) {
+			if !exit && !ug && !fl && e.Direction != nil && !h.sameDir(e.Name, *e.Direction, dir) {
 				misrotated = append(misrotated, i)
 			}
 			if e.Direction != nil && !exit && !ug && w == hh {
@@ -402,6 +404,15 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 		return built, fmt.Errorf("%w %s в %d местах, первое (%.1f, %.1f)", ErrPlace, it.PlaceResult, len(failed), failed[0].X, failed[0].Y)
 	}
 	return built, nil
+}
+
+// fluidLinked — у постройки трубные соединения, и куда они смотрят — не всё равно (не простая
+// труба, не сборщик): поворот на месте открывает её по очереди на все стороны — жидкость соседних
+// труб смешивается (стадия 35 на 1028292478: подземные трубы воды крутились рядом с трубой нефти —
+// вода в трубах нефти и во всех цистернах). Такие — поднять и поставить заново, не крутить.
+func (h *Hands) fluidLinked(name string) bool {
+	e := h.Protos.Entities[name]
+	return len(e.PipeConnections) > 0 && e.Type != "pipe" && e.Type != "assembling-machine"
 }
 
 // sameDir — направления a и b у постройки name одно: у симметричных (паровой двигатель,
@@ -481,8 +492,9 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 	if e.Direction != nil {
 		hand = *e.Direction
 	}
+	fl := h.fluidLinked(e.Name)
 	tries := 1
-	if ug {
+	if ug || fl {
 		tries = 4
 	}
 	for try := 0; ; try++ {
@@ -519,7 +531,7 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 		if err != nil {
 			return e, err
 		}
-		if ne.Direction == nil || *ne.Direction == dir || !ug && *ne.Direction%8 == dir%8 {
+		if ne.Direction == nil || h.sameDir(ne.Name, *ne.Direction, dir) || !ug && !fl && *ne.Direction%8 == dir%8 {
 			return ne, nil
 		}
 		if try+1 >= tries {
@@ -587,6 +599,17 @@ func dirName(d int) string {
 // После каждого нажатия ждёт, пока игра применит поворот (иначе лишнее нажатие проскочит
 // нужное направление).
 func (h *Hands) Rotate(ctx context.Context, e bridge.Entity, dir int) error {
+	if h.fluidLinked(e.Name) { // трубные соединения: не крутить на месте — поднять и поставить
+		if e.Direction != nil && h.sameDir(e.Name, *e.Direction, dir) {
+			return nil
+		}
+		h.Say("%s — не кручу на месте (жидкости смешаются): ставлю заново%s", e.Name, dirName(dir))
+		if err := h.Pickup(ctx, e); err != nil {
+			return err
+		}
+		_, err := h.PlaceDirs(ctx, h.Protos.ItemFor(e.Name), []bridge.Pos{e.Position}, []int{dir})
+		return err
+	}
 	h.Say("поворачиваю %s%s", e.Name, dirName(dir))
 	if err := h.reach(ctx, e, buildReach); err != nil {
 		return err
