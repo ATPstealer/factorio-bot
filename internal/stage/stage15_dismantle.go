@@ -171,8 +171,13 @@ func (s *worker) fromStorage(ctx context.Context, item string, n int) (bool, err
 		if err := s.tidy(ctx); err != nil && !errors.Is(err, errNoStorage) {
 			return false, err
 		}
+		// не больше, чем влезет (2 ячейки — про запас): берём теперь на всю стройку стадии
+		room := (s.freeSlots() - 2) * max(s.h.Protos.Items[item].StackSize, 1)
+		if room <= 0 {
+			return false, nil
+		}
 		before := s.inv(item)
-		if err := s.h.TakeItem(ctx, st.Entity, item, n); err != nil {
+		if err := s.h.TakeItem(ctx, st.Entity, item, min(n, room)); err != nil {
 			return false, err
 		}
 		return s.inv(item) > before, nil

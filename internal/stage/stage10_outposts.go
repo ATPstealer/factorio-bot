@@ -497,7 +497,10 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		}
 		lack := n - s.inv(item) - s.pending(item)
 		if s.useStore {
-			if got, err := s.fromStorage(ctx, item, lack); err != nil || got {
+			// брать — на всю оставшуюся стройку стадии (сколько влезет), не на пачку: за 40
+			// лентами к буферу у базы ходил из дальних блоков — 13–21 ходка в час (стадия 30)
+			take := max(lack, s.remaining(item))
+			if got, err := s.fromStorage(ctx, item, take); err != nil || got {
 				if err != nil {
 					return err
 				}
@@ -506,7 +509,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 			// готовое — из буферов выхода своих кластеров, руками — только чего там нет
 			// (stages.md, инвентарь)
 			if _, made := s.h.Protos.Recipes[item]; made && item != "iron-plate" && item != "copper-plate" {
-				if got, err := s.fromProducts(ctx, item, lack); err != nil || got {
+				if got, err := s.fromProducts(ctx, item, take); err != nil || got {
 					if err != nil {
 						return err
 					}
@@ -989,6 +992,25 @@ func checkOutposts(h *act.Hands) error {
 		}
 	}
 	return nil
+}
+
+// remaining — сколько item ещё поставить на всю стройку стадии (s.all, по участкам) сверх того,
+// что в инвентаре; не по участкам — 0.
+func (s *worker) remaining(item string) int {
+	if s.all == nil {
+		return 0
+	}
+	var these []layout.Placement
+	for _, pl := range s.all {
+		if s.h.Protos.ItemFor(pl.Name) == item {
+			these = append(these, pl)
+		}
+	}
+	left, err := notBuilt(s.h, these)
+	if err != nil {
+		return 0
+	}
+	return len(left) - s.inv(item)
 }
 
 // fromProducts — готовое item из буферов выхода своих кластеров (раскладки стадий, тег
