@@ -375,6 +375,16 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			}
 			built[i] = e
 			left = removeInt(left, i)
+			// поставленное — сразу в модель карты: следующее место стоять выбирается уже с ним
+			// (свежая лента была «свободна» — бот вставал на неё, его несло: «не сойти с ленты»,
+			// TestPlaceUndergroundInBeltCorridor на 1028292478-0)
+			if h.World != nil {
+				o := world.Object{Name: e.Name, Type: h.Protos.Entities[e.Name].Type, Pos: e.Position, Own: true}
+				if e.Direction != nil {
+					o.Direction = *e.Direction
+				}
+				h.World.Put([]world.Object{o})
+			}
 			// подземку R не поворачивает, а меняет вход/выход — её переставляет replace выше
 			if !exit && !ug && !fl && e.Direction != nil && !h.sameDir(e.Name, *e.Direction, dir) {
 				misrotated = append(misrotated, i)
@@ -1025,12 +1035,26 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 // bestStand — точка у цели e (тайл в досягаемости добычи), откуда достаётся больше всего
 // оставшихся others; при равенстве — ближе к цели. Только проходимые тайлы модели.
 func (h *Hands) bestStand(e bridge.Entity, others []bridge.Entity, reach func(bridge.Pos, bridge.Entity) float64) bridge.Pos {
+	// сначала — где можно стоять (не на ленте: несёт — «не сойти с ленты», подбор подземки в
+	// проходе между рядами лент, TestPlaceUndergroundInBeltCorridor на 1028292478-0); нет — любой
+	// проходимый
+	if h.World != nil {
+		if pos, ok := h.standAt(e, others, reach, func(t world.Tile) bool { return h.World.Standable(t.Center()) }); ok {
+			return pos
+		}
+	}
+	pos, _ := h.standAt(e, others, reach, func(t world.Tile) bool { return h.World == nil || h.World.Walkable(t) })
+	return pos
+}
+
+// standAt — bestStand по тайлам, где ok.
+func (h *Hands) standAt(e bridge.Entity, others []bridge.Entity, reach func(bridge.Pos, bridge.Entity) float64, ok func(world.Tile) bool) (bridge.Pos, bool) {
 	c := world.TileOf(e.Position)
 	best, bestN, bestD := e.Position, -1, math.Inf(1)
 	for dy := -4; dy <= 4; dy++ {
 		for dx := -4; dx <= 4; dx++ {
 			t := world.Tile{X: c.X + dx, Y: c.Y + dy}
-			if h.World != nil && !h.World.Walkable(t) {
+			if !ok(t) {
 				continue
 			}
 			pos := t.Center()
@@ -1049,7 +1073,7 @@ func (h *Hands) bestStand(e bridge.Entity, others []bridge.Entity, reach func(br
 			}
 		}
 	}
-	return best
+	return best, bestN >= 0
 }
 
 // Drop выкладывает один предмет на землю в точку pos: предмет в руку → навести на пустое
