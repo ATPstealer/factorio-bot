@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
@@ -41,10 +42,15 @@ func runSteel(ctx context.Context, h *act.Hands) error {
 	h.Say("сталь: %d построек по плану стадии 5", len(list))
 	order := []string{"stone-furnace", chest, "inserter", "long-handed-inserter", "transport-belt",
 		"underground-belt", "splitter", "small-electric-pole"}
-	return buildSorted(ctx, h, list, order)
+	if err := buildSorted(ctx, h, list, order); err != nil {
+		return err
+	}
+	// по факту — подождать: проверка сразу после последней постройки шла раньше, чем железо
+	// дошло до печей (стадия 31 на 260647970)
+	return waitFact(ctx, h, list, steelFact)
 }
 
-// checkSteel — всё из раскладки стоит; в печах стали — сталь или пластины (идёт работа).
+// checkSteel — всё из раскладки стоит, сталь идёт (steelFact).
 func checkSteel(h *act.Hands) error {
 	list, err := steelLayout(h)
 	if err != nil {
@@ -53,8 +59,15 @@ func checkSteel(h *act.Hands) error {
 	if err := checkBuilt(h, list); err != nil {
 		return err
 	}
+	return steelFact(h, list)
+}
+
+// steelFact — в печах стали — сталь или пластины (идёт работа), в буфере в конце ленты стали —
+// сталь (лента без разрывов: под делителем будущего отвода рвалась — стадия 33 на 859088572).
+func steelFact(h *act.Hands, list []layout.Placement) error {
+	got := false
 	for _, pl := range list {
-		if pl.Name != "stone-furnace" || pl.Recipe != "steel-plate" {
+		if pl.Name != "stone-furnace" || pl.Recipe != "steel-plate" || got {
 			continue
 		}
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
@@ -63,9 +76,20 @@ func checkSteel(h *act.Hands) error {
 		}
 		for _, inv := range st.Inventories {
 			if inv["steel-plate"] > 0 || inv["iron-plate"] > 0 {
-				return nil
+				got = true
 			}
 		}
 	}
-	return fmt.Errorf("печи стали ещё ничего не получили")
+	if !got {
+		return fmt.Errorf("печи стали ещё ничего не получили")
+	}
+	for _, pl := range list {
+		if !strings.HasSuffix(pl.Name, "chest") || !strings.HasPrefix(pl.Tag, "outbuf/") {
+			continue
+		}
+		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Inventories["chest"]["steel-plate"] > 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("в буфере в конце ленты стали стали нет")
 }
