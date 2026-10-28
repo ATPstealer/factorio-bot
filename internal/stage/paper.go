@@ -97,9 +97,13 @@ func (p *paperBuilt) remove(h *act.Hands, list []layout.Placement) {
 	}
 }
 
+// flowSeen — нарушения течения на бумаге у прошлой стадии (в журнал — только новые).
+var flowSeen map[string]bool
+
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.
 func paperStages(h *act.Hands, to int) error {
 	paper = &paperBuilt{at: map[world.Tile]int{}}
+	flowSeen = nil
 	defer func() { paper = nil }()
 	var outposts []layout.Placement
 	for _, n := range List() {
@@ -143,6 +147,23 @@ func paperStages(h *act.Hands, to int) error {
 		if !freshLayouts || n != 22 && n != 28 {
 			bad = append(bad, paper.add(h, list)...)
 		}
+		// проверки чертежа стадии (решение пользователя 28.10): лента до своего буфера в конце —
+		// жёстко; течение — пока в журнал (ложные срабатывания не выяснены)
+		if !freshLayouts {
+			bad = append(bad, laneToBuffer(h, paper.list)...)
+			l := layout.New(h.Protos, h.World) // руда под бурами — с карты
+			for _, pl := range paper.list {
+				l.Add(pl)
+			}
+			now := map[string]bool{}
+			for _, e := range l.Flow(nil) {
+				now[e] = true
+				if !flowSeen[e] { // только новое против прошлой стадии
+					h.Log("стадия %d на бумаге, течение: %s", n, e)
+				}
+			}
+			flowSeen = now
+		}
 		h.Log("стадия %d на бумаге: %d построек, нарушений %d", n, len(list), len(bad))
 		if len(bad) > 0 {
 			for _, b := range bad {
@@ -154,7 +175,79 @@ func paperStages(h *act.Hands, to int) error {
 			return fmt.Errorf("стадия %d на бумаге: %s", n, strings.Join(bad, "; "))
 		}
 	}
+	// весь план — в раскладках стадий (решение пользователя 28.10: трубы месторождений, НПЗ и
+	// сквозные ленты не входили ни в одну стадию — синей не было на всех картах)
+	if to >= 41 && !freshLayouts {
+		if miss := planCoverage(h, paper.list); miss != "" {
+			return fmt.Errorf("на бумаге: %s", miss)
+		}
+	}
 	return nil
+}
+
+// planCoverage — постройки полного плана, которых нет в built (раскладки стадий): по тегам; ""
+// — все есть.
+func planCoverage(h *act.Hands, built []layout.Placement) string {
+	plan, err := LoadBluePlan()
+	if err != nil {
+		if plan, err = LoadPlan(); err != nil {
+			return ""
+		}
+	}
+	type key struct {
+		name string
+		x, y int
+	}
+	have := map[key]bool{}
+	for _, pl := range built {
+		have[key{pl.Name, int(pl.Pos.X * 2), int(pl.Pos.Y * 2)}] = true
+	}
+	var miss []layout.Placement
+	for _, pl := range plan.Layout {
+		if !have[key{pl.Name, int(pl.Pos.X * 2), int(pl.Pos.Y * 2)}] {
+			miss = append(miss, pl)
+		}
+	}
+	if len(miss) == 0 {
+		return ""
+	}
+	return "плана нет ни в одной раскладке стадий 10–41: " + unbuilt(miss)
+}
+
+// laneToBuffer — лента предмета на шине доходит до своего буфера в конце: инсертер буфера выхода
+// берёт с тайла, куда течёт лента от её головы (разрыв ленты стали под делителем будущего
+// отвода — буфер стали пуст, стадии 31–33 на 859088572).
+func laneToBuffer(h *act.Hands, list []layout.Placement) []string {
+	at, pair := beltTiles(list)
+	var res []string
+	for _, pl := range list {
+		if !strings.HasPrefix(pl.Tag, "outbuf/") || !strings.HasSuffix(pl.Name, "inserter") || pl.Recipe == "" {
+			continue
+		}
+		ins := world.TileOf(pl.Pos)
+		from := layout.Step(ins, pl.Dir) // инсертер берёт с тайла, куда смотрит
+		if q, ok := at[from]; !ok || !isBelt(q) {
+			from = layout.Step(ins, (pl.Dir+8)%16)
+		}
+		if q, ok := at[from]; !ok || !isBelt(q) || !strings.HasPrefix(q.Tag, "c/bus-") {
+			continue // берёт не с ленты шины (плавка, кирпич — с выходной ленты кластера)
+		}
+		// головы лент предмета: ленты шины с ним, в которые сзади никто не въезжает
+		reached := false
+		for t, q := range at {
+			if reached || q.Name != "transport-belt" || q.Recipe != pl.Recipe || !strings.HasPrefix(q.Tag, "c/bus-") {
+				continue
+			}
+			if b, ok := at[layout.Step(t, (q.Dir+8)%16)]; ok && isBelt(b) && b.Dir == q.Dir {
+				continue // не голова
+			}
+			reached = downstream(at, pair, t)[from]
+		}
+		if !reached {
+			res = append(res, fmt.Sprintf("лента %s не доходит до буфера в конце (инсертер в (%.1f, %.1f))", pl.Recipe, pl.Pos.X, pl.Pos.Y))
+		}
+	}
+	return res
 }
 
 // unbuilt — к обслуживанию из чертежа не поставлено стадиями list: по тегам плана (второй кусок

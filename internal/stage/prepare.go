@@ -713,4 +713,21 @@ func prepForward(h *act.Hands, n int) {
 			h.Say("проверка: план стадии %d не строится: %v", m, err)
 		}
 	}
+	// раз в десять стадий — весь план в раскладках стадий 10–41 (решение пользователя 28.10): что
+	// не строит ни одна стадия — видно до того, как без него встанет цепочка
+	if forward(n) == 10 {
+		var all []layout.Placement
+		for _, m := range List() {
+			s, _ := Get(m)
+			if m < 10 || s.Plan || s.Empty {
+				continue
+			}
+			if list, err := planOf(h, m); err == nil {
+				all = append(all, list...)
+			}
+		}
+		if miss := planCoverage(h, all); miss != "" {
+			h.Say("проверка: %s", miss)
+		}
+	}
 }
