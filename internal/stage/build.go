@@ -59,7 +59,10 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 	// персонажу; в участке — виды по order
 	regions, keys := buildRegions(sorted)
 	if len(keys) <= 1 {
-		return s.build(ctx, sorted)
+		if err := s.build(ctx, sorted); err != nil {
+			return err
+		}
+		return configure(ctx, h, sorted)
 	}
 	s.all = sorted
 	defer func() { s.all = nil }()
@@ -92,7 +95,9 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 			return err
 		}
 	}
-	return nil
+	// и то, что стояло до этого захода (продолжение упавшей стадии: сборщики встали, рецепт не
+	// задался — стадия 32 на 859088572), — по плану: s.placed настраивает только поставленное
+	return configure(ctx, h, sorted)
 }
 
 // buildRegions — list по участкам (чанк, 32×32), порядок внутри — как в list; подземки — парой
@@ -176,13 +181,20 @@ func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error
 	if err != nil {
 		return err
 	}
+	var todo []layout.Placement
 	for _, pl := range list {
-		if pl.Recipe == "" || !recipeMachine(pl.Name) && !filterInserter(pl.Name) {
-			continue
+		if pl.Recipe != "" && (recipeMachine(pl.Name) || filterInserter(pl.Name)) {
+			todo = append(todo, pl)
 		}
-		st, err := h.B.GetEntity(pl.Name, pl.Pos)
-		if err != nil || st == nil {
-			return fmt.Errorf("нет %s в (%.1f, %.1f): %v", pl.Name, pl.Pos.X, pl.Pos.Y, err)
+	}
+	states, err := entityStates(h, todo) // пачками: на стадии 30 — сотни инсертеров
+	if err != nil {
+		return err
+	}
+	for i, pl := range todo {
+		st := states[i]
+		if st == nil {
+			return fmt.Errorf("нет %s в (%.1f, %.1f)", pl.Name, pl.Pos.X, pl.Pos.Y)
 		}
 		switch item := pl.Recipe; {
 		case recipeMachine(pl.Name):
