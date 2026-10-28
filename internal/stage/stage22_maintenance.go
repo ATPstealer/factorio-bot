@@ -80,6 +80,19 @@ func rocketTechs(h *act.Hands) ([]string, error) {
 	return res, nil
 }
 
+// techReady — исследование t можно поставить в очередь: каждая предпосылка изучена, идёт или
+// стоит в очереди. Нельзя — не пытаться (5 с и снимок на каждую попытку) и в проверке не
+// требовать: sulfur-processing ждёт oil-processing, а его открывает нефть, не лаборатории
+// (стадия 28 на 260647970: «не в очереди исследований» при неполной очереди).
+func techReady(h *act.Hands, f bridge.Force, t string) bool {
+	for _, p := range h.Protos.Technologies[t].Prerequisites {
+		if !slices.Contains(f.Researched, p) && f.Current != p && !slices.Contains(f.Queue, p) {
+			return false
+		}
+	}
+	return true
+}
+
 // queueResearch — доставить в очередь исследований, сколько влезет (очередь игры — 7 с текущим).
 // Не встало (предпосылки не изучены и не в очереди) — следующее по порядку.
 func queueResearch(ctx context.Context, h *act.Hands) error {
@@ -99,7 +112,7 @@ func queueResearch(ctx context.Context, h *act.Hands) error {
 		if busy >= 7 {
 			return nil
 		}
-		if f.Current == t || slices.Contains(f.Queue, t) {
+		if f.Current == t || slices.Contains(f.Queue, t) || !techReady(h, f, t) {
 			continue
 		}
 		if err := h.StartResearch(ctx, t); err != nil {
@@ -606,7 +619,7 @@ func checkKept(h *act.Hands, list []layout.Placement) error {
 	}
 	var miss []string
 	for _, t := range techs {
-		if f.Current != t && !slices.Contains(f.Queue, t) {
+		if f.Current != t && !slices.Contains(f.Queue, t) && techReady(h, f, t) {
 			miss = append(miss, t)
 		}
 	}
