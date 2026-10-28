@@ -272,11 +272,22 @@ func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
 			return err
 		}
 	}
-	pos, err := s.machineSpot(m.Name)
+	pos, pole, err := s.machineSpot(m.Name)
 	if err != nil {
 		return err
 	}
 	s.h.Say("%s руками не сделать, кластера ещё нет — временный %s: ×%d", item, m.Name, n)
+	var pe *bridge.Entity // свой столб к нему (у стоящих столбов места нет)
+	if pole != nil {
+		if err := s.have(ctx, smallPole, 1); err != nil {
+			return err
+		}
+		e, err := s.h.Place(ctx, smallPole, *pole, layout.N)
+		if err != nil {
+			return err
+		}
+		pe = &e
+	}
 	e, err := s.h.Place(ctx, mitem, pos, layout.N)
 	if err != nil {
 		return err
@@ -316,31 +327,55 @@ func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
 	if _, err := s.h.Take(ctx, e); err != nil {
 		return err
 	}
-	return s.h.Pickup(ctx, e)
+	if err := s.h.Pickup(ctx, e); err != nil {
+		return err
+	}
+	if pe != nil {
+		return s.h.Pickup(ctx, *pe)
+	}
+	return nil
 }
 
-// machineSpot — место временного сборщика name: у хранения, рядом со своим столбом (в зоне его
-// питания), все тайлы свободны.
-func (s *worker) machineSpot(name string) (bridge.Pos, error) {
+// smallPole — столб к временному сборщику, если у стоящих столбов места нет.
+const smallPole = "small-electric-pole"
+
+// machineSpot — место временного сборщика name: у хранения (дальше — у любых своих столбов,
+// ближние к хранению первыми) в зоне питания своего столба, все тайлы свободны; нет — в пределах
+// провода от столба, и pole — место своего столба рядом с ним.
+func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err error) {
 	near, err := s.h.B.Player()
 	if err != nil {
-		return bridge.Pos{}, err
+		return pos, nil, err
 	}
 	at := near.Position
 	if list, err := storageNear(s.h); err == nil && len(list) > 0 {
 		at = list[0].Pos
 	}
-	poles, err := s.h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 60, Position: &at, Limit: 40})
+	poles, err := s.h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 400, Position: &at, Limit: 400})
 	if err != nil {
-		return bridge.Pos{}, err
+		return pos, nil, err
 	}
 	e := s.h.Protos.Entities[name]
+	w, hh := max(e.TileWidth, 1), max(e.TileHeight, 1)
 	for _, p := range poles {
-		if pos, ok := s.h.World.FreeSpot(p.Position, max(e.TileWidth, 1), max(e.TileHeight, 1), 3, &near.Position); ok {
-			return pos, nil
+		if pos, ok := s.h.World.FreeSpot(p.Position, w, hh, 3, &near.Position); ok {
+			return pos, nil, nil
 		}
 	}
-	return bridge.Pos{}, fmt.Errorf("временный %s: у хранения нет места рядом со столбом", name)
+	// площадка с полосой в тайл вокруг (там столб), центр не дальше провода от столба
+	reach := s.h.Protos.Entities[smallPole].MaxWireDistance
+	for _, p := range poles {
+		big, ok := s.h.World.FreeSpot(p.Position, w+2, hh+2, int(reach)-2, &near.Position)
+		if !ok {
+			continue
+		}
+		q := bridge.Pos{X: big.X - float64(w+2)/2 + 0.5, Y: math.Floor(big.Y) + 0.5} // столб — левая полоса площадки
+		if math.Hypot(q.X-p.Position.X, q.Y-p.Position.Y) > reach {
+			continue
+		}
+		return big, &q, nil
+	}
+	return pos, nil, fmt.Errorf("временный %s: у своих столбов нет места", name)
 }
 
 // craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в
