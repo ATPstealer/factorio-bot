@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -290,7 +291,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	spare := map[string]bool{}
 	if freeNow() <= fullSlots && freeNow()+freeable < size/4 {
 		for _, it := range []string{"iron-plate", "copper-plate", "steel-plate"} {
-			if p.Inventory[it] > 2*plateKeep {
+			if p.Inventory[it] > 2*plateKeep && !slices.Contains(need, it) { // не то, что сейчас набираем
 				order, spare[it] = append(order, it), true
 			}
 		}

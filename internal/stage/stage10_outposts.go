@@ -553,6 +553,27 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 			need[raw] = int(math.Ceil(v - 1e-9))
 		}
 	}
+	// сырьё на всю партию не влезет в инвентарь (стадия 30 на 859088572: 316 буров — ~7 тыс.
+	// железа, набрал до полного и встал) — частями: партия, на которую сырью хватит места;
+	// остальное — следующим заходом have
+	if per := s.perCraft(item); n > per {
+		slotsFor := func(it string, k int) int {
+			st := max(s.h.Protos.Items[it].StackSize, 1)
+			return (k + st - 1) / st
+		}
+		used := slotsFor(item, n)
+		for raw, k := range need {
+			if lack := k - s.inv(raw); lack > 0 {
+				used += slotsFor(raw, lack)
+			}
+		}
+		if room := max(s.freeSlots()-4, 1); used > room {
+			if part := max(per, n*room/used/per*per); part < n {
+				s.h.Say("крафт %s ×%d — частями по %d: сырьё на всё не влезет", item, n, part)
+				return s.craft(ctx, item, part)
+			}
+		}
+	}
 	for _, raw := range []string{"iron-plate", "copper-plate", "stone", "wood"} {
 		if need[raw] > 0 {
 			if err := s.have(ctx, raw, need[raw]); err != nil {
@@ -958,6 +979,12 @@ func (s *worker) fromBuffers(ctx context.Context, plate string, lack int) error 
 	}
 	sort.Slice(es, func(i, j int) bool { return dist2(es[i].Position, p.Position) < dist2(es[j].Position, p.Position) })
 	want := s.inv(plate) + max(lack, 1) + 200
+	// не больше, чем влезет (2 ячейки — про запас): из полного сундук отдаёт 0 — ошибка
+	room := (s.freeSlots() - 2) * max(s.h.Protos.Items[plate].StackSize, 1)
+	if room <= 0 {
+		return nil // место освободит have (хранение)
+	}
+	want = min(want, s.inv(plate)+room)
 	for _, e := range es {
 		if s.inv(plate) >= want {
 			break
