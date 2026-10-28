@@ -1415,17 +1415,29 @@ func (h *Hands) flushButton() (int, bool) {
 	if err != nil {
 		return 0, false
 	}
+	// красный кнопки — ровный (254, 90, 90); под окном бывают красные деревья (tree-09-red: бот
+	// кликал в них — TestFlushPipeline на 1039746529-0) — по цвету и по высоте кнопки
 	red := func(y int) bool {
 		c := img.RGBAAt(0, y)
-		return c.R > 180 && c.G < 120 && c.B < 120
-	}
-	last, top := -1, -1
-	for y := 0; y < n; y++ {
-		if red(y) {
-			if y == 0 || !red(y-1) {
-				top = y
+		d := func(a, b uint8) int {
+			if a > b {
+				return int(a - b)
 			}
-			last = (top + y) / 2
+			return int(b - a)
+		}
+		return d(c.R, 254)+d(c.G, 90)+d(c.B, 90) < 30
+	}
+	last := -1
+	for y := 0; y < n; y++ {
+		if !red(y) || y > 0 && red(y-1) {
+			continue
+		}
+		e := y
+		for e+1 < n && red(e+1) {
+			e++
+		}
+		if h := e - y + 1; h >= 15 && h <= 35 {
+			last = (y + e) / 2
 		}
 	}
 	if last < 0 {
