@@ -1381,6 +1381,14 @@ func (h *Hands) FlushPipeline(ctx context.Context, e bridge.Entity, fluid string
 		return err
 	}
 	defer h.CloseGUI(ctx)
+	// курсор — с кнопок: наведённая светлее и не узнаётся (окно открылось кнопкой под курсором —
+	// нажималась верхняя, «слить цистерну», TestFlushPipeline на 1028292478-0)
+	if err := h.at(h.Layout.Focus); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 200*time.Millisecond); err != nil {
+		return err
+	}
 	y, ok := h.flushButton()
 	if !ok {
 		h.debugShot("flush")
