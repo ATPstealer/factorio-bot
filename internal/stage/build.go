@@ -3,12 +3,15 @@ package stage
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Общее для стадий стройки: построить раскладку по порядку, задать рецепты и фильтры.
@@ -42,7 +45,84 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 		}
 		return ia - ib
 	})
-	return s.build(ctx, sorted)
+	// по участкам, а не по видам (stages.md, общее): участок — чанк; следующий — ближайший к
+	// персонажу; в участке — виды по order
+	regions, keys := buildRegions(sorted)
+	if len(keys) <= 1 {
+		return s.build(ctx, sorted)
+	}
+	s.all = sorted
+	defer func() { s.all = nil }()
+	done := map[world.Tile]bool{}
+	for len(done) < len(keys) {
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		var next world.Tile
+		best := math.Inf(1)
+		for _, k := range keys {
+			c := bridge.Pos{X: float64(k.X*world.ChunkSize + world.ChunkSize/2), Y: float64(k.Y*world.ChunkSize + world.ChunkSize/2)}
+			if d := dist2(c, p.Position); !done[k] && d < best {
+				next, best = k, d
+			}
+		}
+		done[next] = true
+		reg := regions[next]
+		s.placed = func(ctx context.Context, name string) error { // настроить — только этот участок
+			var these []layout.Placement
+			for _, pl := range reg {
+				if pl.Name == name {
+					these = append(these, pl)
+				}
+			}
+			return configure(ctx, h, these)
+		}
+		if err := s.build(ctx, reg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildRegions — list по участкам (чанк, 32×32), порядок внутри — как в list; подземки — парой
+// (вход, выход — ugPairs) в участке входа. keys — участки в порядке первого появления.
+func buildRegions(list []layout.Placement) (map[world.Tile][]layout.Placement, []world.Tile) {
+	res := map[world.Tile][]layout.Placement{}
+	var keys []world.Tile
+	of := func(pl layout.Placement) world.Tile {
+		t := world.TileOf(pl.Pos)
+		return world.Tile{X: int(math.Floor(float64(t.X) / world.ChunkSize)), Y: int(math.Floor(float64(t.Y) / world.ChunkSize))}
+	}
+	add := func(k world.Tile, pl layout.Placement) {
+		if res[k] == nil {
+			keys = append(keys, k)
+		}
+		res[k] = append(res[k], pl)
+	}
+	var ugs []layout.Placement
+	for _, pl := range list {
+		if strings.HasPrefix(pl.Name, "underground") {
+			ugs = append(ugs, pl)
+		}
+	}
+	pairOf := map[layout.Placement]world.Tile{} // подземка → участок её входа
+	pairs := ugPairs(ugs)
+	for i := 0; i < len(pairs); i += 2 {
+		k := of(pairs[i])
+		pairOf[pairs[i]] = k
+		if i+1 < len(pairs) {
+			pairOf[pairs[i+1]] = k
+		}
+	}
+	for _, pl := range list {
+		if k, ok := pairOf[pl]; ok {
+			add(k, pl)
+			continue
+		}
+		add(of(pl), pl)
+	}
+	return res, keys
 }
 
 // filterHold — фильтр-заглушка, пока нужный предмет не открыт: инсертер с ним стоит (уголь на

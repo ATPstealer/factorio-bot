@@ -104,16 +104,15 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 		}
 	}
 	for _, name := range names {
-		var todo []layout.Placement
+		var these []layout.Placement
 		for _, pl := range list {
-			if pl.Name != name {
-				continue
+			if pl.Name == name {
+				these = append(these, pl)
 			}
-			if e, err := s.entity(pl); err != nil {
-				return err
-			} else if e == nil {
-				todo = append(todo, pl)
-			}
+		}
+		todo, err := notBuilt(s.h, these) // пачками: по одной — тысячи запросов на стадии 30
+		if err != nil {
+			return err
 		}
 		if len(todo) == 0 {
 			continue
@@ -130,7 +129,11 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 			if s.inv(name) < n && s.useStore {
 				// к хранению — за всем, что нужно на оставшуюся стройку, одним заходом (stages.md,
 				// инвентарь); чего там нет — have (крафт)
-				if err := s.restock(ctx, list, name); err != nil {
+				all, from := list, name
+				if s.all != nil { // по участкам — на всю оставшуюся стройку стадии
+					all, from = s.all, s.all[0].Name
+				}
+				if err := s.restock(ctx, all, from); err != nil {
 					return err
 				}
 			}
