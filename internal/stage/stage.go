@@ -273,6 +273,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("слив чужой жидкости не вышел: %v", err)
 		}
+		// чужой предмет на ленте — убрать (stages.md, общее)
+		if err := healBelts(ctx, h); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("чужое с лент не убралось: %v", err)
+		}
 	}
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
