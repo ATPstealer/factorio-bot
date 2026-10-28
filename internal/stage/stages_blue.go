@@ -118,6 +118,24 @@ func inTanks(fluid string) func(h *act.Hands, list []layout.Placement) error {
 	}
 }
 
+// labsHold — item есть хоть в одной лаборатории плана (лаборатории стоят со стадий 12–21, в
+// раскладке стадии 41 их нет — проверка смотрела на 0 лабораторий).
+func labsHold(item string) func(h *act.Hands, list []layout.Placement) error {
+	return func(h *act.Hands, _ []layout.Placement) error {
+		plan, err := LoadBluePlan()
+		if err != nil {
+			return err
+		}
+		var labs []layout.Placement
+		for _, pl := range plan.Layout {
+			if h.Protos.Entities[pl.Name].Type == "lab" {
+				labs = append(labs, pl)
+			}
+		}
+		return holds(item, "lab")(h, labs)
+	}
+}
+
 // blueOrder — порядок стройки: машины, жидкости, инсертеры, ленты, столбы.
 var blueOrder = []string{"offshore-pump", "pumpjack", "storage-tank", "oil-refinery", "chemical-plant",
 	"assembling-machine-2", "assembling-machine-1", "stone-furnace", "pump", "pipe-to-ground", "pipe", chest,
@@ -237,7 +255,7 @@ func init() {
 		{n: 40, name: "синяя наука", file: "state-blue-science.json", wait: []string{bluePack},
 			pick: product(bluePack), fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 41, name: "синяя в лаборатории", file: "state-labs-blue.json",
-			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: holds(bluePack, "lab"),
+			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: labsHold(bluePack),
 			after: func(ctx context.Context, h *act.Hands) error {
 				// синяя в лабораториях — исследования и на ней (rocketTechs; решение пользователя 26.10)
 				if err := os.WriteFile(runPath(blueOnFile), []byte("{}\n"), 0o644); err != nil {
