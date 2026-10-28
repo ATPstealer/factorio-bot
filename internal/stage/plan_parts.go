@@ -32,19 +32,17 @@ func clusterOf(plan *ClusterPlan, kind cluster.Kind, product string) *cluster.Cl
 // ленте A) — выход второго ложится на полосу первого: вход забирает пакет с ленты весь, а вернуть
 // может только на чужую полосу, забитую первым, — лабораториям зелёный не доходил (стадия 27 на
 // 260647970). Такой вход не ставится: пакет идёт мимо буфера к потребителям.
-func crossBuffers(list []layout.Placement) map[layout.Placement]bool {
-	isBelt := func(pl layout.Placement) bool {
-		return strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") || strings.HasSuffix(pl.Name, "splitter")
-	}
-	// feeds — выдаёт в тайл перед собой: вход подземки — нет (уходит под землю; лента шины
-	// подземкой под подачей «подавала» в неё — подача считалась синей наукой)
-	feeds := func(pl layout.Placement) bool {
-		return isBelt(pl) && !(strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "input")
-	}
-	at := map[world.Tile]layout.Placement{}
-	pair := map[world.Tile]world.Tile{} // тайл делителя → его второй тайл
+// isBelt — лента, подземка или делитель (любого уровня).
+func isBelt(pl layout.Placement) bool {
+	return strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") || strings.HasSuffix(pl.Name, "splitter")
+}
+
+// beltTiles — постройки list по тайлам; pair — тайл делителя → его второй тайл (делитель — два
+// тайла поперёк хода).
+func beltTiles(list []layout.Placement) (at map[world.Tile]layout.Placement, pair map[world.Tile]world.Tile) {
+	at, pair = map[world.Tile]layout.Placement{}, map[world.Tile]world.Tile{}
 	for _, pl := range list {
-		if strings.HasSuffix(pl.Name, "splitter") { // делитель — два тайла поперёк хода
+		if strings.HasSuffix(pl.Name, "splitter") {
 			a, b := bridge.Pos{X: pl.Pos.X - 0.5, Y: pl.Pos.Y}, bridge.Pos{X: pl.Pos.X + 0.5, Y: pl.Pos.Y}
 			if pl.Dir == layout.E || pl.Dir == layout.W {
 				a, b = bridge.Pos{X: pl.Pos.X, Y: pl.Pos.Y - 0.5}, bridge.Pos{X: pl.Pos.X, Y: pl.Pos.Y + 0.5}
@@ -56,6 +54,16 @@ func crossBuffers(list []layout.Placement) map[layout.Placement]bool {
 		}
 		at[world.TileOf(pl.Pos)] = pl
 	}
+	return at, pair
+}
+
+func crossBuffers(list []layout.Placement) map[layout.Placement]bool {
+	// feeds — выдаёт в тайл перед собой: вход подземки — нет (уходит под землю; лента шины
+	// подземкой под подачей «подавала» в неё — подача считалась синей наукой)
+	feeds := func(pl layout.Placement) bool {
+		return isBelt(pl) && !(strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "input")
+	}
+	at, pair := beltTiles(list)
 	// item — предмет, который приходит в t: вверх по подаче до ленты с предметом (ленты шин)
 	item := func(t world.Tile) string {
 		seen := map[world.Tile]bool{}

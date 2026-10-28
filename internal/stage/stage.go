@@ -259,6 +259,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("сеть: острова не подключить: %v", err)
 		}
+		// уголь станции не кончается (stages.md, общее): голодает — подвод с другой добычи
+		if err := healCoal(ctx, h); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("уголь станции: подвод не вышел: %v", err)
+		}
 	}
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
