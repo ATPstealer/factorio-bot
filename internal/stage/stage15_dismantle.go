@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"factorio-bot/internal/act"
@@ -153,34 +152,4 @@ func checkDismantle(h *act.Hands) error {
 		return fmt.Errorf("в хранении буров %d из %d", stock[drill], drills)
 	}
 	return nil
-}
-
-// fromStorage — item лежит в сундуке хранения: взять оттуда n (только его, пачками — не
-// сундук целиком) и, раз стоим у хранения, выложить ненужное (stages.md, инвентарь). false — в
-// хранении нет.
-func (s *worker) fromStorage(ctx context.Context, item string, n int) (bool, error) {
-	list, err := storageNear(s.h)
-	if err != nil {
-		return false, err
-	}
-	for _, pl := range list {
-		st, err := s.h.B.GetEntity(pl.Name, pl.Pos)
-		if err != nil || st == nil || st.Inventories["chest"][item] == 0 {
-			continue
-		}
-		if err := s.tidy(ctx); err != nil && !errors.Is(err, errNoStorage) {
-			return false, err
-		}
-		// не больше, чем влезет (2 ячейки — про запас): берём теперь на всю стройку стадии
-		room := (s.freeSlots() - 2) * max(s.h.Protos.Items[item].StackSize, 1)
-		if room <= 0 {
-			return false, nil
-		}
-		before := s.inv(item)
-		if err := s.h.TakeItem(ctx, st.Entity, item, min(n, room)); err != nil {
-			return false, err
-		}
-		return s.inv(item) > before, nil
-	}
-	return false, nil
 }
