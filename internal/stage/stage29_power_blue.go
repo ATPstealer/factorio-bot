@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
@@ -69,6 +70,14 @@ func runPowerBlue(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	s := &worker{h: h, sites: sites, useStore: true}
+	// уголь на все новые бойлеры — за один заход к хранению, потом обход (за углём на каждый
+	// бойлер ходил отдельно, по 2–7 штук: 33 бойлера — больше часа, стадия 29 на 1028292478)
+	type lack struct {
+		e bridge.Entity
+		n int
+	}
+	var todo []lack
+	total := 0
 	for _, pl := range list {
 		if pl.Name != "boiler" {
 			continue
@@ -78,14 +87,22 @@ func runPowerBlue(ctx context.Context, h *act.Hands) error {
 			return fmt.Errorf("нет бойлера в (%.1f, %.1f): %v", pl.Pos.X, pl.Pos.Y, err)
 		}
 		if fuel := st.Inventories["fuel"]["coal"]; fuel < boilerFuel {
-			if err := s.have(ctx, "coal", boilerFuel-fuel); err != nil {
-				return err
-			}
-			h.Say("уголь в новый бойлер (%.0f, %.0f)", pl.Pos.X, pl.Pos.Y)
-			if err := h.Insert(ctx, st.Entity, "coal", boilerFuel-fuel); err != nil {
+			todo = append(todo, lack{st.Entity, boilerFuel - fuel})
+			total += boilerFuel - fuel
+		}
+	}
+	for i, b := range todo {
+		if s.inv("coal") < b.n { // кончился — на все оставшиеся (сколько влезет, оставив 2 ячейки)
+			room := s.inv("coal") + max(s.freeSlots()-2, 1)*max(h.Protos.Items["coal"].StackSize, 1)
+			if err := s.have(ctx, "coal", max(min(total, room), b.n)); err != nil {
 				return err
 			}
 		}
+		h.Say("уголь в новый бойлер (%.0f, %.0f) — %d из %d", b.e.Position.X, b.e.Position.Y, i+1, len(todo))
+		if err := h.Insert(ctx, b.e, "coal", b.n); err != nil {
+			return err
+		}
+		total -= b.n
 	}
 	return nil
 }
