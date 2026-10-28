@@ -137,7 +137,12 @@ func paperStages(h *act.Hands, to int) error {
 		if (n == 22 || n == 28) && len(list) > 0 && !freshLayouts {
 			bad = append(bad, unbuilt(list))
 		}
-		bad = append(bad, paper.add(h, list)...)
+		// обслуживание при обновлении чертежа — на бумагу не кладёт: его список — из состояния,
+		// а там ещё старые раскладки следующих стадий (их столбы — потом лишние: новые столбы
+		// стадий 23–25 «держались» за них, после разбора — острова без тока, 1028292478)
+		if !freshLayouts || n != 22 && n != 28 {
+			bad = append(bad, paper.add(h, list)...)
+		}
 		h.Log("стадия %d на бумаге: %d построек, нарушений %d", n, len(list), len(bad))
 		if len(bad) > 0 {
 			for _, b := range bad {

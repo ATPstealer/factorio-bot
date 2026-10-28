@@ -2,7 +2,9 @@ package stage
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 
@@ -163,13 +165,6 @@ func powers(p *act.Hands, pole bridge.Pos, pl layout.Placement) bool {
 // после этого не запитано — своим столбом по коридорам. allow — свои кластеры, через площадь
 // которых можно идти (шины и станция — всегда).
 func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow []string) ([]layout.Placement, error) {
-	for _, o := range plan.Clusters {
-		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
-			allow = append(allow, o.Name)
-		}
-	}
-	const pole = "small-electric-pole"
-	reach := h.Protos.Entities[pole].MaxWireDistance
 	var net []bridge.Pos
 	if paper != nil { // на бумаге: сеть — столбы прошлых стадий (paper.go)
 		for _, pl := range paper.list {
@@ -190,6 +185,19 @@ func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allo
 			net = append(net, e.Position)
 		}
 	}
+	return connectNet(h, plan, list, allow, net)
+}
+
+// connectNet — connectPower к сети net (столбы, уже в ней).
+func connectNet(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow []string, net []bridge.Pos) ([]layout.Placement, error) {
+	for _, o := range plan.Clusters {
+		if o.Kind == cluster.Bus || o.Kind == cluster.Power {
+			allow = append(allow, o.Name)
+		}
+	}
+	const pole = "small-electric-pole"
+	reach := h.Protos.Entities[pole].MaxWireDistance
+	net = slices.Clone(net)
 	near := func(a bridge.Pos, set []bridge.Pos) bool {
 		for _, b := range set {
 			if math.Hypot(a.X-b.X, a.Y-b.Y) <= reach {
@@ -254,4 +262,75 @@ func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allo
 		}
 	}
 	return added, nil
+}
+
+// healPower — сеть базы одна (stages.md, общее): свои столбы вне сети станции (острова — обрыв
+// после перестановки столбов на обслуживании) подключить цепочкой столбов; сеть — только
+// столбы станции (connectPower считает сетью любой стоящий столб — остров «в сети»).
+func healPower(ctx context.Context, h *act.Hands) error {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil // плана нет — нечего
+	}
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	engines, err := h.B.FindNearest(bridge.FindArgs{Name: "steam-engine", Radius: 1000, Position: &p.Position, Limit: 1})
+	if err != nil || len(engines) == 0 {
+		return err
+	}
+	eng, err := h.B.GetEntity("steam-engine", engines[0].Position)
+	if err != nil || eng == nil || eng.Network == 0 {
+		return err
+	}
+	poles, err := h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &p.Position, Limit: 5000})
+	if err != nil {
+		return err
+	}
+	var net []bridge.Pos
+	islands := map[int][]layout.Placement{}
+	for i := 0; i < len(poles); i += auditBatch {
+		var refs []bridge.EntityRef
+		for _, e := range poles[i:min(len(poles), i+auditBatch)] {
+			refs = append(refs, bridge.EntityRef{Name: e.Name, Position: e.Position})
+		}
+		got, err := h.B.GetEntities(refs)
+		if err != nil {
+			return err
+		}
+		for _, st := range got {
+			switch {
+			case st == nil || !st.Own:
+			case st.Network == eng.Network:
+				net = append(net, st.Position)
+			default:
+				islands[st.Network] = append(islands[st.Network], layout.Placement{Name: st.Name, Pos: st.Position})
+			}
+		}
+	}
+	if len(islands) == 0 {
+		return nil
+	}
+	var allow []string
+	for _, c := range plan.Clusters {
+		allow = append(allow, c.Name)
+	}
+	ids := slices.Sorted(maps.Keys(islands))
+	var add []layout.Placement
+	n := 0
+	for _, id := range ids {
+		isl := islands[id]
+		n += len(isl)
+		path, err := connectNet(h, plan, isl, allow, net)
+		if err != nil {
+			return fmt.Errorf("сеть: остров %d (%d столбов): %w", id, len(isl), err)
+		}
+		add = append(add, path...)
+		for _, q := range append(slices.Clone(isl), path...) {
+			net = append(net, q.Pos)
+		}
+	}
+	h.Say("сеть: %d островов (%d столбов) вне сети станции — ставлю %d столбов", len(islands), n, len(add))
+	return buildSorted(ctx, h, add, []string{"small-electric-pole"})
 }

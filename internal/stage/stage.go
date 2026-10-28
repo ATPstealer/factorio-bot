@@ -215,6 +215,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 		if err := queueResearch(ctx, h); err != nil {
 			return fmt.Errorf("стадия %d: очередь исследований: %w", n, err)
 		}
+		// сеть базы одна (stages.md, общее): острова — подключить
+		if err := healPower(ctx, h); err != nil { // не вышло — сказать и дальше (мягко)
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("сеть: острова не подключить: %v", err)
+		}
 	}
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)
 	if err := prepare(ctx, h, n); err != nil {
