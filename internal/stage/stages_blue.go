@@ -28,17 +28,15 @@ type blueStage struct {
 	pick  func(*cluster.Cluster) bool // кластеры части
 	more  func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
 	after func(ctx context.Context, h *act.Hands) error // после стройки
-	// fact — проверка по факту работы (stages.md: машины работают, жидкость в трубе, пакеты в
-	// лабораториях): ждать до factWait, не подтвердилось — предупреждение, не падение
-	// (решение пользователя 26.10: мягко); hard — падение: без этого следующие стадии
-	// бессмысленны (нефть на складе, НПЗ)
+	// fact — проверка по факту работы (stages.md: машины работают, жидкость дошла, лаборатории
+	// работают на синей): ждать до factWait, не подтвердилось — стадия не выполнена (решение
+	// пользователя 28.10: жёстко все)
 	fact func(h *act.Hands, list []layout.Placement) error
-	hard bool
 }
 
 // factWait — сколько ждать подтверждения по факту работы; factPoll — шаг опроса.
 const (
-	factWait = 5 * time.Minute
+	factWait = 10 * time.Minute
 	factPoll = 15 * time.Second
 )
 
@@ -118,10 +116,22 @@ func inTanks(fluid string) func(h *act.Hands, list []layout.Placement) error {
 	}
 }
 
-// labsHold — item есть хоть в одной лаборатории плана (лаборатории стоят со стадий 12–21, в
-// раскладке стадии 41 их нет — проверка смотрела на 0 лабораторий).
-func labsHold(item string) func(h *act.Hands, list []layout.Placement) error {
+// labsOn — лаборатории плана работают на item: хоть одна в статусе «работает», а текущее
+// исследование требует item (пакет в лаборатории тратится сразу — его наличие опрос не застаёт;
+// в раскладке стадии 41 лабораторий нет — они со стадий 12–21).
+func labsOn(item string) func(h *act.Hands, list []layout.Placement) error {
 	return func(h *act.Hands, _ []layout.Placement) error {
+		f, err := h.B.Force()
+		if err != nil {
+			return err
+		}
+		needs := false
+		for _, in := range h.Protos.Technologies[f.Current].UnitIngredients {
+			needs = needs || in.Name == item
+		}
+		if !needs {
+			return fmt.Errorf("текущее исследование %q не на %s", f.Current, item)
+		}
 		plan, err := LoadBluePlan()
 		if err != nil {
 			return err
@@ -132,7 +142,7 @@ func labsHold(item string) func(h *act.Hands, list []layout.Placement) error {
 				labs = append(labs, pl)
 			}
 		}
-		return holds(item, "lab")(h, labs)
+		return working("lab")(h, labs)
 	}
 }
 
@@ -173,13 +183,9 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 	}
 	if s.fact != nil {
 		if err := waitFact(ctx, h, list, s.fact); err != nil {
-			if ctx.Err() != nil || s.hard {
-				return fmt.Errorf("%s: по факту не работает: %w", s.name, err)
-			}
-			h.Say("%s: по факту не подтвердилось за %v — %v (предупреждение)", s.name, factWait, err)
-		} else {
-			h.Say("%s: по факту работает", s.name)
+			return fmt.Errorf("%s: по факту не работает за %v: %w", s.name, factWait, err)
 		}
+		h.Say("%s: по факту работает", s.name)
 	}
 	if s.after != nil {
 		return s.after(ctx, h)
@@ -238,13 +244,13 @@ func init() {
 		{n: 33, name: "склады цистерн", file: "state-tanks.json", queue: []string{"fluid-handling", "oil-gathering", "engine"},
 			wait: []string{"fluid-handling"}, pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Tank }},
 		{n: 34, name: "нефть: качалки и трасса", file: "state-oil.json", wait: []string{"oil-gathering", "engine"}, // engine — насосы трассы
-			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, fact: inTanks("crude-oil"), hard: true},
+			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, fact: inTanks("crude-oil")},
 		{n: 35, name: "вода для химии", file: "state-water.json",
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "water")), fact: holds("water", "pipe", "pipe-to-ground")},
 		{n: 36, name: "НПЗ", file: "state-refinery.json", wait: []string{"oil-processing"},
 			queue: []string{"plastics", "sulfur-processing"}, pick: func(c *cluster.Cluster) bool { return c.IsRefinery() },
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "crude-oil"), cluster.PipeLaneTag("bus-2", "petroleum-gas")),
-			fact: working("oil-refinery"), hard: true},
+			fact: working("oil-refinery")},
 		{n: 37, name: "пластик и сера", file: "state-chem.json", wait: []string{"plastics", "sulfur-processing"},
 			queue: []string{"advanced-circuit", "engine"}, pick: func(c *cluster.Cluster) bool { return c.IsChem() },
 			fact: working("chemical-plant")},
@@ -255,7 +261,7 @@ func init() {
 		{n: 40, name: "синяя наука", file: "state-blue-science.json", wait: []string{bluePack},
 			pick: product(bluePack), fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 41, name: "синяя в лаборатории", file: "state-labs-blue.json",
-			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: labsHold(bluePack),
+			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: labsOn(bluePack),
 			after: func(ctx context.Context, h *act.Hands) error {
 				// синяя в лабораториях — исследования и на ней (rocketTechs; решение пользователя 26.10)
 				if err := os.WriteFile(runPath(blueOnFile), []byte("{}\n"), 0o644); err != nil {
