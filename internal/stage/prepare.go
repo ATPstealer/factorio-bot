@@ -563,7 +563,10 @@ func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement) {
 	trees := len(obstacles(h, footprint(h, list)))
 	est := time.Duration((float64(len(todo))*2+walk/8.9+float64(trees)*2.5)*1e9) * time.Nanosecond
 	h.Log("проверка: поставить %d, расчистить %d, пройти ~%.0f тайлов — оценка %v", len(todo), trees, walk, est.Round(time.Minute))
-	estimate = est // лимит стадии — с запасом от оценки (Do)
+	estimate.Store(int64(est)) // лимит стадии — с запасом от оценки (Do), сразу
+	if lim := est * 3 / 2; Limit > 0 && lim > Limit {
+		h.Say("лимит стадии — %v (полторы оценки %v)", lim.Round(time.Minute), est.Round(time.Minute))
+	}
 }
 
 // forward — на сколько стадий вперёд прикидывать планы перед стадией n: обычно на одну, перед
