@@ -467,7 +467,13 @@ func (s *worker) fuelTo(ctx context.Context, e bridge.Entity, low, to int) error
 // have — довести предмет в инвентаре до n: сырьё — добыть (уголь и камень — с точек, если
 // есть), пластины — с печей точек или руда руками в печи, остальное — скрафтить.
 func (s *worker) have(ctx context.Context, item string, n int) error {
+	last := -1
 	for tries := 0; s.inv(item)+s.pending(item) < n; tries++ { // noWait: в очереди — как есть
+		// попытки без прибавки: крафт частями (стадия 30 — по 1–4 бура за заход, инвентарь
+		// занят набранным на стадию) прибавляет понемногу — это не застревание (1028292478)
+		if got := s.inv(item) + s.pending(item); got > last {
+			last, tries = got, 0
+		}
 		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
 		}
