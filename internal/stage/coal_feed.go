@@ -68,19 +68,10 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 			belts = append(belts, pl)
 		}
 	}
-	// сначала отвод, делители — последними (на месте лент подвода и станции: их поднять)
+	// сначала отвод, делители — последними: встают поверх лент подвода и станции сами (поднимать
+	// ленту под делителем — подход к ней среди лент: «не сойти с ленты», стадия 32 на 260647970)
 	if err := buildSorted(ctx, h, belts, []string{"transport-belt", "underground-belt"}); err != nil {
 		return err
-	}
-	for _, pl := range splitters {
-		for _, t := range layout.Tiles(h.Protos, pl) {
-			c := bridge.Pos{X: float64(t.X) + 0.5, Y: float64(t.Y) + 0.5}
-			if e, err := h.B.EntityAt("transport-belt", c); err == nil && e != nil {
-				if err := h.Pickup(ctx, *e); err != nil {
-					return err
-				}
-			}
-		}
 	}
 	return buildSorted(ctx, h, splitters, []string{"splitter"})
 }
