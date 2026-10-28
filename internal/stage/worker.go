@@ -9,6 +9,7 @@ import (
 	"factorio-bot/internal/calc"
 	"factorio-bot/internal/layout"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"slices"
@@ -182,7 +183,12 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		default:
 			if s.useStore && !s.handcraftable(item) {
 				// руками не сделать (сталь) — только из буферов выхода кластеров: ждать, как
-				// пластины (stages.md, инвентарь)
+				// пластины; а кластера, что его делает, ещё нет — временный сборщик (stages.md,
+				// инвентарь)
+				if !s.produced(item) {
+					err = s.machineCraft(ctx, item, lack)
+					break
+				}
 				s.h.Say("жду %s в буферах выхода кластеров", item)
 				err = sleepCtx(ctx, 20*time.Second)
 				break
@@ -204,6 +210,137 @@ func (s *worker) handcraftable(item string) bool {
 	}
 	_, base := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, 1).Base[item]
 	return !base
+}
+
+// produced — item делает свой кластер: в игре стоит буфер выхода кластера с этим продуктом.
+func (s *worker) produced(item string) bool {
+	plan, err := LoadBluePlan()
+	if err != nil {
+		return false
+	}
+	makes := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Product == item {
+			makes[c.Name] = true
+		}
+	}
+	var bufs []layout.Placement
+	names, lists := stateLayouts()
+	for _, base := range names {
+		for _, pl := range lists[base] {
+			if name, ok := strings.CutPrefix(pl.Tag, "outbuf/"); ok && makes[name] && strings.HasSuffix(pl.Name, "chest") {
+				bufs = append(bufs, pl)
+			}
+		}
+	}
+	left, err := notBuilt(s.h, bufs)
+	return err == nil && len(left) < len(bufs)
+}
+
+// machineCraft — n item во временном сборщике (stages.md, инвентарь): руками не сделать, а
+// кластера ещё нет — сборщик у хранения рядом со столбом сети, рецепт, ингредиенты, ждать,
+// забрать готовое, сборщик поднять.
+func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
+	f, err := s.h.B.Force()
+	if err != nil {
+		return err
+	}
+	recipe := ""
+	for _, r := range s.h.Protos.RecipesFor(item) {
+		if slices.Contains(f.Recipes, r) {
+			recipe = r
+			break
+		}
+	}
+	if recipe == "" {
+		return fmt.Errorf("%s: рецепт не открыт", item)
+	}
+	rec := s.h.Protos.Recipes[recipe]
+	m, ok := s.h.Protos.BestCrafter(rec.Category, s.h.Protos.NewAvailability(f.Researched, false), "")
+	if !ok || s.h.Protos.Entities[m.Name].Type != "assembling-machine" {
+		return fmt.Errorf("%s: руками не сделать, а сборщика под %s нет", item, rec.Category)
+	}
+	mitem := s.h.Protos.ItemFor(m.Name)
+	crafts := (n + s.perCraft(item) - 1) / s.perCraft(item)
+	need := map[string]int{}
+	for _, in := range rec.Ingredients {
+		need[in.Name] = int(math.Ceil(in.Amount*float64(crafts) - 1e-9))
+	}
+	need[mitem]++
+	for _, it := range slices.Sorted(maps.Keys(need)) {
+		if err := s.have(ctx, it, need[it]); err != nil {
+			return err
+		}
+	}
+	pos, err := s.machineSpot(m.Name)
+	if err != nil {
+		return err
+	}
+	s.h.Say("%s руками не сделать, кластера ещё нет — временный %s: ×%d", item, m.Name, n)
+	e, err := s.h.Place(ctx, mitem, pos, layout.N)
+	if err != nil {
+		return err
+	}
+	if err := s.h.SetRecipe(ctx, e, recipe); err != nil {
+		return err
+	}
+	for _, in := range rec.Ingredients {
+		if err := s.h.Insert(ctx, e, in.Name, need[in.Name]); err != nil {
+			return err
+		}
+	}
+	limit := time.Duration(float64(crafts)*rec.Energy/max(m.Speed, 0.1)*float64(time.Second)) + time.Minute
+	deadline := time.Now().Add(limit)
+	for {
+		st, err := s.h.B.GetEntity(e.Name, e.Position)
+		if err != nil {
+			return err
+		}
+		if st == nil {
+			return fmt.Errorf("временный %s пропал", e.Name)
+		}
+		got := 0
+		for _, inv := range st.Inventories {
+			got += inv[item]
+		}
+		if got >= n {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("временный %s: %s ×%d не готов за %v (статус %s)", e.Name, item, n, limit, st.Status)
+		}
+		if err := sleepCtx(ctx, 3*time.Second); err != nil {
+			return err
+		}
+	}
+	if _, err := s.h.Take(ctx, e); err != nil {
+		return err
+	}
+	return s.h.Pickup(ctx, e)
+}
+
+// machineSpot — место временного сборщика name: у хранения, рядом со своим столбом (в зоне его
+// питания), все тайлы свободны.
+func (s *worker) machineSpot(name string) (bridge.Pos, error) {
+	near, err := s.h.B.Player()
+	if err != nil {
+		return bridge.Pos{}, err
+	}
+	at := near.Position
+	if list, err := storageNear(s.h); err == nil && len(list) > 0 {
+		at = list[0].Pos
+	}
+	poles, err := s.h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 60, Position: &at, Limit: 40})
+	if err != nil {
+		return bridge.Pos{}, err
+	}
+	e := s.h.Protos.Entities[name]
+	for _, p := range poles {
+		if pos, ok := s.h.World.FreeSpot(p.Position, max(e.TileWidth, 1), max(e.TileHeight, 1), 3, &near.Position); ok {
+			return pos, nil
+		}
+	}
+	return bridge.Pos{}, fmt.Errorf("временный %s: у хранения нет места рядом со столбом", name)
 }
 
 // craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в

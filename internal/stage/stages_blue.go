@@ -203,9 +203,9 @@ func init() {
 			pick: func(c *cluster.Cluster) bool {
 				return product("fast-transport-belt")(c) || product("fast-inserter")(c)
 			}, fact: working("assembling-machine-1", "assembling-machine-2")},
-		{n: 33, name: "склады цистерн", file: "state-tanks.json", queue: []string{"fluid-handling", "oil-gathering"},
+		{n: 33, name: "склады цистерн", file: "state-tanks.json", queue: []string{"fluid-handling", "oil-gathering", "engine"},
 			wait: []string{"fluid-handling"}, pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Tank }},
-		{n: 34, name: "нефть: качалки и трасса", file: "state-oil.json", wait: []string{"oil-gathering"},
+		{n: 34, name: "нефть: качалки и трасса", file: "state-oil.json", wait: []string{"oil-gathering", "engine"}, // engine — насосы трассы
 			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, fact: holds("crude-oil", "pumpjack", "pipe", "pipe-to-ground")},
 		{n: 35, name: "вода для химии", file: "state-water.json",
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "water")), fact: holds("water", "pipe", "pipe-to-ground")},
