@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
@@ -1033,4 +1034,209 @@ func TestTakeItemFromChest(t *testing.T) {
 	if p, _ := h.B.Player(); p.OpenedGUI != "" && p.OpenedGUI != "none" {
 		t.Errorf("окно не закрыто: %q", p.OpenedGUI)
 	}
+}
+
+// Добыча руками при полном инвентаре (стадия 14 на 1028292478: «инвентарь полон: coal не
+// поднять» — сбор падал): полон — освободить место (OnFull) и добывать дальше. Инвентарь должен
+// быть полон с начала — карту готовит пользователь (на картах -0 его нет): не полон — пропуск.
+func TestGatherFullInventory(t *testing.T) {
+	h := handsT(t)
+	p, err := h.B.Player()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if free := p.InventorySize - len(p.InventorySlots); free > 1 {
+		t.Skipf("инвентарь не полон (свободно %d из %d) — нужна карта с полным инвентарём", free, p.InventorySize)
+	}
+	box := ""
+	for _, c := range []string{"wooden-chest", "iron-chest"} {
+		if p.Inventory[c] > 0 {
+			box = c
+		}
+	}
+	if box == "" {
+		t.Skip("в полном инвентаре нет сундука — освободить место некуда")
+	}
+	ctx := ctxT(t, 5*time.Minute)
+	// освободить место: сундук рядом, в него — самое многочисленное, кроме угля
+	h.OnFull = func(ctx context.Context) error {
+		q, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		it, n := "", 0
+		for k, v := range q.Inventory {
+			if k != "coal" && k != box && v > n {
+				it, n = k, v
+			}
+		}
+		e, err := h.Place(ctx, box, freeArea(t, h, 3), act.North)
+		if err != nil {
+			return err
+		}
+		_, err = h.InsertAll(ctx, e, it)
+		return err
+	}
+	defer func() { h.OnFull = nil }()
+	before := p.Inventory["coal"]
+	if _, err := h.Gather(ctx, "coal", 20, 64); err != nil {
+		if errors.Is(err, act.ErrNoTargets) {
+			t.Skipf("нет угля рядом: %v", err)
+		}
+		t.Fatalf("уголь при полном инвентаре: %v", err)
+	}
+	if q, _ := h.B.Player(); q.Inventory["coal"] <= before {
+		t.Errorf("угля не прибавилось: %d → %d", before, q.Inventory["coal"])
+	}
+	clean(t, h)
+}
+
+// Подобрать столб под кроной дерева (стадия 28 на 859088572: старый столб накрыла крона — подбор
+// наводился на дерево): дерево, чья крона накрывает столб, рубится, столб поднимается.
+func TestPickupPoleUnderCrown(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "small-electric-pole", 1)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	// свободный тайл в кроне дерева (рамка выделения), вне его рамки коллизии
+	var at bridge.Pos
+	best := math.Inf(1)
+	for _, o := range h.World.ObjectsNear(p.Position, 60) {
+		if o.Type != "tree" {
+			continue
+		}
+		sel, col := h.World.SelectionBox(o), h.World.CollisionBox(o)
+		for y := int(math.Floor(sel.LeftTop.Y)); y < int(math.Ceil(sel.RightBottom.Y)); y++ {
+			for x := int(math.Floor(sel.LeftTop.X)); x < int(math.Ceil(sel.RightBottom.X)); x++ {
+				tl := world.Tile{X: x, Y: y}
+				c := tl.Center()
+				inCol := float64(x+1) > col.LeftTop.X && float64(x) < col.RightBottom.X && float64(y+1) > col.LeftTop.Y && float64(y) < col.RightBottom.Y
+				inSel := c.X > sel.LeftTop.X && c.X < sel.RightBottom.X && c.Y > sel.LeftTop.Y && c.Y < sel.RightBottom.Y
+				if ok, _ := h.World.Buildable(tl); !ok || inCol || !inSel || h.World.Blocked(tl) {
+					continue
+				}
+				if d := dist(c, p.Position); d < best {
+					at, best = c, d
+				}
+			}
+		}
+	}
+	if math.IsInf(best, 1) {
+		t.Skip("нет дерева с кроной над свободным тайлом рядом")
+	}
+	ctx := ctxT(t, 4*time.Minute)
+	pole, err := h.Place(ctx, "small-electric-pole", at, act.North)
+	if err != nil {
+		t.Fatalf("столб под кроной: %v", err)
+	}
+	if err := h.Pickup(ctx, pole); err != nil {
+		t.Fatalf("подобрать столб под кроной: %v", err)
+	}
+	if got, _ := h.B.EntityAt(pole.Name, pole.Position); got != nil {
+		t.Errorf("столб стоит в (%.1f, %.1f)", pole.Position.X, pole.Position.Y)
+	}
+	clean(t, h)
+}
+
+// Делители, когда первый встал поперёк и его переставили (стадия 16 на 1028292478: перестановка
+// увела персонажа — следующий оказался вне досягаемости, «Cannot reach»): поворот делителя в руке
+// у игры не тот, что помнит бот; три делителя через 8 тайлов — все встают на восток.
+func TestPlaceSplittersAfterReplace(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "splitter", 3)
+	c := freeArea(t, h, 22)
+	ctx := ctxT(t, 4*time.Minute)
+	// рука в игре повёрнута, а бот этого не знает
+	if err := h.Pick(ctx, "splitter"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.In.Tap("r"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ClearCursor(ctx); err != nil {
+		t.Fatal(err)
+	}
+	x0, y0 := math.Floor(c.X)-8, math.Floor(c.Y)
+	var pos []bridge.Pos
+	for i := 0; i < 3; i++ {
+		pos = append(pos, bridge.Pos{X: x0 + float64(8*i) + 0.5, Y: y0}) // на восток: 1×2, центр на стыке
+	}
+	if _, err := h.PlaceDirs(ctx, "splitter", pos, []int{act.East, act.East, act.East}); err != nil {
+		t.Fatalf("делители: %v", err)
+	}
+	for _, q := range pos {
+		st, err := h.B.GetEntity("splitter", q)
+		if err != nil || st == nil || st.Direction == nil || *st.Direction != act.East {
+			t.Errorf("делитель в (%.1f, %.1f): %+v (%v)", q.X, q.Y, st, err)
+		}
+	}
+	clean(t, h)
+}
+
+// Подземки в проходе в тайл между рядами лент шины (стадия 22 на 1028292478: встать было негде,
+// кроме лент, — «не сойти с ленты»): по 3 ряда лент сверху и снизу прохода, пара подземок —
+// в проходе; персонаж приходит снаружи.
+func TestPlaceUndergroundInBeltCorridor(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "underground-belt", 2) // сначала: крафт подземок ест ленты
+	have(t, h, "transport-belt", 96)
+	c := freeArea(t, h, 20)
+	ctx := ctxT(t, 6*time.Minute)
+	x0, y0 := math.Floor(c.X)-8, math.Floor(c.Y)
+	var rows []bridge.Pos
+	for _, dy := range []float64{-3, -2, -1, 1, 2, 3} {
+		for dx := 0.0; dx < 16; dx++ {
+			rows = append(rows, bridge.Pos{X: x0 + dx + 0.5, Y: y0 + dy + 0.5})
+		}
+	}
+	if _, err := h.PlaceAll(ctx, "transport-belt", rows, act.East); err != nil {
+		t.Fatalf("ряды лент: %v", err)
+	}
+	if err := h.WalkTo(ctx, bridge.Pos{X: x0 - 6, Y: y0 + 0.5}, 1); err != nil {
+		t.Fatalf("выйти из рядов: %v", err)
+	}
+	in, out := bridge.Pos{X: x0 + 5.5, Y: y0 + 0.5}, bridge.Pos{X: x0 + 9.5, Y: y0 + 0.5}
+	if _, err := h.PlaceDirs(ctx, "underground-belt", []bridge.Pos{in, out}, []int{act.East, act.East}); err != nil {
+		t.Fatalf("подземки в проходе: %v", err)
+	}
+	for _, q := range []struct {
+		p    bridge.Pos
+		kind string
+	}{{in, "input"}, {out, "output"}} {
+		st, err := h.B.GetEntity("underground-belt", q.p)
+		if err != nil || st == nil || st.UGType != q.kind || !st.UGPaired {
+			t.Errorf("подземка в (%.1f, %.1f): %+v (%v), ждали %s в паре", q.p.X, q.p.Y, st, err, q.kind)
+		}
+	}
+	clean(t, h)
+}
+
+// Крафт насоса (стадия 34: «поиск "pump" — совпадения на разных вкладках»: насос, помпа и
+// качалка на разных вкладках при любом слове) — сначала слово только с вкладки насоса. Нужны
+// открытый рецепт и двигатели (руками не делаются) — нет на карте: пропуск.
+func TestCraftPump(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "pump") {
+		t.Skip("насос не открыт (fluid-handling) — что добавить на карты")
+	}
+	p, _ := h.B.Player()
+	if p.Inventory["engine-unit"] < 1 {
+		t.Skip("нет двигателя (руками не делается) — что добавить на карты")
+	}
+	have(t, h, "pipe", 1)
+	ctx := ctxT(t, 2*time.Minute)
+	before := p.Inventory["pump"]
+	if err := h.CraftWait(ctx, "pump", 1); err != nil {
+		t.Fatalf("крафт насоса: %v", err)
+	}
+	if q, _ := h.B.Player(); q.Inventory["pump"] != before+1 {
+		t.Errorf("насосов %d → %d", before, q.Inventory["pump"])
+	}
+	clean(t, h)
 }

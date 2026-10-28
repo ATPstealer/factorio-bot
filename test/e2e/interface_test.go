@@ -12,6 +12,8 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Защиты: меню игры и карта (мод/ввод не доходят до мира) — бот сам их закрывает.
@@ -269,5 +271,111 @@ func TestSetFilter(t *testing.T) {
 	if err := h.Pickup(ctx, e); err != nil {
 		t.Fatal(err)
 	}
+	clean(t, h)
+}
+
+// Рецепт со словом поиска «inserter» (стадия 32 на 859088572: набранное слово с кареткой
+// доставало до полосы, по которой ищется поле поиска, — поле не находилось, клик на ряд ниже;
+// при трёх вкладках совпадало случайно, при четырёх — мимо): инсертер и длинный инсертер.
+func TestSetRecipeInserter(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "assembling-machine-1", 1)
+	e := placeNear(t, h, "assembling-machine-1", 3)
+	ctx := ctxT(t, 2*time.Minute)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, rec := range []string{"inserter", "long-handed-inserter", "fast-inserter"} {
+		if !slices.Contains(f.Recipes, rec) {
+			continue
+		}
+		n++
+		if err := h.SetRecipe(ctx, e, rec); err != nil {
+			t.Fatalf("%s: %v", rec, err)
+		}
+		if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || st.Recipe != rec {
+			t.Errorf("рецепт в игре: %+v (%v), ждали %s", st, err, rec)
+		}
+	}
+	if n == 0 {
+		t.Skip("рецептов инсертеров нет")
+	}
+	if err := h.Pickup(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	clean(t, h)
+}
+
+// Слить сеть труб кнопкой в окне цистерны (стадия 34 на 1028292478: вода в цистернах и трубах
+// нефти — сеть закрыта для нефти): цистерна с водой от помпы, труба к помпе снята — сливаю, в
+// цистерне пусто. Нужны цистерна (fluid-handling), помпа и вода рядом — нет: пропуск.
+func TestFlushPipeline(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	if p.Inventory["storage-tank"] < 1 && !slices.Contains(f.Recipes, "storage-tank") {
+		t.Skip("цистерны нет (fluid-handling) — что добавить на карты")
+	}
+	have(t, h, "storage-tank", 1)
+	have(t, h, "offshore-pump", 1)
+	have(t, h, "pipe", 10)
+	ctx := ctxT(t, 6*time.Minute)
+	l := layout.New(h.Protos, h.World)
+	pump, err := l.WaterPump(world.TileOf(p.Position), "test", nil)
+	if err != nil {
+		t.Skipf("нет воды рядом: %v", err)
+	}
+	conn := layout.Connections(h.Protos, pump)[0]
+	pe, err := h.Place(ctx, "offshore-pump", pump.Pos, pump.Dir)
+	if err != nil {
+		t.Fatalf("помпа: %v", err)
+	}
+	// труба от выхода помпы — 3 тайла по ходу, цистерна за ней
+	var pipes []bridge.Pos
+	tl := conn.To
+	for i := 0; i < 3; i++ {
+		pipes = append(pipes, tl.Center())
+		tl = layout.Step(tl, conn.Dir)
+	}
+	if _, err := h.PlaceAll(ctx, "pipe", pipes, act.North); err != nil {
+		t.Fatalf("трубы: %v", err)
+	}
+	tank := layout.Attach(h.Protos, layout.Conn{At: layout.Step(tl, (conn.Dir+8)%16), To: tl, Dir: conn.Dir}, "storage-tank", "", "test")
+	if len(tank) == 0 {
+		t.Skip("цистерна не встаёт у трубы")
+	}
+	te, err := h.Place(ctx, "storage-tank", tank[0].Pos, tank[0].Dir)
+	if err != nil {
+		t.Skipf("цистерна не встала: %v", err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		st, _ := h.B.GetEntity(te.Name, te.Position)
+		if st != nil && st.Fluids["water"] > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("вода в цистерну не пришла")
+		}
+		time.Sleep(time.Second)
+	}
+	// отрезать помпу: снять трубу у неё, иначе вода сразу натечёт снова
+	if e, _ := h.B.EntityAt("pipe", pipes[0]); e != nil {
+		if err := h.Pickup(ctx, *e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.FlushPipeline(ctx, te, "water"); err != nil {
+		t.Fatalf("слить: %v", err)
+	}
+	if st, _ := h.B.GetEntity(te.Name, te.Position); st == nil || st.Fluids["water"] > 0 {
+		t.Errorf("в цистерне осталось: %+v", st)
+	}
+	_ = pe
 	clean(t, h)
 }
