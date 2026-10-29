@@ -406,12 +406,11 @@ func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err
 }
 
 // craft — скрафтить n item: сначала сырьё на всё дерево (пластины, камень, дерево). Уже в
-// очереди крафта — только дождаться.
+// очереди крафта — только дождаться; с noWait очередь уже вычтена из n (have, pending) — n
+// сверх неё (вычитали дважды: крафт частями не ставил ничего, «не набрать transport-belt
+// ×4834», стадия 14 на 427965634).
 func (s *worker) craft(ctx context.Context, item string, n int) error {
-	if s.queued(item)*s.perCraft(item) >= n {
-		if s.noWait {
-			return nil
-		}
+	if !s.noWait && s.queued(item)*s.perCraft(item) >= n {
 		return s.waitInv(ctx, item, s.inv(item)+n, s.craftLimit(item, 0))
 	}
 	need := map[string]int{}
