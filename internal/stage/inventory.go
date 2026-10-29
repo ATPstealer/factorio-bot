@@ -75,13 +75,14 @@ func neededItems(h *act.Hands) map[string]bool {
 }
 
 // tidy — у хранения (берёт оттуда): то же правило, что всегда (store: свободно меньше
-// четверти — ненужное в хранение до половины).
-func (s *worker) tidy(ctx context.Context) error {
+// четверти — ненужное в хранение до половины); take — что сейчас берётся, его не класть
+// (уголь на бойлеры: клал обратно и брал снова 40 минут — стадия 29 на 427965634).
+func (s *worker) tidy(ctx context.Context, take string) error {
 	p, err := s.h.B.Player()
 	if err != nil {
 		return err
 	}
-	return s.store(ctx, p.InventorySize)
+	return s.store(ctx, p.InventorySize, take)
 }
 
 // errNoStorage — инвентарь полон, а хранения ещё нет (до стадии 13).

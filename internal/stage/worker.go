@@ -889,7 +889,7 @@ func (s *worker) restock(ctx context.Context, list []layout.Placement, from stri
 				continue
 			}
 			if !took { // перед первым взятием — ненужное в хранение (место)
-				if err := s.tidy(ctx); err != nil && !errors.Is(err, errNoStorage) {
+				if err := s.tidy(ctx, it); err != nil && !errors.Is(err, errNoStorage) {
 					return err
 				}
 				took = true
@@ -952,7 +952,7 @@ func (s *worker) fromStorage(ctx context.Context, item string, n int) (bool, err
 		if err != nil || st == nil || st.Inventories["chest"][item] == 0 {
 			continue
 		}
-		if err := s.tidy(ctx); err != nil && !errors.Is(err, errNoStorage) {
+		if err := s.tidy(ctx, item); err != nil && !errors.Is(err, errNoStorage) {
 			return false, err
 		}
 		// не больше, чем влезет (2 ячейки — про запас): берём теперь на всю стройку стадии
