@@ -45,7 +45,7 @@ func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
 
 // clearSpots — убрать, что мешает постройке entity: деревья и камни под рамкой — срубить и
 // разбить. Своя постройка на месте — ErrOccupied (может быть нужной — не трогать; ленты,
-// подземки и делители друг друга заменяют сами).
+// подземки и делители друг друга заменяют сами); своя такая же, стоящая не так, — поднять.
 func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box) error {
 	if h.World == nil {
 		return nil
@@ -82,8 +82,21 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 			if e == nil {
 				continue
 			}
-			if own {
+			if own && o.Name == entity && !sameBox(b, fp) {
+				// своя такая же, но стоит не так (поперёк, со сдвигом — неверный поворот руки или
+				// сбитый клик: стадия 29 на 427965634) — поднять и поставить как надо; точно на
+				// месте — не трогать (поставлено)
+				h.Say("%s стоит не так — поднимаю", o.Name)
+				if err := h.Pickup(ctx, *e); err != nil {
+					return err
+				}
+				continue
+			}
+			if own && o.Name != entity {
 				return fmt.Errorf("%w: %s в (%.1f, %.1f)", ErrOccupied, o.Name, o.Pos.X, o.Pos.Y)
+			}
+			if own {
+				continue
 			}
 			h.Say("%s мешает постройке — убираю", o.Name)
 			if err := h.WalkToMine(ctx, *e); err != nil && !errors.Is(err, ErrNotReached) {
@@ -95,6 +108,14 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 		}
 	}
 	return nil
+}
+
+// sameBox — рамки a и b совпадают (с допуском на зазор рамки коллизии внутри тайлов).
+func sameBox(a, b bridge.Box) bool {
+	ac, bc := a.Center(), b.Center()
+	aw, ah := a.RightBottom.X-a.LeftTop.X, a.RightBottom.Y-a.LeftTop.Y
+	bw, bh := b.RightBottom.X-b.LeftTop.X, b.RightBottom.Y-b.LeftTop.Y
+	return dist(ac, bc) < 0.25 && math.Abs(aw-bw) < 0.5 && math.Abs(ah-bh) < 0.5
 }
 
 func beltLike(typ string) bool {
@@ -545,16 +566,19 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 		hand = *e.Direction
 	}
 	fl := h.fluidLinked(e.Name)
-	tries := 1
-	if ug || fl {
-		tries = 4
-	}
+	// поворот руки после подбора не всегда тот, что у поднятой (последний предмет ушёл в
+	// постройку — взятый заново смотрит на север: котёл встал поперёк, а при перестановке —
+	// «Steam engine is in the way», стадия 29 на 427965634) — не встало или встало не так: ещё
+	// R и снова, до четырёх поворотов
+	placed := true // e стоит — поднять перед постановкой
 	for try := 0; ; try++ {
-		h.noRestore = true
-		err := h.Pickup(ctx, e)
-		h.noRestore = false
-		if err != nil {
-			return e, err
+		if placed {
+			h.noRestore = true
+			err := h.Pickup(ctx, e)
+			h.noRestore = false
+			if err != nil {
+				return e, err
+			}
 		}
 		if err := h.Pick(ctx, item); err != nil {
 			return e, err
@@ -580,16 +604,20 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 			}
 		}
 		ne, err := h.clickBuild(ctx, e.Name, pos)
+		if errors.Is(err, ErrPlace) && try < 3 {
+			placed = false
+			continue
+		}
 		if err != nil {
 			return e, err
 		}
 		if ne.Direction == nil || h.sameDir(ne.Name, *ne.Direction, dir) || !ug && !fl && *ne.Direction%8 == dir%8 {
 			return ne, nil
 		}
-		if try+1 >= tries {
+		if try >= 3 {
 			return ne, fmt.Errorf("act: %s не встал направлением %d", e.Name, dir)
 		}
-		e = ne
+		e, placed = ne, true
 	}
 }
 

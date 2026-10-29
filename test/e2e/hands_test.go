@@ -564,6 +564,38 @@ func TestPlaceOverOwnBelt(t *testing.T) {
 	clean(t, h)
 }
 
+// Единственный котёл встал не тем поворотом — переставить (стадия 29 на 427965634: котёл
+// поднят, взят заново — рука смотрит не туда, куда смотрел поднятый; перестановка повернула
+// её мимо — «Steam engine is in the way», стадия упала). Котлов в инвентаре больше одного —
+// пропуск (ситуация — последний предмет).
+func TestReplaceLastBoiler(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "boiler", 1)
+	if p, _ := h.B.Player(); p.Inventory["boiler"] != 1 {
+		t.Skipf("котлов в инвентаре %d, нужен ровно один", p.Inventory["boiler"])
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y + 25}, 8, 8, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 8×8")
+	}
+	pos := bridge.Pos{X: math.Floor(c.X) + 0.5, Y: math.Floor(c.Y)}
+	ctx := ctxT(t, 3*time.Minute)
+	if _, err := h.PlaceDirs(ctx, "boiler", []bridge.Pos{pos}, []int{layout.E}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceDirs(ctx, "boiler", []bridge.Pos{pos}, []int{layout.N}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := h.B.GetEntity("boiler", pos); err != nil || st == nil || st.Direction == nil || *st.Direction != layout.N {
+		t.Errorf("котёл в (%.1f, %.1f): %+v (%v)", pos.X, pos.Y, st, err)
+	}
+	clean(t, h)
+}
+
 func TestPlaceBeltRun(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "transport-belt", 20)
