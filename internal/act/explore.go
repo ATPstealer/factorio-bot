@@ -64,6 +64,7 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 				rounds, mark = rounds+1, len(w.Chunks)
 				h.Log("разведка: ещё круг по %d пропущенным чанкам (%d из %d)", len(skip), rounds, exploreRounds)
 				skip, tries = map[bridge.ChunkPos]bool{}, map[bridge.ChunkPos]int{}
+				w.ForgetStuck() // как перезапуск: отметки «упёрся» закрывали проходы
 				continue
 			}
 			return ErrNothingToExplore

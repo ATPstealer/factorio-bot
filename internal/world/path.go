@@ -173,6 +173,10 @@ func (w *World) MarkStuck(at bridge.Pos, dx, dy float64) {
 	}
 }
 
+// ForgetStuck — забыть, где персонаж упирался (MarkStuck): отметки копятся и закрывают проходы,
+// которые со второй попытки проходятся (разведка: перезапуск их сбрасывал — 17555262).
+func (w *World) ForgetStuck() { w.Stuck = nil }
+
 // Cut — дерево на маршруте: срубить, дойдя до отметки S (длина пути от старта).
 type Cut struct {
 	Tree Object
