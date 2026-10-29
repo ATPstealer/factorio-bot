@@ -99,6 +99,9 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	saveWorld(h)
 	opened, holes := 0, 0 // дооткрытий у базы и дыр внутри неё (stages.md, стадия 2)
 	roughRegion, roughCliffs = nil, false
+	if st, err := loadSquares(); err == nil && st.Found != nil {
+		roughRegion = st.Found // стадия 1 нашла место в этом квадрате — центр базы в нём (stages.md)
+	}
 	planned := false // searchBase уже сделал полную разметку
 	for {
 		var err error
@@ -171,8 +174,8 @@ func runRough(ctx context.Context, h *act.Hands) error {
 // roughCliffs — база с утёсами (zones.md): обычным способом места нигде не нашлось.
 var roughCliffs bool
 
-// roughRegion — квадрат, в котором размечается база (nil — вся открытая карта): места не
-// нашлось — следующий из соседних (runRough).
+// roughRegion — квадрат, в котором центр базы (roughAnchor; nil — по всей открытой карте):
+// прикидка после квадрата разведки (searchBase) и разметка от квадрата стадии 1 (runRough).
 var roughRegion *cluster.Rect
 
 // WorldFile — открытая карта перед разметкой зон: run/worlds/<сид>.gob (разметка без игры —

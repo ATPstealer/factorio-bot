@@ -32,10 +32,12 @@ const (
 // roughQuick — roughPass в режиме прикидки (Base.Quick, Deadline).
 var roughQuick bool
 
-// squareState — что уже разведано: центр и пройденные квадраты (общее для стадий 1 и 2).
+// squareState — что уже разведано: центр и пройденные квадраты (общее для стадий 1 и 2); Found —
+// квадрат, где прикидка сказала «встанет» (стадия 2 размечает от него).
 type squareState struct {
 	Center world.Tile     `json:"center"`
 	Done   []cluster.Rect `json:"done"`
+	Found  *cluster.Rect  `json:"found,omitempty"`
 }
 
 func loadSquares() (*squareState, error) {
@@ -173,17 +175,22 @@ func searchBase(ctx context.Context, h *act.Hands, st *squareState, full bool) e
 			return err
 		}
 		saveWorld(h)
+		// центр базы — в этом квадрате (stages.md, стадия 1): от общего центра поиск мест за
+		// предел прикидки до квадрата в 2000 тайлах не доходит (17555262)
+		roughRegion = &r
 		if !roughEstimate(h) {
+			roughRegion = nil
 			continue
 		}
-		if !full {
-			return nil
+		if full {
+			if err := roughOnce(h); err != nil {
+				h.Say("полная разметка не встала там, где прикидка сказала «встанет» (%v) — дальше", err)
+				roughRegion = nil
+				continue
+			}
 		}
-		if err := roughOnce(h); err == nil {
-			return nil
-		} else {
-			h.Say("полная разметка не встала там, где прикидка сказала «встанет» (%v) — дальше", err)
-		}
+		st.Found = &r
+		return writeState(squaresFile, st)
 	}
 }
 

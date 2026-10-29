@@ -198,7 +198,8 @@ func exploreDone(ctx context.Context, h *act.Hands, center world.Tile) error {
 	}
 	saveWorld(h)
 	if roughEstimate(h) {
-		return nil
+		st.Found = &st.Done[0]
+		return writeState(squaresFile, st)
 	}
 	return searchBase(ctx, h, st, false)
 }
