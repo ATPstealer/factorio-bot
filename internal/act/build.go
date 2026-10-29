@@ -113,12 +113,17 @@ const buildReach = 9
 // площадку (персонаж мешает поставить). Точка — ближайшая к персонажу свободная вокруг
 // площадки (рядом могут стоять другие постройки).
 func (h *Hands) standNear(ctx context.Context, fp bridge.Box) error {
+	return h.standWithin(ctx, fp, buildReach)
+}
+
+// standWithin — standNear, но ближе reach к центру площадки.
+func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err
 	}
 	c := fp.Center()
-	if !inBox(p.Position, fp, 0.35) && dist(p.Position, c) < buildReach { // рамка персонажа ±0.2 + задержка
+	if !inBox(p.Position, fp, 0.35) && dist(p.Position, c) < reach { // рамка персонажа ±0.2 + задержка
 		return nil
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
@@ -189,6 +194,11 @@ func (h *Hands) PlaceAll(ctx context.Context, item string, positions []bridge.Po
 // PlaceDirs — как PlaceAll, но у каждого места своё направление (лента с поворотами — одним
 // проходом по трассе): рука доворачивается R между постановками.
 func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.Pos, dirs []int) ([]bridge.Entity, error) {
+	return h.placeDirs(ctx, item, positions, dirs, false)
+}
+
+// placeDirs — PlaceDirs; again — повтор того, что не встало: к каждому месту вплотную.
+func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.Pos, dirs []int, again bool) ([]bridge.Entity, error) {
 	dir := dirs[0]
 	mixed := false
 	for _, d := range dirs {
@@ -223,7 +233,7 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 	held, stock := false, -1
 	built := make([]bridge.Entity, len(positions))
 	var misrotated []int
-	var failed []bridge.Pos
+	var failed []int
 	defer h.ClearCursor(ctx)
 	fps := make([]bridge.Box, len(positions))
 	left := make([]int, len(positions))
@@ -245,6 +255,12 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 			if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
 				here = append(here, i)
 			}
+		}
+		if again { // повтор: по одному, вплотную
+			if err := h.standWithin(ctx, fps[left[0]], 4); err != nil {
+				return built, err
+			}
+			here = []int{left[0]}
 		}
 		if len(here) == 0 {
 			// перейти туда, откуда достаётся больше всего; не вышло дважды — к ближней
@@ -335,8 +351,8 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 				}
 			}
 			if errors.Is(err, ErrPlace) {
-				// место временно занято — остальные ставить, это — потом (вернём ошибку)
-				failed = append(failed, pos)
+				// место временно занято — остальные ставить, это — потом (повтор в конце)
+				failed = append(failed, i)
 				left = removeInt(left, i)
 				continue
 			}
@@ -410,8 +426,27 @@ func (h *Hands) PlaceDirs(ctx context.Context, item string, positions []bridge.P
 		d := dirs[i]
 		built[i].Direction = &d
 	}
+	if len(failed) > 0 && !again {
+		// не встало — ещё раз после остальных: вплотную и рукой заново (стадия 16 на 46082668:
+		// 2 ленты из 40 не встали по два клика, место свободно, события постройки нет — причина
+		// не найдена, отдельно потом ставятся)
+		ps, ds := make([]bridge.Pos, len(failed)), make([]int, len(failed))
+		for k, i := range failed {
+			ps[k], ds[k] = positions[i], dirs[i]
+		}
+		h.Say("%s: не встало в %d местах — ещё раз, вплотную", it.PlaceResult, len(failed))
+		more, err := h.placeDirs(ctx, item, ps, ds, true)
+		hand = h.handDir[item] // повтор вёл руку сам
+		for k, i := range failed {
+			if k < len(more) && more[k].Name != "" {
+				built[i] = more[k]
+			}
+		}
+		return built, err
+	}
 	if len(failed) > 0 {
-		return built, fmt.Errorf("%w %s в %d местах, первое (%.1f, %.1f)", ErrPlace, it.PlaceResult, len(failed), failed[0].X, failed[0].Y)
+		at := positions[failed[0]]
+		return built, fmt.Errorf("%w %s в %d местах, первое (%.1f, %.1f)", ErrPlace, it.PlaceResult, len(failed), at.X, at.Y)
 	}
 	return built, nil
 }
@@ -588,6 +623,19 @@ func (h *Hands) clickBuild(ctx context.Context, entity string, pos bridge.Pos) (
 		}
 	}
 	h.debugShot("place-" + entity)
+	// что было при клике — для разбора (стадия 16 на 46082668: место свободно, а не встало)
+	if q, err := h.B.Player(); err == nil {
+		hand, n, sel := "", 0, ""
+		if q.Cursor != nil {
+			hand, n = q.Cursor.Name, q.Cursor.Count
+		}
+		if q.Selected != nil {
+			sel = q.Selected.Name
+		}
+		x, y := h.Camera(p).ToScreen(pos.X, pos.Y)
+		h.Log("не встало %s в (%.1f, %.1f): в руке %q ×%d, выделено %q, персонаж (%.2f, %.2f) → (%.2f, %.2f), клик (%d, %d)",
+			entity, pos.X, pos.Y, hand, n, sel, p.Position.X, p.Position.Y, q.Position.X, q.Position.Y, x-h.Win.X, y-h.Win.Y)
+	}
 	return bridge.Entity{}, fmt.Errorf("%w %s в (%.1f, %.1f)", ErrPlace, entity, pos.X, pos.Y)
 }
 
