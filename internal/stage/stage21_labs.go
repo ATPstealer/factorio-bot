@@ -120,7 +120,7 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 }
 
 // checkLabs — всё стоит, фильтры заданы; исследование идёт само: за 30 с без бота прогресс
-// растёт (или изучено новое), в лабораториях — пакеты с ленты.
+// растёт (или изучено новое), в лабораториях за это время — пакеты с ленты.
 func checkLabs(h *act.Hands) error {
 	list, err := labsLayout(h)
 	if err != nil {
@@ -133,22 +133,30 @@ func checkLabs(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	fed := 0
 	for _, pl := range list {
+		if pl.Name != "inserter" || pl.Recipe == "" {
+			continue
+		}
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
 		if err != nil || st == nil {
 			continue
 		}
-		if pl.Name == "inserter" && pl.Recipe != "" && !slices.Contains(st.Filters, pl.Recipe) &&
-			!(locked[pl.Recipe] && slices.Contains(st.Filters, filterHold)) {
+		if !slices.Contains(st.Filters, pl.Recipe) && !(locked[pl.Recipe] && slices.Contains(st.Filters, filterHold)) {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		}
-		if pl.Name == "lab" && st.Count(redPack) > 0 {
-			fed++
-		}
 	}
-	if fed == 0 {
-		return fmt.Errorf("в лабораториях нет пакетов")
+	// пакеты в лабораториях — хоть раз за 30 с: лаборатории съедают пакет быстрее, чем красная
+	// наука приходит, и в один миг бывают пусты (стадия 21 на 267145981)
+	fed := func() bool {
+		for _, pl := range list {
+			if pl.Name != "lab" {
+				continue
+			}
+			if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(redPack) > 0 {
+				return true
+			}
+		}
+		return false
 	}
 	f0, err := h.B.Force()
 	if err != nil {
@@ -157,7 +165,14 @@ func checkLabs(h *act.Hands) error {
 	if f0.Current == "" {
 		return fmt.Errorf("исследование не идёт")
 	}
-	time.Sleep(30 * time.Second)
+	got := fed()
+	for k := 0; k < 6; k++ {
+		time.Sleep(5 * time.Second)
+		got = got || fed()
+	}
+	if !got {
+		return fmt.Errorf("в лабораториях нет пакетов")
+	}
 	f1, err := h.B.Force()
 	if err != nil {
 		return err
