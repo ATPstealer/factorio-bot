@@ -528,6 +528,42 @@ func TestRefuelFiveCoalPairs(t *testing.T) {
 // 4»): змейка из 20 лент с поворотами — все встали своим направлением, поворачивать после
 // пришлось не больше одной (первую, пока рука не сверена); потом средняя лента ряда — на
 // север и обратно на восток, соседние не тронуты.
+// Ряд лент, часть мест которого уже занята своими такими же лентами (стадия 17 на 46082668:
+// сбитый клик — персонажа несла лента — поставил ленту не на то место, следующее место
+// оказалось уже со своей лентой; клик по ней ничего не строит — «не удалось поставить»).
+func TestPlaceOverOwnBelt(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "transport-belt", 8)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y + 25}, 10, 4, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 10×4")
+	}
+	x0, y0 := math.Floor(c.X)-2.5, math.Floor(c.Y)+0.5
+	var pos []bridge.Pos
+	var dirs []int
+	for k := 0; k < 6; k++ {
+		pos = append(pos, bridge.Pos{X: x0 + float64(k), Y: y0})
+		dirs = append(dirs, layout.E)
+	}
+	ctx := ctxT(t, 3*time.Minute)
+	if _, err := h.PlaceDirs(ctx, "transport-belt", []bridge.Pos{pos[2], pos[3]}, []int{layout.E, layout.E}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceDirs(ctx, "transport-belt", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range pos {
+		if st, err := h.B.GetEntity("transport-belt", p); err != nil || st == nil || st.Direction == nil || *st.Direction != layout.E {
+			t.Errorf("лента %d в (%.1f, %.1f): %+v (%v)", i+1, p.X, p.Y, st, err)
+		}
+	}
+	clean(t, h)
+}
+
 func TestPlaceBeltRun(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "transport-belt", 20)

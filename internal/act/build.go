@@ -351,6 +351,13 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 				}
 			}
 			if errors.Is(err, ErrPlace) {
+				// уже стоит (поставил сбитый клик; клик по своей же постройке ничего не строит —
+				// стадия 17 на 46082668) — поставлено; поворот сверится ниже
+				if ex, xerr := h.B.EntityAt(it.PlaceResult, pos); xerr == nil && ex != nil {
+					e, err = *ex, nil
+				}
+			}
+			if errors.Is(err, ErrPlace) {
 				// место временно занято — остальные ставить, это — потом (повтор в конце)
 				failed = append(failed, i)
 				left = removeInt(left, i)
@@ -595,6 +602,28 @@ func (h *Hands) clickBuild(ctx context.Context, entity string, pos bridge.Pos) (
 	p, err := h.B.Player()
 	if err != nil {
 		return bridge.Entity{}, err
+	}
+	// персонажа несёт лента — клик уйдёт мимо (стадия 17 на 46082668: лента встала тайлом выше,
+	// а нужное место потом — на своей же ленте): сойти и встать
+	if h.World != nil && h.World.OnBelt(p.Position) {
+		if err := h.stepOffBelt(ctx, p.Position); err != nil {
+			return bridge.Entity{}, err
+		}
+		if err := h.waitStill(ctx); err != nil {
+			return bridge.Entity{}, err
+		}
+		if p, err = h.B.Player(); err != nil {
+			return bridge.Entity{}, err
+		}
+	}
+	// в руке не то (там же: делитель вместо ленты, потом пусто) — взять заново
+	if item := h.Protos.ItemFor(entity); item != "" && cursorName(p) != item {
+		if err := h.Pick(ctx, item); err != nil {
+			return bridge.Entity{}, err
+		}
+		if p, err = h.B.Player(); err != nil {
+			return bridge.Entity{}, err
+		}
 	}
 	if err := h.In.Move(h.Camera(p).ToScreen(pos.X, pos.Y)); err != nil {
 		return bridge.Entity{}, err
