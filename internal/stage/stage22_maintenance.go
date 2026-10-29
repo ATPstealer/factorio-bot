@@ -68,11 +68,6 @@ func rocketTechs(h *act.Hands) ([]string, error) {
 		return nil, err
 	}
 	var res []string
-	// с зелёной — первым toolbelt (+10 ячеек инвентаря; stages.md, стадия 27): к ракете не ведёт,
-	// но бот реже ходит к хранению
-	if packs[greenPack] && !done["toolbelt"] {
-		res = append(res, "toolbelt")
-	}
 	for _, t := range path {
 		tech := h.Protos.Technologies[t]
 		ok := tech.Trigger == nil && len(tech.UnitIngredients) > 0
