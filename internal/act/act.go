@@ -1265,6 +1265,22 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 	return true, nil
 }
 
+// beltClearance — расстояние от q до ближайшего тайла ленты (до 2: дальше — 2).
+func (h *Hands) beltClearance(q bridge.Pos) float64 {
+	best := 2.0
+	for ty := math.Floor(q.Y) - 2; ty <= math.Floor(q.Y)+2; ty++ {
+		for tx := math.Floor(q.X) - 2; tx <= math.Floor(q.X)+2; tx++ {
+			if !h.World.OnBelt(bridge.Pos{X: tx + 0.5, Y: ty + 0.5}) {
+				continue
+			}
+			dx := math.Max(0, math.Max(tx-q.X, q.X-(tx+1)))
+			dy := math.Max(0, math.Max(ty-q.Y, q.Y-(ty+1)))
+			best = math.Min(best, math.Hypot(dx, dy))
+		}
+	}
+	return best
+}
+
 // stepOffBelt — сойти с ленты на ближайшую точку, где можно стоять.
 func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 	// только что поставленные ленты модель могла ещё не видеть — иначе «сойти» на ленту
@@ -1276,9 +1292,11 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		d float64
 	}
 	var cs []cand
-	for dy := -4.0; dy <= 4; dy += 0.5 {
-		for dx := -4.0; dx <= 4; dx += 0.5 {
-			q := bridge.Pos{X: from.X + dx, Y: from.Y + dy}
+	// сетка — по четверти тайла от угла тайла: середина щели между рядами лент — в ней
+	x0, y0 := math.Floor(from.X), math.Floor(from.Y)
+	for dy := -4.0; dy <= 4; dy += 0.25 {
+		for dx := -4.0; dx <= 4; dx += 0.25 {
+			q := bridge.Pos{X: x0 + dx, Y: y0 + dy}
 			if h.World.Standable(q) {
 				d := dist(from, q)
 				if h.goal != nil { // идём к цели — сходить в её сторону, а не куда ближе
@@ -1289,6 +1307,11 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 				}
 				if !h.World.Roomy(q) {
 					d += 6 // вплотную к ленте — проскочит обратно на ленту (сильнее, чем ближе к цели)
+				}
+				// ближе 1.5 к ленте — штраф по близости: в щели в 3 тайла между рядами шины — в
+				// её середину, иначе инерция доносит до соседнего ряда (стадия 17 на 46082668)
+				if c := h.beltClearance(q); c < 1.5 {
+					d += (1.5 - c) * 6
 				}
 				cs = append(cs, cand{q, d})
 			}
