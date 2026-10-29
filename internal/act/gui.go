@@ -1105,9 +1105,35 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 		if err := click(h.Layout.UseFilters, 300*time.Millisecond); err != nil {
 			return err
 		}
+		// ячейки откроются, когда игра включит фильтр: раньше клик по ячейке — мимо (окно выбора
+		// не открылось, название ушло в поиск инвентаря — стадия 17 на 46082668)
+		for deadline := time.Now().Add(3 * time.Second); ; {
+			if st, err = cur(); err != nil {
+				return err
+			}
+			if st.UseFilters || time.Now().After(deadline) {
+				break
+			}
+			if err := sleep(ctx, 100*time.Millisecond); err != nil {
+				return err
+			}
+		}
+		if err := sleep(ctx, 200*time.Millisecond); err != nil {
+			return err
+		}
 	}
 	text := strings.ReplaceAll(item, "-", " ")
 	for k := 0; k < 5; k++ {
+		if k > 0 {
+			// прошлый заход мимо — окно заново: поиск инвентаря, куда ушло название, держит фокус,
+			// и ячейка дальше не открывалась (там же: все 5 заходов мимо)
+			if err := h.CloseGUI(ctx); err != nil {
+				return err
+			}
+			if err := h.openEntity(ctx, e, "filter-open"); err != nil {
+				return err
+			}
+		}
 		if err := click(h.Layout.FilterSlot, 400*time.Millisecond); err != nil {
 			return err
 		}
