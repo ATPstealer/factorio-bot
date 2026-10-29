@@ -27,6 +27,10 @@ inst_setup() {
   for side in server client; do
     mkdir -p "$R/$side/mods" "$R/$side/saves"
     sed "s|^write-data=.*|write-data=$R/$side|" "$ROOT/run/$side/config.ini" > "$R/$side/config.ini"
+    # GRAPHICS_QUALITY — качество графики клиента на этот запуск (проверить на одном экземпляре)
+    if [[ $side == client && -n ${GRAPHICS_QUALITY:-} ]]; then
+      sed -i "s|^graphics-quality=.*|graphics-quality=$GRAPHICS_QUALITY|" "$R/$side/config.ini"
+    fi
     cp -P "$ROOT/run/$side/mods/"* "$R/$side/mods/" 2>/dev/null || true
     [[ -f $ROOT/run/$side/player-data.json ]] && cp --update=none "$ROOT/run/$side/player-data.json" "$R/$side/"
   done
