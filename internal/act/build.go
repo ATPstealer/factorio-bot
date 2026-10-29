@@ -299,6 +299,11 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		}
 		stalls = 0
 		held = false // после ходьбы — проверить руку
+		// после ходьбы персонаж ещё скользит — клик ушёл бы на соседний тайл (стадия 17 на
+		// 46082668: инсертер встал тайлом выше, на место длинного): дождаться остановки
+		if err := h.waitStill(ctx); err != nil {
+			return built, err
+		}
 		if h.Protos.Entities[it.PlaceResult].Type == "underground-belt" {
 			// подземки — строго по порядку «вход, потом его выход»: первая поставленная пары
 			// становится входом; ближняя первой — выход встанет входом и пара не сложится
@@ -663,6 +668,7 @@ func (h *Hands) clickBuild(ctx context.Context, entity string, pos bridge.Pos) (
 		return bridge.Entity{}, err
 	}
 	deadline := time.Now().Add(time.Second)
+	var strays []bridge.Entity // встало не туда (клик на соседний тайл)
 	for time.Now().Before(deadline) {
 		if err := sleep(ctx, pollEvery); err != nil {
 			return bridge.Entity{}, err
@@ -671,12 +677,29 @@ func (h *Hands) clickBuild(ctx context.Context, entity string, pos bridge.Pos) (
 		if err != nil {
 			return bridge.Entity{}, err
 		}
+		strays = strays[:0]
 		// прямоугольная, повёрнутая не так, встаёт со сдвигом центра — до тайла
 		for _, e := range evs {
-			if e.Type == "built_entity" && e.Entity != nil && e.Entity.Name == entity &&
-				math.Abs(e.Entity.Position.X-pos.X) <= 0.5 && math.Abs(e.Entity.Position.Y-pos.Y) <= 0.5 {
+			if e.Type != "built_entity" || e.Entity == nil || e.Entity.Name != entity {
+				continue
+			}
+			if math.Abs(e.Entity.Position.X-pos.X) <= 0.5 && math.Abs(e.Entity.Position.Y-pos.Y) <= 0.5 {
 				return *e.Entity, nil
 			}
+			if dist(e.Entity.Position, pos) < 3 {
+				strays = append(strays, *e.Entity)
+			}
+		}
+	}
+	// встало не туда — поднять, иначе займёт чужое место плана (стадия 17 на 46082668: инсертер
+	// тайлом выше — на месте длинного, «место занято своей постройкой»)
+	for _, e := range strays {
+		h.Say("%s встал не там (%.1f, %.1f) — поднимаю", e.Name, e.Position.X, e.Position.Y)
+		h.noRestore = true
+		err := h.Pickup(ctx, e)
+		h.noRestore = false
+		if err != nil {
+			return bridge.Entity{}, err
 		}
 	}
 	h.debugShot("place-" + entity)
