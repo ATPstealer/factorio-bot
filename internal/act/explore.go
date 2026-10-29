@@ -13,6 +13,9 @@ import (
 // exploreHop — длина перехода (путь строится только по открытой карте).
 const exploreHop = 48
 
+// exploreRounds — кругов по пропущенным чанкам, когда остались только они (CLAUDE.md, разведка).
+const exploreRounds = 3
+
 // ErrNothingToExplore — неоткрытого, куда можно дойти, рядом нет (в пределах 64 чанков или
 // области ExploreWhere; недоступное — вода, утёсы — пропущено).
 var ErrNothingToExplore = errors.New("act: разведка: неоткрытого, куда дойти, нет")
@@ -33,6 +36,7 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 	skip := map[bridge.ChunkPos]bool{}
 	tries := map[bridge.ChunkPos]int{} // походов к чанку без новых открытых
 	start := len(w.Chunks)
+	rounds, mark := 0, -1 // кругов по пропущенным; чанков в начале круга
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -54,6 +58,14 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 			return front[c] && (inside == nil || inside(c))
 		})
 		if !ok {
+			// остались пропущенные — ещё круг по ним (не дошёл раз — бывает достижимо со второй
+			// попытки: 17555262, край квадрата, где встала база), пока круг открывает новое
+			if len(skip) > 0 && rounds < exploreRounds && len(w.Chunks) != mark {
+				rounds, mark = rounds+1, len(w.Chunks)
+				h.Log("разведка: ещё круг по %d пропущенным чанкам (%d из %d)", len(skip), rounds, exploreRounds)
+				skip, tries = map[bridge.ChunkPos]bool{}, map[bridge.ChunkPos]int{}
+				continue
+			}
 			return ErrNothingToExplore
 		}
 		tc := world.ChunkOf(world.TileOf(target))
