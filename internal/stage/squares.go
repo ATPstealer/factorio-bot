@@ -55,8 +55,49 @@ func squareAt(center world.Tile, i, j int) cluster.Rect {
 	return cluster.Rect{Min: world.Tile{X: x, Y: y}, Max: world.Tile{X: x + squareSide, Y: y + squareSide}}
 }
 
-// squaresTodo — непройденные квадраты по кольцам; в кольце — ближние к from первыми.
-func squaresTodo(st *squareState, from bridge.Pos) []cluster.Rect {
+// squareScore — оценка квадрата r по уже открытому (stages.md, стадия 1): доля ровной суши
+// (без воды) в открытой части — открыто мало: середина; утёсы — минус; крупные пятна угля,
+// железа и меди в квадрате — плюс.
+func squareScore(w *world.World, r cluster.Rect, big []world.Patch) float64 {
+	const n = world.ChunkSize
+	known, land, cliffs, chunks := 0, 0, 0, 0
+	for c, ch := range w.Chunks {
+		x, y := c.X*n, c.Y*n
+		if x+n <= r.Min.X || x >= r.Max.X || y+n <= r.Min.Y || y >= r.Max.Y {
+			continue
+		}
+		chunks++
+		for dy := 0; dy < n; dy += 4 {
+			for dx := 0; dx < n; dx += 4 {
+				known++
+				if w.TileAt(world.Tile{X: x + dx, Y: y + dy}) == world.Land {
+					land++
+				}
+			}
+		}
+		for _, o := range ch.Objects {
+			if o.Type == "cliff" {
+				cliffs++
+			}
+		}
+	}
+	frac := 0.5
+	if chunks >= 20 { // меньше — наугад
+		frac = float64(land) / float64(known)
+	}
+	s := frac - math.Min(0.5, float64(cliffs)/float64(max(chunks, 1))/4)
+	res := map[string]bool{}
+	for _, p := range big {
+		if x, y := int(p.Center.X), int(p.Center.Y); x >= r.Min.X && x < r.Max.X && y >= r.Min.Y && y < r.Max.Y {
+			res[p.Name] = true
+		}
+	}
+	return s + 0.3*float64(len(res))
+}
+
+// squaresTodo — непройденные квадраты по кольцам; в кольце — с лучшей оценкой score (nil — без
+// неё), при равной — ближние к from первыми.
+func squaresTodo(st *squareState, from bridge.Pos, score func(cluster.Rect) float64) []cluster.Rect {
 	done := func(r cluster.Rect) bool {
 		for _, d := range st.Done {
 			if d == r {
@@ -78,7 +119,16 @@ func squaresTodo(st *squareState, from bridge.Pos) []cluster.Rect {
 				}
 			}
 		}
+		q := make(map[cluster.Rect]float64, len(rs)) // оценка с шагом 0.05: близкие — равны
+		if score != nil {
+			for _, r := range rs {
+				q[r] = math.Round(score(r) / 0.05)
+			}
+		}
 		sort.Slice(rs, func(a, b int) bool {
+			if q[rs[a]] != q[rs[b]] {
+				return q[rs[a]] > q[rs[b]]
+			}
 			ax, ay := rs[a].Center()
 			bx, by := rs[b].Center()
 			return math.Hypot(ax-from.X, ay-from.Y) < math.Hypot(bx-from.X, by-from.Y)
@@ -160,13 +210,25 @@ func searchBase(ctx context.Context, h *act.Hands, st *squareState, full bool) e
 		if err != nil {
 			return err
 		}
-		todo := squaresTodo(st, p.Position)
+		// оценка квадратов — по открытому сейчас: крупные пятна ядра (как центр базы)
+		need, err := roughNeed(h)
+		if err != nil {
+			return err
+		}
+		var big []world.Patch
+		for _, pt := range h.World.Patches() {
+			if (pt.Name == "coal" || pt.Name == "iron-ore" || pt.Name == "copper-ore") && float64(pt.Amount) >= need[pt.Name]/3 {
+				big = append(big, pt)
+			}
+		}
+		score := func(r cluster.Rect) float64 { return squareScore(h.World, r, big) }
+		todo := squaresTodo(st, p.Position, score)
 		if len(todo) == 0 {
 			return errNoSquares
 		}
 		r := todo[0]
 		cx, cy := r.Center()
-		h.Say("разведка: квадрат с центром (%.0f, %.0f) — %d из %d", cx, cy, len(st.Done)+1, (2*squareRings+1)*(2*squareRings+1))
+		h.Say("разведка: квадрат с центром (%.0f, %.0f) — %d из %d, оценка %.2f", cx, cy, len(st.Done)+1, (2*squareRings+1)*(2*squareRings+1), score(r))
 		if err := exploreSquare(ctx, h, r); err != nil {
 			return err
 		}
