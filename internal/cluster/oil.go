@@ -961,9 +961,8 @@ func oilField(l *layout.Layout, c *Cluster, tag string, head world.Tile) error {
 			}
 			mark := l.Mark()
 			l.Add(pj)
-			if placed == 0 { // первая (ближняя к базе) — начало трубы, отсюда трасса
+			if placed == 0 { // первая (ближняя к базе) — начало трубы
 				l.Add(layout.Placement{Name: "pipe", Pos: conn.To.Center(), Tag: pipeTag})
-				c.Ports = append(c.Ports, Port{T: conn.To, Dir: conn.Dir, Item: "crude-oil"})
 				err = nil
 				break
 			}
@@ -979,6 +978,23 @@ func oilField(l *layout.Layout, c *Cluster, tag string, head world.Tile) error {
 	if placed == 0 {
 		return fmt.Errorf("cluster %s: ни одной качалки", c.Name)
 	}
-	c.Count = placed
-	return nil
+	// выход (трасса на базу) — у ближней к голове трубы, от которой есть куда отойти: у первой
+	// качалки бывает тесно (старый подвод угля через пятно нефти — 565937761)
+	var pipes []world.Tile
+	for _, p := range l.List {
+		if p.Tag == pipeTag && p.Name == "pipe" {
+			pipes = append(pipes, world.Tile{X: int(math.Floor(p.Pos.X)), Y: int(math.Floor(p.Pos.Y))})
+		}
+	}
+	sort.SliceStable(pipes, func(i, j int) bool { return dist(pipes[i]) < dist(pipes[j]) })
+	for _, t := range pipes {
+		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+			if n := layout.Step(t, d); l.Free(n, layout.AnyLand) && !l.Solid[n] {
+				c.Ports = append(c.Ports, Port{T: t, Dir: d, Item: "crude-oil"})
+				c.Count = placed
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("cluster %s: от трубы нефти не отойти", c.Name)
 }

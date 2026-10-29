@@ -55,6 +55,9 @@ type Base struct {
 	MaxR     int // радиус поиска места от якоря, тайлов
 	// Avoid — занятые тайлы (раскладки прошлых задач): ни кластеров, ни логистики
 	Avoid map[world.Tile]bool
+	// Pre — уже спланированное (план прошлой стадии планирования): кладётся в раскладку первым,
+	// внутренности новых кластеров его не занимают (Layout)
+	Pre []layout.Placement
 	// Usable — доступна ли постройка (изучено); nil — всё (подземки — после logistics)
 	Usable func(entity string) bool
 	// Log — журнал прокладки (попытки, время); nil — молча
@@ -563,6 +566,9 @@ func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
 	l.Usable = b.Usable
 	for t := range b.Avoid {
 		l.Reserved[t] = true
+	}
+	for _, pl := range b.Pre {
+		l.Add(pl)
 	}
 	area := func(c *Cluster, on bool) {
 		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
