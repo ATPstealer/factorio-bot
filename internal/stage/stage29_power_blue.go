@@ -99,7 +99,9 @@ func runPowerBlue(ctx context.Context, h *act.Hands) error {
 			}
 		}
 		h.Say("уголь в новый бойлер (%.0f, %.0f) — %d из %d", b.e.Position.X, b.e.Position.Y, i+1, len(todo))
-		if err := h.Insert(ctx, b.e, "coal", b.n); err != nil {
+		// сколько влезет (как на стадии 11): инсертер с ленты угля докладывает, пока бот идёт, —
+		// точное число не влезало («положено coal ×45 из 46», 267145981)
+		if _, err := h.InsertAll(ctx, b.e, "coal"); err != nil {
 			return err
 		}
 		total -= b.n
