@@ -5,6 +5,7 @@
 package e2e
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/input"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -262,6 +264,57 @@ func TestSetFilter(t *testing.T) {
 	have(t, h, "inserter", 1)
 	e := placeNear(t, h, "inserter", 1)
 	ctx := ctxT(t, time.Minute)
+	if err := h.SetFilter(ctx, e, "coal"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || len(st.Filters) == 0 || st.Filters[0] != "coal" {
+		t.Errorf("фильтр в игре: %+v (%v)", st, err)
+	}
+	if err := h.Pickup(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	clean(t, h)
+}
+
+// Фильтр инсертера, у которого «Use filters» уже включён, а ячейки пусты (стадия 17 на
+// 46082668: бот считал фильтр выключенным и кликом выключал его — ячейка не открывалась, все
+// попытки мимо): галочку включить без фильтра — и задать фильтр.
+func TestSetFilterOnEmpty(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "inserter", 1)
+	e := placeNear(t, h, "inserter", 1)
+	ctx := ctxT(t, time.Minute)
+	if err := h.Hover(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		if p, err := h.B.Player(); err == nil && p.OpenedGUIType != nil && *p.OpenedGUIType != 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("окно инсертера не открылось")
+		}
+	}
+	u := h.Layout.UseFilters
+	if err := h.In.Move(h.Win.X+u.X, h.Win.Y+u.Y); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := h.In.Click(input.Left); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if err := h.CloseGUI(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var on bool
+	lua(t, fmt.Sprintf(`s.find_entity("inserter", {%g, %g}).use_filters`, e.Position.X, e.Position.Y), &on)
+	if !on {
+		t.Fatal("галочка «Use filters» не включилась")
+	}
 	if err := h.SetFilter(ctx, e, "coal"); err != nil {
 		t.Fatal(err)
 	}

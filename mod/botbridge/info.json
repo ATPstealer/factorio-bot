@@ -1,6 +1,6 @@
 {
   "name": "botbridge",
-  "version": "0.28.4",
+  "version": "0.28.5",
   "title": "Bot Bridge",
   "author": "mav",
   "description": "Read-only сенсоры для внешнего бота через RCON.",

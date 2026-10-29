@@ -1099,7 +1099,9 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 		}
 		return sleep(ctx, pause)
 	}
-	if len(st.Filters) == 0 { // фильтр выключен — включить (ячейки заданы — значит включён)
+	// галочка выключена — включить; включена с пустыми ячейками — не трогать (клик её выключал:
+	// ячейка не открывалась, стадия 17 на 46082668)
+	if !st.UseFilters {
 		if err := click(h.Layout.UseFilters, 300*time.Millisecond); err != nil {
 			return err
 		}

@@ -224,6 +224,7 @@ local function entity_state(p, name, position)
   end
   r.network = util.try(function() return e.electric_network_id end)
   if e.type == "inserter" and e.use_filters then -- фильтр «что брать»
+    r.use_filters = true -- галочка «Use filters» (ячейки бывают пусты)
     local f = {}
     for i = 1, e.filter_slot_count do
       local x = e.get_filter(i)
