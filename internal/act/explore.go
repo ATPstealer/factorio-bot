@@ -60,7 +60,7 @@ func (h *Hands) ExploreWhere(ctx context.Context, inside func(bridge.ChunkPos) b
 		if !ok {
 			// остались пропущенные — ещё круг по ним (не дошёл раз — бывает достижимо со второй
 			// попытки: 17555262, край квадрата, где встала база), пока круг открывает новое
-			if len(skip) > 0 && rounds < exploreRounds && len(w.Chunks) != mark {
+			if len(skip) > 0 && !h.ExploreOnce && rounds < exploreRounds && len(w.Chunks) != mark {
 				rounds, mark = rounds+1, len(w.Chunks)
 				h.Log("разведка: ещё круг по %d пропущенным чанкам (%d из %d)", len(skip), rounds, exploreRounds)
 				skip, tries = map[bridge.ChunkPos]bool{}, map[bridge.ChunkPos]int{}

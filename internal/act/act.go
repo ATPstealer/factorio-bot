@@ -45,6 +45,9 @@ type Hands struct {
 	// HandFile — где помнить поворот руки между запусками бота, пока жив клиент (hand.go;
 	// New — BOT_RUN/hand.json); "" — только в памяти процесса.
 	HandFile string
+	// ExploreOnce — разведка без кругов по пропущенным чанкам (стадия 1: повтор недоступного —
+	// после круга квадратов, stages.md).
+	ExploreOnce bool
 
 	altChecked bool            // Alt-режим проверен и включён
 	goal       *bridge.Pos     // куда идёт WalkTo: сходить с ленты — в её сторону

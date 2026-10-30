@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -16,28 +15,31 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Поиск места под базу квадратами (stages.md, стадии 1 и 2; решение пользователя 27.10):
-// квадраты 2000×2000 — центральный вокруг прикинутого центра базы, потом кольцо из 8, потом
-// из 16 (всего 25, 10000×10000). После каждого квадрата — быстрая прикидка «встанет ли база»
-// (roughOnce с Quick и лимитом времени); стадия 1 на «встанет» заканчивается, стадия 2 после
-// прикидки делает полную разметку, не встала — следующий квадрат. Пройдены все — места нет.
+// Поиск места под базу квадратами (stages.md, стадии 1 и 2): квадраты 2000×2000 вокруг точки
+// старта — центральный (круг 1), кольцо из 8 (круг 2: с северного по часовой стрелке), кольцо
+// из 16 (круг 3; всего 25, 10000×10000). Прикидка «встанет ли база» — только место этажам, без
+// зон добычи (roughEstimate: roughPass с Quick, лимитом времени и baseFirst); стадия 1 считает
+// её в фоне, стадия 2 после полной разметки, которая не встала, — по квадратам дальше
+// (searchBase). Пройдены все — места нет.
 
 const (
 	squareSide      = 2000 // сторона квадрата разведки, тайлов
 	squareRings     = 2    // колец вокруг центрального квадрата
 	squaresFile     = "state-squares.json"
-	roughQuickLimit = 3 * time.Minute // прикидка: поиск мест этажам — не дольше
+	roughQuickLimit = 3 * time.Minute // прикидка: один проход, поиск мест этажам — не дольше
 )
 
 // roughQuick — roughPass в режиме прикидки (Base.Quick, Deadline).
 var roughQuick bool
 
-// squareState — что уже разведано: центр и пройденные квадраты (общее для стадий 1 и 2); Found —
-// квадрат, где прикидка сказала «встанет» (стадия 2 размечает от него).
+// squareState — что уже разведано (общее для стадий 1 и 2): центр кругов (точка старта),
+// пройденные квадраты; Base — центр базы по прикидке, Found — квадрат вокруг него (стадия 2
+// размечает от него).
 type squareState struct {
 	Center world.Tile     `json:"center"`
 	Done   []cluster.Rect `json:"done"`
 	Found  *cluster.Rect  `json:"found,omitempty"`
+	Base   *world.Tile    `json:"base,omitempty"`
 }
 
 func loadSquares() (*squareState, error) {
@@ -49,113 +51,107 @@ func loadSquares() (*squareState, error) {
 	return &st, json.Unmarshal(data, &st)
 }
 
+func (st *squareState) done(r cluster.Rect) bool {
+	for _, d := range st.Done {
+		if d == r {
+			return true
+		}
+	}
+	return false
+}
+
 // squareAt — квадрат со сдвигом (i, j) квадратов от центра.
 func squareAt(center world.Tile, i, j int) cluster.Rect {
 	x, y := center.X+i*squareSide-squareSide/2, center.Y+j*squareSide-squareSide/2
 	return cluster.Rect{Min: world.Tile{X: x, Y: y}, Max: world.Tile{X: x + squareSide, Y: y + squareSide}}
 }
 
-// squareScore — оценка квадрата r по уже открытому (stages.md, стадия 1): доля ровной суши
-// (без воды) в открытой части — открыто мало: середина; утёсы — минус; крупные пятна угля,
-// железа и меди в квадрате — плюс.
-func squareScore(w *world.World, r cluster.Rect, big []world.Patch) float64 {
-	const n = world.ChunkSize
-	known, land, cliffs, chunks := 0, 0, 0, 0
-	for c, ch := range w.Chunks {
-		x, y := c.X*n, c.Y*n
-		if x+n <= r.Min.X || x >= r.Max.X || y+n <= r.Min.Y || y >= r.Max.Y {
-			continue
-		}
-		chunks++
-		for dy := 0; dy < n; dy += 4 {
-			for dx := 0; dx < n; dx += 4 {
-				known++
-				if w.TileAt(world.Tile{X: x + dx, Y: y + dy}) == world.Land {
-					land++
-				}
-			}
-		}
-		for _, o := range ch.Objects {
-			if o.Type == "cliff" {
-				cliffs++
-			}
-		}
+// ringSquares — квадраты кольца ring вокруг центра: с северного, дальше по часовой стрелке
+// (stages.md, стадия 1); ring 0 — центральный.
+func ringSquares(center world.Tile, ring int) []cluster.Rect {
+	if ring == 0 {
+		return []cluster.Rect{squareAt(center, 0, 0)}
 	}
-	frac := 0.5
-	if chunks >= 20 { // меньше — наугад
-		frac = float64(land) / float64(known)
+	var rs []cluster.Rect
+	add := func(i, j int) { rs = append(rs, squareAt(center, i, j)) }
+	for i := 0; i < ring; i++ { // верх: от севера на восток
+		add(i, -ring)
 	}
-	s := frac - math.Min(0.5, float64(cliffs)/float64(max(chunks, 1))/4)
-	res := map[string]bool{}
-	for _, p := range big {
-		if x, y := int(p.Center.X), int(p.Center.Y); x >= r.Min.X && x < r.Max.X && y >= r.Min.Y && y < r.Max.Y {
-			res[p.Name] = true
-		}
+	for j := -ring; j < ring; j++ { // правый столбец вниз
+		add(ring, j)
 	}
-	return s + 0.3*float64(len(res))
+	for i := ring; i > -ring; i-- { // низ на запад
+		add(i, ring)
+	}
+	for j := ring; j > -ring; j-- { // левый столбец вверх
+		add(-ring, j)
+	}
+	for i := -ring; i < 0; i++ { // верх до севера
+		add(i, -ring)
+	}
+	return rs
 }
 
-// squaresTodo — непройденные квадраты по кольцам; в кольце — с лучшей оценкой score (nil — без
-// неё), при равной — ближние к from первыми.
-func squaresTodo(st *squareState, from bridge.Pos, score func(cluster.Rect) float64) []cluster.Rect {
-	done := func(r cluster.Rect) bool {
-		for _, d := range st.Done {
-			if d == r {
+// squaresTotal — квадратов всего (25).
+const squaresTotal = (2*squareRings + 1) * (2*squareRings + 1)
+
+// squaresTodo — непройденные квадраты по кольцам, в кольце — по часовой стрелке с северного.
+func squaresTodo(st *squareState) []cluster.Rect {
+	var res []cluster.Rect
+	for ring := 0; ring <= squareRings; ring++ {
+		for _, r := range ringSquares(st.Center, ring) {
+			if !st.done(r) {
+				res = append(res, r)
+			}
+		}
+	}
+	return res
+}
+
+// inRect — чанк задевает прямоугольник r.
+func inRect(r cluster.Rect) func(bridge.ChunkPos) bool {
+	return func(c bridge.ChunkPos) bool {
+		return c.X*32+32 > r.Min.X && c.X*32 < r.Max.X && c.Y*32+32 > r.Min.Y && c.Y*32 < r.Max.Y
+	}
+}
+
+// inAny — чанк задевает хоть один из прямоугольников.
+func inAny(rs []cluster.Rect) func(bridge.ChunkPos) bool {
+	var fs []func(bridge.ChunkPos) bool
+	for _, r := range rs {
+		fs = append(fs, inRect(r))
+	}
+	return func(c bridge.ChunkPos) bool {
+		for _, f := range fs {
+			if f(c) {
 				return true
 			}
 		}
 		return false
 	}
-	var res []cluster.Rect
-	for ring := 0; ring <= squareRings; ring++ {
-		var rs []cluster.Rect
-		for j := -ring; j <= ring; j++ {
-			for i := -ring; i <= ring; i++ {
-				if max(abs(i), abs(j)) != ring {
-					continue
-				}
-				if r := squareAt(st.Center, i, j); !done(r) {
-					rs = append(rs, r)
-				}
-			}
-		}
-		q := make(map[cluster.Rect]float64, len(rs)) // оценка с шагом 0.05: близкие — равны
-		if score != nil {
-			for _, r := range rs {
-				q[r] = math.Round(score(r) / 0.05)
-			}
-		}
-		sort.Slice(rs, func(a, b int) bool {
-			if q[rs[a]] != q[rs[b]] {
-				return q[rs[a]] > q[rs[b]]
-			}
-			ax, ay := rs[a].Center()
-			bx, by := rs[b].Center()
-			return math.Hypot(ax-from.X, ay-from.Y) < math.Hypot(bx-from.X, by-from.Y)
-		})
-		res = append(res, rs...)
-	}
-	return res
 }
 
-// exploreSquare — открыть квадрат r целиком: сначала коридором от персонажа к его центру
-// (разведка берёт только край открытого — дальний квадрат с ним не граничит), потом всё
-// неоткрытое в нём, куда можно дойти.
-func exploreSquare(ctx context.Context, h *act.Hands, r cluster.Rect) error {
-	cx, cy := r.Center()
-	in := func(c bridge.ChunkPos) bool {
-		return c.X*32+32 > r.Min.X && c.X*32 < r.Max.X && c.Y*32+32 > r.Min.Y && c.Y*32 < r.Max.Y
-	}
-	more := func() bool {
-		for c := range h.World.Chunks {
-			for _, d := range []bridge.ChunkPos{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
-				u := bridge.ChunkPos{X: c.X + d.X, Y: c.Y + d.Y}
-				if h.World.Chunks[u] == nil && in(u) {
-					return true
-				}
+// moreIn — есть неоткрытые чанки в области in рядом с открытыми (куда в принципе идти).
+func moreIn(w *world.World, in func(bridge.ChunkPos) bool) bool {
+	for c := range w.Chunks {
+		for _, d := range []bridge.ChunkPos{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+			u := bridge.ChunkPos{X: c.X + d.X, Y: c.Y + d.Y}
+			if w.Chunks[u] == nil && in(u) {
+				return true
 			}
 		}
-		return false
+	}
+	return false
+}
+
+// exploreSquare — открыть квадрат r: сначала коридором от персонажа к его центру (разведка
+// берёт только край открытого — дальний квадрат с ним не граничит), потом всё неоткрытое в
+// нём, куда можно дойти (от ближайшего к персонажу). tick — между походами (прикидка в фоне).
+func exploreSquare(ctx context.Context, h *act.Hands, r cluster.Rect, tick func()) error {
+	cx, cy := r.Center()
+	in := inRect(r)
+	if tick == nil {
+		tick = func() {}
 	}
 	if p, err := h.B.Player(); err == nil && math.Hypot(p.Position.X-cx, p.Position.Y-cy) >= 512 {
 		ax, ay := p.Position.X, p.Position.Y
@@ -172,6 +168,7 @@ func exploreSquare(ctx context.Context, h *act.Hands, r cluster.Rect) error {
 		// дошёл — персонаж в квадрате (не «центральный чанк открыт»: он бывает сгенерирован
 		// заранее, отдельно от открытого — коридор кончался сразу, 264771462, 208708719)
 		arrived := func() bool {
+			tick()
 			q, err := h.B.Player()
 			return err != nil || math.Hypot(q.Position.X-cx, q.Position.Y-cy) < 512
 		}
@@ -179,57 +176,68 @@ func exploreSquare(ctx context.Context, h *act.Hands, r cluster.Rect) error {
 			return err
 		}
 	}
-	if err := h.ExploreWhere(ctx, in, func() bool { return !more() }); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
+	done := func() bool { tick(); return !moreIn(h.World, in) }
+	if err := h.ExploreWhere(ctx, in, done); err != nil && !errors.Is(err, act.ErrNothingToExplore) {
 		return err
 	}
 	return nil
 }
 
-// roughEstimate — прикидка «встанет ли база» по открытой карте (быстрая разметка зон).
-func roughEstimate(h *act.Hands) bool {
-	roughQuick = true
-	defer func() { roughQuick = false }()
+// roughEstimate — прикидка «встанет ли база» по открытой карте (stages.md, стадия 1): один
+// проход разметки без зон добычи (baseFirst), быстро, с лимитом времени. Встала — центр базы
+// (середина рамки её зон без добычи).
+func roughEstimate(h *act.Hands) (world.Tile, bool) {
+	roughQuick, baseFirst = true, true
+	defer func() { roughQuick, baseFirst = false, false }()
 	t0 := time.Now()
-	err := roughOnce(h)
-	if err != nil {
+	if _, err := roughPass(h, nil, nil); err != nil {
 		h.Say("прикидка: база не встаёт (%v; %.0f с)", err, time.Since(t0).Seconds())
-		return false
+		return world.Tile{}, false
 	}
-	h.Say("прикидка: база встаёт (%.0f с)", time.Since(t0).Seconds())
-	return true
+	rp, err := LoadRough()
+	if err != nil {
+		h.Say("прикидка: %v", err)
+		return world.Tile{}, false
+	}
+	var box *cluster.Rect
+	for _, z := range rp.Zones {
+		if z.Kind == cluster.ZoneMine {
+			continue
+		}
+		r := z.Rect
+		if box == nil {
+			box = &r
+			continue
+		}
+		box.Min.X, box.Min.Y = min(box.Min.X, r.Min.X), min(box.Min.Y, r.Min.Y)
+		box.Max.X, box.Max.Y = max(box.Max.X, r.Max.X), max(box.Max.Y, r.Max.Y)
+	}
+	if box == nil {
+		h.Say("прикидка: зон базы нет")
+		return world.Tile{}, false
+	}
+	x, y := box.Center()
+	c := world.Tile{X: int(x), Y: int(y)}
+	h.Say("прикидка: база встаёт, центр (%d, %d) (%.0f с)", c.X, c.Y, time.Since(t0).Seconds())
+	return c, true
 }
 
 // errNoSquares — все 25 квадратов пройдены, места под базу нет.
 var errNoSquares = errors.New("места под базу нет ни в одном из квадратов разведки")
 
-// searchBase — следующие квадраты, пока прикидка не скажет «встанет» (full — и полная разметка
-// roughOnce не встанет); состояние — в файл после каждого квадрата. Все пройдены — errNoSquares.
-func searchBase(ctx context.Context, h *act.Hands, st *squareState, full bool) error {
+// searchBase — стадия 2, полная разметка не встала: следующие квадраты по кольцам, после
+// каждого — прикидка с центром в нём и полная разметка; состояние — в файл после каждого
+// квадрата. Все пройдены — errNoSquares.
+func searchBase(ctx context.Context, h *act.Hands, st *squareState) error {
 	for {
-		p, err := h.B.Player()
-		if err != nil {
-			return err
-		}
-		// оценка квадратов — по открытому сейчас: крупные пятна ядра (как центр базы)
-		need, err := roughNeed(h)
-		if err != nil {
-			return err
-		}
-		var big []world.Patch
-		for _, pt := range h.World.Patches() {
-			if (pt.Name == "coal" || pt.Name == "iron-ore" || pt.Name == "copper-ore") && float64(pt.Amount) >= need[pt.Name]/3 {
-				big = append(big, pt)
-			}
-		}
-		score := func(r cluster.Rect) float64 { return squareScore(h.World, r, big) }
-		todo := squaresTodo(st, p.Position, score)
+		todo := squaresTodo(st)
 		if len(todo) == 0 {
 			return errNoSquares
 		}
 		r := todo[0]
 		cx, cy := r.Center()
-		h.Say("разведка: квадрат с центром (%.0f, %.0f) — %d из %d, оценка %.2f", cx, cy, len(st.Done)+1, (2*squareRings+1)*(2*squareRings+1), score(r))
-		if err := exploreSquare(ctx, h, r); err != nil {
+		h.Say("разведка: квадрат с центром (%.0f, %.0f) — %d из %d", cx, cy, len(st.Done)+1, squaresTotal)
+		if err := exploreSquare(ctx, h, r, nil); err != nil {
 			return err
 		}
 		st.Done = append(st.Done, r)
@@ -237,19 +245,17 @@ func searchBase(ctx context.Context, h *act.Hands, st *squareState, full bool) e
 			return err
 		}
 		saveWorld(h)
-		// центр базы — в этом квадрате (stages.md, стадия 1): от общего центра поиск мест за
-		// предел прикидки до квадрата в 2000 тайлах не доходит (17555262)
+		// центр базы — в этом квадрате (stages.md): от общего центра поиск мест за предел
+		// прикидки до квадрата в 2000 тайлах не доходит (17555262)
 		roughRegion = &r
-		if !roughEstimate(h) {
+		if _, ok := roughEstimate(h); !ok {
 			roughRegion = nil
 			continue
 		}
-		if full {
-			if err := roughOnce(h); err != nil {
-				h.Say("полная разметка не встала там, где прикидка сказала «встанет» (%v) — дальше", err)
-				roughRegion = nil
-				continue
-			}
+		if err := roughOnce(h); err != nil {
+			h.Say("полная разметка не встала там, где прикидка сказала «встанет» (%v) — дальше", err)
+			roughRegion = nil
+			continue
 		}
 		st.Found = &r
 		return writeState(squaresFile, st)
@@ -258,5 +264,5 @@ func searchBase(ctx context.Context, h *act.Hands, st *squareState, full bool) e
 
 // squaresProgress — для журнала: сколько квадратов пройдено.
 func squaresProgress(st *squareState) string {
-	return fmt.Sprintf("%d из %d", len(st.Done), (2*squareRings+1)*(2*squareRings+1))
+	return fmt.Sprintf("%d из %d", len(st.Done), squaresTotal)
 }

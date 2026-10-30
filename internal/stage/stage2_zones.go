@@ -154,7 +154,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			st = &squareState{Center: roughAnchor(h, need)}
 		}
 		h.Say("%v — ищу дальше по квадратам (пройдено %s)", err, squaresProgress(st))
-		if serr := searchBase(ctx, h, st, true); serr != nil {
+		if serr := searchBase(ctx, h, st); serr != nil {
 			if !errors.Is(serr, errNoSquares) {
 				return serr
 			}
@@ -173,6 +173,20 @@ func runRough(ctx context.Context, h *act.Hands) error {
 
 // roughCliffs — база с утёсами (zones.md): обычным способом места нигде не нашлось.
 var roughCliffs bool
+
+// roughOrigin — центр поиска места базе вместо roughAnchor (прикидка стадии 1 — точка старта:
+// ресурсы при поиске места не смотрятся, stages.md); nil — по пятнам.
+var roughOrigin *world.Tile
+
+// roughReach — до какого радиуса от origin доходит открытая карта (поиск мест прикидки — по
+// всему открытому).
+func roughReach(h *act.Hands, origin world.Tile) int {
+	r := 0
+	for c := range h.World.Chunks {
+		r = max(r, abs(c.X*world.ChunkSize+world.ChunkSize/2-origin.X), abs(c.Y*world.ChunkSize+world.ChunkSize/2-origin.Y))
+	}
+	return r + world.ChunkSize
+}
 
 // roughRegion — квадрат, в котором центр базы (roughAnchor; nil — по всей открытой карте):
 // прикидка после квадрата разведки (searchBase) и разметка от квадрата стадии 1 (runRough).
@@ -422,6 +436,9 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 		}
 	}
 	origin := roughAnchor(h, need)
+	if roughOrigin != nil {
+		origin = *roughOrigin // прикидка стадии 1: от точки старта, ресурсы не смотрятся
+	}
 	if from != nil {
 		origin = *from
 	}
@@ -429,8 +446,9 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 	base := cluster.NewBase(pr, h.World, origin)
 	base.Log, base.CliffZones = h.Log, roughCliffs
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
-	if roughQuick {  // прикидка стадии 1 (stages.md): быстро, с лимитом времени
+	if roughQuick {  // прикидка стадии 1 (stages.md): быстро, с лимитом времени, по всему открытому
 		base.Quick, base.Deadline = true, time.Now().Add(roughQuickLimit)
+		base.MaxR = max(base.MaxR, roughReach(h, origin))
 	}
 	base.NoMine = noMine
 	if baseFirst && from == nil {

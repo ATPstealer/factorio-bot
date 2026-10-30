@@ -1,6 +1,7 @@
 package world
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/gob"
 	"os"
@@ -43,4 +44,18 @@ func (w *World) Load(path string) error {
 	}
 	w.Chunks = chunks
 	return nil
+}
+
+// Clone — глубокая копия карты (чанки через gob, без отметок «упёрся»): прикидка в фоне
+// считает по копии, пока разведка меняет карту (stages.md, стадия 1).
+func (w *World) Clone() (*World, error) {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(w.Chunks); err != nil {
+		return nil, err
+	}
+	chunks := map[bridge.ChunkPos]*Chunk{}
+	if err := gob.NewDecoder(&buf).Decode(&chunks); err != nil {
+		return nil, err
+	}
+	return &World{Protos: w.Protos, Chunks: chunks, EventSeq: w.EventSeq}, nil
 }
