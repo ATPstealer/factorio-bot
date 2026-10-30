@@ -26,7 +26,9 @@ func TestInletPumps(t *testing.T) {
 		t.Fatal(err)
 	}
 	far := slices.Clone(l.List)
-	far = slices.DeleteFunc(far, func(pl layout.Placement) bool { return pl.Tag != tag || rectDist(tank.Area, world.TileOf(pl.Pos)) <= inletCut+10 })
+	far = slices.DeleteFunc(far, func(pl layout.Placement) bool {
+		return pl.Tag != tag || rectDist(tank.Area, world.TileOf(pl.Pos)) <= inletCut+10
+	})
 	if hasInlet(l, tag, tank) {
 		t.Fatal("насос на входе уже есть до перекладки")
 	}

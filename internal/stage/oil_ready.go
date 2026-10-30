@@ -11,6 +11,7 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // oilFile — раскладка стадии нефти (качалки и трасса).
@@ -52,7 +53,15 @@ func oilReady(ctx context.Context, h *act.Hands) error {
 		l.Add(pl)
 		was[pl] = true
 	}
+	// построенное по плану — не препятствие (в модели мира — свои постройки: начало перекладки
+	// «закрыто» своей же подземной трубой, стадия 36 на 427965634)
+	objs := make([]world.Object, 0, len(plan.Layout))
+	for _, pl := range plan.Layout {
+		objs = append(objs, world.Object{Name: pl.Name, Pos: pl.Pos})
+	}
+	restore := h.World.Hide(objs)
 	removed, err := cluster.InletPumps(l, plan.Clusters, tank)
+	restore()
 	if err != nil {
 		return err
 	}
