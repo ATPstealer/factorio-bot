@@ -83,9 +83,9 @@ for seed in "$@"; do
   echo "== стадия $n, $seed $(date +%T)" | tee -a run/stages/summary.txt
   # пустая стадия (резерв) — игру не запускать: снимок прошлой стадии под её номером
   if bin/bot empty "$n" 2> /dev/null; then
-    if [[ -d run/snapshots/$seed-$((n - 1)) ]]; then
+    if [[ -d $(snapdir "$seed-$((n - 1))") ]]; then
       rm -rf "run/snapshots/$seed-$n"
-      cp -r "run/snapshots/$seed-$((n - 1))" "run/snapshots/$seed-$n"
+      cp -r "$(snapdir "$seed-$((n - 1))")" "run/snapshots/$seed-$n"
       echo "сид $seed: после стадии $n (пустая — копия $seed-$((n - 1)))" > "run/snapshots/$seed-$n/NOTE.txt"
       echo "пустая стадия: снимок $seed-$((n - 1)) скопирован" > "$log"
       touch "run/stages/ok-$n-$seed"
@@ -99,7 +99,7 @@ for seed in "$@"; do
   if [[ ${CONT:-0} == 1 ]]; then
     # продолжение: игра — на сохранении экземпляра, состояние стадий — его же
     NEW_MAP=0 timeout 600 scripts/newmap.sh > /dev/null 2>> "run/stages/load-$seed.log" || { echo "   нет сохранения экземпляра $INST" | tee -a run/stages/summary.txt; code=1; continue; }
-  elif [[ $n == 1 && ! -f run/snapshots/$seed-0/bot.zip ]]; then
+  elif [[ $n == 1 && ! -f $(snapdir "$seed-0")/bot.zip ]]; then
     rm -f "$R"/state*.json
     SEED=$seed timeout 600 scripts/newmap.sh > /dev/null 2>&1 || { echo "   карта $seed не создалась" | tee -a run/stages/summary.txt; code=1; continue; }
   else
@@ -128,7 +128,7 @@ for seed in "$@"; do
       # стадия прошла, но снимок не сохранился (сервер завис на сохранении) — следующей
       # стадии не с чего начинать: не выполнена
       code=1
-      rm -rf "run/snapshots/$seed-$n"
+      rm -rf "$(snapdir "$seed-$n")"
       echo "   НЕ выполнена: стадия $n прошла, но снимок $seed-$n не сохранился" | tee -a run/stages/summary.txt
     fi
   else

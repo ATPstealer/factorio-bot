@@ -20,6 +20,17 @@ GAME_PORT=$((34197 + INST))
 export INST R RCON_PORT
 export BOT_RUN=$R BOT_DISPLAY=$DISPLAY_NUM BOT_RCON=127.0.0.1:$RCON_PORT
 
+# snapdir ИМЯ — папка снимка: run/snapshots/ИМЯ или в подпапке (tests — карты -0 для e2e,
+# last_run — все стадии карт, прошедших 1–41; решение пользователя 30.10). Нет нигде — корень
+# (новые снимки стадий кладутся туда; -0 — в tests).
+snapdir() {
+  local d
+  for d in "$ROOT/run/snapshots/$1" "$ROOT"/run/snapshots/*/"$1"; do
+    [[ -d $d ]] && { echo "$d"; return; }
+  done
+  [[ $1 == *-0 ]] && echo "$ROOT/run/snapshots/tests/$1" || echo "$ROOT/run/snapshots/$1"
+}
+
 # inst_setup — папки экземпляра по образцу run/: config.ini (свой write-data), моды (симлинки
 # мода), player-data.json, steam_appid.txt.
 inst_setup() {

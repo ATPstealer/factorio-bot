@@ -8,10 +8,13 @@
 #   scripts/snapshot.sh list
 # По RCON ничего не пишется: сохраняет сам сервер при штатной остановке.
 #   INST=N …                         — экземпляр N (scripts/inst.sh); снимки общие
+# Папки (решение пользователя 30.10): run/snapshots/tests/ — карты -0 для e2e и бенча,
+# run/snapshots/last_run/ — все стадии карт, прошедших 1–41, корень — снимки идущих прогонов;
+# снимок ищется во всех (snapdir из inst.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/inst.sh
-S=run/snapshots/${2:-}
+S=$(snapdir "${2:-}")
 case "${1:-}" in
 save)
   [[ -n "${2:-}" ]] || { echo "нужно имя" >&2; exit 1; }
@@ -52,9 +55,10 @@ load)
   echo "загружен снимок $2: $(cat "$R/map.json")"
   ;;
 list)
-  for d in run/snapshots/*/; do
-    [[ -d "$d" ]] || continue
-    echo "$(basename "$d"): $(cat "$d/map.json")"
+  for d in run/snapshots/*/ run/snapshots/*/*/; do
+    [[ -f "$d/map.json" ]] || continue
+    d=${d%/}
+    echo "${d#run/snapshots/}: $(cat "$d/map.json")"
     if [[ -f "$d/NOTE.txt" ]]; then sed "s/^/    /" "$d/NOTE.txt"; fi
   done
   ;;

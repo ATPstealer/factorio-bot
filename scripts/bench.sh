@@ -15,9 +15,9 @@ mkdir -p run/bench
 PAR=${PAR:-0}
 snaps=()
 case ${MAPS:-4} in
-  all) for d in run/snapshots/*-0/; do snaps+=("$(basename "$d")"); done ;;
+  all) for d in run/snapshots/tests/*-0/; do snaps+=("$(basename "$d")"); done ;;
   *[!0-9]*) read -ra snaps <<< "$MAPS" ;;
-  *) mapfile -t snaps < <(for d in run/snapshots/*-0/; do basename "$d"; done | shuf -n "${MAPS:-4}") ;;
+  *) mapfile -t snaps < <(for d in run/snapshots/tests/*-0/; do basename "$d"; done | shuf -n "${MAPS:-4}") ;;
 esac
 echo "== карты: ${snaps[*]}" >> run/bench/summary.txt
 
