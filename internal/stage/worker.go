@@ -735,13 +735,12 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 		if err != nil {
 			return err
 		}
-		if len(todo) == 0 {
-			continue
-		}
 		if strings.HasPrefix(name, "underground") {
 			// стоящие не тем концом (вход/выход не как в раскладке; беспорядок прошлых заходов) —
 			// снять и поставить заново по порядку: новые иначе встают в пары с ними (вход спарен
-			// с будущим входом — «встал не тем направлением», стадия 30 на 260647970)
+			// с будущим входом — «встал не тем направлением», стадия 30 на 260647970). Проверять и
+			// когда строить нечего: пара прошлой стадии оба конца «входом» — по имени и
+			// направлению стоит, лента оборвана (стадия 40 на 427965634: сера на bus-3 не шла)
 			if fixed, err := s.unpairWrong(ctx, these); err != nil {
 				return err
 			} else if fixed {
@@ -750,6 +749,9 @@ func (s *worker) build(ctx context.Context, list []layout.Placement) error {
 				}
 			}
 			todo = ugPairs(todo)
+		}
+		if len(todo) == 0 {
+			continue
 		}
 		// одинаковое — подряд одним вызовом (рука не меняется между постановками), пачками по
 		// buildBatch: между пачками — место в инвентаре под срубленное. Добирать — сколько
