@@ -269,13 +269,16 @@ func init() {
 			pick: product(bluePack), fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 41, name: "синяя в лаборатории", file: "state-labs-blue.json",
 			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: labsOn(bluePack),
-			after: func(ctx context.Context, h *act.Hands) error {
-				// синяя в лабораториях — исследования и на ней (rocketTechs; решение пользователя 26.10)
+			// синяя в лабораториях — исследования и на ней (rocketTechs; решение пользователя 26.10):
+			// до стройки и на синей — первыми, иначе к проверке по факту текущее — не на синей
+			// (очередь пуста или забита красными и зелёными: стадия 41 на 267145981)
+			before: func(ctx context.Context, h *act.Hands) error {
 				if err := os.WriteFile(runPath(blueOnFile), []byte("{}\n"), 0o644); err != nil {
 					return err
 				}
-				return queueResearch(ctx, h)
-			}},
+				return queueResearch(ctx, h, bluePack)
+			},
+			after: func(ctx context.Context, h *act.Hands) error { return queueResearch(ctx, h) }},
 	} {
 		register(Stage{N: s.n, Name: s.name, Run: s.run, Check: s.check})
 		blueStages[s.n] = s

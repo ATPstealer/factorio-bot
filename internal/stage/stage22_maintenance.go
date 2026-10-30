@@ -12,6 +12,7 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -95,11 +96,19 @@ func techReady(h *act.Hands, f bridge.Force, t string) bool {
 }
 
 // queueResearch — доставить в очередь исследований, сколько влезет (очередь игры — 7 с текущим).
-// Не встало (предпосылки не изучены и не в очереди) — следующее по порядку.
-func queueResearch(ctx context.Context, h *act.Hands) error {
+// Не встало (предпосылки не изучены и не в очереди) — следующее по порядку. first — пакеты:
+// исследования на них — первыми (стадия 41: текущее — на синей; по порядку пути к ракете очередь
+// забивали красные и зелёные, стадия 41 на 267145981).
+func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 	techs, err := rocketTechs(h)
 	if err != nil {
 		return err
+	}
+	if len(first) > 0 {
+		on := func(t string) bool {
+			return slices.ContainsFunc(h.Protos.Technologies[t].UnitIngredients, func(in knowledge.Amount) bool { return slices.Contains(first, in.Name) })
+		}
+		techs = append(slices.DeleteFunc(slices.Clone(techs), func(t string) bool { return !on(t) }), techs...)
 	}
 	for _, t := range techs {
 		f, err := h.B.Force()
