@@ -156,3 +156,17 @@ func TestCraftSearchOtherTab(t *testing.T) {
 	}
 	t.Logf("вкладка %s, слово %q", g, w)
 }
+
+// TestUgOrder — подземки ставятся по ходу ленты: список «выход, вход» (трасса от конца к
+// началу) — сначала вход; группы направлений — в порядке списка.
+func TestUgOrder(t *testing.T) {
+	pos := []bridge.Pos{{X: 271.5, Y: 523.5}, {X: 276.5, Y: 523.5}, {X: 266, Y: 512}, {X: 266, Y: 518}, {X: 280, Y: 523.5}}
+	dirs := []int{12, 12, 0, 0, 12}
+	got := ugOrder(pos, dirs)
+	want := []int{4, 1, 0, 3, 2} // запад: 280 → 276.5 → 271.5; север: y 518 → 512
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("порядок %v, ждали %v", got, want)
+		}
+	}
+}

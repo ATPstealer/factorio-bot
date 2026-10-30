@@ -271,6 +271,9 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 	for i, pos := range positions {
 		fps[i], left[i] = h.footprint(it.PlaceResult, pos, dirs[i]), i
 	}
+	if h.Protos.Entities[it.PlaceResult].Type == "underground-belt" {
+		left = ugOrder(positions, dirs)
+	}
 	// место задевают дерево или камень — сначала убрать (игра иначе: «… is in the way»)
 	if err := h.clearSpots(ctx, it.PlaceResult, fps); err != nil {
 		return nil, err
@@ -1426,6 +1429,42 @@ func (h *Hands) reachMine(ctx context.Context, e bridge.Entity) error {
 		}
 	}
 	return err
+}
+
+// ugOrder — порядок постановки подземок: одного направления — по ходу ленты (выше по течению
+// первой), группы направлений — как в списке. Первая поставленная из пары становится входом:
+// список, записанный от конца трассы к началу (сквозная лента шин в плане), ставил выход
+// раньше входа — обе «входы», пара не складывалась (стадия 40 на 427965634: сера застряла).
+func ugOrder(positions []bridge.Pos, dirs []int) []int {
+	along := func(i int) float64 {
+		switch dirs[i] {
+		case 0:
+			return -positions[i].Y
+		case 4:
+			return positions[i].X
+		case 8:
+			return positions[i].Y
+		}
+		return -positions[i].X
+	}
+	order := make([]int, len(positions))
+	for i := range order {
+		order[i] = i
+	}
+	first := map[int]int{} // направление — первое место в списке
+	for i, d := range dirs {
+		if _, ok := first[d]; !ok {
+			first[d] = i
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		da, db := dirs[order[a]], dirs[order[b]]
+		if da != db {
+			return first[da] < first[db]
+		}
+		return along(order[a]) < along(order[b])
+	})
+	return order
 }
 
 // ugExitBehind — позади pos (против dir, в пределах дальности) свой непарный вход подземки

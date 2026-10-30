@@ -1398,3 +1398,49 @@ func TestCraftPump(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// TestPlaceUndergroundOutputFirst — пара подземок в списке постановки выходом вперёд (сквозная
+// лента bus-2 → bus-3 в плане записана от конца к началу): ставить всё равно сначала вход,
+// потом выход — иначе первая поставленная становится входом и пара не складывается (стадия 40
+// на 427965634: сера застряла во входе подземки, выход стоял «входом», синяя наука без серы).
+func TestPlaceUndergroundOutputFirst(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "underground-belt") {
+		t.Skip("подземки не открыты (logistics)")
+	}
+	have(t, h, "underground-belt", 2)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y - 25}, 10, 10, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 10×10")
+	}
+	x, y := math.Floor(c.X)+0.5, math.Floor(c.Y)+0.5
+	ctx := ctxT(t, 4*time.Minute)
+	// лента на запад: вход в (x, y), выход в (x−5, y) — в списке выход первым, как в плане
+	pos := []bridge.Pos{{X: x - 5, Y: y}, {X: x, Y: y}}
+	dirs := []int{layout.W, layout.W}
+	if _, err := h.PlaceDirs(ctx, "underground-belt", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"output", "input"} {
+		p := pos[i]
+		st, err := h.B.GetEntity("underground-belt", p)
+		if err != nil || st == nil {
+			t.Fatalf("подземка в (%.1f, %.1f) не стоит (%v)", p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction != layout.W {
+			t.Errorf("подземка в (%.1f, %.1f): направление %v, ждали запад", p.X, p.Y, st.Direction)
+		}
+		if st.UGType != want || !st.UGPaired {
+			t.Errorf("подземка в (%.1f, %.1f): %s, спарена %v — ждали %s в паре", p.X, p.Y, st.UGType, st.UGPaired, want)
+		}
+	}
+	clean(t, h)
+}
