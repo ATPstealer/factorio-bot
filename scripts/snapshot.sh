@@ -15,6 +15,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/inst.sh
 S=$(snapdir "${2:-}")
+# save/grab: снимок в tests/ или last_run/ не перезаписывать — новый ложится в корень (снимки
+# идущих прогонов); перекладывать в last_run — руками. Замер стадии 18 на 427965634 затёр
+# last_run/427965634-18 (30.10)
+case "${1:-}" in save | grab) [[ $S == */tests/* || $S == */last_run/* ]] && S="run/snapshots/${2:-}" ;; esac
 case "${1:-}" in
 save)
   [[ -n "${2:-}" ]] || { echo "нужно имя" >&2; exit 1; }
