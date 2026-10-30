@@ -524,6 +524,13 @@ func (s *worker) craft(ctx context.Context, item string, n int) error {
 			afford = min(afford, s.inv("iron-plate")/9)
 		}
 		total = max(n, min(missing, afford))
+	} else if s.all != nil {
+		// стройка стадии: в очередь — на всё, что осталось поставить и на что есть сырьё в
+		// инвентаре (и место под готовое); ждать — только пачку: остальное крафтится, пока бот
+		// ставит (questions.md: «строить, пока крафтится»; крафт стоял 303 мин на двух картах)
+		missing := s.remaining(item) - s.queued(item)
+		room := max(s.freeSlots()-4, 0) * max(s.h.Protos.Items[item].StackSize, 1)
+		total = max(n, min(missing, s.affordable(item), room))
 	}
 	if total > n {
 		s.h.Say("в очередь %s ×%d (нужно сейчас %d)", item, total, n)
@@ -620,6 +627,27 @@ func (s *worker) remaining(item string) int {
 		return 0
 	}
 	return len(left) - s.inv(item)
+}
+
+// affordable — сколько item можно скрафтить руками из сырья, что уже в инвентаре (по дереву
+// рецептов, без учёта полуфабрикатов в инвентаре — осторожно).
+func (s *worker) affordable(item string) int {
+	f, err := s.h.B.Force()
+	if err != nil {
+		return 0
+	}
+	per := max(s.perCraft(item), 1)
+	base := calc.Handcraft(s.h.Protos, s.h.Protos.NewAvailability(f.Researched, false), item, float64(per)).Base
+	crafts := math.Inf(1)
+	for raw, v := range base {
+		if v > 0 {
+			crafts = math.Min(crafts, float64(s.inv(raw))/v)
+		}
+	}
+	if math.IsInf(crafts, 1) {
+		return 0
+	}
+	return int(crafts) * per
 }
 
 // remainingRaw — сколько сырья raw (пластины, камень, дерево) нужно на крафт всего, что
