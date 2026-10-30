@@ -173,6 +173,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 			}
 		}
 		var err error
+		s.h.Log("набираю %s: есть %d, нужно %d", item, s.inv(item), n)
 		gathering = item // OnFull (stage.go) набираемое не выкладывает
 		switch item {
 		case "iron-plate", "copper-plate":

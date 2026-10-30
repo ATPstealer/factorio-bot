@@ -223,6 +223,7 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 			}
 		}
 	}
+	s.h.Log("хранение: выложено, свободно %d из %d (сундуков пройдено %d из %d)", freeNow(), size, k, len(chests))
 	// все сундуки полны — хранение сразу до 4×8, как на обслуживании (8 сундуков забивались к
 	// стадии 15: разбор точек не помещался — 238178543), и ещё раз
 	if k >= len(chests) && len(list) < storageChests && !s.growing {
