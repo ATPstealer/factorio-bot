@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,6 +168,15 @@ const longHop = 120.0
 
 // ErrNotReached — доводка не довела до точки (обычно мешает препятствие у цели).
 var ErrNotReached = errors.New("act: не дошёл")
+
+// aheadOpen — на сколько тайлов впереди по маршруту точка, в которую правит ходьба в открытом
+// месте (в тесноте — 0.5); BOT_AHEAD — замер скорости бега с другим значением.
+var aheadOpen = func() float64 {
+	if v, err := strconv.ParseFloat(os.Getenv("BOT_AHEAD"), 64); err == nil && v > 0 {
+		return v
+	}
+	return 1.5
+}()
 
 // brakeDist — за сколько тайлов до цели отпускать клавиши: по инерции персонаж
 // проходит ещё ~0.6–1.2 тайла (задержка RCON-опроса и ввода).
@@ -399,7 +409,7 @@ func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64)
 			}
 			// цель — точка маршрута впереди: в открытом месте дальше (идём прямо, не
 			// виляя диагоналями), в тесноте — ближе (точнее держим линию)
-			ahead := 1.5
+			ahead := aheadOpen
 			if h.World.Tight(pos) {
 				ahead = 0.5
 			}
