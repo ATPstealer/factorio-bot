@@ -281,6 +281,20 @@ func purpleTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 			if cluster.IsScience(c.Product) || c.Product == "fast-transport-belt" || c.Product == "fast-inserter" {
 				continue
 			}
+		case cluster.Mine:
+			// добыча — по руде под бурами (стадия 3, 2M и 500k), не по темпу: не растёт, но
+			// нехватку буров по расчёту — в журнал (камень на рельсы и кирпич)
+			done[key{c.Kind, c.Product}] = true
+			have := 0
+			for _, g := range base.Clusters {
+				if g.Kind == c.Kind && g.Product == c.Product {
+					have += cluster.Built(l.List, g)
+				}
+			}
+			if n := cluster.Need(needs, c); n > have {
+				h.Say("добыча %s: по расчёту %d буров, в плане %d — не растёт (по руде)", c.Product, n, have)
+			}
+			continue
 		default:
 			continue
 		}
