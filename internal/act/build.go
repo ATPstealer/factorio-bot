@@ -330,6 +330,70 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		if err := h.waitStill(ctx); err != nil {
 			return built, err
 		}
+		// ленты рядами — протяжкой (drag.go): предмет в руку, рука по ходу ряда, зажатая ЛКМ по
+		// тайлам; не вставшее — кликами ниже
+		if h.Protos.Entities[it.PlaceResult].Type == "transport-belt" && !again {
+			for _, run := range dragRuns(positions, dirs, here) {
+				want := dirs[run[0]]
+				if !held {
+					if err := h.Pick(ctx, item); err != nil {
+						return built, err
+					}
+					held, hand = true, h.hand()
+					if q, err := h.B.Player(); err == nil {
+						stock = q.Inventory[item] + q.Cursor.Count
+					}
+				}
+				for k := ((want-hand)/4%4 + 4) % 4; k > 0; k-- {
+					if err := h.In.Tap("r"); err != nil {
+						return built, err
+					}
+				}
+				hand = want
+				h.setHand(hand)
+				rp := make([]bridge.Pos, len(run))
+				for k, i := range run {
+					rp[k] = positions[i]
+				}
+				es, err := h.dragBuild(ctx, it.PlaceResult, rp)
+				if errors.Is(err, ErrPlace) {
+					held = false // в руке не то — взять заново перед кликами
+					break
+				}
+				if err != nil {
+					return built, err
+				}
+				for k, i := range run {
+					e := es[k]
+					if e.Name == "" {
+						continue
+					}
+					built[i] = e
+					left, here = removeInt(left, i), removeInt(here, i)
+					stock--
+					if h.World != nil {
+						o := world.Object{Name: e.Name, Type: h.Protos.Entities[e.Name].Type, Pos: e.Position, Own: true}
+						if e.Direction != nil {
+							o.Direction = *e.Direction
+						}
+						h.World.Put([]world.Object{o})
+					}
+					if e.Direction != nil && !h.sameDir(e.Name, *e.Direction, dirs[i]) {
+						misrotated = append(misrotated, i)
+					}
+					if d, ok := h.handAfter(e); ok {
+						hand = d // протяжка оставляет руку по ходу последней ленты
+						h.setHand(hand)
+					}
+				}
+				if stock <= 0 {
+					held = false
+				}
+			}
+			if len(here) == 0 {
+				continue
+			}
+		}
 		if h.Protos.Entities[it.PlaceResult].Type == "underground-belt" {
 			// подземки — строго по порядку «вход, потом его выход»: первая поставленная пары
 			// становится входом; ближняя первой — выход встанет входом и пара не сложится

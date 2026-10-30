@@ -1493,3 +1493,41 @@ func TestPlaceUndergroundAcrossCrossing(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// TestPlaceBeltDrag — ряд лент ставится протяжкой (зажатая ЛКМ по тайлам), не кликами по одной:
+// 24 ленты на восток встают все и по ходу; в журнале — время на ленту (стадия 30 на 267145981:
+// 14 тыс. лент по 0.5 с кликами — ~2 ч).
+func TestPlaceBeltDrag(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "transport-belt", 24)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X + 25, Y: p0.Position.Y + 25}, 28, 6, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 28×6")
+	}
+	x, y := math.Floor(c.X)-12+0.5, math.Floor(c.Y)+0.5
+	ctx := ctxT(t, 4*time.Minute)
+	var pos []bridge.Pos
+	var dirs []int
+	for i := 0; i < 24; i++ {
+		pos, dirs = append(pos, bridge.Pos{X: x + float64(i), Y: y}), append(dirs, layout.E)
+	}
+	t0 := time.Now()
+	if _, err := h.PlaceDirs(ctx, "transport-belt", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("24 ленты за %.1f с (%.2f с на ленту)", time.Since(t0).Seconds(), time.Since(t0).Seconds()/24)
+	for i, p := range pos {
+		st, err := h.B.GetEntity("transport-belt", p)
+		if err != nil || st == nil {
+			t.Fatalf("лента %d в (%.1f, %.1f) не стоит (%v)", i+1, p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction != layout.E {
+			t.Errorf("лента %d в (%.1f, %.1f): направление %v, ждали восток", i+1, p.X, p.Y, st.Direction)
+		}
+	}
+	clean(t, h)
+}
