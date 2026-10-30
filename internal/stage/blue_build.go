@@ -101,13 +101,18 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 		}
 	}
 	// сквозные ленты шин (c/logistics/bus-3/bus-2) с продуктами стадии — тоже: их не брал ни один
-	// кластер — пластик и сера с bus-2 на bus-3 не шли (стадии 37–41 на всех трёх картах)
+	// кластер — пластик и сера с bus-2 на bus-3 не шли (стадии 37–41 на всех трёх картах). И со
+	// входами стадии: потребитель проверяет ленты своей подачи — построенное раньше не тем концом
+	// (подземки) чинится здесь (стадия 40 на 427965634: сера от стадии 37 стояла на обрыве)
 	items := map[string]bool{}
 	for _, c := range plan.Clusters {
 		if c.Kind != cluster.Bus && pick(c) {
 			items[c.Product] = true
 			for _, o := range c.Out {
 				items[o.Item] = true
+			}
+			for _, in := range c.In {
+				items[in.Item] = true
 			}
 		}
 	}
