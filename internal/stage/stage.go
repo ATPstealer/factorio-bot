@@ -219,14 +219,20 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	// хватило — и запас (сырьё, пластины, уголь); постройки — при себе (их ставить)
 	h.OnFull = func(ctx context.Context) error {
 		s := &worker{h: h, useStore: true}
-		err := s.store(ctx, craftFree+5)
+		// набираемое сейчас (have: gathering) — при себе, иначе круг «взял — выложил — взял»
+		// (стадия 29 на 427965634: уголь на бойлеры)
+		var mine []string
+		if gathering != "" {
+			mine = []string{gathering}
+		}
+		err := s.store(ctx, craftFree+5, mine...)
 		if err == nil {
 			p, perr := h.B.Player()
 			if perr != nil || p.InventorySize-len(p.InventorySlots) >= craftFree {
 				return perr
 			}
 			bulk := map[string]bool{"iron-plate": true, "copper-plate": true, "steel-plate": true, "stone-brick": true, "coal": true}
-			var keep []string
+			keep := append([]string{}, mine...)
 			for it := range p.Inventory {
 				if !bulk[it] && !slices.Contains(rawItems, it) {
 					keep = append(keep, it)
@@ -237,7 +243,7 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			// всё ещё полон (одни постройки стадии — 260647970, стадия 16: бур с пути не
 			// поднять) — и постройки: стройка доберёт их из хранения пачками (have)
 			if p, perr := h.B.Player(); err == nil && perr == nil && p.InventorySize-len(p.InventorySlots) < craftFree {
-				err = s.store(ctx, craftFree+5)
+				err = s.store(ctx, craftFree+5, mine...)
 			}
 		}
 		if errors.Is(err, errNoStorage) {

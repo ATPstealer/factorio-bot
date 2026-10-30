@@ -142,6 +142,14 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 				return err
 			}
 		}
+		// больше, чем влезает в инвентарь (с двумя ячейками про запас), не набрать: цель — что
+		// влезает, иначе круг «взял из хранения — добыча упёрлась в полный инвентарь — OnFull
+		// выложил — снова взял» (стадия 29 на 427965634: уголь на бойлеры, 1266 выкладок, 27 мин)
+		stack := max(s.h.Protos.Items[item].StackSize, 1)
+		if room := s.inv(item) + s.pending(item) + max(s.freeSlots()-2, 0)*stack; n > room && room > s.inv(item)+s.pending(item) {
+			s.h.Log("%s ×%d не влезает — набираю %d", item, n, room)
+			n = room
+		}
 		lack := n - s.inv(item) - s.pending(item)
 		if s.useStore {
 			// брать — на всю оставшуюся стройку стадии (сколько влезет), не на пачку: за 40
@@ -165,6 +173,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 			}
 		}
 		var err error
+		gathering = item // OnFull (stage.go) набираемое не выкладывает
 		switch item {
 		case "iron-plate", "copper-plate":
 			if s.useStore { // точек стадии 10 уже нет — из буферов выхода плавки, ждать их
@@ -195,12 +204,17 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 			}
 			err = s.craft(ctx, item, lack)
 		}
+		gathering = ""
 		if err != nil && !errors.Is(err, act.ErrNoTargets) {
 			return err
 		}
 	}
 	return nil
 }
+
+// gathering — что сейчас набирает have (добыча, крафт): OnFull при полном инвентаре это не
+// выкладывает (стадия 29 на 427965634: уголь на бойлеры выкладывался и брался по кругу).
+var gathering string
 
 // handcraftable — item делается руками (сталь — нет: только в печи).
 func (s *worker) handcraftable(item string) bool {
