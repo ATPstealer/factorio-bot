@@ -43,11 +43,12 @@ type Hands struct {
 	// nil — ошибка ErrFull как есть.
 	OnFull func(ctx context.Context) error
 
-	altChecked bool           // Alt-режим проверен и включён
-	goal       *bridge.Pos    // куда идёт WalkTo: сходить с ленты — в её сторону
-	qbNext     int            // быстрая панель полна — следующий слот под новый предмет (по кругу)
-	handDir    map[string]int // поворот руки по предмету (игра помнит его для каждого предмета отдельно)
-	noRestore  bool           // подбор без возврата задетого (перестановка: вернёт PlaceDirs после)
+	altChecked bool            // Alt-режим проверен и включён
+	goal       *bridge.Pos     // куда идёт WalkTo: сходить с ленты — в её сторону
+	qbNext     int             // быстрая панель полна — следующий слот под новый предмет (по кругу)
+	handDir    map[string]int  // поворот руки по предмету (игра помнит его для каждого предмета отдельно)
+	noRestore  bool            // подбор без возврата задетого (перестановка: вернёт PlaceDirs после)
+	lats       []time.Duration // замеры задержки ввода: от нажатия до первого шага (drive)
 }
 
 // Say — что бот собирается сделать: в лог и (Console) в консоль игры с префиксом [bot].
@@ -507,6 +508,10 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		// упавшего ствола час без единой записи в логе — стадия 1 на 954176679)
 		roamAt    bridge.Pos
 		roamSince = time.Now()
+		// замер задержки ввода: первое нажатие из покоя — когда и где (moveLatency)
+		pressAt  time.Time
+		pressPos bridge.Pos
+		first    = true
 	)
 	const maxCuts = 40
 	for {
@@ -516,6 +521,10 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		p, err := h.B.Player()
 		if err != nil {
 			return err
+		}
+		if !pressAt.IsZero() && dist(p.Position, pressPos) > 0.01 {
+			h.noteLatency(time.Since(pressAt))
+			pressAt = time.Time{}
 		}
 		want, done := steer(p.Position)
 		ahead := want
@@ -602,6 +611,10 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 				delete(held, k)
 			}
 		}
+		if first && len(want) > 0 { // первое нажатие ходьбы — из покоя (до неё — waitStill)
+			pressAt, pressPos = time.Now(), p.Position
+		}
+		first = false
 		for k := range want {
 			if !held[k] {
 				if err := h.In.KeyDown(k); err != nil {
@@ -743,11 +756,30 @@ func (h *Hands) crossBelt(ctx context.Context, target bridge.Pos, keys map[strin
 // inputLatency — через сколько ввод клиента доходит до сервера (1–3 тика) с запасом.
 const inputLatency = 100 * time.Millisecond
 
+// noteLatency — замер задержки ввода (от нажатия до первого шага), последние 9.
+func (h *Hands) noteLatency(d time.Duration) {
+	if h.lats = append(h.lats, d); len(h.lats) > 9 {
+		h.lats = h.lats[1:]
+	}
+}
+
+// moveLatency — задержка ввода по замерам ходьбы (медиана, 100–600 мс; замеров нет — 100):
+// под нагрузкой клиента она доходит до 350 мс (46082668-0: медиана 332 мс, на другой карте
+// 200), и waitStill с 100 мс читал «стоит» до шага — доводка промахивалась, «персонажа несёт».
+func (h *Hands) moveLatency() time.Duration {
+	if len(h.lats) == 0 {
+		return inputLatency
+	}
+	s := slices.Clone(h.lats)
+	slices.Sort(s)
+	return min(max(s[len(s)/2], inputLatency), 600*time.Millisecond)
+}
+
 // waitStill ждёт остановки персонажа (после отпускания клавиш он проходит ещё ~1 тайл).
 // Сначала выжидает задержку ввода — иначе «стоит» читается до того, как нажатие дошло
 // до сервера. Стоит — когда два чтения подряд: не идёт и та же позиция.
 func (h *Hands) waitStill(ctx context.Context) error {
-	if err := sleep(ctx, inputLatency); err != nil {
+	if err := sleep(ctx, h.moveLatency()); err != nil {
 		return err
 	}
 	var last *bridge.Pos
