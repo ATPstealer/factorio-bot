@@ -155,6 +155,10 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 			// брать — на всю оставшуюся стройку стадии (сколько влезет), не на пачку: за 40
 			// лентами к буферу у базы ходил из дальних блоков — 13–21 ходка в час (стадия 30)
 			take := max(lack, s.remaining(item))
+			switch item {
+			case "iron-plate", "copper-plate", "steel-plate", "stone", "wood":
+				take = max(take, s.remainingRaw(item)) // сырьё на крафт всего оставшегося
+			}
 			if got, err := s.fromStorage(ctx, item, take); err != nil || got {
 				if err != nil {
 					return err
@@ -616,6 +620,40 @@ func (s *worker) remaining(item string) int {
 		return 0
 	}
 	return len(left) - s.inv(item)
+}
+
+// remainingRaw — сколько сырья raw (пластины, камень, дерево) нужно на крафт всего, что
+// осталось построить в стадии (без того, что уже в инвентаре): за сырьём к хранению — один
+// заход на стройку, не на пачку (стадия 18 на 267145981: за 21–74 пластинами на каждые 40
+// лент — 30 ходок по 400 тайлов к хранению и обратно).
+func (s *worker) remainingRaw(raw string) int {
+	if s.all == nil {
+		return 0
+	}
+	left, err := notBuilt(s.h, s.all)
+	if err != nil {
+		return 0
+	}
+	count := map[string]int{}
+	for _, pl := range left {
+		count[s.h.Protos.ItemFor(pl.Name)]++
+	}
+	f, err := s.h.B.Force()
+	if err != nil {
+		return 0
+	}
+	av := s.h.Protos.NewAvailability(f.Researched, false)
+	total := 0.0
+	for item, n := range count {
+		if n -= s.inv(item); n <= 0 || item == raw {
+			continue
+		}
+		if _, ok := s.h.Protos.Recipes[item]; !ok {
+			continue
+		}
+		total += calc.Handcraft(s.h.Protos, av, item, float64(n)).Base[raw]
+	}
+	return int(math.Ceil(total-1e-9)) - s.inv(raw)
 }
 
 // fromProducts — готовое item из буферов выхода своих кластеров (раскладки стадий, тег
