@@ -71,7 +71,7 @@ func runDismantle(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	// разобранное — в хранение; печи — кроме нужных кластерам плавки (стадия 17)
-	need, err := materialsNeed(h)
+	need, _, err := materialsNeed(h)
 	if err != nil {
 		return err
 	}

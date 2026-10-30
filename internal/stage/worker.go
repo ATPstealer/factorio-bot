@@ -39,8 +39,8 @@ type worker struct {
 	// far — буферы, до которых не дойти (fromProducts): больше не ходить
 	far map[bridge.Pos]bool
 	// noWait — крафт в очередь и дальше, не ждать готового: стоящее в очереди считается как
-	// уже есть (have); конец очереди — waitQueue (стадия 14: бот стоял 39–57 мин из 62–86, пока
-	// шёл ручной крафт, — правила скорости 27.10)
+	// уже есть (have); конца очереди стадия 14 не ждёт — следующие стадии ждут предмет из
+	// очереди, только когда он нужен (craft: «уже в очереди — только дождаться»; stages.md)
 	noWait bool
 }
 
@@ -50,45 +50,6 @@ func (s *worker) pending(item string) int {
 		return 0
 	}
 	return s.queued(item) * s.perCraft(item)
-}
-
-// waitQueue — дождаться конца очереди крафта; готовое некуда класть — ненужное в хранение (как
-// waitInv). Очередь 3 мин не убывает — ошибка.
-func (s *worker) waitQueue(ctx context.Context) error {
-	left := func() (int, error) {
-		p, err := s.h.B.Player()
-		if err != nil {
-			return 0, err
-		}
-		n := 0
-		for _, q := range p.CraftingQueue {
-			n += q.Count
-		}
-		return n, nil
-	}
-	n, err := left()
-	if err != nil || n == 0 {
-		return err
-	}
-	s.h.Say("жду конца очереди крафта: %d крафтов", n)
-	last, since := n, time.Now()
-	for n > 0 {
-		if err := s.store(ctx, craftFree); err != nil && !errors.Is(err, errNoStorage) {
-			return err
-		}
-		if err := sleepCtx(ctx, 2*time.Second); err != nil {
-			return err
-		}
-		if n, err = left(); err != nil {
-			return err
-		}
-		if n < last {
-			last, since = n, time.Now()
-		} else if time.Since(since) > 3*time.Minute {
-			return fmt.Errorf("очередь крафта стоит: %d крафтов за 3 мин не убавилось", n)
-		}
-	}
-	return nil
 }
 
 func (s *worker) entity(pl layout.Placement) (*bridge.Entity, error) {

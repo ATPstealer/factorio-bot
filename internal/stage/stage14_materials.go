@@ -3,6 +3,8 @@ package stage
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -43,7 +45,8 @@ func materialsClusters(plan *ClusterPlan) []*cluster.Cluster {
 }
 
 // materialsLayout — что построят стадии 16–17 (coalBase, smeltingBase) и столбы: по столбам логистики
-// плана (цепочки по коридорам выйдут не длиннее).
+// плана (цепочки по коридорам выйдут не длиннее). В порядке использования: сначала стадия 16,
+// потом 17, потом столбы (очередь крафта — в этом порядке, stages.md).
 func materialsLayout(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
@@ -60,29 +63,53 @@ func materialsLayout(h *act.Hands) ([]layout.Placement, error) {
 	return res, nil
 }
 
-// materialsNeed — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки.
-func materialsNeed(h *act.Hands) (map[string]int, error) {
+// materialsNeed — сколько чего скрафтить: по раскладке (что ещё не стоит) и буферы выхода плавки;
+// order — предметы в порядке первого использования (буферы — в конце).
+func materialsNeed(h *act.Hands) (need map[string]int, order []string, err error) {
 	list, err := materialsLayout(h)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	need := map[string]int{}
+	need = map[string]int{}
 	miss, err := notBuilt(h, list) // пачками: по одной — 1 мин 40 с в начале и в проверке
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, pl := range miss {
+		if need[pl.Name] == 0 {
+			order = append(order, pl.Name)
+		}
 		need[pl.Name]++
 	}
 	plan, _ := LoadPlan()
 	for _, c := range materialsClusters(plan) {
 		if c.Kind == cluster.Smelt {
-			for it, n := range outBufferItems {
-				need[it] += n
+			for _, it := range slices.Sorted(maps.Keys(outBufferItems)) {
+				if need[it] == 0 {
+					order = append(order, it)
+				}
+				need[it] += outBufferItems[it]
 			}
 		}
 	}
-	return need, nil
+	return need, order, nil
+}
+
+// queuedStock — что ещё выйдет из очереди крафта (свои крафты, не полуфабрикаты): стадия 14
+// конца очереди не ждёт, стоящее в ней — как есть.
+func queuedStock(h *act.Hands) (map[string]int, error) {
+	p, err := h.B.Player()
+	if err != nil {
+		return nil, err
+	}
+	w := &worker{h: h}
+	res := map[string]int{}
+	for _, q := range p.CraftingQueue {
+		if !q.Prerequisite {
+			res[q.Recipe] += q.Count * w.perCraft(q.Recipe)
+		}
+	}
+	return res, nil
 }
 
 // materialsStock — что есть: инвентарь и сундуки хранения.
@@ -112,15 +139,10 @@ func materialsStock(h *act.Hands) (map[string]int, error) {
 }
 
 func runMaterials(ctx context.Context, h *act.Hands) error {
-	need, err := materialsNeed(h)
+	need, names, err := materialsNeed(h)
 	if err != nil {
 		return err
 	}
-	var names []string
-	for it := range need {
-		names = append(names, it)
-	}
-	sort.Strings(names)
 	var b strings.Builder
 	for _, it := range names {
 		fmt.Fprintf(&b, " %s ×%d", it, need[it])
@@ -131,8 +153,10 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	s := &worker{h: h, sites: sites}
-	// сначала то, что тратит другие нужные предметы (подземки, делители — ленты), иначе
-	// их крафт съест уже готовое; на всякий случай — несколько проходов
+	// порядок очереди — порядок использования (names: стадия 16, 17, столбы, буферы — stages.md:
+	// конца очереди не ждём, 16-я ждёт только своё, и оно должно быть впереди); внутри —
+	// сначала то, что тратит другие нужные предметы (подземки, делители — ленты), иначе их крафт
+	// съест уже готовое; на всякий случай — несколько проходов
 	uses := func(a, b string) bool {
 		for _, in := range h.Protos.Recipes[a].Ingredients {
 			if in.Name == b {
@@ -141,7 +165,20 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		}
 		return false
 	}
-	sort.SliceStable(names, func(i, j int) bool { return uses(names[i], names[j]) && !uses(names[j], names[i]) })
+	rank := map[string]int{}
+	for i, it := range names {
+		rank[it] = i
+	}
+	sort.SliceStable(names, func(i, j int) bool {
+		a, b := names[i], names[j]
+		if uses(a, b) && !uses(b, a) {
+			return true // потребитель — перед ингредиентом, даже если нужен позже
+		}
+		if uses(b, a) && !uses(a, b) {
+			return false
+		}
+		return rank[a] < rank[b]
+	})
 	// passes — недостающее: крафт в очередь; noWait — не ждать готового (идёт, пока бот носит
 	// пластины на следующее), в очереди — как уже есть
 	passes := func() error {
@@ -168,18 +205,13 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 		}
 		return nil
 	}
-	// сначала всё в очередь без ожидания (правила скорости 27.10: бот стоял 39–57 мин, пока шёл
-	// крафт), потом — конец очереди и сверка с ожиданием
+	// всё в очередь без ожидания; конца очереди не ждать (stages.md, решение пользователя 30.10:
+	// бот стоял 58 мин — очередь докрафтится по ходу стадии 15, следующие стадии ждут предмет
+	// из очереди, только когда он нужен). Очередь — в сохранении игры, снимок её не теряет
 	s.noWait = true
 	err = passes()
 	s.noWait = false
 	if err != nil {
-		return err
-	}
-	if err := s.waitQueue(ctx); err != nil {
-		return err
-	}
-	if err := passes(); err != nil {
 		return err
 	}
 	for _, it := range []string{"wood", "stone", "copper-plate", "iron-plate", "coal"} {
@@ -205,7 +237,7 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 }
 
 func checkMaterials(h *act.Hands) error {
-	need, err := materialsNeed(h)
+	need, _, err := materialsNeed(h)
 	if err != nil {
 		return err
 	}
@@ -213,9 +245,13 @@ func checkMaterials(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
+	queued, err := queuedStock(h) // в очереди — как есть (конца очереди стадия не ждёт)
+	if err != nil {
+		return err
+	}
 	for it, n := range need {
-		if stock[it] < n {
-			return fmt.Errorf("%s: есть %d, нужно %d", it, stock[it], n)
+		if stock[it]+queued[it] < n {
+			return fmt.Errorf("%s: есть %d (в очереди %d), нужно %d", it, stock[it], queued[it], n)
 		}
 	}
 	for it, n := range materialsExtra {
