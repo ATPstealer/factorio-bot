@@ -823,7 +823,7 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 		legs = append(legs, leg)
 		cur = out
 	}
-	leg, err := l.RoutePipeTo(cur, goals, tag)
+	leg, err := routeInlet(l, cur, goals, tag)
 	if err != nil {
 		var near []string // разбор: что у начала последнего отрезка
 		for _, p := range l.List {
@@ -839,6 +839,196 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 		polesAlong(l, leg, tag)
 	}
 	return nil
+}
+
+// routeInlet — последний отрезок трассы tag от cur в склад — через насос на входе (cluster.md §2а
+// «Нефть», решение пользователя: цистерны участок не делят — без него трасса, склад и труба к
+// потребителям одним участком шире 320: стадия 36 на 427965634, нефть не шла). goals —
+// соединения склада, пробуются от ближнего к cur; насос — в конце отрезка (столбы и к нему).
+func routeInlet(l *layout.Layout, cur layout.Conn, goals []layout.Conn, tag string) ([]layout.Placement, error) {
+	gs := slices.Clone(goals)
+	sort.Slice(gs, func(i, j int) bool { return dist(gs[i].To, cur.To) < dist(gs[j].To, cur.To) })
+	err := fmt.Errorf("у склада насосу нет места")
+	for _, g := range gs {
+		pump, in, ok := inletPump(l, g, tag)
+		if !ok {
+			continue
+		}
+		mark := l.Mark()
+		l.Add(pump)
+		leg, rerr := l.RoutePipe(cur, in, tag)
+		if rerr == nil {
+			return append(leg, pump), nil
+		}
+		err = rerr
+		l.Rollback(mark)
+	}
+	return nil, err
+}
+
+// inletCut — на сколько тайлов от склада конец построенной трассы перекладывается через насос
+// на входе (InletPumps).
+const inletCut = 10
+
+// InletPumps — план, построенный до насоса на входе склада: конец каждой нефтетрассы у склада
+// tank (её трубы ближе inletCut тайлов к нему и подземные пары, задетые ими) — заново, через
+// насос на входе (cluster.md §2а «Нефть»); площади кластеров, кроме месторождений и склада, —
+// закрыты, как у трассы. Возвращает убранное из раскладки (в игре — снять).
+func InletPumps(l *layout.Layout, clusters []*Cluster, tank *Cluster) ([]layout.Placement, error) {
+	if l.Solid == nil { // раскладка построенного плана — не из разметки
+		l.Solid = map[world.Tile]bool{}
+	}
+	var shut []world.Tile
+	for _, c := range clusters {
+		if c == tank || c.IsOil() || c.Area.W() == 0 {
+			continue
+		}
+		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
+			for x := c.Area.Min.X; x < c.Area.Max.X; x++ {
+				if t := (world.Tile{X: x, Y: y}); !l.Solid[t] {
+					l.Solid[t] = true
+					shut = append(shut, t)
+				}
+			}
+		}
+	}
+	defer func() {
+		for _, t := range shut {
+			delete(l.Solid, t)
+		}
+	}()
+	l.PipeUnder = true
+	defer func() { l.PipeUnder = false }()
+	var removed []layout.Placement
+	for _, field := range clusters {
+		if !field.IsOil() {
+			continue
+		}
+		tag := LogisticsTag + "/" + field.Name
+		if hasInlet(l, tag, tank) {
+			continue
+		}
+		pipe := func(p layout.Placement) bool {
+			return p.Tag == tag && (p.Name == "pipe" || p.Name == "pipe-to-ground")
+		}
+		cut := map[world.Tile]bool{}
+		for _, p := range l.List {
+			if pipe(p) && rectDist(tank.Area, world.TileOf(p.Pos)) <= inletCut {
+				cut[world.TileOf(p.Pos)] = true
+			}
+		}
+		// подземная пара — целиком
+		for more := true; more; {
+			more = false
+			for t := range cut {
+				if p := l.At(t); p.Name == "pipe-to-ground" {
+					if m, ok := ugPartner(l, *p); ok && !cut[m] {
+						cut[m], more = true, true
+					}
+				}
+			}
+		}
+		if len(cut) == 0 {
+			continue
+		}
+		// откуда продолжить: соединение оставшейся части трассы в убранное
+		var cur *layout.Conn
+		for _, p := range l.List {
+			if p.Tag != tag || cut[world.TileOf(p.Pos)] || !pipe(p) && p.Name != "pump" {
+				continue
+			}
+			for _, c := range layout.Connections(l.P, p) {
+				if cut[c.To] && c.At == world.TileOf(p.Pos) {
+					cur = &c
+				}
+			}
+		}
+		if cur == nil {
+			return removed, fmt.Errorf("нефтетрасса %s: у склада %s не найти, откуда перекладывать", field.Name, tank.Name)
+		}
+		var kept []layout.Placement
+		for _, p := range l.List {
+			if p.Tag == tag && cut[world.TileOf(p.Pos)] {
+				removed = append(removed, p)
+			} else {
+				kept = append(kept, p)
+			}
+		}
+		l.List = kept
+		l.Rollback(-1)
+		leg, err := routeInlet(l, *cur, tankConns(l, tank), tag)
+		if err != nil {
+			return removed, fmt.Errorf("нефтетрасса %s: вход склада %s через насос: %w", field.Name, tank.Name, err)
+		}
+		polesAlong(l, leg, tag)
+	}
+	// новый отрезок бывает частью по старым местам (та же подземная пара) — такое не убирается
+	now := map[layout.Placement]bool{}
+	for _, p := range l.List {
+		now[p] = true
+	}
+	return slices.DeleteFunc(removed, func(p layout.Placement) bool { return now[p] }), nil
+}
+
+// hasInlet — у трассы tag уже есть насос на входе склада tank (выход — в его цистерну).
+func hasInlet(l *layout.Layout, tag string, tank *Cluster) bool {
+	for _, p := range l.List {
+		if p.Tag != tag || p.Name != "pump" {
+			continue
+		}
+		for _, c := range layout.Connections(l.P, p) {
+			if c.Flow != "input" && rectDist(tank.Area, c.To) == 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ugPartner — тайл пары подземной трубы p (того же тега): по оси подземной стороны, ближняя,
+// наземной стороной навстречу.
+func ugPartner(l *layout.Layout, p layout.Placement) (world.Tile, bool) {
+	d := (p.Dir + 8) % 16 // подземная сторона — против наземной
+	t := world.TileOf(p.Pos)
+	for k := 1; k <= l.P.Entities["pipe-to-ground"].MaxUndergroundDistance+1; k++ {
+		t = layout.Step(t, d)
+		if q := l.At(t); q != nil && q.Name == "pipe-to-ground" && q.Tag == p.Tag && q.Dir == (p.Dir+8)%16 {
+			return t, true
+		}
+	}
+	return world.Tile{}, false
+}
+
+// rectDist — расстояние от тайла t до прямоугольника r по большей оси (внутри — 0).
+func rectDist(r Rect, t world.Tile) int {
+	dx := max(r.Min.X-t.X, 0, t.X-(r.Max.X-1))
+	dy := max(r.Min.Y-t.Y, 0, t.Y-(r.Max.Y-1))
+	return max(dx, dy)
+}
+
+// inletPump — насос на входе склада у его соединения g (At — тайл цистерны, To — снаружи):
+// выход — в цистерну, вход — снаружи, на свободный тайл не у чужой трубы.
+func inletPump(l *layout.Layout, g layout.Conn, tag string) (layout.Placement, layout.Conn, bool) {
+	d := (g.Dir + 8) % 16 // поток — к цистерне
+	for _, t := range []world.Tile{g.To, layout.Step(g.To, g.Dir)} {
+		pl := layout.Placement{Name: "pump", Pos: layout.CenterAt(l.P, "pump", d, t), Dir: d, Tag: tag}
+		if !l.CanPlace(pl, layout.AnyLand) || slices.ContainsFunc(layout.Tiles(l.P, pl), func(t world.Tile) bool { return l.Solid[t] }) {
+			continue
+		}
+		var in layout.Conn
+		fits := false
+		for _, c := range layout.Connections(l.P, pl) {
+			if c.Flow == "input" {
+				in = c
+			} else if c.At == g.To && c.To == g.At {
+				fits = true
+			}
+		}
+		if fits && l.Free(in.To, layout.AnyLand) && !l.Solid[in.To] && !fluidNear(l, in.To, tag) {
+			return pl, in, true
+		}
+	}
+	return layout.Placement{}, layout.Conn{}, false
 }
 
 // pumpNear — насос у тайла p, вход — с дальней от to стороны, выход — к to (вдоль главной оси),

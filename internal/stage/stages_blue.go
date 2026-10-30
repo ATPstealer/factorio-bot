@@ -20,14 +20,15 @@ import (
 
 // blueStage — описание стадии стройки синей.
 type blueStage struct {
-	n     int
-	name  string
-	file  string                      // раскладка стадии: один раз на карту
-	wait  []string                    // исследования: изучены (иначе — ждать)
-	queue []string                    // исследования: в очередь в самом начале (на следующие стадии)
-	pick  func(*cluster.Cluster) bool // кластеры части
-	more  func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
-	after func(ctx context.Context, h *act.Hands) error // после стройки
+	n      int
+	name   string
+	file   string                      // раскладка стадии: один раз на карту
+	wait   []string                    // исследования: изучены (иначе — ждать)
+	queue  []string                    // исследования: в очередь в самом начале (на следующие стадии)
+	pick   func(*cluster.Cluster) bool // кластеры части
+	more   func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
+	before func(ctx context.Context, h *act.Hands) error // до раскладки стадии (переделка построенного)
+	after  func(ctx context.Context, h *act.Hands) error // после стройки
 	// fact — проверка по факту работы (stages.md: машины работают, жидкость дошла, лаборатории
 	// работают на синей): ждать до factWait, не подтвердилось — стадия не выполнена (решение
 	// пользователя 28.10: жёстко все)
@@ -173,6 +174,11 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 	if err := waitResearch(ctx, h, s.wait...); err != nil {
 		return err
 	}
+	if s.before != nil {
+		if err := s.before(ctx, h); err != nil {
+			return err
+		}
+	}
 	list, err := s.layout(h)
 	if err != nil {
 		return err
@@ -249,8 +255,9 @@ func init() {
 			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "water")), fact: holds("water", "pipe", "pipe-to-ground")},
 		{n: 36, name: "НПЗ", file: "state-refinery.json", wait: []string{"oil-processing"},
 			queue: []string{"plastics", "sulfur-processing"}, pick: func(c *cluster.Cluster) bool { return c.IsRefinery() },
-			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "crude-oil"), cluster.PipeLaneTag("bus-2", "petroleum-gas")),
-			fact: working("oil-refinery")},
+			before: oilReady,
+			more:   tagsPrefix(cluster.PipeLaneTag("bus-1", "crude-oil"), cluster.PipeLaneTag("bus-2", "petroleum-gas")),
+			fact:   working("oil-refinery")},
 		{n: 37, name: "пластик и сера", file: "state-chem.json", wait: []string{"plastics", "sulfur-processing"},
 			queue: []string{"advanced-circuit", "engine"}, pick: func(c *cluster.Cluster) bool { return c.IsChem() },
 			fact: working("chemical-plant")},
