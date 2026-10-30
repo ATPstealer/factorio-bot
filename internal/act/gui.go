@@ -620,6 +620,9 @@ func (h *Hands) pickFromInventory(ctx context.Context, item string) error {
 			return fmt.Errorf("act: клик по ячейке %d не дал %s в руку: %w", slot, item, err)
 		}
 	}
+	// взятое кликом из инвентаря смотрит на север — и рука для следующих (hand.go; трубы трассы
+	// после такого взятия вставали не тем концом — TestPlacePipeToGroundChain)
+	h.setHand(North)
 	// на панель — в следующий раз хватит клавиши: в свободный слот, а свободных нет — по кругу
 	// вместо того, что там было (номер следующего — в памяти, Hands.qbNext)
 	q := slices.Index([]string(p.Quickbar), "")

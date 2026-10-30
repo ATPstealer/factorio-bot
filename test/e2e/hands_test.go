@@ -1281,6 +1281,96 @@ func TestPlaceUndergroundInBeltCorridor(t *testing.T) {
 	clean(t, h)
 }
 
+// TestPlacePipeToGroundChain — трасса подземных труб: пары вплотную друг к другу, как у трассы
+// нефти (стадия 34 на 427965634: 182 из 188 подземных труб «встал не тем направлением —
+// переставляю», по три подбора на каждую). Все встают своим направлением, без перестановок.
+func TestPlacePipeToGroundChain(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "pipe-to-ground", 6)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, p0.Position, 34, 4, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 34×4")
+	}
+	x, y := math.Floor(c.X)-15+0.5, math.Floor(c.Y)+0.5
+	var pos []bridge.Pos
+	var dirs []int
+	for k := 0.0; k < 3; k++ { // вход смотрит назад (на запад), выход — вперёд
+		pos = append(pos, bridge.Pos{X: x + 10*k, Y: y}, bridge.Pos{X: x + 10*k + 9, Y: y})
+		dirs = append(dirs, act.West, act.East)
+	}
+	ctx := ctxT(t, 4*time.Minute)
+	_, seq0, _ := h.B.PollEvents(1 << 30)
+	if _, err := h.PlaceDirs(ctx, "pipe-to-ground", pos, dirs); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range pos {
+		st, err := h.B.GetEntity("pipe-to-ground", p)
+		if err != nil || st == nil {
+			t.Fatalf("труба %d в (%.1f, %.1f) не стоит (%v)", i+1, p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction != dirs[i] {
+			t.Errorf("труба %d: направление %v, ждали %d", i+1, st.Direction, dirs[i])
+		}
+	}
+	evs, _, err := h.B.PollEvents(seq0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mined := 0
+	for _, e := range evs {
+		if e.Type == "mined_entity" && e.Entity != nil && e.Entity.Name == "pipe-to-ground" {
+			mined++
+		}
+	}
+	if mined > 0 {
+		t.Errorf("переставлял %d раз — ставить сразу своим направлением", mined)
+	}
+	clean(t, h)
+}
+
+// TestPlaceGridAroundSelf — сплошная сетка построек, персонаж стоит на месте одной из них
+// (стадия 33 на 267145981: цистерны сеткой без зазоров — бот обставил себя ими и остался в
+// последней дыре, «не дошёл»). Всё встаёт, ничего не поднимается (пролом своих — не выход).
+func TestPlaceGridAroundSelf(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "wooden-chest", 25)
+	c := freeArea(t, h, 9)
+	ctx := ctxT(t, 4*time.Minute)
+	x, y := math.Floor(c.X)+0.5, math.Floor(c.Y)+0.5
+	if err := h.WalkTo(ctx, bridge.Pos{X: x, Y: y}, 0.3); err != nil {
+		t.Fatalf("встать в середину: %v", err)
+	}
+	var pos []bridge.Pos
+	for dy := -2.0; dy <= 2; dy++ {
+		for dx := -2.0; dx <= 2; dx++ {
+			pos = append(pos, bridge.Pos{X: x + dx, Y: y + dy})
+		}
+	}
+	_, seq0, _ := h.B.PollEvents(1 << 30)
+	if _, err := h.PlaceAll(ctx, "wooden-chest", pos, act.North); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pos {
+		if st, err := h.B.GetEntity("wooden-chest", p); err != nil || st == nil {
+			t.Errorf("сундук в (%.1f, %.1f) не стоит (%v)", p.X, p.Y, err)
+		}
+	}
+	evs, _, err := h.B.PollEvents(seq0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Type == "mined_entity" && e.Entity != nil && e.Entity.Name == "wooden-chest" {
+			t.Errorf("поднимал свой сундук в (%.1f, %.1f) — замуровал себя", e.Entity.Position.X, e.Entity.Position.Y)
+		}
+	}
+	clean(t, h)
+}
+
 // Крафт насоса (стадия 34: «поиск "pump" — совпадения на разных вкладках»: насос, помпа и
 // качалка на разных вкладках при любом слове) — сначала слово только с вкладки насоса. Нужны
 // открытый рецепт и двигатели (руками не делаются) — нет на карте: пропуск.

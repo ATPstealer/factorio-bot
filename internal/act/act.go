@@ -42,11 +42,16 @@ type Hands struct {
 	// OnFull — инвентарь полон при добыче: освободить место (стадии — лишнее в хранение);
 	// nil — ошибка ErrFull как есть.
 	OnFull func(ctx context.Context) error
+	// HandFile — где помнить поворот руки между запусками бота, пока жив клиент (hand.go;
+	// New — BOT_RUN/hand.json); "" — только в памяти процесса.
+	HandFile string
 
 	altChecked bool            // Alt-режим проверен и включён
 	goal       *bridge.Pos     // куда идёт WalkTo: сходить с ленты — в её сторону
 	qbNext     int             // быстрая панель полна — следующий слот под новый предмет (по кругу)
-	handDir    map[string]int  // поворот руки по предмету (игра помнит его для каждого предмета отдельно)
+	handRot    int             // поворот руки (один на все предметы, hand.go)
+	handLoaded bool            // handRot прочитан из HandFile
+	handClient string          // процесс клиента, при котором запомнен handRot (clientProc)
 	noRestore  bool            // подбор без возврата задетого (перестановка: вернёт PlaceDirs после)
 	lats       []time.Duration // замеры задержки ввода: от нажатия до первого шага (drive)
 }
@@ -83,7 +88,11 @@ func New(b *bridge.Bridge, in *input.Input) (*Hands, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Hands{B: b, In: in, Win: win, Layout: Layout1856, Log: func(string, ...any) {}}, nil
+	h := &Hands{B: b, In: in, Win: win, Layout: Layout1856, Log: func(string, ...any) {}}
+	if run := os.Getenv("BOT_RUN"); run != "" {
+		h.HandFile = filepath.Join(run, "hand.json") // поворот руки — общий для всех рук экземпляра
+	}
+	return h, nil
 }
 
 func (h *Hands) Camera(p bridge.Player) camera.Camera {

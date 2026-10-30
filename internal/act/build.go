@@ -131,14 +131,20 @@ func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
 const buildReach = 9
 
 // standNear — подойти к месту постройки: на расстояние досягаемости, но не на саму
-// площадку (персонаж мешает поставить). Точка — ближайшая к персонажу свободная вокруг
-// площадки (рядом могут стоять другие постройки).
-func (h *Hands) standNear(ctx context.Context, fp bridge.Box) error {
-	return h.standWithin(ctx, fp, buildReach)
+// площадку (персонаж мешает поставить) и не на площадки avoid (ещё не поставленное той же
+// стройкой: обставит себя ими и замурует — сплошная сетка цистерн, стадия 33 на 267145981).
+// Точка — ближайшая к персонажу свободная вокруг площадки (рядом могут стоять другие постройки).
+func (h *Hands) standNear(ctx context.Context, fp bridge.Box, avoid []bridge.Box) error {
+	return h.standWithin(ctx, fp, buildReach, avoid)
+}
+
+// inAny — p в одной из рамок bs (с запасом margin).
+func inAny(p bridge.Pos, bs []bridge.Box, margin float64) bool {
+	return slices.ContainsFunc(bs, func(b bridge.Box) bool { return inBox(p, b, margin) })
 }
 
 // standWithin — standNear, но ближе reach к центру площадки.
-func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) error {
+func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, avoid []bridge.Box) error {
 	p, err := h.B.Player()
 	if err != nil {
 		return err
@@ -146,7 +152,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) e
 	c := fp.Center()
 	// и цель на экране кликабельна — не под панелью (клик в быструю панель брал из неё ленты в
 	// руку вместо подземки — TestPlaceUndergroundAfterTurn, «не встало: в руке transport-belt»)
-	if !inBox(p.Position, fp, 0.35) && dist(p.Position, c) < reach && h.clickable(p, p.Position, c) { // рамка персонажа ±0.2 + задержка
+	if !inBox(p.Position, fp, 0.35) && !inAny(p.Position, avoid, 0.35) && dist(p.Position, c) < reach && h.clickable(p, p.Position, c) { // рамка персонажа ±0.2 + задержка
 		return nil
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
@@ -163,7 +169,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) e
 				for k := 0; k < 16; k++ {
 					a := float64(k) * math.Pi / 8
 					q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
-					if inBox(q, fp, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || strict && (h.nearBelt(q) || !h.World.Roomy(q)) {
+					if inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || strict && (h.nearBelt(q) || !h.World.Roomy(q)) {
 						continue
 					}
 					if d := dist(p.Position, q); d < best {
@@ -182,7 +188,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) e
 	err = h.WalkTo(ctx, spot, 0.5)
 	if errors.Is(err, ErrNotReached) {
 		// не дошёл до точки, но и отсюда ставится — не ошибка
-		if q, perr := h.B.Player(); perr == nil && !inBox(q.Position, fp, 0.35) && dist(q.Position, c) < buildReach && h.clickable(q, q.Position, c) {
+		if q, perr := h.B.Player(); perr == nil && !inBox(q.Position, fp, 0.35) && !inAny(q.Position, avoid, 0.35) && dist(q.Position, c) < buildReach && h.clickable(q, q.Position, c) {
 			return nil
 		}
 	}
@@ -241,19 +247,21 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 	} else {
 		h.Say("ставлю %s ×%d%s", it.PlaceResult, len(positions), dirName(dir))
 	}
-	// поворот руки — из памяти (игра сохраняет его и для заново взятого предмета: стадия 13,
-	// каждая лента вставала не туда при «взятый смотрит на север»); после каждой постановки
-	// сверяется с тем, как встала постройка
+	// поворот руки — из памяти (один на все предметы, hand.go; игра сохраняет его и для заново
+	// взятого предмета: стадия 13, каждая лента вставала не туда при «взятый смотрит на север»);
+	// после каждой постановки сверяется с тем, как встала постройка
 	if q, err := h.B.Player(); err == nil && cursorName(q) != item {
 		if err := h.ClearCursor(ctx); err != nil {
 			return nil, err
 		}
 	}
-	hand := h.handDir[item] // куда смотрит предмет в руке (по предмету; не было — север)
-	defer func() { h.setHand(item, hand) }()
+	hand := h.hand()
+	defer func() { h.setHand(hand) }()
 	// held — предмет точно в руке (после удачной постановки игра доливает руку из инвентаря,
-	// пока он есть): не спрашивать игру перед каждой постановкой
-	held, stock := false, -1
+	// пока он есть): не спрашивать игру перед каждой постановкой; nodir — у постройки нет
+	// направления (сундук, столб: мод не отдаёт его) — руку не крутить (R и с ней поворачивает
+	// руку для следующих)
+	held, stock, nodir := false, -1, false
 	built := make([]bridge.Entity, len(positions))
 	var misrotated []int
 	var failed []int
@@ -273,14 +281,27 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		if err != nil {
 			return built, err
 		}
+		// площадки ещё не поставленного, кроме i: на них не вставать
+		rest := func(i int) []bridge.Box {
+			var bs []bridge.Box
+			for _, j := range left {
+				if j != i {
+					bs = append(bs, fps[j])
+				}
+			}
+			return bs
+		}
+		// стоит на месте ещё не поставленного — сначала сойти: отсюда поставит соседей и замурует
+		// себя в последней дыре (сплошная сетка цистерн, стадия 33 на 267145981: «не дошёл»)
+		onSpot := inAny(p.Position, rest(-1), 0.35)
 		var here []int
 		for _, i := range left {
-			if !inBox(p.Position, fps[i], 0.35) && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
+			if !onSpot && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
 				here = append(here, i)
 			}
 		}
 		if again { // повтор: по одному, вплотную
-			if err := h.standWithin(ctx, fps[left[0]], 4); err != nil {
+			if err := h.standWithin(ctx, fps[left[0]], 4, rest(left[0])); err != nil {
 				return built, err
 			}
 			here = []int{left[0]}
@@ -294,7 +315,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 				}
 				continue
 			}
-			if err := h.standNear(ctx, fps[left[0]]); err != nil {
+			if err := h.standNear(ctx, fps[left[0]], rest(left[0])); err != nil {
 				return built, err
 			}
 			here = []int{left[0]}
@@ -310,7 +331,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 			// подземки — строго по порядку «вход, потом его выход»: первая поставленная пары
 			// становится входом; ближняя первой — выход встанет входом и пара не сложится
 			if len(here) == 0 || here[0] != left[0] {
-				if err := h.standNear(ctx, fps[left[0]]); err != nil {
+				if err := h.standNear(ctx, fps[left[0]], rest(left[0])); err != nil {
 					return built, err
 				}
 			}
@@ -323,9 +344,13 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		for _, i := range here {
 			moved := false
 			pos, dir := positions[i], dirs[i]
-			// выход подземки (позади — свой непарный вход туда же): обычно игра сама делает
-			// поставленную выходом и спаривает; не вышло — см. ugExit ниже
+			// выход подземки (позади — свой непарный вход туда же): игра сама делает поставленную
+			// выходом и спаривает, а выход встаёт против руки — рука наоборот от хода (hand.go); не
+			// вышло — см. ugExit ниже
 			want, exit := dir, h.ugExitBehind(it.PlaceResult, pos, dir)
+			if exit {
+				want = (dir + 8) % 16
+			}
 			fresh := false
 			if !held {
 				// в руке уже — с прежним поворотом; иначе взять
@@ -340,9 +365,9 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 				if err := h.Pick(ctx, item); err != nil {
 					return built, err
 				}
-				held = true
+				held, hand = true, h.hand() // взятое из инвентаря — на север
 			}
-			if hand != want {
+			if hand != want && !nodir {
 				// довернуть руку от запомненного поворота (иначе постройка встанет не так и её
 				// придётся поворачивать)
 				for k := ((want-hand)/4%4 + 4) % 4; k > 0; k-- {
@@ -351,6 +376,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 					}
 				}
 				hand = want
+				h.setHand(hand) // сразу: перестановка и выход подземки читают руку из памяти
 			}
 			// прямоугольная, вставшая поперёк, накрывает соседей (ленты заменяет), а при
 			// перестановке уносит их — свои постройки рядом запомнить, пропавшие — назад
@@ -375,6 +401,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 						return built, err
 					}
 					hand = (hand + 4) % 16
+					h.setHand(hand)
 					e, err = h.clickBuild(ctx, it.PlaceResult, pos)
 				}
 			}
@@ -394,6 +421,12 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 			if err != nil {
 				return built, err
 			}
+			if d, ok := h.handAfter(e); ok {
+				// рука после постановки (сверка памяти): следующая довернёт от неё; сразу в память —
+				// перестановка и выход подземки читают руку оттуда
+				hand = d
+				h.setHand(hand)
+			}
 			w, hh := h.Protos.Entities[e.Name].TileWidth, h.Protos.Entities[e.Name].TileHeight
 			ug := h.Protos.Entities[e.Name].Type == "underground-belt"
 			fl := h.fluidLinked(e.Name)
@@ -404,13 +437,13 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 				if e, err = h.replace(ctx, item, e, pos, want); err != nil {
 					return built, err
 				}
-				held, hand, moved = false, want, true
+				held, hand, moved = false, h.hand(), true
 			}
 			if exit {
 				if e, err = h.ugExit(ctx, item, e, pos, dir); err != nil {
 					return built, err
 				}
-				held = false
+				held, hand = false, h.hand()
 			}
 			if len(near) > 0 {
 				n, err := h.restoreNear(ctx, near, nil, &e, nil)
@@ -418,7 +451,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 					return built, err
 				}
 				if n > 0 {
-					held = false
+					held, hand = false, h.hand() // ставил другое — и руку вертел
 				}
 			}
 			if stock--; stock <= 0 {
@@ -440,10 +473,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 			if !exit && !ug && !fl && e.Direction != nil && !h.sameDir(e.Name, *e.Direction, dir) {
 				misrotated = append(misrotated, i)
 			}
-			if e.Direction != nil && !exit && !ug && w == hh {
-				// рука смотрит, куда встала постройка (сверка памяти): следующая довернёт от неё
-				hand = *e.Direction
-			}
+			nodir = nodir || e.Direction == nil
 			if moved || exit {
 				// перестановка (replace, ugExit) водит персонажа: что отсюда достаётся — заново
 				// (делитель за 13 тайлов — «Cannot reach», стадия 16 на 1028292478)
@@ -471,7 +501,7 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		}
 		h.Say("%s: не встало в %d местах — ещё раз, вплотную", it.PlaceResult, len(failed))
 		more, err := h.placeDirs(ctx, item, ps, ds, true)
-		hand = h.handDir[item] // повтор вёл руку сам
+		hand = h.hand() // повтор вёл руку сам
 		for k, i := range failed {
 			if k < len(more) && more[k].Name != "" {
 				built[i] = more[k]
@@ -564,14 +594,11 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 	h.Say("%s встал не тем направлением — переставляю", e.Name)
 	ug := h.Protos.Entities[e.Name].Type == "underground-belt"
 	// игра помнит поворот руки и для заново взятого предмета (не «всегда север», стадия 13:
-	// «не встал направлением 0»), и между запусками бота (стадия 23 на 794457638): рука
-	// смотрит, как встала неверная — R от него до dir. Подземка: вход или выход решает игра
-	// (по паре), направление руки по ней не узнать наверняка (вход встал задом наперёд,
-	// стадия 19) — не встала точно по ходу — ещё R и снова, до четырёх раз
-	hand := h.handDir[item]
-	if e.Direction != nil {
-		hand = *e.Direction
-	}
+	// «не встал направлением 0»), и между запусками бота (стадия 23 на 794457638): рука — из
+	// памяти (сверена по вставшей неверной, hand.go), R от неё до dir. Подземка: вход или выход
+	// решает игра (по паре), направление руки по ней не узнать наверняка (вход встал задом
+	// наперёд, стадия 19) — не встала точно по ходу — ещё R и снова, до четырёх раз
+	hand := h.hand()
 	fl := h.fluidLinked(e.Name)
 	// поворот руки после подбора не всегда тот, что у поднятой (последний предмет ушёл в
 	// постройку — взятый заново смотрит на север: котёл встал поперёк, а при перестановке —
@@ -590,6 +617,7 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 		if err := h.Pick(ctx, item); err != nil {
 			return e, err
 		}
+		hand = h.hand() // взятое из инвентаря — на север
 		k := ((dir-hand)/4%4 + 4) % 4
 		if try > 0 {
 			k = 1
@@ -598,8 +626,9 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 			if err := h.In.Tap("r"); err != nil {
 				return e, err
 			}
+			hand = (hand + 4) % 16
 		}
-		h.setHand(item, dir)
+		h.setHand(hand)
 		if err := sleep(ctx, inputLatency); err != nil {
 			return e, err
 		}
@@ -617,6 +646,10 @@ func (h *Hands) replace(ctx context.Context, item string, e bridge.Entity, pos b
 		}
 		if err != nil {
 			return e, err
+		}
+		if d, ok := h.handAfter(ne); ok {
+			hand = d
+			h.setHand(hand)
 		}
 		if ne.Direction == nil || h.sameDir(ne.Name, *ne.Direction, dir) || !ug && !fl && *ne.Direction%8 == dir%8 {
 			return ne, nil
@@ -1458,6 +1491,7 @@ func (h *Hands) ugExit(ctx context.Context, item string, e bridge.Entity, pos br
 			if err := h.In.Tap("r"); err != nil {
 				return e, err
 			}
+			h.setHand((h.hand() + 4) % 16) // R с подземкой в руке — и поворот руки для следующих
 		}
 		if err := sleep(ctx, inputLatency); err != nil {
 			return e, err
@@ -1465,6 +1499,9 @@ func (h *Hands) ugExit(ctx context.Context, item string, e bridge.Entity, pos br
 		ne, err := h.clickBuild(ctx, e.Name, pos)
 		if err != nil {
 			return e, err
+		}
+		if d, ok := h.handAfter(ne); ok {
+			h.setHand(d)
 		}
 		e = ne
 	}
@@ -1494,12 +1531,4 @@ func (h *Hands) nearBelt(q bridge.Pos) bool {
 		}
 	}
 	return false
-}
-
-// setHand — запомнить поворот руки для предмета item.
-func (h *Hands) setHand(item string, dir int) {
-	if h.handDir == nil {
-		h.handDir = map[string]int{}
-	}
-	h.handDir[item] = dir
 }
