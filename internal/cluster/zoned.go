@@ -473,10 +473,19 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 				return p.Tag == gp.tag && (t == gp.a || t == gp.b)
 			})
 			l.Rollback(-1)
-			// у головы обход не провёлся — лента начинается за неровностью (подводы в голову — туда)
+			// у головы обход не провёлся — лента начинается за неровностью (подводы в голову — туда):
+			// убрать всё её до a — ленты и подземки в ряду и обходы прошлых разрывов вне рядов лент
+			// (висели куском: лента электропечей bus-3 на 267145981, стадия 6)
+			bus := buses[gp.bus]
 			l.List = slices.DeleteFunc(l.List, func(p layout.Placement) bool {
 				t := world.TileOf(p.Pos)
-				return p.Tag == gp.tag && t.Y == gp.a.Y && t.X <= gp.a.X && p.Recipe == gp.item
+				if p.Tag != gp.tag || t.X > gp.a.X {
+					return false
+				}
+				if t.Y == gp.a.Y {
+					return p.Recipe == gp.item || p.Name == "underground-belt"
+				}
+				return p.Recipe == gp.item && !laneRow(t.Y-bus.Rect.Min.Y, bus.Rect.H())
 			})
 			l.Rollback(-1)
 			l.Add(layout.Placement{Name: "transport-belt", Pos: gp.b.Center(), Dir: layout.E, Recipe: gp.item, Tag: gp.tag})
@@ -746,7 +755,10 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			}
 			// отвод — ниже подвода в нижнюю ленту; в ленту шины k — в голову или боком до места
 			// отвода (подвод в нижнюю бывает не у головы)
-			line := zLaneBelts(l, buses[k-1], low, low.From+1, low.From+81)
+			// подвод записан левее головы (подвод добычи — в голову, у стадии 30 — From за
+			// пределами ленты: камень на 427965634) — не раньше головы
+			x0 := max(low.From+1, low.Start)
+			line := zLaneBelts(l, buses[k-1], low, x0, x0+80)
 			// боком — в любом месте ленты (у головы шины тесно от других сквозных и отводов: сера на
 			// bus-3, 859088572), ближние к подводу внизу первыми
 			side := zSidePorts(l, buses[k], ln, buses[k].Rect.Min.X, buses[k].Rect.Max.X)

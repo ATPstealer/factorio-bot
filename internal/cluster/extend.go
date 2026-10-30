@@ -230,6 +230,11 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 			return err
 		}
 	}
+	for _, c := range b.Refeed { // выход старого кластера — в ленту, появившуюся позже него
+		if err := b.feedOut(l, buses, c, g); err != nil {
+			return err
+		}
+	}
 	if err := feedThrough(l, buses); err != nil {
 		// сквозную не провести — новый потребитель её предмета (этажом выше) — в другое место
 		if te, ok := err.(*ThroughError); ok {
@@ -489,6 +494,100 @@ func AddInput(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		}
 	}
 	port := Port{T: f.tile(-1, labA+1), Dir: f.dir(layout.E), Item: item, In: true}
+	c.Ports = append(c.Ports, port)
+	addFlow(&c.In, item, rate)
+	return port, nil
+}
+
+// Tier2 — постройки второго уровня на место первых (stages.md, стадия 42: с 43-й все новые
+// постройки — второго уровня; длинные инсертеры второго уровня не имеют). Размеры те же —
+// замена по имени в раскладке.
+var Tier2 = map[string]string{
+	"transport-belt":       "fast-transport-belt",
+	"underground-belt":     "fast-underground-belt",
+	"splitter":             "fast-splitter",
+	"inserter":             "fast-inserter",
+	"small-electric-pole":  "medium-electric-pole",
+	"iron-chest":           "steel-chest",
+	"stone-furnace":        "steel-furnace",
+	"assembling-machine-1": "assembling-machine-2",
+}
+
+// UpgradeNew — всё в раскладке l, чего нет в old (новое этого плана), — вторым уровнем (Tier2).
+func UpgradeNew(l *layout.Layout, old []layout.Placement) int {
+	type key struct {
+		x, y float64
+		name string
+	}
+	was := map[key]bool{}
+	for _, p := range old {
+		was[key{p.Pos.X, p.Pos.Y, p.Name}] = true
+	}
+	n := 0
+	for i := range l.List {
+		p := &l.List[i]
+		if t2, ok := Tier2[p.Name]; ok && !was[key{p.Pos.X, p.Pos.Y, p.Name}] {
+			p.Name = t2
+			n++
+		}
+	}
+	return n
+}
+
+// AddLaneC — лента C блока лабораторий (cluster.md §2а «Лаборатории»): поперёк блока над первым
+// рядом лабораторий (ряд Head−2), от дальнего края к голове; инсертеры (ряд Head−1) — в каждую
+// лабораторию первого ряда, дальше пакеты идут от лаборатории к лаборатории. Подача — с
+// дальнего края (порт за площадью), первый пакет — item; второй — потом второй полосой.
+func AddLaneC(l *layout.Layout, c *Cluster, item string, rate float64, tag string) (Port, error) {
+	if c.Kind != Lab {
+		return Port{}, fmt.Errorf("cluster %s: лента C — у блока лабораторий", c.Name)
+	}
+	f := c.frame()
+	for _, t := range labReserve(f, c) {
+		delete(l.Reserved, t)
+	}
+	defer func() {
+		for _, t := range labReserve(f, c) {
+			if l.At(t) == nil {
+				l.Reserved[t] = true
+			}
+		}
+	}()
+	add := func(p layout.Placement) error {
+		for _, t := range layout.Tiles(l.P, p) {
+			if t.X >= c.Area.Min.X && t.X < c.Area.Max.X && t.Y >= c.Area.Min.Y && t.Y < c.Area.Max.Y && l.At(t) == nil {
+				delete(l.Reserved, t)
+			}
+		}
+		if !l.CanPlace(p, layout.AnyLand) {
+			t := world.TileOf(p.Pos)
+			why := "не суша"
+			if q := l.At(t); q != nil {
+				why = q.String() + " " + q.Tag
+			} else if l.Reserved[t] {
+				why = "закрыто"
+			}
+			return fmt.Errorf("cluster %s: лента C не встаёт (%s: %s)", c.Name, p, why)
+		}
+		l.Add(p)
+		return nil
+	}
+	cu := c.Head - 2
+	for v := c.Cross - 1; v >= labA+2; v-- {
+		if err := add(f.at(l, "transport-belt", cu, v, layout.N, tag)); err != nil {
+			return Port{}, err
+		}
+	}
+	l.AllowEnd(f.tile(cu, labA+2))
+	for j := 0; j < labCols && j < c.Count; j++ { // лаборатории первого ряда
+		v := labA + 2 + 4*j + 1
+		a := f.tile(c.Head-1, v)
+		p := layout.Placement{Name: "inserter", Pos: a.Center(), Dir: layout.InserterDir(l.P, "inserter", a, f.tile(cu, v)), Tag: tag}
+		if err := add(p); err != nil {
+			return Port{}, err
+		}
+	}
+	port := Port{T: f.tile(cu, c.Cross), Dir: f.dir(layout.N), Item: item, In: true}
 	c.Ports = append(c.Ports, port)
 	addFlow(&c.In, item, rate)
 	return port, nil

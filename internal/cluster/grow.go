@@ -24,14 +24,20 @@ func (c *Cluster) MainMachine() string {
 	return c.machine()
 }
 
-// Built — сколько основных машин кластера c в раскладке list.
+// Built — сколько основных машин кластера c в раскладке list; у пары — только основные (по
+// рецепту Main: сборщики Sub — те же машины, считались бы вместе). Машина второго уровня на
+// месте первой (Tier2) — та же основная.
 func Built(list []layout.Placement, c *Cluster) int {
 	n := 0
 	m := c.MainMachine()
 	for _, p := range list {
-		if p.Tag == Tag(c.Name) && p.Name == m {
-			n++
+		if p.Tag != Tag(c.Name) || p.Name != m && Tier2[m] != p.Name {
+			continue
 		}
+		if c.Main != "" && p.Recipe != c.Main {
+			continue
+		}
+		n++
 	}
 	return n
 }
