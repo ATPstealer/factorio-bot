@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"factorio-bot/internal/bridge"
@@ -111,6 +112,12 @@ func (h *Hands) dragBuild(ctx context.Context, entity string, pos []bridge.Pos) 
 	if err := h.In.ButtonDown(input.Left); err != nil {
 		return res, err
 	}
+	// первый и последний тайл — с паузой: игра ставит ленту на тайл, когда курсор на нём
+	// успел побыть тик (протяжка ×7 ставила 6 — стадия 30 на 427965634)
+	if err := sleep(ctx, 60*time.Millisecond); err != nil {
+		h.In.ButtonUp(input.Left)
+		return res, err
+	}
 	for _, q := range pos[1:] {
 		if err := h.In.Move(cam.ToScreen(q.X, q.Y)); err != nil {
 			h.In.ButtonUp(input.Left)
@@ -120,6 +127,10 @@ func (h *Hands) dragBuild(ctx context.Context, entity string, pos []bridge.Pos) 
 			h.In.ButtonUp(input.Left)
 			return res, err
 		}
+	}
+	if err := sleep(ctx, 60*time.Millisecond); err != nil {
+		h.In.ButtonUp(input.Left)
+		return res, err
 	}
 	if err := h.In.ButtonUp(input.Left); err != nil {
 		return res, err
@@ -156,7 +167,13 @@ func (h *Hands) dragBuild(ctx context.Context, entity string, pos []bridge.Pos) 
 		}
 	}
 	if got < len(pos) {
-		h.Log("протяжка %s ×%d от (%.1f, %.1f): встало %d, остальное — кликами", entity, len(pos), pos[0].X, pos[0].Y, got)
+		var miss []string
+		for k, q := range pos {
+			if res[k].Name == "" {
+				miss = append(miss, fmt.Sprintf("(%.1f, %.1f)", q.X, q.Y))
+			}
+		}
+		h.Log("протяжка %s ×%d от (%.1f, %.1f): встало %d, не встало %s — кликами", entity, len(pos), pos[0].X, pos[0].Y, got, strings.Join(miss, " "))
 	}
 	return res, nil
 }
