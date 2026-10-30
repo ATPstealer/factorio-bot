@@ -536,6 +536,9 @@ func (h *Hands) sameDir(name string, a, b int) bool {
 	return a == b
 }
 
+// SameDir — sameDir для стадий: стоящая постройка смотрит, как в раскладке.
+func (h *Hands) SameDir(name string, a, b int) bool { return h.sameDir(name, a, b) }
+
 func removeInt(xs []int, x int) []int {
 	for k, v := range xs {
 		if v == x {

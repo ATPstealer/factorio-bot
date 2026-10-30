@@ -103,7 +103,9 @@ func entityStates(h *act.Hands, list []layout.Placement) ([]*bridge.EntityState,
 }
 
 // notBuilt — из list то, чего в игре ещё нет (пачками, как planAudit): нужное стадии и
-// проверка перед стройкой — только по несделанному (решение пользователя 26.10).
+// проверка перед стройкой — только по несделанному (решение пользователя 26.10). Стоит, но не
+// тем направлением — тоже не построено: стройка переставит (стадию прервали посреди перестановки
+// — подземная труба трассы осталась поперёк, нефть не шла: стадия 36 на 427965634).
 func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error) {
 	var res []layout.Placement
 	if paper != nil { // на бумаге: построено — раскладки прошлых стадий (paper.go)
@@ -119,7 +121,7 @@ func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error)
 		return nil, err
 	}
 	for i, pl := range list {
-		if i >= len(states) || states[i] == nil {
+		if i >= len(states) || states[i] == nil || states[i].Direction != nil && !h.SameDir(pl.Name, *states[i].Direction, pl.Dir) {
 			res = append(res, pl)
 		}
 	}
