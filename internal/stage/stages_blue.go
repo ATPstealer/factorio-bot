@@ -43,6 +43,7 @@ const (
 
 // waitFact — ждать, пока fact подтвердится, до factWait; возвращает последнюю причину.
 func waitFact(ctx context.Context, h *act.Hands, list []layout.Placement, fact func(*act.Hands, []layout.Placement) error) error {
+	h.Say("жду подтверждения по факту работы — до %v", factWait) // ожидание без строк в журнале принимали за зависание
 	deadline := time.Now().Add(factWait)
 	for {
 		err := fact(h, list)

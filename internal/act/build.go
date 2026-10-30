@@ -1482,6 +1482,9 @@ func (h *Hands) ugExitBehind(entity string, pos bridge.Pos, dir int) bool {
 		if err != nil || st == nil {
 			continue
 		}
+		if st.Direction != nil && *st.Direction%8 != dir%8 {
+			continue // поперечная подземка в тоннеле — не помеха паре (стадия 40 на 427965634: подземка стали поперёк тоннеля серы — поиск входа обрывался на ней)
+		}
 		return st.Own && st.UGType == "input" && !st.UGPaired && st.Direction != nil && *st.Direction == dir
 	}
 	return false

@@ -1444,3 +1444,52 @@ func TestPlaceUndergroundOutputFirst(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// TestPlaceUndergroundAcrossCrossing — выход подземки за поперечной подземкой того же яруса: в
+// тоннеле пары на запад стоит выход чужой пары на север (стадия 40 на 427965634: подземка
+// стали поперёк тоннеля серы). Поиск своего входа позади не должен останавливаться на
+// поперечной — иначе выход ставится входом и пара не складывается (сера застряла).
+func TestPlaceUndergroundAcrossCrossing(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "underground-belt") {
+		t.Skip("подземки не открыты (logistics)")
+	}
+	have(t, h, "underground-belt", 4)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, bridge.Pos{X: p0.Position.X - 25, Y: p0.Position.Y - 25}, 10, 10, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 10×10")
+	}
+	x, y := math.Floor(c.X)+0.5, math.Floor(c.Y)+0.5
+	ctx := ctxT(t, 4*time.Minute)
+	// поперечная пара на север: вход (x−3, y+2), выход (x−3, y) — в ряду будущего тоннеля
+	if _, err := h.PlaceDirs(ctx, "underground-belt", []bridge.Pos{{X: x - 3, Y: y + 2}, {X: x - 3, Y: y}}, []int{layout.N, layout.N}); err != nil {
+		t.Fatal(err)
+	}
+	// пара на запад через неё: вход (x, y), выход (x−5, y)
+	pos := []bridge.Pos{{X: x, Y: y}, {X: x - 5, Y: y}}
+	if _, err := h.PlaceDirs(ctx, "underground-belt", pos, []int{layout.W, layout.W}); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"input", "output"} {
+		p := pos[i]
+		st, err := h.B.GetEntity("underground-belt", p)
+		if err != nil || st == nil {
+			t.Fatalf("подземка в (%.1f, %.1f) не стоит (%v)", p.X, p.Y, err)
+		}
+		if st.Direction == nil || *st.Direction != layout.W {
+			t.Errorf("подземка в (%.1f, %.1f): направление %v, ждали запад", p.X, p.Y, st.Direction)
+		}
+		if st.UGType != want || !st.UGPaired {
+			t.Errorf("подземка в (%.1f, %.1f): %s, спарена %v — ждали %s в паре", p.X, p.Y, st.UGType, st.UGPaired, want)
+		}
+	}
+	clean(t, h)
+}
