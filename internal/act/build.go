@@ -144,7 +144,9 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) e
 		return err
 	}
 	c := fp.Center()
-	if !inBox(p.Position, fp, 0.35) && dist(p.Position, c) < reach { // рамка персонажа ±0.2 + задержка
+	// и цель на экране кликабельна — не под панелью (клик в быструю панель брал из неё ленты в
+	// руку вместо подземки — TestPlaceUndergroundAfterTurn, «не встало: в руке transport-belt»)
+	if !inBox(p.Position, fp, 0.35) && dist(p.Position, c) < reach && h.clickable(p, p.Position, c) { // рамка персонажа ±0.2 + задержка
 		return nil
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
@@ -161,7 +163,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) e
 				for k := 0; k < 16; k++ {
 					a := float64(k) * math.Pi / 8
 					q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
-					if inBox(q, fp, 0.8) || !h.World.Standable(q) || strict && (h.nearBelt(q) || !h.World.Roomy(q)) {
+					if inBox(q, fp, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || strict && (h.nearBelt(q) || !h.World.Roomy(q)) {
 						continue
 					}
 					if d := dist(p.Position, q); d < best {
@@ -180,7 +182,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64) e
 	err = h.WalkTo(ctx, spot, 0.5)
 	if errors.Is(err, ErrNotReached) {
 		// не дошёл до точки, но и отсюда ставится — не ошибка
-		if q, perr := h.B.Player(); perr == nil && !inBox(q.Position, fp, 0.35) && dist(q.Position, c) < buildReach {
+		if q, perr := h.B.Player(); perr == nil && !inBox(q.Position, fp, 0.35) && dist(q.Position, c) < buildReach && h.clickable(q, q.Position, c) {
 			return nil
 		}
 	}
@@ -657,6 +659,11 @@ func (h *Hands) clickBuild(ctx context.Context, entity string, pos bridge.Pos) (
 		if p, err = h.B.Player(); err != nil {
 			return bridge.Entity{}, err
 		}
+	}
+	// цель под панелью или у края окна — не кликать (клик в быструю панель берёт из неё другой
+	// предмет в руку): место не встало, вызывающий подойдёт иначе
+	if !h.clickable(p, p.Position, pos) {
+		return bridge.Entity{}, fmt.Errorf("%w %s в (%.1f, %.1f): под панелью или у края окна", ErrPlace, entity, pos.X, pos.Y)
 	}
 	if err := h.In.Move(h.Camera(p).ToScreen(pos.X, pos.Y)); err != nil {
 		return bridge.Entity{}, err
