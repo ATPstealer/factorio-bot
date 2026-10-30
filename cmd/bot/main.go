@@ -42,7 +42,7 @@ const usage = `bot — бот Factorio: действует только мышь
   player                состояние игрока (позиция, зум, инвентарь, курсор, выделение) в JSON
   events [AFTER]        события из буфера мода (добыча, постройка, крафт...) с номером > AFTER
   path X Y              показать маршрут от игрока до (X, Y): точки и деревья, которые рубить по дороге (отладка, без движения)
-  walk X Y              дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла
+  walk X Y [X Y …]      дойти клавишами WASD до точки мира (X, Y), точность 0.5 тайла; несколько точек — подряд
   craft РЕЦЕПТ [N]      скрафтить N раз (по умолчанию 1) и дождаться: E → поиск → клик по ячейке рецепта
   place ПРЕДМЕТ X Y [DIR]
                         поставить постройку центром в (X, Y); DIR: n|e|s|w (n)
@@ -274,16 +274,20 @@ func main() {
 			fmt.Printf("  срубить %s (%.1f, %.1f) на %.1f\n", c.Tree.Name, c.Tree.Pos.X, c.Tree.Pos.Y, c.S)
 		}
 	case "walk":
-		if len(args) < 3 {
-			log.Fatal("bot walk X Y")
+		if len(args) < 3 || len(args)%2 == 0 {
+			log.Fatal("bot walk X Y [X Y …]")
 		}
 		h := hands()
-		target := bridge.Pos{X: atof(args[1]), Y: atof(args[2])}
-		check(h.WalkTo(ctx, target, 0.5))
-		p, err := b.Player()
-		check(err)
-		log.Printf("стою в (%.2f, %.2f), до цели %.2f", p.Position.X, p.Position.Y,
-			dist(p.Position, target))
+		// несколько точек подряд одним процессом — замеры (задержка ввода, тормозной путь)
+		// копятся, как в прогоне стадии
+		for i := 1; i+1 < len(args); i += 2 {
+			target := bridge.Pos{X: atof(args[i]), Y: atof(args[i+1])}
+			check(h.WalkTo(ctx, target, 0.5))
+			p, err := b.Player()
+			check(err)
+			log.Printf("стою в (%.2f, %.2f), до цели %.2f", p.Position.X, p.Position.Y,
+				dist(p.Position, target))
+		}
 	case "mine":
 		if len(args) < 2 {
 			log.Fatal("bot mine ЦЕЛЬ [N] [радиус]")

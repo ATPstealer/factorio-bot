@@ -58,6 +58,10 @@ type Hands struct {
 	handClient string          // процесс клиента, при котором запомнен handRot (clientProc)
 	noRestore  bool            // подбор без возврата задетого (перестановка: вернёт PlaceDirs после)
 	lats       []time.Duration // замеры задержки ввода: от нажатия до первого шага (drive)
+	slides     []float64       // замеры тормозного пути: от отпускания клавиш до остановки (тайлов)
+	relPos     bridge.Pos      // где были отпущены клавиши ходьбы (drive) — для замера тормозного пути
+	relAt      time.Time       // когда; нулевое — замера нет
+	knownStill bool            // персонаж стоит (waitStill подтвердил, клавиш ходьбы с тех пор не было)
 }
 
 // Say — что бот собирается сделать: в лог и (Console) в консоль игры с префиксом [bot].
@@ -216,7 +220,8 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		}
 		target = q
 		// сдвинутую цель — точнее (иначе встал бы до stop+сдвиг от цели), но не до проскока
-		stop = max(stop-dist(goal, target), 0.25)
+		// (доводка нажатиями от 10 мс — ~0.1 тайла)
+		stop = max(stop-dist(goal, target), 0.15)
 	}
 	if p, err := h.B.Player(); err == nil && dist(p.Position, target) > 8 {
 		h.Say("иду к (%.0f, %.0f), %.0f тайлов", target.X, target.Y, dist(p.Position, target))
@@ -269,6 +274,18 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		for replan := 0; ; replan++ {
 			err := h.followPath(ctx, target, stop)
 			if errors.Is(err, world.ErrNoPath) && replan < 3 {
+				// конец частичного пути, цель в паре тайлов, но по модели закрыта (запас рамок
+				// шире щели в игре — старт между бурами, TestWalk на 558205152-0): сначала по
+				// прямой; раньше туда заносило случайно — проскоком за конец пути
+				if p, perr := h.B.Player(); perr == nil && dist(p.Position, target) <= 3 {
+					if rerr := h.run(ctx, target, stop+brakeDist, true); rerr == nil {
+						if q, qerr := h.B.Player(); qerr == nil && dist(q.Position, target) <= stop+brakeDist {
+							break
+						}
+					} else if ctx.Err() != nil {
+						return rerr
+					}
+				}
 				// щель уже запаса модели (персонаж сюда как-то зашёл) — сначала протиснуться:
 				// между бурами «обступили» оказывалось ложным, бот разбирал постройки и не
 				// выбирался (тест угольных пар на 1039746529-0)
@@ -339,7 +356,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	}
 	t2 := time.Now()
 	err := h.approach(ctx, target, stop)
-	h.Log("ходьба: маршрут %.1f с, остановка %.1f с, доводка %.1f с", t1.Sub(t0).Seconds(), t2.Sub(t1).Seconds(), time.Since(t2).Seconds())
+	h.Log("ходьба: маршрут %.1f с, остановка %.1f с, доводка %.1f с; тормозной путь %.2f", t1.Sub(t0).Seconds(), t2.Sub(t1).Seconds(), time.Since(t2).Seconds(), h.slide())
 	if errors.Is(err, ErrNotReached) && target != goal {
 		// к сдвинутой цели — точнее, но годится и исходный допуск от исходной цели
 		if p, perr := h.B.Player(); perr == nil && dist(p.Position, goal) <= tol {
@@ -385,10 +402,31 @@ func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64)
 	if len(r.Cuts) > 0 {
 		h.Say("по дороге срублю деревьев: %d (обход дольше)", len(r.Cuts))
 	}
+	// прицел — за концом маршрута на полдопуска к цели: конец маршрута на stop от цели, и
+	// остановка с недолётом оставляла до цели больше stop — доводка нажатиями (0.5–2 с на
+	// каждый из 10 тыс. походов за игру — 115 мин на двух картах); так посадка — на stop/2 ±
+	// ошибка тормозного пути, в допуске без доводки
+	aimLen := r.Length()
+	if end := r.At(r.Length()); dist(end, target) > 1e-6 {
+		aimLen += math.Min(dist(end, target), math.Min(stop/2, 0.5))
+	}
 	seg, base, ci := 0, 0.0, 0
+	var prevPos bridge.Pos
+	var prevAt time.Time
 	for {
 		cutNow := false
 		err = h.drive(ctx, 3, func(pos bridge.Pos) (map[string]bool, bool) {
+			// скорость по двум опросам (в тесноте виляет — медленнее номинала)
+			now := time.Now()
+			v := walkSpeed
+			if !prevAt.IsZero() {
+				if dt := now.Sub(prevAt).Seconds(); dt > 0.03 && dt < 0.5 {
+					if m := dist(pos, prevPos) / dt; m >= 2 && m <= walkSpeed*1.1 {
+						v = m
+					}
+				}
+			}
+			prevPos, prevAt = pos, now
 			// проекция на маршрут: текущий отрезок, пройденные — дальше
 			var along float64
 			for ; seg < len(route)-1; seg++ {
@@ -406,6 +444,17 @@ func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64)
 			if ci < len(r.Cuts) && base+along >= r.Cuts[ci].S-cutAhead {
 				cutNow = true
 				return nil, true
+			}
+			// отпуск клавиш по времени: опрос раз в ~85 мс — это 0.75 тайла хода, отпускать
+			// по опросу значит промахиваться на столько; до точки отпуска (прицел минус
+			// тормозной путь) меньше шага опроса — выждать ровно остаток и отпустить
+			if ci >= len(r.Cuts) {
+				if rem := aimLen - (base + math.Max(along, 0)) - h.slide(); rem <= v*(pollEvery.Seconds()+0.04) {
+					if rem > 0 {
+						sleep(ctx, time.Duration(rem/v*float64(time.Second)))
+					}
+					return nil, true
+				}
 			}
 			// цель — точка маршрута впереди: в открытом месте дальше (идём прямо, не
 			// виляя диагоналями), в тесноте — ближе (точнее держим линию)
@@ -548,9 +597,19 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 			h.noteLatency(time.Since(pressAt))
 			pressAt = time.Time{}
 		}
+		at := time.Now()
 		want, done := steer(p.Position)
 		ahead := want
 		if done {
+			if len(held) > 0 {
+				// где отпускаем — для замера тормозного пути (waitStill); опрос устарел на время
+				// до отпускания (steer мог выждать) — продлить по скорости двух опросов
+				h.relPos, h.relAt = p.Position, time.Now()
+				if d, dt := dist(p.Position, last), at.Sub(lastMove).Seconds(); d > 0.05 && d < 2 && dt > 0.02 && dt < 0.5 {
+					k := time.Since(at).Seconds() / dt
+					h.relPos = bridge.Pos{X: p.Position.X + (p.Position.X-last.X)*k, Y: p.Position.Y + (p.Position.Y-last.Y)*k}
+				}
+			}
 			release()
 			return nil
 		}
@@ -639,6 +698,7 @@ func (h *Hands) drive(ctx context.Context, maxStucks int, steer func(bridge.Pos)
 		first = false
 		for k := range want {
 			if !held[k] {
+				h.knownStill = false
 				if err := h.In.KeyDown(k); err != nil {
 					return err
 				}
@@ -689,7 +749,9 @@ func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) e
 			return err
 		}
 		d := dist(p.Position, target)
-		keys := walkKeys(p.Position, target)
+		// мёртвая зона по оси — не больше половины допуска: с 0.3 по обеим осям клавиш нет уже
+		// в 0.42 от цели, и тесный допуск (цель, сдвинутая от ленты, — 0.25) не выдерживался
+		keys := walkKeysDZ(p.Position, target, math.Min(deadZone, stop/2))
 		if d <= stop || len(keys) == 0 {
 			return nil
 		}
@@ -702,6 +764,7 @@ func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) e
 			continue
 		}
 		for k := range keys {
+			h.knownStill = false
 			if err := h.In.KeyDown(k); err != nil {
 				return err
 			}
@@ -750,6 +813,7 @@ func (h *Hands) beltBetween(a, b bridge.Pos) bool {
 // дольше 1.5 с; потом дождаться остановки (дальше — обычная доводка).
 func (h *Hands) crossBelt(ctx context.Context, target bridge.Pos, keys map[string]bool) error {
 	for k := range keys {
+		h.knownStill = false
 		if err := h.In.KeyDown(k); err != nil {
 			return err
 		}
@@ -778,6 +842,33 @@ func (h *Hands) crossBelt(ctx context.Context, target bridge.Pos, keys map[strin
 // inputLatency — через сколько ввод клиента доходит до сервера (1–3 тика) с запасом.
 const inputLatency = 100 * time.Millisecond
 
+// walkSpeed — бег персонажа без брони, тайлов/с (0.15 тайла за тик).
+const walkSpeed = 8.9
+
+// slideDefault — тормозной путь, пока замеров нет: после отпускания клавиш персонаж
+// проходит ещё ~0.6–1.2 тайла (ввод до сервера идёт 1–3 тика, и опрос запаздывает).
+const slideDefault = 0.9
+
+// noteSlide — замер тормозного пути (от отпускания клавиш до остановки), последние 9.
+func (h *Hands) noteSlide(d float64) {
+	if d < 0.1 || d > 3 { // стоял, снесло лентой, застрял — не замер
+		return
+	}
+	if h.slides = append(h.slides, d); len(h.slides) > 9 {
+		h.slides = h.slides[1:]
+	}
+}
+
+// slide — тормозной путь по замерам (медиана), тайлов.
+func (h *Hands) slide() float64 {
+	if len(h.slides) == 0 {
+		return slideDefault
+	}
+	s := slices.Clone(h.slides)
+	slices.Sort(s)
+	return s[len(s)/2]
+}
+
 // noteLatency — замер задержки ввода (от нажатия до первого шага), последние 9.
 func (h *Hands) noteLatency(d time.Duration) {
 	if h.lats = append(h.lats, d); len(h.lats) > 9 {
@@ -801,6 +892,19 @@ func (h *Hands) moveLatency() time.Duration {
 // Сначала выжидает задержку ввода — иначе «стоит» читается до того, как нажатие дошло
 // до сервера. Стоит — когда два чтения подряд: не идёт и та же позиция.
 func (h *Hands) waitStill(ctx context.Context) error {
+	// уже стоит (подтверждено, клавиш ходьбы с тех пор не было) — одно чтение вместо
+	// задержки ввода и двух: ждать остановки зовут после каждого похода и ещё раз перед
+	// постановкой
+	if h.knownStill {
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		if (p.Character == nil || !p.Character.Walking) && (h.World == nil || !h.World.OnBelt(p.Position)) {
+			return nil
+		}
+		h.knownStill = false
+	}
 	if err := sleep(ctx, h.moveLatency()); err != nil {
 		return err
 	}
@@ -813,6 +917,11 @@ func (h *Hands) waitStill(ctx context.Context) error {
 		}
 		still := p.Character == nil || !p.Character.Walking
 		if still && last != nil && dist(*last, p.Position) < 1e-6 {
+			if !h.relAt.IsZero() && offs == 0 && time.Since(h.relAt) < 5*time.Second {
+				h.noteSlide(dist(h.relPos, p.Position))
+			}
+			h.relAt = time.Time{}
+			h.knownStill = true
 			return nil
 		}
 		// клавиши отпущены, а персонажа несёт — стоит на ленте: сойти
