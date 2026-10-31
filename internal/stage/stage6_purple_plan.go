@@ -22,7 +22,7 @@ import (
 
 const (
 	// purpleBaseFile — план стадии 5 до дописывания: перезапуск стадии — с него; стройка 29–41 —
-	// по нему (LoadBluePlan), 42–48 — по всему (LoadPurplePlan)
+	// по нему (LoadBluePlan), 42–48 — по нему же с проектом фиолетовой (LoadPurplePlan)
 	purpleBaseFile = "state-plan-blue.json"
 	purplePack     = "production-science-pack"
 	purpleRate     = 0.1 // вся наука — 0.1/с (stages.md)
@@ -243,142 +243,17 @@ func purpleTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 	if err != nil {
 		return base, l, err
 	}
-	// рост под всю науку (cluster.md §7): станция — первым делом, потом плавка и сборка (красные
-	// схемы — до электропечей, stages.md 44); вдоль ряда, не влезло — кластер-2 того же продукта.
-	// Стоящее считается вторым уровнем (needs — машинами второго уровня)
+	// рост под всю науку (cluster.md §7; стоящее считается вторым уровнем — needs машинами
+	// второго уровня)
 	needs, err := purpleNeeds(pr)
 	if err != nil {
 		return base, l, err
 	}
-	grow := map[*cluster.Cluster]int{}
-	var extras []*cluster.Cluster
-	var stationOf *cluster.Cluster
-	var stations []*cluster.Cluster
-	order := slices.Clone(base.Clusters)
-	slices.SortStableFunc(order, func(a, b *cluster.Cluster) int {
-		rank := func(c *cluster.Cluster) int {
-			if c.Kind == cluster.Power {
-				return 0
-			}
-			return 1
-		}
-		return rank(a) - rank(b)
-	})
-	// потребность — на продукт целиком (Need — по всем кластерам плана того же продукта), стоит —
-	// сумма по всем кластерам продукта (iron-plate-1…6): нехватка раздаётся по ним вдоль рядов,
-	// остаток — новым кластером
-	type key struct {
-		kind    cluster.Kind
-		product string
-	}
-	done := map[key]bool{}
-	for _, c := range order {
-		if slices.Contains(fresh, c) || done[key{c.Kind, c.Product}] {
-			continue
-		}
-		switch c.Kind {
-		case cluster.Smelt, cluster.Power:
-		case cluster.Make:
-			// наука и вспомогательные (быстрые ленты и инсертеры — на срок, не на темп) не растут
-			if cluster.IsScience(c.Product) || c.Product == "fast-transport-belt" || c.Product == "fast-inserter" {
-				continue
-			}
-		default:
-			continue
-		}
-		done[key{c.Kind, c.Product}] = true
-		var group []*cluster.Cluster
-		have := 0
-		for _, g := range base.Clusters {
-			if g.Kind == c.Kind && g.Product == c.Product && !slices.Contains(fresh, g) {
-				group = append(group, g)
-				have += cluster.Built(l.List, g)
-			}
-		}
-		n := cluster.Need(needs, c)
-		if c.Kind == cluster.Power { // по тому, что реально стоит в плане
-			var w float64
-			n, w = cluster.PowerNeed(pr, l)
-			h.Say("энергия плана: %.1f МВт — бойлеров %d (стоит %d)", w/1e6, n, have)
-		}
-		h.Log("рост: %s — нужно %d, стоит %d (кластеров %d)", c.Product, n, have, len(group))
-		if n <= have {
-			continue
-		}
-		deficit := n - have
-		for _, g := range group {
-			if deficit <= 0 {
-				break
-			}
-			bg := cluster.Built(l.List, g)
-			m := min(bg+deficit, base.GrowCap(g))
-			if m <= bg {
-				continue
-			}
-			if err := base.GrowRow(l, g, m); err == nil {
-				h.Say("рост: %s — %s %d → %d вдоль ряда", g.Name, g.MainMachine(), bg, m)
-				grow[g], deficit = m, deficit-(m-bg)
-				continue
-			} else {
-				h.Log("рост %s: %v", g.Name, err)
-			}
-			if g.Kind == cluster.Power { // вдоль ряда — сколько влезет
-				for k := m - 1; k > bg; k-- {
-					if err := base.GrowRow(l, g, k); err == nil {
-						h.Say("рост: %s — %s %d → %d вдоль ряда", g.Name, g.MainMachine(), bg, k)
-						grow[g], deficit = k, deficit-(k-bg)
-						break
-					}
-				}
-			}
-		}
-		if deficit <= 0 {
-			continue
-		}
-		if c.Kind == cluster.Power {
-			// остальное — ещё станция у воды (cluster.md §2а «Станция»), как на стадии 5
-			stationOf = c
-			for rest := deficit; rest > 0; {
-				k := min(rest, cluster.PumpBoilers(pr))
-				st := cluster.Station(pr, k)
-				if st == nil {
-					return base, l, fmt.Errorf("станция на %d бойлеров не считается", k)
-				}
-				st.Name = base.Name("power", stations)
-				x, y := c.Area.Center()
-				near := world.Tile{X: int(x), Y: int(y)}
-				st.Near = &near
-				stations = append(stations, st)
-				extras = append(extras, st)
-				h.Say("рост: ещё станция %s на %d бойлеров", st.Name, k)
-				rest -= k
-			}
-			continue
-		}
-		xs, err := cluster.Extras(pr, needs, c, n-deficit, n, base.GrowCap(c))
-		if err != nil {
-			return base, l, fmt.Errorf("рост %s (%d → %d): %w", c.Product, n-deficit, n, err)
-		}
-		extras = append(extras, xs...)
-	}
-	if len(extras) > 0 {
-		var err error
-		if extras, _, err = base.PlaceZoned(extras, rough.Zones); err != nil {
-			return base, l, err
-		}
-		for _, x := range extras {
-			h.Say("рост: новый кластер %s", x.Name)
-		}
-		fresh = append(fresh, extras...)
-	}
-	if l, err = layoutAll(); err != nil {
+	g, err := growProject(h, pr, base, &l, needs, rough.Zones, fresh, layoutAll)
+	if err != nil {
 		return base, l, err
 	}
-	for c, n := range grow {
-		if err := base.GrowRow(l, c, n); err != nil {
-			return base, l, err
-		}
-	}
+	fresh, stations, stationOf := g.fresh, g.stations, g.stationOf
 	// фиолетовая — в лаборатории лентой C (cluster.md §2а «Лаборатории»)
 	extra := map[*cluster.Cluster][]cluster.Port{}
 	var labs []*cluster.Cluster

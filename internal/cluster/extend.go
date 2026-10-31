@@ -573,6 +573,18 @@ func AddLaneC(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 		return nil
 	}
 	cu := c.Head - 2
+	if q := l.At(f.tile(cu, c.Cross-1)); q != nil && isBeltName(q.Name) && q.Tag == tag {
+		// лента C уже есть (первый пакет — с торца, с дальнего края): второй пакет — на вторую
+		// полосу боком в её хвост из столбца инсертеров (дальний край, место зарезервировано)
+		su := c.Head - 1
+		if err := add(f.at(l, "transport-belt", su, c.Cross-1, layout.W, tag)); err != nil {
+			return Port{}, err
+		}
+		port := Port{T: f.tile(su, c.Cross), Dir: f.dir(layout.N), Item: item, In: true}
+		c.Ports = append(c.Ports, port)
+		addFlow(&c.In, item, rate)
+		return port, nil
+	}
 	for v := c.Cross - 1; v >= labA+2; v-- {
 		if err := add(f.at(l, "transport-belt", cu, v, layout.N, tag)); err != nil {
 			return Port{}, err

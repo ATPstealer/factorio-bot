@@ -123,7 +123,7 @@ func endBuffers(h *act.Hands, pick func(*cluster.Cluster) bool) func(*ClusterPla
 // (на бумаге, 954176679: лента bus-3 на месте инсертера буфера лент).
 func planTaken(h *act.Hands) map[world.Tile]bool {
 	res := map[world.Tile]bool{}
-	full, err := LoadPurplePlan()
+	full, err := LoadWholePlan()
 	if err != nil {
 		return res
 	}

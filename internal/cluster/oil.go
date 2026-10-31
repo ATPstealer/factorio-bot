@@ -26,7 +26,10 @@ func (c *Cluster) IsOil() bool { return c.Kind == Mine && c.Product == "crude-oi
 
 // MoreOil — кластеры добычи нефти до OilFields на месторождениях в зонах добычи, ближние к
 // голове bus-1 первыми (уже стоящие — в счёт); зон с нефтью мало — дописываются (MoreMineZones).
-func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) {
+func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) { return b.MoreOilN(zones, OilFields) }
+
+// MoreOilN — как MoreOil, но до n месторождений (проект жёлтой — третье: stages.md, стадия 7).
+func (b *Base) MoreOilN(zones []Zone, fields int) ([]Zone, []*Cluster, error) {
 	b.grid()
 	var head world.Tile
 	for _, z := range zones {
@@ -61,7 +64,7 @@ func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) {
 			oil += float64(p.Amount)
 		}
 	}
-	for k := 0; n < OilFields && k < len(pts); k++ { // зон мало — ещё одна на следующем пятне
+	for k := 0; n < fields && k < len(pts); k++ { // зон мало — ещё одна на следующем пятне
 		zs := b.MoreMineZones(zones, "crude-oil", oil+1)
 		if len(zs) == len(zones) {
 			break
@@ -77,7 +80,7 @@ func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) {
 	}
 	var res []*Cluster
 	for _, p := range pts {
-		if have >= OilFields {
+		if have >= fields {
 			break
 		}
 		z := inZone(p)
@@ -101,8 +104,8 @@ func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) {
 		res = append(res, c)
 		have++
 	}
-	if have < OilFields {
-		return zones, res, fmt.Errorf("cluster: месторождений нефти %d из %d", have, OilFields)
+	if have < fields {
+		return zones, res, fmt.Errorf("cluster: месторождений нефти %d из %d", have, fields)
 	}
 	return zones, res, nil
 }
@@ -589,7 +592,13 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 		}
 		return nil
 	}
-	gas := "petroleum-gas"
+	// первая жидкость (газ, кислота батарей) — трубой с дальнего конца; вода (вторая) — снизу
+	gas := ""
+	for _, ing := range ings {
+		if _, fl := l.P.Fluids[ing.Name]; fl && (ing.Name != "water" || !two) {
+			gas = ing.Name
+		}
+	}
 	if err := pipeRow(gasV, gas, c.Head, L); err != nil {
 		return err
 	}
@@ -600,24 +609,43 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 		}
 		c.Ports = append(c.Ports, Port{T: f.tile(-1, waterV), Dir: f.dir(layout.E), Item: "water", In: true})
 	}
-	// лента входа предмета (пластик — уголь): снизу у головы, с торца в ряду 1 и боком в голову
+	// лента входа предметов (пластик — уголь; батареи — железо | медь по полосам): снизу у
+	// головы, предмет 1 с торца в ряду 1 боком в голову, предмет 2 — из ряда 3 (cluster.md §6б)
+	var solids []string
 	for _, in := range c.In {
-		if _, fl := l.P.Fluids[in.Item]; fl {
-			continue
+		if _, fl := l.P.Fluids[in.Item]; !fl {
+			solids = append(solids, in.Item)
 		}
-		for _, b := range []struct{ u, v, d int }{{0, 2, layout.E}, {0, 1, layout.S}} {
-			if err := add(f.at(l, "transport-belt", b.u, b.v, b.d, tag)); err != nil {
+	}
+	if len(solids) > 2 {
+		return fmt.Errorf("cluster %s: предметов на входе %d — одна лента, две полосы", c.Name, len(solids))
+	}
+	if len(solids) > 0 {
+		if err := add(f.at(l, "transport-belt", 0, 2, layout.E, tag)); err != nil {
+			return err
+		}
+		for k, it := range solids {
+			fv, d := 1, layout.S
+			if k == 1 {
+				fv, d = 3, layout.N
+			}
+			if err := add(f.at(l, "transport-belt", 0, fv, d, tag)); err != nil {
 				return err
 			}
+			c.Ports = append(c.Ports, Port{T: f.tile(-1, fv), Dir: f.dir(layout.E), Item: it, In: true})
 		}
-		c.Ports = append(c.Ports, Port{T: f.tile(-1, 1), Dir: f.dir(layout.E), Item: in.Item, In: true})
 		if err := row(2, 1, end, layout.E); err != nil {
 			return err
 		}
 		deadEnd(2, end)
-		if c.Head >= bufferHead { // буфер предмета в голове (cluster.md §6): ящики в ряду химзаводов
-			if err := bufferAt(l, f, c, 2, 3, 4, bufferChestsN, in.Item, tag, 1); err != nil {
+		if c.Head >= bufferHead { // буферы предметов в голове (cluster.md §6): ящики в ряду химзаводов и над лентой
+			if err := bufferAt(l, f, c, 2, 3, 4, bufferChestsN, solids[0], tag, 1); err != nil {
 				return err
+			}
+			if len(solids) > 1 {
+				if err := bufferAt(l, f, c, 2, 1, 0, bufferChestsN, solids[1], tag, 1); err != nil {
+					return err
+				}
 			}
 		}
 	}

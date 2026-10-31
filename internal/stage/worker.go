@@ -194,7 +194,7 @@ func (s *worker) handcraftable(item string) bool {
 
 // produced — item делает свой кластер: в игре стоит буфер выхода кластера с этим продуктом.
 func (s *worker) produced(item string) bool {
-	plan, err := LoadPurplePlan()
+	plan, err := LoadWholePlan()
 	if err != nil {
 		return false
 	}

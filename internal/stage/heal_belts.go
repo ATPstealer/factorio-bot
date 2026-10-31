@@ -78,7 +78,7 @@ const healBeltsMax = 100
 
 // healBeltsOnce — один заход healBelts; возвращает, сколько лент с чужим нашлось (до предела).
 func healBeltsOnce(ctx context.Context, h *act.Hands) (int, error) {
-	plan, err := LoadPurplePlan() // весь план: ленты синей и фиолетовой тоже
+	plan, err := LoadWholePlan() // весь план: ленты синей и фиолетовой тоже
 	if err != nil {
 		return 0, nil
 	}

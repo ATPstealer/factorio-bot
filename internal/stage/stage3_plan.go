@@ -90,8 +90,18 @@ func LoadBluePlan() (*ClusterPlan, error) {
 	return loadPlanFile(runPath(planFile))
 }
 
-// LoadPurplePlan — весь план с проектом фиолетовой науки (стадия 6) для стройки стадий 42–48.
-func LoadPurplePlan() (*ClusterPlan, error) { return loadPlanFile(runPath(planFile)) }
+// LoadPurplePlan — план с проектом фиолетовой науки (стадия 6) для стройки стадий 42–48: план
+// до стадии 7, если она уже дописала свой (иначе — общий).
+func LoadPurplePlan() (*ClusterPlan, error) {
+	if _, err := os.Stat(runPath(yellowBaseFile)); err == nil {
+		return loadPlanFile(runPath(yellowBaseFile))
+	}
+	return loadPlanFile(runPath(planFile))
+}
+
+// LoadWholePlan — весь план (с проектом жёлтой науки — стадия 7) для стройки стадий 49–61 и
+// для всего, что смотрит на план целиком (чертёж, столбы, починка лент, учёт продукции).
+func LoadWholePlan() (*ClusterPlan, error) { return loadPlanFile(runPath(planFile)) }
 
 func runPlan(ctx context.Context, h *act.Hands) error {
 	if _, err := h.World.Sync(h.B, true); err != nil {

@@ -290,8 +290,20 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			return err
 		}
 	case Make, Supply:
+		if c.IsRefineryAdv() {
+			if err := refineryAdvRow(l, f, c, L, tag, add); err != nil {
+				return err
+			}
+			break
+		}
 		if c.IsRefinery() {
 			if err := refineryRow(l, f, c, L, tag, add); err != nil {
+				return err
+			}
+			break
+		}
+		if c.IsChemFluid(l.P) {
+			if err := chemFluidRow(l, f, c, L, tag, add, row, deadEnd, sideIn); err != nil {
 				return err
 			}
 			break
@@ -302,7 +314,13 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			}
 			break
 		}
-		if len(c.In) > 3 || len(c.In) == 3 && c.Kind != Make {
+		if c.IsFluidMake(l.P) {
+			if err := fluidMakeRow(l, f, c, L, tag, add, row, deadEnd, sideIn); err != nil {
+				return err
+			}
+			break
+		}
+		if len(c.In) > 4 || len(c.In) >= 3 && c.Kind != Make {
 			return fmt.Errorf("cluster %s: входов %v — шаблона нет", c.Name, flows(c.In))
 		}
 		mach, mh := "stone-furnace", 2
@@ -387,14 +405,14 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			if c.Sub != "" {
 				oc = 5
 			}
-			if len(c.In) == 3 { // третий вход — лента за выходом, длинный инсертер через неё
+			if len(c.In) >= 3 { // третий (и четвёртый) вход — лента C за выходом, длинный инсертер через неё
 				if err := thirdIn(l, f, c, ov, cur-1, tag, add, row, deadEnd); err != nil {
 					return err
 				}
 			}
 			// с третьим входом в ряду инсертеров выхода — ещё длинные: перекладке места нет,
 			// выход — одной полосой (такие кластеры малы: схемы 2, быстрые инсертеры, наука)
-			if half := c.Count / 2; half == 0 || len(c.In) == 3 {
+			if half := c.Count / 2; half == 0 || len(c.In) >= 3 {
 				if err := row(ov, c.Head, L, layout.E); err != nil {
 					return err
 				}
@@ -516,9 +534,10 @@ func smeltRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func
 	return nil
 }
 
-// thirdIn — третий вход сборки (cluster.md §2а «Сборка»): лента C в ряду ov+1 (за лентой выхода
-// ov), подача — снизу с торца; к каждому основному сборщику — длинный инсертер в ряду ov-1 (рядом
-// с инсертером выхода) через ленту выхода.
+// thirdIn — третий (и четвёртый) вход сборки (cluster.md §2а «Сборка»): лента C в ряду ov+1 (за
+// лентой выхода ov), подача — снизу с торца (один предмет) или боком в голову по полосам (два);
+// к каждому основному сборщику — длинный инсертер в ряду ov-1 (рядом с инсертером выхода)
+// через ленту выхода.
 func thirdIn(l *layout.Layout, f frame, c *Cluster, ov, end int, tag string, add func(layout.Placement) error,
 	row func(v, from, to, d int) error, deadEnd func(v, to int)) error {
 	cv := ov + 1
@@ -531,11 +550,33 @@ func thirdIn(l *layout.Layout, f frame, c *Cluster, ov, end int, tag string, add
 			return err
 		}
 	}
-	if err := row(cv, 0, end, layout.E); err != nil {
+	if len(c.In) == 3 { // один предмет — с торца
+		if err := row(cv, 0, end, layout.E); err != nil {
+			return err
+		}
+		deadEnd(cv, end)
+		c.Ports = append(c.Ports, Port{T: f.tile(-1, cv), Dir: f.dir(layout.E), Item: c.In[2].Item, In: true})
+		return nil
+	}
+	// два предмета — по полосам, боком в голову (как sideIn): третий — из ряда выхода (в голове
+	// он свободен: выход начинается с Head), четвёртый — из ряда за лентой C
+	if err := add(f.at(l, "transport-belt", 0, cv, layout.E, tag)); err != nil {
+		return err
+	}
+	for k, in := range c.In[2:4] {
+		fv, d := cv-1, layout.S
+		if k == 1 {
+			fv, d = cv+1, layout.N
+		}
+		if err := add(f.at(l, "transport-belt", 0, fv, d, tag)); err != nil {
+			return err
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(-1, fv), Dir: f.dir(layout.E), Item: in.Item, In: true})
+	}
+	if err := row(cv, 1, end, layout.E); err != nil {
 		return err
 	}
 	deadEnd(cv, end)
-	c.Ports = append(c.Ports, Port{T: f.tile(-1, cv), Dir: f.dir(layout.E), Item: c.In[2].Item, In: true})
 	return nil
 }
 

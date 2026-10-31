@@ -49,7 +49,7 @@ func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, st
 	}
 	// и полный план (синяя и фиолетовая; все планы — до стройки): столбы ранних стадий вставали
 	// на место будущих кластеров и лент (двигатель power-2 на столбе — 954176679, на бумаге)
-	if full, err := LoadPurplePlan(); err == nil {
+	if full, err := LoadWholePlan(); err == nil {
 		for _, pl := range full.Layout {
 			if all.At(world.TileOf(pl.Pos)) == nil {
 				all.Add(pl)

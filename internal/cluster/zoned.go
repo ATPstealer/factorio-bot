@@ -180,6 +180,15 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 			// «Станция»)
 			c.Room = max(c.Count, (max(power.W(), power.H())-c.Head)/c.Pitch)
 		case f > 0:
+			// под шинами снизу и сверху (zones.md): часть этажа правее конца шины над ним —
+			// продукт оттуда не положить (электродвигатели за концом bus-3, 267145981)
+			for _, k := range []int{f - 1, f} {
+				if k < len(buses) {
+					if x := buses[k].Rect.Max.X; c.MaxX == nil || x < *c.MaxX {
+						c.MaxX = &x
+					}
+				}
+			}
 			// не левее поставщиков своих входов с этажей ниже (и своего — сборка берёт и с шины
 			// над собой): продукт кладётся в ленту шины у столбца поставщика, отвод — только ниже
 			// по течению (zones.md)
@@ -301,7 +310,7 @@ func (b *Base) placePieces(c *Cluster, parts []Rect) ([]*Cluster, error) {
 		}
 		if rest > 0 {
 			cur = scaleCluster(orig, 1)
-			cur.Name, cur.MinX = fmt.Sprintf("%s.%d", c.Name, len(res)+2), c.MinX
+			cur.Name, cur.MinX, cur.MaxX = fmt.Sprintf("%s.%d", c.Name, len(res)+2), c.MinX, c.MaxX
 		}
 	}
 	return res, nil
@@ -444,6 +453,7 @@ func isSplitterName(n string) bool { return strings.HasSuffix(n, "splitter") }
 // fixGaps — неровности шины (вода, утёсы — вдоль ряда не длиннее busGap, zones.md): ленты ряда — в
 // обход, когда все ряды уже лежат (обход одной не займёт ряд другой).
 func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
+	gaps = mergeGaps(l, gaps)
 	for _, gp := range gaps {
 		// обход — до первой ленты после препятствия, а не вышел — на 1–3 дальше (выход подземки
 		// не может стоять на самой цели: узкую помеху вплотную к ней не перепрыгнуть)
@@ -531,6 +541,32 @@ func fixGaps(l *layout.Layout, buses []*ZBus, gaps []laneGap) error {
 		}
 	}
 	return nil
+}
+
+// mergeGaps — цепочка разрывов одного ряда через островки в один тайл (несколько чужих лент
+// поперёк подряд: три подвода к лабораториям через bus-4, 427965634) — один разрыв, если он не
+// длиннее подземки: поверху между такими лентами не пройти (их груз едет в соседние тайлы), а
+// пара подземных через всё сразу встаёт; островки ленты убираются.
+func mergeGaps(l *layout.Layout, gaps []laneGap) []laneGap {
+	maxUG := l.P.Entities["underground-belt"].MaxUndergroundDistance
+	var res []laneGap
+	for i := 0; i < len(gaps); i++ {
+		g := gaps[i]
+		for i+1 < len(gaps) {
+			n := gaps[i+1]
+			if n.tag != g.tag || n.item != g.item || n.a != g.b || n.b.X-g.a.X > maxUG {
+				break
+			}
+			if k, ok := l.Index(g.b); ok && l.List[k].Name == "transport-belt" && l.List[k].Tag == g.tag {
+				l.List = slices.Delete(l.List, k, k+1)
+				l.Rollback(-1)
+			}
+			g.b = n.b
+			i++
+		}
+		res = append(res, g)
+	}
+	return res
 }
 
 // feedDir — куда едет лента, въезжающая в t (лента или выход подземки, смотрящие в t); нет —

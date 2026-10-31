@@ -204,7 +204,7 @@ func paperStages(h *act.Hands, to int) error {
 func planCoverage(h *act.Hands, built []layout.Placement, whole bool) string {
 	plan, err := LoadBluePlan()
 	if whole {
-		plan, err = LoadPurplePlan()
+		plan, err = LoadWholePlan()
 	}
 	if err != nil {
 		if plan, err = LoadPlan(); err != nil {
