@@ -245,15 +245,22 @@ func (s blueStage) dropStale(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	var es []bridge.Entity
+	var chests []layout.Placement
 	for _, list := range stale {
 		for _, pl := range list {
-			if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
+			e, err := h.B.EntityAt(pl.Name, pl.Pos)
+			if err != nil || e == nil {
+				continue
+			}
+			if strings.HasSuffix(pl.Name, "chest") {
+				chests = append(chests, pl)
+			} else {
 				es = append(es, *e)
 			}
 		}
 	}
-	if len(es) > 0 {
-		h.Say("%s: старые буферы выхода не на месте — снимаю %d построек", s.name, len(es))
+	if len(es)+len(chests) > 0 {
+		h.Say("%s: старые буферы выхода не на месте — снимаю %d построек", s.name, len(es)+len(chests))
 		if err := h.PickupAll(ctx, es); err != nil {
 			return err
 		}
@@ -262,6 +269,13 @@ func (s blueStage) dropStale(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 		w := &worker{h: h, sites: sites, useStore: true}
+		// сундук — сначала содержимое в хранение, потом поднять (полный буфер кирпича не
+		// поднять — «инвентарь полон», стадия 43 на 427965634)
+		for _, pl := range chests {
+			if err := removeOwn(ctx, h, w, pl.Name, pl.Pos); err != nil {
+				return err
+			}
+		}
 		p, err := h.B.Player()
 		if err != nil {
 			return err
