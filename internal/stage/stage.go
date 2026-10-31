@@ -311,7 +311,7 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			h.Say("слив чужой жидкости не вышел: %v", err)
 		}
 		// чужой предмет на ленте — убрать (stages.md, общее)
-		if err := healBelts(ctx, h); err != nil {
+		if err := healBelts(ctx, h, false); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}

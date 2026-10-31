@@ -59,11 +59,28 @@ func beltAllowed(plan *ClusterPlan, byName map[string]*cluster.Cluster, buses ma
 var knownRecipes map[string][]string
 
 // healBelts — ленты (простые, не подземки и не делители) с чужим предметом поднять и поставить
-// назад.
-func healBelts(ctx context.Context, h *act.Hands) error {
+// назад: на обычной стадии — до healBeltsMax лент; all (обслуживание) — все до одной, заходами
+// по healBeltsMax с выкладкой в хранение между ними (stages.md, стадия 22: лента камня,
+// заваленная другими предметами, — 427965634 после стадии 48; решение пользователя).
+func healBelts(ctx context.Context, h *act.Hands, all bool) error {
+	for round := 0; round < 50; round++ {
+		n, err := healBeltsOnce(ctx, h)
+		if err != nil || !all || n <= healBeltsMax {
+			return err
+		}
+	}
+	return nil
+}
+
+// healBeltsMax — лент с чужим за один заход (сотни — источник в самой базе: ленты смешаны
+// планом; все разом — инвентарь забивается, стадия уходит на это).
+const healBeltsMax = 100
+
+// healBeltsOnce — один заход healBelts; возвращает, сколько лент с чужим нашлось (до предела).
+func healBeltsOnce(ctx context.Context, h *act.Hands) (int, error) {
 	plan, err := LoadPurplePlan() // весь план: ленты синей и фиолетовой тоже
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	knownRecipes = map[string][]string{}
 	for name, r := range h.Protos.Recipes {
@@ -94,7 +111,7 @@ func healBelts(ctx context.Context, h *act.Hands) error {
 	}
 	states, err := entityStates(h, belts)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var bad []layout.Placement
 	var es []bridge.Entity
@@ -110,30 +127,27 @@ func healBelts(ctx context.Context, h *act.Hands) error {
 			}
 		}
 	}
-	if len(bad) == 0 {
-		return nil
+	total := len(bad)
+	if total == 0 {
+		return 0, nil
 	}
-	// сотни лент с чужим — источник в самой базе (ленты смешаны планом: сера на кирпиче,
-	// 267145981): все не поднимать — инвентарь забивается, стадия уходит на это; до 100 за
-	// стадию, остальное — в следующий раз или после починки плана
-	const healBeltsMax = 100
-	if len(bad) > healBeltsMax {
-		h.Say("на лентах чужие предметы: %d лент — источник в базе, поднимаю только %d", len(bad), healBeltsMax)
+	if total > healBeltsMax {
+		h.Say("на лентах чужие предметы: %d лент — за заход поднимаю %d", total, healBeltsMax)
 		bad, es = bad[:healBeltsMax], es[:healBeltsMax]
 	}
 	h.Say("на лентах чужие предметы: %d лент — поднимаю и ставлю назад", len(bad))
 	if err := h.PickupAll(ctx, es); err != nil {
-		return err
+		return total, err
 	}
 	if err := buildSorted(ctx, h, bad, []string{"transport-belt", "fast-transport-belt"}); err != nil {
-		return err
+		return total, err
 	}
 	s := &worker{h: h, useStore: true}
 	p, err := h.B.Player()
 	if err != nil {
-		return err
+		return total, err
 	}
-	return s.store(ctx, p.InventorySize-10)
+	return total, s.store(ctx, p.InventorySize-10)
 }
 
 // dropLabBuffers — буферов входа у лабораторий нет (cluster.md §6, решение пользователя 28.10):
