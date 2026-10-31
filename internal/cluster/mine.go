@@ -274,7 +274,11 @@ func blockHasDrill(w *world.World, r Rect, product string) bool {
 	if vertical {
 		long, short = short, long
 	}
+	back := false // голова блока — у Min или у Max (к шине ресурсов, Back): проверяются оба
 	at := func(u, v int) world.Tile {
+		if back {
+			u = long - 1 - u
+		}
 		if vertical {
 			return world.Tile{X: r.Min.X + v, Y: r.Min.Y + u}
 		}
@@ -302,26 +306,28 @@ func blockHasDrill(w *world.World, r Rect, product string) bool {
 		return n > 12
 	}
 	land := func(u, v int) bool { ok, _ := w.Buildable(at(u, v)); return ok }
-	for v0 := 0; v0+7 <= short; v0 += 7 {
-		// лента сбора (u = 0) поперёк ряда; лента ряда (v0+3) — от головы до бура
-		if !land(0, v0) || !land(0, v0+3) {
-			continue
-		}
-		for k := 0; 1+7*k+3 <= long; k++ {
-			for _, u := range []int{1 + 7*k, 5 + 7*k} { // левый край бура — как mineBlock
-				if u+3 > long {
-					continue
-				}
-				belt := true
-				for x := 1; x <= u+2 && belt; x++ {
-					belt = land(x, v0+3)
-				}
-				if !belt {
-					break
-				}
-				for _, dv := range []int{1, 5} {
-					if fits(at(u+1, v0+dv)) {
-						return true
+	for _, back = range []bool{false, true} {
+		for v0 := 0; v0+7 <= short; v0 += 7 {
+			// лента сбора (u = 0) поперёк ряда; лента ряда (v0+3) — от головы до бура
+			if !land(0, v0) || !land(0, v0+3) {
+				continue
+			}
+			for k := 0; 1+7*k+3 <= long; k++ {
+				for _, u := range []int{1 + 7*k, 5 + 7*k} { // левый край бура — как mineBlock
+					if u+3 > long {
+						continue
+					}
+					belt := true
+					for x := 1; x <= u+2 && belt; x++ {
+						belt = land(x, v0+3)
+					}
+					if !belt {
+						break
+					}
+					for _, dv := range []int{1, 5} {
+						if fits(at(u+1, v0+dv)) {
+							return true
+						}
 					}
 				}
 			}

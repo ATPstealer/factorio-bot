@@ -1,7 +1,9 @@
 package cluster
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -231,7 +233,17 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			}
 			break
 		}
-		if err := mineBlock(l, f, c, tag, belt); err != nil {
+		err := mineBlock(l, f, c, tag, belt)
+		if errors.Is(err, errMineHead) {
+			// голова блока (лента сбора) — на воде: голова — к другому концу (466518569: камень у
+			// озера, ни одного бура); подвод к шине — оттуда
+			c.Back = !c.Back
+			f = c.frame()
+			if err = mineBlock(l, f, c, tag, belt); errors.Is(err, errMineHead) {
+				err = fmt.Errorf("cluster %s: ни одного бура на %s (лента сбора не встаёт ни с одного конца)", c.Name, c.Product)
+			}
+		}
+		if err != nil {
 			return err
 		}
 	case Lab:
@@ -693,6 +705,9 @@ func pair(l *layout.Layout, f frame, c *Cluster, u, belts int, mach, ins, tag st
 	return add(f.inserter(l, ins, u+5, ov, ov-1, tag))
 }
 
+// errMineHead — у блока добычи лента сбора не встаёт у головы (вода, занято).
+var errMineHead = errors.New("cluster: у головы блока добычи лента сбора не встаёт")
+
 // mineBlock — добыча блоком на пятно (cluster.md §2а «Добыча»): ряды по 7 поперёк (буры сверху
 // смотрят вниз, лента, буры снизу смотрят вверх), буры шагом 3 от головы (u = 0 — сбор) — где
 // под буром больше половины своего ресурса и нет чужого, пока руды под ними меньше c.Ore. Ленты
@@ -750,6 +765,9 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 				break
 			}
 		}
+	}
+	if !slices.ContainsFunc(stop, func(s int) bool { return s > 0 }) {
+		return errMineHead // голова — на воде или занята: ни одной ленты ряда (Interior развернёт блок)
 	}
 	for _, u := range us {
 		if ore >= c.Ore {

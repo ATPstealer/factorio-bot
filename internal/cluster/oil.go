@@ -248,14 +248,22 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 		}
 		used[ln.Y-bus.Rect.Min.Y] = true
 	}
-	pipeRow := func(v int) bool { // в ряду уже труба шины
-		for x := bus.Rect.Min.X; x < bus.Rect.Min.X+80; x++ {
-			if p := l.At(world.Tile{X: x, Y: bus.Rect.Min.Y + v}); p != nil && strings.HasPrefix(p.Tag, Tag(bus.Name)+"/") {
-				return true
-			}
+	// ряды, вдоль которых уже идут трубы шины (у каждой — ряд, где её тайлов больше всего): отводы
+	// той же трубы поперёк шины ряд не занимают (267145981, стадия 7: отводы к кластерам
+	// пересекали все ряды bus-2 — «труба рядом» везде, кислоте ряда не нашлось)
+	piped := map[int]bool{}
+	tags := map[string]bool{}
+	for _, p := range l.List {
+		if (p.Name == "pipe" || p.Name == "pipe-to-ground") && strings.HasPrefix(p.Tag, Tag(bus.Name)+"/") {
+			tags[p.Tag] = true
 		}
-		return false
 	}
+	for t := range tags {
+		if y, ok := pipeLaneRow(l, t); ok {
+			piped[y-bus.Rect.Min.Y] = true
+		}
+	}
+	pipeRow := func(v int) bool { return piped[v] } // в ряду уже труба шины
 	var rows []int
 	if own >= 0 {
 		rows = append(rows, own)
@@ -270,21 +278,29 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 	for j := 0; laneV(j)+3 < bus.Rect.H()-1; j += 2 {
 		rows = append(rows, laneV(j)+3)
 	}
+	var why []string // разбор: почему не встал каждый ряд
 	for _, v := range rows {
-		if used[v] || pipeRow(v) || pipeRow(v-1) || pipeRow(v+1) {
+		switch {
+		case used[v]:
+			why = append(why, fmt.Sprintf("v%d лента", v))
+			continue
+		case pipeRow(v) || pipeRow(v-1) || pipeRow(v+1):
+			why = append(why, fmt.Sprintf("v%d труба рядом", v))
 			continue
 		}
 		// начало — у левого края; у головы тесно (подводы с добычи, переброски — 565937761) —
 		// правее: к трубе подключаются в любом месте (JoinPipe)
+		var last error
 		for _, dx := range []int{0, 12, 24, 36} {
 			mark := l.Mark()
-			if err := pipeAlong(l, bus.Rect.Min.X+dx, end, bus.Rect.Min.Y+v, tag); err == nil {
+			if last = pipeAlong(l, bus.Rect.Min.X+dx, end, bus.Rect.Min.Y+v, tag); last == nil {
 				return tag, nil
 			}
 			l.Rollback(mark)
 		}
+		why = append(why, fmt.Sprintf("v%d %v", v, last))
 	}
-	return "", fmt.Errorf("cluster: %s: нет ряда под трубу %s", bus.Name, fluid)
+	return "", fmt.Errorf("cluster: %s: нет ряда под трубу %s (до x %d; %s)", bus.Name, fluid, end, strings.Join(why, "; "))
 }
 
 // pipeAlong — труба по ряду y от x0 до x1: обычная, где тайл свободен и рядом нет чужих
