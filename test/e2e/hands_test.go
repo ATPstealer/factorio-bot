@@ -1208,6 +1208,66 @@ func TestPickupPoleUnderCrown(t *testing.T) {
 	clean(t, h)
 }
 
+// Подобрать столб под кронами нескольких деревьев (стадия 49 на 267145981: столб в густом лесу —
+// срублено дерево над серединой столба, а кроны соседних закрывали все точки наведения): тайл,
+// который накрывают кроны двух деревьев и больше, — столб, подобрать.
+func TestPickupPoleUnderCrowns(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "small-electric-pole", 1)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	trees := []world.Object{}
+	for _, o := range h.World.ObjectsNear(p.Position, 80) {
+		if o.Type == "tree" {
+			trees = append(trees, o)
+		}
+	}
+	// свободный тайл вне рамок коллизии, середина — в кронах хотя бы двух деревьев
+	var at bridge.Pos
+	best := math.Inf(1)
+	for _, o := range trees {
+		sel := h.World.SelectionBox(o)
+		for y := int(math.Floor(sel.LeftTop.Y)); y < int(math.Ceil(sel.RightBottom.Y)); y++ {
+			for x := int(math.Floor(sel.LeftTop.X)); x < int(math.Ceil(sel.RightBottom.X)); x++ {
+				tl := world.Tile{X: x, Y: y}
+				c := tl.Center()
+				if ok, _ := h.World.Buildable(tl); !ok || h.World.Blocked(tl) {
+					continue
+				}
+				n := 0
+				for _, q := range trees {
+					s, col := h.World.SelectionBox(q), h.World.CollisionBox(q)
+					if float64(x+1) > col.LeftTop.X && float64(x) < col.RightBottom.X && float64(y+1) > col.LeftTop.Y && float64(y) < col.RightBottom.Y {
+						n = -100 // в стволе
+					}
+					if c.X > s.LeftTop.X && c.X < s.RightBottom.X && c.Y > s.LeftTop.Y && c.Y < s.RightBottom.Y {
+						n++
+					}
+				}
+				if d := dist(c, p.Position); n >= 2 && d < best {
+					at, best = c, d
+				}
+			}
+		}
+	}
+	if math.IsInf(best, 1) {
+		t.Skip("нет свободного тайла под кронами двух деревьев рядом")
+	}
+	ctx := ctxT(t, 5*time.Minute)
+	pole, err := h.Place(ctx, "small-electric-pole", at, act.North)
+	if err != nil {
+		t.Fatalf("столб под кронами: %v", err)
+	}
+	if err := h.Pickup(ctx, pole); err != nil {
+		t.Fatalf("подобрать столб под кронами: %v", err)
+	}
+	if got, _ := h.B.EntityAt(pole.Name, pole.Position); got != nil {
+		t.Errorf("столб стоит в (%.1f, %.1f)", pole.Position.X, pole.Position.Y)
+	}
+}
+
 // Делители, когда первый встал поперёк и его переставили (стадия 16 на 1028292478: перестановка
 // увела персонажа — следующий оказался вне досягаемости, «Cannot reach»): поворот делителя в руке
 // у игры не тот, что помнит бот; три делителя через 8 тайлов — все встают на восток.

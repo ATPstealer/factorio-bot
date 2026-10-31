@@ -1013,10 +1013,17 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 			return err
 		}
 	}
-	// цель под кроной дерева (крона выделяется первой) — срубить накрывающие деревья
-	if cut, cerr := h.cutCovering(ctx, e); cerr != nil {
-		return cerr
-	} else if cut {
+	// цель под кроной дерева (крона выделяется первой) — срубить накрывающие деревья: сначала над
+	// серединой, не помогло — все, чья крона задевает рамку цели (густой лес: кроны соседей
+	// закрывали все точки наведения — стадия 49 на 267145981)
+	for round := 0; round < 3; round++ {
+		cut, cerr := h.cutCovering(ctx, e, round > 0)
+		if cerr != nil {
+			return cerr
+		}
+		if !cut {
+			break
+		}
 		if err = h.hoverOnce(ctx, e); !errors.Is(err, ErrHover) {
 			return err
 		}
@@ -1026,8 +1033,8 @@ func (h *Hands) Hover(ctx context.Context, e bridge.Entity) error {
 }
 
 // cutCovering — срубить деревья, чья рамка выделения (крона) накрывает середину рамки
-// выделения постройки e. true — что-то срублено.
-func (h *Hands) cutCovering(ctx context.Context, e bridge.Entity) (bool, error) {
+// выделения постройки e (wide — задевает рамку целиком). true — что-то срублено.
+func (h *Hands) cutCovering(ctx context.Context, e bridge.Entity, wide bool) (bool, error) {
 	if h.World == nil || e.Type == "tree" { // деревья — Mine сам рубит соседей
 		return false, nil
 	}
@@ -1035,9 +1042,15 @@ func (h *Hands) cutCovering(ctx context.Context, e bridge.Entity) (bool, error) 
 	if e.SelectionBox != nil {
 		c = bridge.Pos{X: (e.SelectionBox.LeftTop.X + e.SelectionBox.RightBottom.X) / 2, Y: (e.SelectionBox.LeftTop.Y + e.SelectionBox.RightBottom.Y) / 2}
 	}
+	box := bridge.Box{LeftTop: c, RightBottom: c}
+	if e.SelectionBox != nil && wide {
+		box = *e.SelectionBox
+	}
 	cut := false
 	for _, o := range h.World.ObjectsNear(c, 6) {
-		if o.Type != "tree" || o.Name == e.Name && dist(o.Pos, e.Position) < 0.01 || !inBox(c, h.World.SelectionBox(o), 0) {
+		s := h.World.SelectionBox(o)
+		over := s.LeftTop.X < box.RightBottom.X && s.RightBottom.X > box.LeftTop.X && s.LeftTop.Y < box.RightBottom.Y && s.RightBottom.Y > box.LeftTop.Y
+		if o.Type != "tree" || o.Name == e.Name && dist(o.Pos, e.Position) < 0.01 || !over && !inBox(c, s, 0) {
 			continue
 		}
 		t, err := h.B.EntityAt(o.Name, o.Pos)
