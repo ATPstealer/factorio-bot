@@ -243,8 +243,8 @@ func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluste
 				break
 			}
 			ore := int(float64(b.oreIn(r, c.Product)) * MineCover)
-			if ore < minBlockOre {
-				break
+			if ore < minBlockOre || !blockHasDrill(b.W, r, c.Product) {
+				break // мало руды или ни одного бура в блоке не встанет (158846952: уголь 68k в 19×7)
 			}
 			b.commitMine(s, r)
 			c.Name = b.name(c.Product, res)
@@ -260,6 +260,71 @@ func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluste
 		return res, fmt.Errorf("cluster: в зонах добычи %s под бурами %d из %d", like.Product, have, want)
 	}
 	return res, nil
+}
+
+// blockHasDrill — в блоке добычи r хоть один бур встанет так, как ставит mineBlock: ряды пар
+// поперёк короткой стороны (буры на 0 и 4 от начала ряда, ряды через 7), под зоной 5×5 больше
+// половины — свой ресурс, чужого нет, бур 3×3 — на суше.
+func blockHasDrill(w *world.World, r Rect, product string) bool {
+	vertical := r.W() < r.H() // ряд вдоль длинной стороны
+	long, short := r.W(), r.H()
+	if vertical {
+		long, short = short, long
+	}
+	at := func(u, v int) world.Tile {
+		if vertical {
+			return world.Tile{X: r.Min.X + v, Y: r.Min.Y + u}
+		}
+		return world.Tile{X: r.Min.X + u, Y: r.Min.Y + v}
+	}
+	fits := func(c world.Tile) bool {
+		n := 0
+		for y := c.Y - 2; y <= c.Y+2; y++ {
+			for x := c.X - 2; x <= c.X+2; x++ {
+				if res, ok := w.ResourceAt(world.Tile{X: x, Y: y}); ok {
+					if res.Name != product {
+						return false
+					}
+					n++
+				}
+			}
+		}
+		for y := c.Y - 1; y <= c.Y+1; y++ {
+			for x := c.X - 1; x <= c.X+1; x++ {
+				if ok, _ := w.Buildable(world.Tile{X: x, Y: y}); !ok {
+					return false
+				}
+			}
+		}
+		return n > 12
+	}
+	land := func(u, v int) bool { ok, _ := w.Buildable(at(u, v)); return ok }
+	for v0 := 0; v0+7 <= short; v0 += 7 {
+		// лента сбора (u = 0) поперёк ряда; лента ряда (v0+3) — от головы до бура
+		if !land(0, v0) || !land(0, v0+3) {
+			continue
+		}
+		for k := 0; 1+7*k+3 <= long; k++ {
+			for _, u := range []int{1 + 7*k, 5 + 7*k} { // левый край бура — как mineBlock
+				if u+3 > long {
+					continue
+				}
+				belt := true
+				for x := 1; x <= u+2 && belt; x++ {
+					belt = land(x, v0+3)
+				}
+				if !belt {
+					break
+				}
+				for _, dv := range []int{1, 5} {
+					if fits(at(u+1, v0+dv)) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // MineCover — доля руды пятна, что окажется под бурами блока (края, тайлы с рудой меньше половины
