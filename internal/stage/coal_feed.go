@@ -47,10 +47,20 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 		if err != nil {
 			return err
 		}
-		if dry, err := coalFeedDry(h, list); err != nil {
+		dry, err := coalFeedDry(h, list)
+		if err != nil {
 			return err
-		} else if hungry && dry {
-			h.Say("уголь станции: %s, подвод угля другой добычи пуст — источник выработан, прокладываю заново", why)
+		}
+		// источник подвода — выработанная добыча (на лентах ещё остатки, но они кончатся:
+		// 267145981, третий заход) — тоже заново, если есть живая
+		dead := false
+		if src := coalFeedSource(h, plan, list); src != "" {
+			if _, alive, err := coalMines(h, plan); err == nil && len(alive) > 0 && !alive[src] {
+				dead = true
+			}
+		}
+		if hungry && (dry || dead) {
+			h.Say("уголь станции: %s, подвод угля другой добычи пуст или с выработанной добычи — прокладываю заново", why)
 			var es []bridge.Entity
 			for _, pl := range list {
 				if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
@@ -126,6 +136,68 @@ func coalFeedDry(h *act.Hands, list []layout.Placement) (bool, error) {
 		}
 	}
 	return built > 0, nil
+}
+
+// coalMines — добыча угля не станции (coalMine) и из неё живая (alive): хоть половина стоящих
+// буров на руде — иначе на подводе лишь остатки угля, застрявшие перед полной шиной
+// (267145981: подвод переложили на ту же выработанную ленту).
+func coalMines(h *act.Hands, plan *ClusterPlan) (coalMine, alive map[string]bool, err error) {
+	mines := stationMines(plan)
+	coalMine = map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Mine && c.Product == "coal" && !mines[c.Name] {
+			coalMine[c.Name] = true
+		}
+	}
+	var drills []layout.Placement
+	for _, pl := range plan.Layout {
+		if h.Protos.Entities[pl.Name].Type == "mining-drill" && coalMine[strings.TrimPrefix(pl.Tag, "c/")] {
+			drills = append(drills, pl)
+		}
+	}
+	states, err := entityStates(h, drills)
+	if err != nil {
+		return nil, nil, err
+	}
+	total, gone := map[string]int{}, map[string]int{}
+	for i, st := range states {
+		if st == nil {
+			continue
+		}
+		name := strings.TrimPrefix(drills[i].Tag, "c/")
+		total[name]++
+		if st.Status == "no_minable_resources" {
+			gone[name]++
+		}
+	}
+	alive = map[string]bool{}
+	for name := range coalMine {
+		if total[name] > 0 && gone[name]*2 < total[name] {
+			alive[name] = true
+		}
+	}
+	return coalMine, alive, nil
+}
+
+// coalFeedSource — добыча, с чьего подвода берёт подвод станции list: лента плана под его
+// делителем-источником (тег c/logistics/<шина>/<добыча>); "" — не найти.
+func coalFeedSource(h *act.Hands, plan *ClusterPlan, list []layout.Placement) string {
+	at, _ := beltTiles(plan.Layout)
+	for _, pl := range list {
+		if !strings.HasSuffix(pl.Name, "splitter") {
+			continue
+		}
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			if q, ok := at[t]; ok {
+				if name, ok := strings.CutPrefix(q.Tag, cluster.LogisticsTag+"/"); ok {
+					if parts := strings.Split(name, "/"); len(parts) == 2 {
+						return parts[1]
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // coalFeedJoin — подвод list старого вида (один делитель — у источника, в ленту станции боком):
@@ -310,41 +382,9 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 	}
 	at, pair := beltTiles(plan.Layout)
 	row, feed := stationTags(plan)
-	mines := stationMines(plan)
-	coalMine := map[string]bool{} // добыча угля не станции
-	for _, c := range plan.Clusters {
-		if c.Kind == cluster.Mine && c.Product == "coal" && !mines[c.Name] {
-			coalMine[c.Name] = true
-		}
-	}
-	// живая добыча: хоть половина стоящих буров на руде — иначе на подводе лишь остатки угля,
-	// застрявшие перед полной шиной (267145981: подвод переложили на ту же выработанную ленту)
-	var drills []layout.Placement
-	for _, pl := range plan.Layout {
-		if h.Protos.Entities[pl.Name].Type == "mining-drill" && coalMine[strings.TrimPrefix(pl.Tag, "c/")] {
-			drills = append(drills, pl)
-		}
-	}
-	dstates, err := entityStates(h, drills)
+	coalMine, alive, err := coalMines(h, plan)
 	if err != nil {
 		return nil, err
-	}
-	total, gone := map[string]int{}, map[string]int{}
-	for i, st := range dstates {
-		if st == nil {
-			continue
-		}
-		name := strings.TrimPrefix(drills[i].Tag, "c/")
-		total[name]++
-		if st.Status == "no_minable_resources" {
-			gone[name]++
-		}
-	}
-	alive := map[string]bool{}
-	for name := range coalMine {
-		if total[name] > 0 && gone[name]*2 < total[name] {
-			alive[name] = true
-		}
 	}
 	if len(alive) == 0 { // живой нет — хоть с остатками
 		alive = coalMine
