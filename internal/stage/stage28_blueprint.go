@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -125,17 +126,37 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 			if pl.Name == "" || have[pl] || pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {
 				continue
 			}
-			clash := false // в плане на этом месте другое — прав план
+			// в плане на этом месте другое — прав план; кроме штатной замены ленты плана
+			// делителем или подземкой раскладки стадии (подвод угля станции — healCoal,
+			// «уголь станции не кончается»: его делители стоят на лентах плана; обслуживание
+			// снимало их и возвращало ленты — стадия 42 на 267145981) — тогда права раскладка,
+			// лента плана под ней — не чертёж
+			clash := false
+			var under []layout.Placement
 			for _, t := range layout.Tiles(h.Protos, pl) {
 				if q, ok := taken[t]; ok && q != pl {
-					clash = true
+					if replaces(pl.Name, q.Name) {
+						under = append(under, q)
+					} else {
+						clash = true
+					}
 				}
 			}
 			if clash {
 				continue
 			}
+			if len(under) > 0 {
+				gone := map[layout.Placement]bool{}
+				for _, q := range under {
+					gone[q] = true
+				}
+				res = slices.DeleteFunc(res, func(q layout.Placement) bool { return gone[q] })
+			}
 			have[pl] = true
 			res = append(res, pl)
+			for _, t := range layout.Tiles(h.Protos, pl) {
+				taken[t] = pl
+			}
 		}
 	}
 	return res, nil
