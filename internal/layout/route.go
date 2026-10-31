@@ -3,6 +3,7 @@ package layout
 import (
 	"container/heap"
 	"errors"
+	"math"
 
 	"factorio-bot/internal/world"
 )
@@ -227,21 +228,32 @@ func abs(x int) int {
 	return x
 }
 
-// beltInto — в тайл t смотрит конец чужой ленты (в раскладке или уже стоящей): лента,
-// проложенная через t, примет её груз сбоку (медь со старого ряда — на ленту железа).
+// beltInto — в тайл t смотрит конец чужой ленты, выход подземки или выход делителя (в
+// раскладке или уже стоящих): лента, проложенная через t, примет их груз (медь со старого ряда
+// — на ленту железа; сера с нижнего выхода делителя — на ленту кирпича, 427965634).
 func (l *Layout) beltInto(t world.Tile) bool {
 	for _, d := range []int{N, E, S, W} {
 		n := Step(t, d)
 		back := (d + 8) % 16 // лента в n должна смотреть сюда
-		if p := l.At(n); p != nil && (isBelt(p.Name) || isUnderground(p.Name) && p.Recipe == "output") && p.Dir == back {
+		if p := l.At(n); p != nil && (isBelt(p.Name) || isSplitter(p.Name) || isUnderground(p.Name) && p.Recipe == "output") && p.Dir == back {
 			return true
 		}
 		if l.W == nil {
 			continue
 		}
-		for _, o := range l.W.ObjectsNear(n.Center(), 0.3) {
-			if (o.Type == "transport-belt" || o.Type == "underground-belt") && world.TileOf(o.Pos) == n && o.Direction == back {
-				return true
+		for _, o := range l.W.ObjectsNear(n.Center(), 0.8) {
+			if o.Direction != back {
+				continue
+			}
+			switch o.Type {
+			case "transport-belt", "underground-belt":
+				if world.TileOf(o.Pos) == n {
+					return true
+				}
+			case "splitter": // центр — на границе двух тайлов поперёк хода
+				if math.Abs(o.Pos.X-n.Center().X) <= 0.5 && math.Abs(o.Pos.Y-n.Center().Y) <= 0.5 {
+					return true
+				}
 			}
 		}
 	}

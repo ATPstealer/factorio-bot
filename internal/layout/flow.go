@@ -395,8 +395,11 @@ func (f *flow) pour(t, next world.Tile, d int) bool {
 		if n.Dir == (d+8)%16 {
 			return false
 		}
-		if isUnderground(n.Name) && n.Recipe == "output" && n.Dir != d {
-			return false // в выход подземки сбоку не въехать
+		if isUnderground(n.Name) && n.Recipe == "output" && n.Dir == d {
+			// в выход подземки сзади не въехать: сзади — её пролёт, кормит только вход
+			// (нижний выход делителя красной науки «лил» красную в выход подземки зелёной —
+			// ложная «чужой предмет на ленте», все карты на стадии 4); сбоку — можно
+			return false
 		}
 		return f.give(next, f.items[t])
 	}
@@ -515,6 +518,18 @@ func (f *flow) report() []string {
 		case "lab":
 			if !slices.ContainsFunc(slices.Collect(mapsKeys(have)), func(it string) bool { return strings.HasSuffix(it, "-science-pack") }) {
 				add(pl, "нет пакетов")
+			}
+		}
+		// лента шины — один предмет (cluster.md §6б): чужой на ней — ошибка плана (ряд ленты
+		// кирпича прошёл перед выходом делителя серы — сера на кирпиче, 427965634, стадия 44)
+		if strings.HasPrefix(pl.Tag, "c/bus-") && pl.Recipe != "" && pl.Recipe != "input" && pl.Recipe != "output" {
+			for _, u := range Tiles(f.p, pl) {
+				for it := range f.items[u] {
+					if it != pl.Recipe {
+						add(pl, "чужой предмет "+it+" на ленте "+pl.Recipe)
+						break
+					}
+				}
 			}
 		}
 	}

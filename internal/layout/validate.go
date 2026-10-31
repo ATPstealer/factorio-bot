@@ -15,6 +15,10 @@ func isUnderground(name string) bool {
 	return name == "underground-belt" || name == "fast-underground-belt" || name == "express-underground-belt"
 }
 
+func isSplitter(name string) bool {
+	return name == "splitter" || name == "fast-splitter" || name == "express-splitter"
+}
+
 func isPole(name string) bool {
 	return name == "small-electric-pole" || name == "medium-electric-pole" || name == "big-electric-pole" || name == "substation"
 }

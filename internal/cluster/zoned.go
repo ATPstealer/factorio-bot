@@ -420,8 +420,26 @@ func (b *Base) layLane(l *layout.Layout, buses []*ZBus, k, j, x0, end, last int,
 		l.Add(layout.Placement{Name: "transport-belt", Pos: t.Center(), Dir: layout.E, Recipe: ln.Item, Tag: Tag(bus.Name)})
 		last = x
 	}
+	// конец ленты — не в чужую ленту: последняя лента смотрит в тайл с чужой лентой, подземкой
+	// или делителем — груз уйдёт туда боком (сквозная камня кончалась перед лентой выхода
+	// iron-plate-4 — камень на ленте железа, 427965634); укоротить
+	for last >= ln.Start {
+		q := l.At(world.Tile{X: last + 1, Y: ln.Y})
+		if q == nil || q.Tag == Tag(bus.Name) || !(isBeltName(q.Name) || isUGName(q.Name) || isSplitterName(q.Name)) {
+			break
+		}
+		if i, ok := l.Index(world.Tile{X: last, Y: ln.Y}); ok && l.List[i].Tag == Tag(bus.Name) {
+			l.List = slices.Delete(l.List, i, i+1)
+			l.Rollback(-1)
+		}
+		last--
+	}
 	l.AllowEnd(world.Tile{X: last + 1, Y: ln.Y})
 }
+
+func isBeltName(n string) bool     { return strings.HasSuffix(n, "transport-belt") }
+func isUGName(n string) bool       { return strings.HasSuffix(n, "underground-belt") }
+func isSplitterName(n string) bool { return strings.HasSuffix(n, "splitter") }
 
 // fixGaps — неровности шины (вода, утёсы — вдоль ряда не длиннее busGap, zones.md): ленты ряда — в
 // обход, когда все ряды уже лежат (обход одной не займёт ряд другой).
@@ -1090,8 +1108,12 @@ func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRo
 					continue
 				}
 				for xb := x + 3; xb < x+16; xb++ {
+					// и тайл за второй половиной делителя на to — его пустой выход: свободен и
+					// закрыт, иначе туда въедет чужая лента (подземка подвода меди — железная
+					// руда на меди, 267145981)
+					out := world.Tile{X: xb + 1, Y: to.Y + sb}
 					if !straight(xb, to.Y) || !l.Free(world.Tile{X: xb, Y: to.Y + sb}, layout.AnyLand) ||
-						!l.Free(world.Tile{X: xb - 1, Y: to.Y + sb}, layout.AnyLand) {
+						!l.Free(world.Tile{X: xb - 1, Y: to.Y + sb}, layout.AnyLand) || !l.Free(out, layout.AnyLand) {
 						continue
 					}
 					mark := l.Mark()
@@ -1103,6 +1125,7 @@ func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRo
 					l.Replace(ib, splitter(xb, to.Y, sb))
 					_, err := l.RouteBelt(world.Tile{X: x + 1, Y: from.Y + sa}, layout.E, world.Tile{X: xb - 1, Y: to.Y + sb}, layout.E, tag)
 					if err == nil {
+						l.Reserved[out] = true
 						return nil
 					}
 					// назад: делители — снова лентами

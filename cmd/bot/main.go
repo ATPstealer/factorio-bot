@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"syscall"
@@ -180,6 +181,29 @@ func main() {
 			fmt.Println(e)
 		}
 		fmt.Printf("машин без входа: %d\n", len(errs))
+		// bot flow КАРТА ПЛАН откуда ПРЕДМЕТ — тайлы лент, где предмет есть, а у лент, что в них
+		// кормят (сзади и сбоку), нет: откуда он берётся на ленте (разбор чужого предмета)
+		if len(args) >= 5 && args[3] == "откуда" {
+			item := args[4]
+			for t, items := range trace {
+				pl := l.At(t)
+				if pl == nil || !slices.Contains(items, item) {
+					continue
+				}
+				e := pr.Entities[pl.Name]
+				if e.Type != "transport-belt" && e.Type != "underground-belt" && e.Type != "splitter" {
+					continue
+				}
+				// стык: кормит лента с предметом и другим тегом (чужая лента втекает сюда)
+				for _, d := range []int{(pl.Dir + 8) % 16, (pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
+					n := layout.Step(t, d)
+					if q := l.At(n); q != nil && q.Tag != pl.Tag && slices.Contains(trace[n], item) && layout.Step(n, q.Dir) == t {
+						fmt.Printf("стык: %v %v [%s] → %v %v [%s]\n", n, q, q.Tag, t, pl, pl.Tag)
+					}
+				}
+			}
+			return
+		}
 		if len(args) >= 5 {
 			t := world.Tile{X: atoi(args[3]), Y: atoi(args[4])}
 			r, ok := w.ResourceAt(t)
