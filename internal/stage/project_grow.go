@@ -15,18 +15,19 @@ import (
 // потом плавка и сборка; вдоль ряда, не влезло — кластер-2 того же продукта (Extras) или ещё
 // станция у воды. Общее для стадий 6 и 7.
 
-// growth — итог роста: новые кластеры (fresh с добавленными), новые станции и чья они замена.
+// growth — итог роста: новые станции и чья они замена.
 type growth struct {
-	fresh     []*cluster.Cluster
 	stations  []*cluster.Cluster
 	stationOf *cluster.Cluster
 }
 
-// growProject — рост под потребность needs: раскладка *lp перекладывается заново (layoutAll) с
-// новыми кластерами и ростом вдоль рядов.
+// growProject — рост под потребность needs: новые кластеры — в *freshp (его же раскладывает
+// layoutAll: список — тот, что видит её замыкание; копия теряла новые станции — 18604156,
+// стадия 6: power-3 без бойлеров), раскладка *lp перекладывается заново с ростом вдоль рядов.
 func growProject(h *act.Hands, pr *knowledge.Prototypes, base *cluster.Base, lp **layout.Layout, needs []*cluster.Cluster,
-	zones []cluster.Zone, fresh []*cluster.Cluster, layoutAll func() (*layout.Layout, error)) (growth, error) {
+	zones []cluster.Zone, freshp *[]*cluster.Cluster, layoutAll func() (*layout.Layout, error)) (growth, error) {
 	l := *lp
+	fresh := *freshp
 	var err error
 	grow := map[*cluster.Cluster]int{}
 	var extras []*cluster.Cluster
@@ -147,7 +148,7 @@ func growProject(h *act.Hands, pr *knowledge.Prototypes, base *cluster.Base, lp 
 		for _, x := range extras {
 			h.Say("рост: новый кластер %s", x.Name)
 		}
-		fresh = append(fresh, extras...)
+		*freshp = append(*freshp, extras...)
 	}
 	if *lp, err = layoutAll(); err != nil {
 		return growth{}, err
@@ -158,5 +159,5 @@ func growProject(h *act.Hands, pr *knowledge.Prototypes, base *cluster.Base, lp 
 			return growth{}, err
 		}
 	}
-	return growth{fresh: fresh, stations: stations, stationOf: stationOf}, nil
+	return growth{stations: stations, stationOf: stationOf}, nil
 }

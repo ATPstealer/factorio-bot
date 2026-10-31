@@ -249,11 +249,11 @@ func purpleTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 	if err != nil {
 		return base, l, err
 	}
-	g, err := growProject(h, pr, base, &l, needs, rough.Zones, fresh, layoutAll)
+	g, err := growProject(h, pr, base, &l, needs, rough.Zones, &fresh, layoutAll)
 	if err != nil {
 		return base, l, err
 	}
-	fresh, stations, stationOf := g.fresh, g.stations, g.stationOf
+	stations, stationOf := g.stations, g.stationOf
 	// фиолетовая — в лаборатории лентой C (cluster.md §2а «Лаборатории»)
 	extra := map[*cluster.Cluster][]cluster.Port{}
 	var labs []*cluster.Cluster
