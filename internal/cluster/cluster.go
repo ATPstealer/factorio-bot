@@ -523,9 +523,15 @@ func Pair(p *knowledge.Prototypes, main, sub *Cluster) *Cluster {
 	c.SubPer = min(2, max(1, int(math.Ceil(ns/math.Max(nm, 1e-9)-1e-9))))
 	shape(p, c)
 	// по темпу (не по лентам): пары длинные (шаг 8–12); длиннее глубины зоны — PlaceZoned режет
+	c.ByRate()
+	return c
+}
+
+// ByRate — размер по темпу, не по лентам (cluster.md §2 «Размер»: пары, штучные дорогие
+// продукты — электропечи, модули): от MinUnits до MaxUnits, кластер целиком, запаса в ряду нет.
+func (c *Cluster) ByRate() {
 	c.Count = min(max(c.Need, MinUnits), MaxUnits)
 	c.Room = c.Count
-	return c
 }
 
 // SmeltOf — кластер плавки продукта product (кирпич из камня…) обычного размера (§2 «Размер»:

@@ -103,6 +103,8 @@ func purpleClusters(pr *knowledge.Prototypes) ([]*cluster.Cluster, error) {
 		}
 	}
 	rails := cluster.Pair(pr, by["rail"], by["iron-stick"])
+	by["electric-furnace"].ByRate() // штучные — по темпу (cluster.md §2 «Размер», решение пользователя)
+	by["productivity-module"].ByRate()
 	for _, o := range []struct {
 		c     *cluster.Cluster
 		items []string
