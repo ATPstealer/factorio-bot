@@ -62,6 +62,10 @@ type Hands struct {
 	relPos     bridge.Pos      // где были отпущены клавиши ходьбы (drive) — для замера тормозного пути
 	relAt      time.Time       // когда; нулевое — замера нет
 	knownStill bool            // персонаж стоит (waitStill подтвердил, клавиш ходьбы с тех пор не было)
+	// breaching — идёт пролом или выход из кольца: ходьба внутри него (к постройке, которую
+	// поднимаем, обратно к месту) — без новых проломов (подбор трубы ходил к точке стоянки,
+	// пути нет — пролом снова поднимал ту же трубу, без конца: стадия 43 на 427965634)
+	breaching bool
 }
 
 // Say — что бот собирается сделать: в лог и (Console) в консоль игры с префиксом [bot].
@@ -299,18 +303,21 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 				}
 				// обступили свои постройки — поднять, выйти, поставить назад
 				p, _ := h.B.Player()
-				if !unstuckTried && h.World.Enclosed(p.Position) {
+				if !h.breaching && !unstuckTried && h.World.Enclosed(p.Position) {
 					unstuckTried = true
 					if uerr := h.unstuck(ctx, 0); uerr != nil {
 						return uerr
 					}
 					continue
 				}
-				// за кольцом своих построек (трубы вокруг химзаводов) — пролом
-				if ok, berr := h.breach(ctx, target); berr != nil {
-					return berr
-				} else if ok {
-					continue
+				// за кольцом своих построек (трубы вокруг химзаводов) — пролом; внутри
+				// пролома — нет (рекурсия без конца)
+				if !h.breaching {
+					if ok, berr := h.breach(ctx, target); berr != nil {
+						return berr
+					} else if ok {
+						continue
+					}
 				}
 			}
 			if errors.Is(err, world.ErrNoPath) {
@@ -323,7 +330,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 			if err == nil {
 				break
 			}
-			if errors.Is(err, ErrStuck) && replan >= 2 && !unstuckTried && h.World != nil {
+			if errors.Is(err, ErrStuck) && replan >= 2 && !unstuckTried && !h.breaching && h.World != nil {
 				// путь заново не помог — карман между своими постройками: поднять ближние,
 				// выйти, поставить назад
 				unstuckTried = true
@@ -1156,6 +1163,8 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 	if err != nil {
 		return err
 	}
+	h.breaching = true // ходьба внутри — без новых проломов
+	defer func() { h.breaching = false }()
 	type lifted struct {
 		item string
 		pos  bridge.Pos
@@ -1317,9 +1326,21 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 			objs = append(objs, o)
 		}
 	}
-	// сначала ближние к прямой «бот — цель»
+	// сначала те, что поднять можно с места (к остальным идти — а путь закрыт), среди них —
+	// ближние к прямой «бот — цель»
 	off := func(o world.Object) float64 { return dist(p.Position, o.Pos) + dist(o.Pos, target) }
-	sort.Slice(objs, func(i, j int) bool { return off(objs[i]) < off(objs[j]) })
+	here := func(o world.Object) bool {
+		b := world.RotateBox(h.Protos.Entities[o.Name].CollisionBox, o.Direction)
+		dx := math.Max(0, math.Max(o.Pos.X+b.LeftTop.X-p.Position.X, p.Position.X-(o.Pos.X+b.RightBottom.X)))
+		dy := math.Max(0, math.Max(o.Pos.Y+b.LeftTop.Y-p.Position.Y, p.Position.Y-(o.Pos.Y+b.RightBottom.Y)))
+		return math.Hypot(dx, dy) <= mineReachGame
+	}
+	sort.SliceStable(objs, func(i, j int) bool {
+		if hi, hj := here(objs[i]), here(objs[j]); hi != hj {
+			return hi
+		}
+		return off(objs[i]) < off(objs[j])
+	})
 	b0, _ := h.World.Route(p.Position, target, 1.5, 300000, 6)
 	base := b0.Length()
 	// годится — путь до цели или хотя бы на 20+ тайлов дальше, чем сейчас (до дальней цели
@@ -1367,6 +1388,8 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 		h.Log("пролом: из %d своих построек рядом ни одна (и пары, тройки) не открывает путь", len(objs))
 		return false, nil
 	}
+	h.breaching = true // ходьба к поднимаемому, проход и возврат — без новых проломов
+	defer func() { h.breaching = false }()
 	ins := make([]map[string]int, len(set))
 	for i, o := range set {
 		e, err := h.B.EntityAt(o.Name, o.Pos)
