@@ -1182,6 +1182,13 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 		if err != nil {
 			return err
 		}
+		// сундуки с содержимым — последними: полный буфер не поднять («инвентарь полон», а до
+		// хранения из кармана не дойти — по кругу на каждом дереве расчистки: стадия 46 на
+		// 267145981); сначала инсертеры, столбы, пустые сундуки
+		sort.SliceStable(near, func(i, j int) bool {
+			full := func(e bridge.Entity) bool { return e.Type == "container" && len(h.contents(e)) > 0 }
+			return !full(near[i]) && full(near[j])
+		})
 		for _, e := range near {
 			item := h.Protos.ItemFor(e.Name)
 			if item == "" || e.Type == "character" || e.Type == "resource" {
@@ -1197,6 +1204,10 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 			}
 			in := h.contents(e)
 			if err := h.Pickup(ctx, e); err != nil {
+				if errors.Is(err, ErrFull) && e.Type == "container" {
+					h.Log("обступили: %s не поднять (полон) — следующую", e.Name)
+					continue
+				}
 				return err
 			}
 			back = append(back, lifted{item, e.Position, d, in})
