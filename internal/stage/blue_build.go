@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -172,6 +173,9 @@ func queueTechs(ctx context.Context, h *act.Hands, techs ...string) error {
 			continue
 		}
 		if err := h.StartResearch(ctx, t); err != nil {
+			if errors.Is(err, act.ErrResearchQueueFull) {
+				return nil // полна — остальные доставят следующие стадии (решение пользователя)
+			}
 			h.Say("исследование %s в очередь не встало: %v", t, err)
 		}
 	}

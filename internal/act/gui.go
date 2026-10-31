@@ -967,12 +967,29 @@ func (h *Hands) researching(tech string) (bool, error) {
 	return false, nil
 }
 
+// researchQueueMax — очередь исследований игры (с текущим); ErrResearchQueueFull — полна:
+// StartResearch ничего не делает.
+const researchQueueMax = 7
+
+var ErrResearchQueueFull = errors.New("act: очередь исследований полна")
+
 // StartResearch — запустить исследование tech через окно технологий: T → поиск по
 // названию → первая в списке (доступные идут первыми) → «Start research» → Esc.
 // Подтверждение — tech в текущем исследовании или в очереди (мод).
 func (h *Hands) StartResearch(ctx context.Context, tech string) error {
 	if ok, err := h.researching(tech); err != nil || ok {
 		return err
+	}
+	// очередь игры полна (7 с текущим) — ошибка без действий (решение пользователя): следующие
+	// стадии доставят, когда освободится; окно открывать незачем
+	if f, err := h.B.Force(); err == nil {
+		busy := len(f.Queue)
+		if f.Current != "" && !slices.Contains(f.Queue, f.Current) {
+			busy++
+		}
+		if busy >= researchQueueMax {
+			return ErrResearchQueueFull
+		}
 	}
 	h.Say("запускаю исследование %s", tech)
 	if err := h.Clean(ctx); err != nil {

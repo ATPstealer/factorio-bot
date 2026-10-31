@@ -137,6 +137,74 @@ func (b *Base) Zones(lay *Layered) []Zone {
 	return res
 }
 
+// landDist — расстояние по суше от origin (zones.md §4): заливка по сетке шага 2 по суше и
+// мелководью (вода шире — стена; объекты — деревья, камни, утёсы — не считаются), до limit
+// тайлов. Возвращает функцию: расстояние до ближайшего тайла прямоугольника и достижим ли он.
+func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, bool) {
+	const step = 2
+	type cell struct{ x, y int }
+	land := func(c cell) bool {
+		switch w.TileAt(world.Tile{X: c.x * step, Y: c.y * step}) {
+		case world.Land, world.Shallow:
+			return true
+		}
+		return false
+	}
+	o := cell{origin.X / step, origin.Y / step}
+	d := map[cell]int{o: 0}
+	queue := []cell{o}
+	lim := limit / step
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		for _, n := range []cell{{c.x + 1, c.y}, {c.x - 1, c.y}, {c.x, c.y + 1}, {c.x, c.y - 1}} {
+			if _, seen := d[n]; seen || abs(n.x-o.x) > lim || abs(n.y-o.y) > lim || !land(n) {
+				continue
+			}
+			d[n] = d[c] + 1
+			queue = append(queue, n)
+		}
+	}
+	return func(r Rect) (int, bool) {
+		best, ok := 0, false
+		for y := r.Min.Y / step; y <= r.Max.Y/step; y++ {
+			for x := r.Min.X / step; x <= r.Max.X/step; x++ {
+				if v, seen := d[cell{x, y}]; seen && (!ok || v < best) {
+					best, ok = v, true
+				}
+			}
+		}
+		return best * step, ok
+	}
+}
+
+// patchHasPair — на пятне укладывается пара буров ряда блока добычи (zones.md §4): два бура
+// через 4 тайла вдоль ряда (как в mineBlock), у каждого под зоной добычи 5×5 больше половины —
+// свой ресурс.
+func patchHasPair(pt world.Patch) bool {
+	own := map[world.Tile]bool{}
+	for _, t := range pt.Tiles {
+		own[t] = true
+	}
+	fits := func(cx, cy int) bool {
+		n := 0
+		for y := cy - 2; y <= cy+2; y++ {
+			for x := cx - 2; x <= cx+2; x++ {
+				if own[world.Tile{X: x, Y: y}] {
+					n++
+				}
+			}
+		}
+		return n > 12
+	}
+	for _, t := range pt.Tiles {
+		if fits(t.X, t.Y) && (fits(t.X+4, t.Y) || fits(t.X, t.Y+4)) {
+			return true
+		}
+	}
+	return false
+}
+
 // MineZones — зоны добычи по месторождениям (zones.md): на каждый ресурс need (сколько нужно
 // за игру) — пятна от ближних к центру базы (Origin; у головы bus-1), пока запаса хватит; зона — пятно целиком;
 // пересекающиеся — в одну, соседние (до patchNear) — в одну, только если плотно (ресурса не
@@ -146,13 +214,35 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 	g := b.grid()
 	ox, oy := float64(b.Origin.X), float64(b.Origin.Y)
 	pts := b.W.Patches()
-	sort.Slice(pts, func(i, j int) bool {
+	// ближние — по пути по суше от головы bus-1, не по прямой (zones.md §4, решение
+	// пользователя: пятно за озером ленту к шине не проведёт — 436722908); недостижимые —
+	// последними и только если достижимых не хватило
+	dist := landDist(b.W, b.Origin, 2500)
+	far := map[int]int{}
+	reach := map[int]bool{}
+	for i, pt := range pts {
+		r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}
+		far[i], reach[i] = dist(r)
+	}
+	idx := make([]int, len(pts))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.Slice(idx, func(a, c int) bool {
+		i, j := idx[a], idx[c]
+		if reach[i] != reach[j] {
+			return reach[i]
+		}
+		if reach[i] {
+			return far[i] < far[j]
+		}
 		return math.Hypot(pts[i].Center.X-ox, pts[i].Center.Y-oy) < math.Hypot(pts[j].Center.X-ox, pts[j].Center.Y-oy)
 	})
 	var rs []Rect
 	for it, n := range need {
 		have := 0.0
-		for _, pt := range pts {
+		for _, i := range idx {
+			pt := pts[i]
 			if have >= n {
 				break
 			}
@@ -164,6 +254,14 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 			// кластеров падал «ни одного бура» (17466282: ближайшее к голове bus-1 железо — 6.5k)
 			if _, fluid := b.P.Fluids[pt.Name]; !fluid && pt.Amount < minBlockOre {
 				continue
+			}
+			// и пара буров ряда на нём укладывается (решение пользователя; 158846952: уголь 80k
+			// в зоне 21×10 — «ни одного бура на coal»)
+			if _, fluid := b.P.Fluids[pt.Name]; !fluid && !patchHasPair(pt) {
+				continue
+			}
+			if !reach[i] && have > 0 {
+				continue // недостижимые — только когда достижимых нет совсем
 			}
 			if pt.Name == it {
 				rs = append(rs, r)
