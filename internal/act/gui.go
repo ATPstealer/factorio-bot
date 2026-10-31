@@ -64,6 +64,30 @@ type Layout struct {
 // rect — прямоугольник в координатах окна.
 type rect struct{ X, Y, W, H int }
 
+// invRows — рядов инвентаря персонажа, под которые снята раскладка (80 ячеек по 10).
+const invRows = 8
+
+// winLayout — раскладка под нынешний инвентарь: после `toolbelt` в нём 90 ячеек (9 рядов), окна
+// с инвентарём персонажа (E, сундук, инсертер, сборщик) выше на ряд и, центрированные, сдвинуты
+// вверх на полряда (решение пользователя: уметь и так и так). Окна без инвентаря (технологии,
+// выбор рецепта и фильтра) — как были.
+func (h *Hands) winLayout() Layout {
+	L := h.Layout
+	p, err := h.B.Player()
+	if err != nil || p.InventorySize <= 0 || L.Cols <= 0 {
+		return L
+	}
+	rows := (p.InventorySize + L.Cols - 1) / L.Cols
+	dy := -(rows - invRows) * L.SlotStep / 2
+	if dy == 0 {
+		return L
+	}
+	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.RecipeChange} {
+		pt.Y += dy
+	}
+	return L
+}
+
 var Layout1856 = Layout{
 	InvSlot1:   point{530, 350},
 	CraftSlot1: point{966, 390},
@@ -579,7 +603,7 @@ func (h *Hands) pickFromInventory(ctx context.Context, item string) error {
 	if slot == 0 {
 		return fmt.Errorf("act: %s нет в ячейках инвентаря", item)
 	}
-	L := h.Layout
+	L := h.winLayout()
 	i := slot - 1
 	if err := h.at(point{L.InvSlot1.X + (i%L.Cols)*L.SlotStep, L.InvSlot1.Y + (i/L.Cols)*L.SlotStep}); err != nil {
 		return err
@@ -643,7 +667,7 @@ func (h *Hands) pickFromInventory(ctx context.Context, item string) error {
 // занятому слоту с предметом в руке не заменяют его, а берут в руку то, что в слоте
 // (проверено в игре, 2.0.77).
 func (h *Hands) bindQuickbar(ctx context.Context, i int, item string, busy bool) error {
-	L := h.Layout
+	L := h.winLayout()
 	h.Say("привязываю %s к клавише %s", item, quickbarKeys[i])
 	bound := func(p bridge.Player) bool {
 		return len(p.Quickbar) > i && p.Quickbar[i] == item && cursorName(p) == item
@@ -814,7 +838,7 @@ func (h *Hands) Craft(ctx context.Context, recipe string, n int) error {
 	} else if err := h.search(ctx, text); err != nil {
 		return err
 	}
-	L := h.Layout
+	L := h.winLayout()
 	if err := h.at(point{L.CraftSlot1.X + col*L.SlotStep, L.CraftSlot1.Y + row*L.SlotStep}); err != nil {
 		return err
 	}
@@ -1122,7 +1146,7 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 	// галочка выключена — включить; включена с пустыми ячейками — не трогать (клик её выключал:
 	// ячейка не открывалась, стадия 17 на 46082668)
 	if !st.UseFilters {
-		if err := click(h.Layout.UseFilters, 300*time.Millisecond); err != nil {
+		if err := click(h.winLayout().UseFilters, 300*time.Millisecond); err != nil {
 			return err
 		}
 		// ячейки откроются, когда игра включит фильтр: раньше клик по ячейке — мимо (окно выбора
@@ -1154,7 +1178,7 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 				return err
 			}
 		}
-		if err := click(h.Layout.FilterSlot, 400*time.Millisecond); err != nil {
+		if err := click(h.winLayout().FilterSlot, 400*time.Millisecond); err != nil {
 			return err
 		}
 		// буквы — только при открытом окне (иначе уйдут в игру хоткеями)
@@ -1223,7 +1247,7 @@ func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) e
 	if was != "" {
 		// рецепт уже есть (не тот) — кнопка смены рецепта открывает окно выбора
 		h.Say("в %s рецепт %s — меняю", e.Name, was)
-		if err := h.at(h.Layout.RecipeChange); err != nil {
+		if err := h.at(h.winLayout().RecipeChange); err != nil {
 			return err
 		}
 		if err := sleep(ctx, 200*time.Millisecond); err != nil {
@@ -1371,7 +1395,7 @@ func (h *Hands) TakeItem(ctx context.Context, e bridge.Entity, item string, n in
 		return err
 	}
 	got := func(p bridge.Player) int { return p.Inventory[item] - p0.Inventory[item] }
-	L := h.Layout
+	L := h.winLayout()
 	before := 0
 	for _, s := range slots {
 		i := s.Slot - 1

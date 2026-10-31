@@ -5,6 +5,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -216,6 +217,9 @@ func TestStartResearch(t *testing.T) {
 		t.Skip("нет доступной технологии")
 	}
 	if err := h.StartResearch(ctxT(t, time.Minute), tech); err != nil {
+		if errors.Is(err, act.ErrResearchQueueFull) {
+			t.Skip("очередь исследований полна (карта после стадии 41) — StartResearch ничего не делает (решение пользователя)")
+		}
 		t.Fatal(err)
 	}
 	f2, _ := h.B.Force()

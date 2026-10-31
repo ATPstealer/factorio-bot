@@ -151,6 +151,11 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	start := func() error {
+		// toolbelt первым (+10 ячеек; решение пользователя): раскладка окон считает сдвиг по
+		// размеру инвентаря (act.winLayout)
+		if err := queueTechs(ctx, h, "toolbelt"); err != nil {
+			return err
+		}
 		if err := queueResearch(ctx, h); err != nil {
 			return err
 		}
