@@ -267,7 +267,12 @@ func (f *flow) step(i int) bool {
 			break // качалка — жидкость (pipes); у электрического бура тоже есть жидкостный ящик (кислота)
 		}
 		ore := set{}
-		if f.l.W != nil {
+		if f.l.DrillOre != nil {
+			for _, r := range f.l.DrillOre(pl) {
+				ore[r] = true
+			}
+		}
+		if f.l.W != nil && len(ore) == 0 {
 			for _, u := range MiningArea(f.p, pl) {
 				if r, ok := f.l.W.ResourceAt(u); ok {
 					ore[r.Name] = true

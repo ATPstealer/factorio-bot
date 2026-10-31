@@ -8,6 +8,7 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Стадия 42 (stages.md): обслуживание после синей науки — как стадия 28: в самом начале —
@@ -57,7 +58,10 @@ func checkBlueprintBlue(h *act.Hands) error {
 }
 
 // planBlueAll — весь план стройки до фиолетовой: план до стадии 5 (как строили стадии 11–28,
-// с будущей добычей — стадия 30) и дописанное проектом синей (29–41).
+// с будущей добычей — стадия 30) и дописанное проектом синей (29–41). Лента плана под
+// делителем или подземкой проекта (отводы и выравниватели синей встают на место ленты) — не
+// чертёж: стоит делитель (на бумаге — «не поставлена», в игре бот поставил бы ленту поверх
+// делителя; 427965634).
 func planBlueAll(h *act.Hands) ([]layout.Placement, error) {
 	plan, err := LoadPlan()
 	if err != nil {
@@ -67,5 +71,23 @@ func planBlueAll(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(slices.Clone(plan.Layout), added...), nil
+	over := map[world.Tile]layout.Placement{}
+	for _, pl := range added {
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			over[t] = pl
+		}
+	}
+	var res []layout.Placement
+	for _, pl := range plan.Layout {
+		keep := true
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			if q, ok := over[t]; ok && replaces(q.Name, pl.Name) {
+				keep = false
+			}
+		}
+		if keep {
+			res = append(res, pl)
+		}
+	}
+	return append(res, added...), nil
 }

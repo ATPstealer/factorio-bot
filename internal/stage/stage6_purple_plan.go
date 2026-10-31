@@ -437,7 +437,24 @@ func purpleTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 	if n := cluster.BalancePlan(l, busList); n > 0 {
 		h.Say("план фиолетовой: +%d делителей между лентами одного предмета", n)
 	}
-	if err := flowCheck(h, l, base.Clusters, true); err != nil {
+	// стоящие буры старых блоков — источники своего ресурса: руда под ними в игре уже
+	// вырабатывается (проект — после стадии 41), это не ошибка проекта (267145981: 130 печей
+	// «нет руды»); новые блоки — по руде с карты
+	oldMine := map[string]string{}
+	for _, c := range old.Clusters {
+		if c.Kind == cluster.Mine {
+			oldMine[cluster.Tag(c.Name)] = c.Product
+		}
+	}
+	l.DrillOre = func(pl layout.Placement) []string {
+		if r, ok := oldMine[pl.Tag]; ok {
+			return []string{r}
+		}
+		return nil
+	}
+	err = flowCheck(h, l, base.Clusters, true)
+	l.DrillOre = nil
+	if err != nil {
 		return base, l, err
 	}
 	for _, c := range fresh {
