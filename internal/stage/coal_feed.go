@@ -40,7 +40,33 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 	}
 	var list []layout.Placement
 	if data, err := os.ReadFile(runPath(coalFeedFile)); err == nil && json.Unmarshal(data, &list) == nil && len(list) > 0 {
-		if list, err = coalFeedJoin(ctx, h, plan, list); err != nil {
+		// подвод есть, а станция голодает и на подводе пусто — его источник тоже выработан
+		// (267145981, стадия 43: подвод с ленты coal-2, рядом полные ленты другой добычи, все 44
+		// бойлера без угля, база без тока): подвод снять и проложить заново с ленты, где уголь
+		hungry, why, err := coalHungry(h, plan)
+		if err != nil {
+			return err
+		}
+		if dry, err := coalFeedDry(h, list); err != nil {
+			return err
+		} else if hungry && dry {
+			h.Say("уголь станции: %s, подвод угля другой добычи пуст — источник выработан, прокладываю заново", why)
+			var es []bridge.Entity
+			for _, pl := range list {
+				if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
+					es = append(es, *e)
+				}
+			}
+			if err := h.PickupAll(ctx, es); err != nil {
+				return err
+			}
+			if list, err = coalFeed(h, plan, nil); err != nil {
+				return err
+			}
+			if err := writeState(coalFeedFile, list); err != nil {
+				return err
+			}
+		} else if list, err = coalFeedJoin(ctx, h, plan, list); err != nil {
 			return err
 		}
 	} else {
@@ -74,6 +100,32 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	return buildSorted(ctx, h, splitters, []string{"splitter"})
+}
+
+// coalFeedDry — на лентах подвода list нет угля (стоящих; не стоит ни одной — не пуст: нечего
+// судить, подвод достроится).
+func coalFeedDry(h *act.Hands, list []layout.Placement) (bool, error) {
+	var belts []layout.Placement
+	for _, pl := range list {
+		if strings.HasSuffix(pl.Name, "transport-belt") {
+			belts = append(belts, pl)
+		}
+	}
+	states, err := entityStates(h, belts)
+	if err != nil {
+		return false, err
+	}
+	built := 0
+	for _, st := range states {
+		if st == nil {
+			continue
+		}
+		built++
+		if st.Belt["coal"] > 0 {
+			return false, nil
+		}
+	}
+	return built > 0, nil
 }
 
 // coalFeedJoin — подвод list старого вида (один делитель — у источника, в ленту станции боком):
