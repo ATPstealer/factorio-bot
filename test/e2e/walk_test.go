@@ -165,19 +165,46 @@ func TestUnstuckBetweenEngines(t *testing.T) {
 func TestUnstuckFullInventory(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 10*time.Minute)
-	have(t, h, "iron-chest", 9)
-	p, _ := h.B.Player()
-	chests, err := h.B.FindNearest(bridge.FindArgs{Type: "container", Radius: 400, Limit: 60, Position: &p.Position})
-	if err != nil {
-		t.Fatal(err)
-	}
+	// кольцо из столбов (дешёвые: 58 = полная стопка 50 + 8 на кольцо): после кольца стопка
+	// полна, поднятому столбу места в ней нет — нужна новая ячейка (из ровно 8 ячейка
+	// освобождалась сама); 464 пластин на 58 сундуков у тестов нет
+	const ringItem = "small-electric-pole"
+	have(t, h, ringItem, 58)
+	have(t, h, "steel-chest", 2)  // запасной сундук для freeSlot и «кладовка» рядом с кольцом
+	have(t, h, "wooden-chest", 1) // в кладовку: заберём после кольца — займёт ячейку, которую кольцо освободило
 	full := func() bool {
 		q, err := h.B.Player()
 		return err == nil && q.InventorySize-len(q.InventorySlots) == 0
 	}
+	c := freeArea(t, h, 2*(8+2)+1)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	// кладовка — в досягаемости из кольца, не на его месте
+	pantryPos, ok := spot(h, world.Tile{X: ct.X + 4, Y: ct.Y}.Center(), 1, 1, 3)
+	if !ok || (abs(world.TileOf(pantryPos).X-ct.X) <= 2 && abs(world.TileOf(pantryPos).Y-ct.Y) <= 2) {
+		t.Skip("нет места под кладовку")
+	}
+	pantry, err := h.Place(ctx, "steel-chest", pantryPos, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.InsertAll(ctx, pantry, "wooden-chest"); err != nil {
+		t.Fatal(err)
+	}
+	// инвентарь — доверху из сундуков базы
+	chests, err := h.B.FindNearest(bridge.FindArgs{Type: "container", Radius: 400, Limit: 60, Position: &p.Position})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, e := range chests {
 		if full() {
 			break
+		}
+		if e.Position == pantry.Position {
+			continue
 		}
 		if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || !st.Own {
 			continue
@@ -189,12 +216,36 @@ func TestUnstuckFullInventory(t *testing.T) {
 	if !full() {
 		t.Skip("инвентарь не наполнить: мало сундуков с содержимым рядом")
 	}
-	c := freeArea(t, h, 2*(8+2)+1)
-	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+	if err := h.WalkTo(ctx, ct.Center(), 0.2); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = h.B.Player()
-	ct := world.TileOf(p.Position)
+	// лишние столбы (попали из сундуков базы) — рядом, до кольца: после кольца стопка должна
+	// быть ровно полной
+	if extra := (p.Inventory[ringItem] - 8) % 50; extra > 0 {
+		if extra > 24 {
+			t.Skipf("лишних столбов %d — много", extra)
+		}
+		var line []bridge.Pos
+		used := map[world.Tile]bool{}
+		for i := 0; len(line) < extra && i < 200; i++ {
+			near := bridge.Pos{X: float64(ct.X-14) + float64(i%28), Y: float64(ct.Y-8) - float64(i/28)*2}
+			pos, ok := spot(h, near, 1, 1, 4)
+			if t := world.TileOf(pos); ok && !used[t] && (abs(t.X-ct.X) > 2 || abs(t.Y-ct.Y) > 2) {
+				used[t] = true
+				line = append(line, pos)
+			}
+		}
+		if len(line) < extra {
+			t.Skipf("нет места под %d лишних столбов", extra)
+		}
+		if _, err := h.PlaceAll(ctx, ringItem, line, act.North); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.WalkTo(ctx, ct.Center(), 0.2); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var ring []bridge.Pos
 	for dy := -1; dy <= 1; dy++ {
 		for dx := -1; dx <= 1; dx++ {
@@ -203,7 +254,18 @@ func TestUnstuckFullInventory(t *testing.T) {
 			}
 		}
 	}
-	if _, err := h.PlaceAll(ctx, "iron-chest", ring, act.North); err != nil {
+	es, err := h.PlaceAll(ctx, ringItem, ring, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); p.Inventory[ringItem]%50 != 0 || len(es) == 0 {
+		t.Skipf("столбов в инвентаре %d — стопка не полна, поднятый ляжет в неё", p.Inventory[ringItem])
+	}
+	// кольцо освободило ячейку неполной стопки столбов — занять её деревянным сундуком из кладовки
+	if p.Inventory["wooden-chest"] > 0 {
+		t.Skip("в инвентаре уже есть деревянные сундуки — ячейка не займётся")
+	}
+	if _, err := h.Take(ctx, pantry); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.World.Sync(h.B, false); err != nil {
@@ -225,7 +287,7 @@ func TestUnstuckFullInventory(t *testing.T) {
 	}
 	left := 0
 	for _, pos := range ring {
-		if e, _ := h.B.EntityAt("iron-chest", pos); e != nil {
+		if e, _ := h.B.EntityAt(ringItem, pos); e != nil {
 			left++
 		}
 	}
