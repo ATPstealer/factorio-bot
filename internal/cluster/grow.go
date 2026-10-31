@@ -278,6 +278,12 @@ func Extra(p *knowledge.Prototypes, cs []*Cluster, c *Cluster, built, n int) (*C
 		if x.Kind == Mine { // новое пятно — блоком, вторая итерация (cluster.md §2а «Добыча»)
 			x.Ore = OreNext
 		}
+		if x.Kind == Smelt || x.Kind == Make {
+			// на недостающие машины (не меньше MinUnits), а не по лентам: на нехватку одного
+			// сборщика красных схем вставало 30 кусками (1330900585, стадия 7 — дольше лимита)
+			x.Count = min(max(n-built, MinUnits), MaxUnits)
+			x.Room, x.Need = x.Count, min(x.Count, n-built)
+		}
 		return x, nil
 	}
 	return nil, fmt.Errorf("cluster: в плане нет %s %s", c.Kind, c.Product)
