@@ -123,7 +123,8 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 			continue
 		}
 		for _, pl := range lists[base] {
-			if pl.Name == "" || have[pl] || pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {
+			if pl.Name == "" || have[pl] || paper != nil && paper.stale[pl] ||
+				pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {
 				continue
 			}
 			// в плане на этом месте другое — прав план; кроме штатной замены ленты плана

@@ -23,6 +23,10 @@ var paper *paperBuilt
 type paperBuilt struct {
 	list []layout.Placement
 	at   map[world.Tile]int // тайл → индекс в list
+	// stale — снятые стадиями проектов старые буферы выхода: в игре их вычёркивают и из
+	// раскладок стадий (dropFromLayout), на бумаге файлы те же — чертёж обслуживания их не ждёт
+	// (стадия 49 на бумаге: «чертежа не поставила ни одна стадия» — буферы красных схем и кирпича)
+	stale map[layout.Placement]bool
 }
 
 func (p *paperBuilt) has(pl layout.Placement) bool {
@@ -105,7 +109,7 @@ func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 || n == 49
 
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.
 func paperStages(h *act.Hands, to int) error {
-	paper = &paperBuilt{at: map[world.Tile]int{}}
+	paper = &paperBuilt{at: map[world.Tile]int{}, stale: map[layout.Placement]bool{}}
 	flowSeen = nil
 	t2 := tier2 // по стадиям на бумаге, после — как было у текущей
 	defer func() { paper, tier2 = nil, t2 }()
@@ -135,6 +139,9 @@ func paperStages(h *act.Hands, to int) error {
 				if stale, err := s.staleBuffers(h); err == nil {
 					for _, list := range stale {
 						paper.remove(h, list)
+						for _, pl := range list {
+							paper.stale[pl] = true
+						}
 					}
 				}
 			}
