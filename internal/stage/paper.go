@@ -101,7 +101,7 @@ func (p *paperBuilt) remove(h *act.Hands, list []layout.Placement) {
 var flowSeen map[string]bool
 
 // isMaintenance — стадия обслуживания (чертёж: что ещё не стоит).
-func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 }
+func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 || n == 49 }
 
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.
 func paperStages(h *act.Hands, to int) error {
@@ -190,21 +190,24 @@ func paperStages(h *act.Hands, to int) error {
 	}
 	// весь план — в раскладках стадий (решение пользователя 28.10: трубы месторождений, НПЗ и
 	// сквозные ленты не входили ни в одну стадию — синей не было на всех картах): до 41 — план
-	// синей, до 48 — весь (с фиолетовой)
-	if (to == 41 || to >= lastPurpleStage) && !freshLayouts {
-		if miss := planCoverage(h, paper.list, to >= lastPurpleStage); miss != "" {
+	// синей, до 48 — с фиолетовой, до 61 — весь (с жёлтой)
+	if (to == 41 || to == lastPurpleStage || to >= lastYellowStage) && !freshLayouts {
+		if miss := planCoverage(h, paper.list, to); miss != "" {
 			return fmt.Errorf("на бумаге: %s", miss)
 		}
 	}
 	return nil
 }
 
-// planCoverage — постройки полного плана (whole — с фиолетовой, иначе до синей), которых нет в
-// built (раскладки стадий): по тегам; "" — все есть.
-func planCoverage(h *act.Hands, built []layout.Placement, whole bool) string {
+// planCoverage — постройки плана, который строят стадии до to (до 41 — синей, до 48 — с
+// фиолетовой, до 61 — весь), которых нет в built (раскладки стадий): по тегам; "" — все есть.
+func planCoverage(h *act.Hands, built []layout.Placement, to int) string {
 	plan, err := LoadBluePlan()
-	if whole {
+	switch {
+	case to >= lastYellowStage:
 		plan, err = LoadWholePlan()
+	case to >= lastPurpleStage:
+		plan, err = LoadPurplePlan()
 	}
 	if err != nil {
 		if plan, err = LoadPlan(); err != nil {

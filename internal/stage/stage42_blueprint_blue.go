@@ -71,6 +71,12 @@ func planBlueAll(h *act.Hands) ([]layout.Placement, error) {
 	if err != nil {
 		return nil, err
 	}
+	return overlay(h, plan.Layout, added), nil
+}
+
+// overlay — чертёж base с дописанным проектом added: постройки base, на чьё место встал
+// делитель или подземка проекта (replaces), — не чертёж.
+func overlay(h *act.Hands, base, added []layout.Placement) []layout.Placement {
 	over := map[world.Tile]layout.Placement{}
 	for _, pl := range added {
 		for _, t := range layout.Tiles(h.Protos, pl) {
@@ -78,7 +84,7 @@ func planBlueAll(h *act.Hands) ([]layout.Placement, error) {
 		}
 	}
 	var res []layout.Placement
-	for _, pl := range plan.Layout {
+	for _, pl := range base {
 		keep := true
 		for _, t := range layout.Tiles(h.Protos, pl) {
 			if q, ok := over[t]; ok && replaces(q.Name, pl.Name) {
@@ -89,5 +95,5 @@ func planBlueAll(h *act.Hands) ([]layout.Placement, error) {
 			res = append(res, pl)
 		}
 	}
-	return append(res, added...), nil
+	return append(res, added...)
 }

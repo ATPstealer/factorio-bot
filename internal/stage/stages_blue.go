@@ -310,12 +310,15 @@ func dropFromLayout(file string, list []layout.Placement) error {
 	return writeState(file, all)
 }
 
-// projectStage — стадия стройки по проекту (синей 32–41, фиолетовой 43–48).
+// projectStage — стадия стройки по проекту (синей 32–41, фиолетовой 43–48, жёлтой 50–61).
 func projectStage(n int) (blueStage, bool) {
 	if s, ok := blueStages[n]; ok {
 		return s, true
 	}
-	s, ok := purpleStages[n]
+	if s, ok := purpleStages[n]; ok {
+		return s, true
+	}
+	s, ok := yellowStages[n]
 	return s, ok
 }
 

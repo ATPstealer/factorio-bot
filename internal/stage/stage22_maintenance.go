@@ -51,13 +51,16 @@ const blueOnFile = "state-blue-on.json"
 // фиолетовой.
 const purpleOnFile = "state-purple-on.json"
 
+// yellowOnFile — отметка: жёлтые пакеты в лабораториях (стадия 61) — исследования и на жёлтой.
+const yellowOnFile = "state-yellow-on.json"
+
 // rocketTechs — нужные для ракеты исследования на тех пакетах, что уже производятся (красная;
-// после стадии 27 — и зелёная; после 41 — и синяя; после 48 — и фиолетовая), ещё не изученные,
-// по порядку пути (предпосылки раньше); исследования-триггеры (oil-processing) — не в очередь,
-// открываются сами.
+// после стадии 27 — и зелёная; после 41 — и синяя; после 48 — и фиолетовая; после 61 — и
+// жёлтая), ещё не изученные, по порядку пути (предпосылки раньше); исследования-триггеры
+// (oil-processing) — не в очередь, открываются сами.
 func rocketTechs(h *act.Hands) ([]string, error) {
 	packs := map[string]bool{redPack: true}
-	for file, pack := range map[string]string{greenOnFile: greenPack, blueOnFile: bluePack, purpleOnFile: purplePack} {
+	for file, pack := range map[string]string{greenOnFile: greenPack, blueOnFile: bluePack, purpleOnFile: purplePack, yellowOnFile: yellowPack} {
 		if _, err := os.Stat(runPath(file)); err == nil {
 			packs[pack] = true
 		}
