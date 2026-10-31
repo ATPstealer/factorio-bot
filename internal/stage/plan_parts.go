@@ -70,6 +70,42 @@ func upstreamItem(at map[world.Tile]layout.Placement, pair map[world.Tile]world.
 	return ""
 }
 
+// upstream — тайлы лент, с которых груз приходит в t (вверх по подаче: ленты, подземки,
+// делители), включая t; до 3000 тайлов.
+func upstream(at map[world.Tile]layout.Placement, pair map[world.Tile]world.Tile, t world.Tile) map[world.Tile]bool {
+	seen := map[world.Tile]bool{}
+	queue := []world.Tile{t}
+	for len(queue) > 0 && len(seen) < 3000 {
+		t := queue[0]
+		queue = queue[1:]
+		pl, ok := at[t]
+		if seen[t] || !ok || !isBelt(pl) {
+			continue
+		}
+		seen[t] = true
+		if o, ok := pair[t]; ok {
+			queue = append(queue, o)
+		}
+		if strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe == "output" {
+			b := t
+			for k := 0; k < 10; k++ {
+				b = layout.Step(b, (pl.Dir+8)%16)
+				if q, ok := at[b]; ok && strings.HasSuffix(q.Name, "underground-belt") && q.Recipe == "input" && q.Dir == pl.Dir {
+					queue = append(queue, b)
+					break
+				}
+			}
+		}
+		for _, d := range []int{(pl.Dir + 8) % 16, (pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
+			n := layout.Step(t, d)
+			if q, ok := at[n]; ok && feedsInto(q) && layout.Step(n, q.Dir) == t {
+				queue = append(queue, n)
+			}
+		}
+	}
+	return seen
+}
+
 // feedsInto — выдаёт в тайл перед собой: вход подземки — нет (уходит под землю; лента шины
 // подземкой под подачей «подавала» в неё — подача считалась синей наукой).
 func feedsInto(pl layout.Placement) bool {

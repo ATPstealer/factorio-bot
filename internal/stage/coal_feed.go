@@ -54,8 +54,9 @@ func healCoal(ctx context.Context, h *act.Hands) error {
 		// источник подвода — выработанная добыча (на лентах ещё остатки, но они кончатся:
 		// 267145981, третий заход) — тоже заново, если есть живая
 		dead := false
-		if src := coalFeedSource(h, plan, list); src != "" {
-			if _, alive, err := coalMines(h, plan); err == nil && len(alive) > 0 && !alive[src] {
+		if t, ok := coalFeedSourceTile(h, plan, list); ok {
+			at, pair := beltTiles(plan.Layout)
+			if alive, err := laneAliveFn(h, plan, at, pair); err == nil && !alive(t) {
 				dead = true
 			}
 		}
@@ -179,25 +180,59 @@ func coalMines(h *act.Hands, plan *ClusterPlan) (coalMine, alive map[string]bool
 	return coalMine, alive, nil
 }
 
-// coalFeedSource — добыча, с чьего подвода берёт подвод станции list: лента плана под его
-// делителем-источником (тег c/logistics/<шина>/<добыча>); "" — не найти.
-func coalFeedSource(h *act.Hands, plan *ClusterPlan, list []layout.Placement) string {
+// laneAliveFn — жива ли лента (тайл t): буры, что кормят её (вверх по лентам плана до
+// рядов блока), хоть наполовину на руде. У блока две ленты — выработана бывает одна (267145981:
+// подвод клали на первую ленту coal-2, вторая рядом полная). Состояние буров — один раз.
+func laneAliveFn(h *act.Hands, plan *ClusterPlan, at map[world.Tile]layout.Placement, pair map[world.Tile]world.Tile) (func(t world.Tile) bool, error) {
+	var drills []layout.Placement
+	for _, pl := range plan.Layout {
+		if h.Protos.Entities[pl.Name].Type == "mining-drill" {
+			drills = append(drills, pl)
+		}
+	}
+	states, err := entityStates(h, drills)
+	if err != nil {
+		return nil, err
+	}
+	type cnt struct{ total, gone int }
+	byOut := map[world.Tile]cnt{}
+	for i, st := range states {
+		if st == nil {
+			continue
+		}
+		o := layout.DrillOutput(h.Protos, drills[i])
+		c := byOut[o]
+		c.total++
+		if st.Status == "no_minable_resources" {
+			c.gone++
+		}
+		byOut[o] = c
+	}
+	return func(t world.Tile) bool {
+		total, gone := 0, 0
+		for u := range upstream(at, pair, t) {
+			total += byOut[u].total
+			gone += byOut[u].gone
+		}
+		return total > 0 && gone*2 < total
+	}, nil
+}
+
+// coalFeedSourceTile — тайл ленты плана под делителем-источником подвода станции list; false —
+// не найти.
+func coalFeedSourceTile(h *act.Hands, plan *ClusterPlan, list []layout.Placement) (world.Tile, bool) {
 	at, _ := beltTiles(plan.Layout)
 	for _, pl := range list {
 		if !strings.HasSuffix(pl.Name, "splitter") {
 			continue
 		}
 		for _, t := range layout.Tiles(h.Protos, pl) {
-			if q, ok := at[t]; ok {
-				if name, ok := strings.CutPrefix(q.Tag, cluster.LogisticsTag+"/"); ok {
-					if parts := strings.Split(name, "/"); len(parts) == 2 {
-						return parts[1]
-					}
-				}
+			if q, ok := at[t]; ok && strings.HasPrefix(q.Tag, cluster.LogisticsTag+"/") {
+				return t, true
 			}
 		}
 	}
-	return ""
+	return world.Tile{}, false
 }
 
 // coalFeedJoin — подвод list старого вида (один делитель — у источника, в ленту станции боком):
@@ -382,12 +417,13 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 	}
 	at, pair := beltTiles(plan.Layout)
 	row, feed := stationTags(plan)
-	coalMine, alive, err := coalMines(h, plan)
+	coalMine, _, err := coalMines(h, plan)
 	if err != nil {
 		return nil, err
 	}
-	if len(alive) == 0 { // живой нет — хоть с остатками
-		alive = coalMine
+	laneOK, err := laneAliveFn(h, plan, at, pair)
+	if err != nil {
+		return nil, err
 	}
 	// стоит ли в игре
 	var belts []layout.Placement
@@ -458,20 +494,23 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 		l.Add(*keep)
 		sources = append(sources, source{s, o, *keep})
 	}
-	for _, pl := range belts {
-		t := world.TileOf(pl.Pos)
-		name, ok := strings.CutPrefix(pl.Tag, cluster.LogisticsTag+"/")
-		if keep != nil || !ok || !built[t] || !coal[t] || !straight(at, t) {
-			continue
-		}
-		parts := strings.Split(name, "/") // шина/добыча
-		if len(parts) != 2 || !alive[parts[1]] {
-			continue
-		}
-		for _, side := range []int{(pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
-			if o := layout.Step(t, side); l.Free(o, layout.AnyLand) {
-				sources = append(sources, source{t, o, layout.Placement{Name: "splitter", Dir: pl.Dir, Tag: coalFeedTag,
-					Pos: bridge.Pos{X: (float64(t.X+o.X) + 1) / 2, Y: (float64(t.Y+o.Y) + 1) / 2}}})
+	// сначала ленты живой добычи (laneAliveFn); нет таких — любые с углём (остатки)
+	for pass := 0; pass < 2 && len(sources) == 0; pass++ {
+		for _, pl := range belts {
+			t := world.TileOf(pl.Pos)
+			name, ok := strings.CutPrefix(pl.Tag, cluster.LogisticsTag+"/")
+			if keep != nil || !ok || !built[t] || !coal[t] || !straight(at, t) {
+				continue
+			}
+			parts := strings.Split(name, "/") // шина/добыча
+			if len(parts) != 2 || !coalMine[parts[1]] || pass == 0 && !laneOK(t) {
+				continue
+			}
+			for _, side := range []int{(pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
+				if o := layout.Step(t, side); l.Free(o, layout.AnyLand) {
+					sources = append(sources, source{t, o, layout.Placement{Name: "splitter", Dir: pl.Dir, Tag: coalFeedTag,
+						Pos: bridge.Pos{X: (float64(t.X+o.X) + 1) / 2, Y: (float64(t.Y+o.Y) + 1) / 2}}})
+				}
 			}
 		}
 	}
