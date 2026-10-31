@@ -128,7 +128,8 @@ func init() {
 			// буферы — у кирпича (переезжает на bus-2) и новых кластеров роста; у старых плавка
 			// держит буферы на выходной ленте (стадия 17), сборка — в конце своих лент (как есть)
 			buffers: func(c *cluster.Cluster) bool {
-				return c.Kind == cluster.Smelt && c.Product == "stone-brick" || fresh(c)
+				_, own := purpleProducts[c.Product] // у кластеров проекта буферы ставят их стадии (44–47)
+				return c.Kind == cluster.Smelt && c.Product == "stone-brick" || fresh(c) && !own
 			},
 			more:  purpleLanes,
 			built: fuelBoilers, // новые бойлеры при запуске — углём руками (как на стадии 29)
