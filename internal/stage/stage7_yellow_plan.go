@@ -409,7 +409,8 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 		}
 		return nil
 	}
-	err = flowCheck(h, l, base.Clusters, true)
+	// смешанное в старом плане (база до стадии 7 построена по нему) — не ошибка проекта
+	err = flowCheckSince(h, l, base.Clusters, true, old.Layout)
 	l.DrillOre = nil
 	if err != nil {
 		return base, l, err

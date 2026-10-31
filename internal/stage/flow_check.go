@@ -16,11 +16,46 @@ import (
 // всё в журнал, стадия плана не выполнена.
 // all — считать и будущие блоки (план стадии 5: строится после стадии 30, когда они есть).
 func flowCheck(h *act.Hands, l *layout.Layout, cs []*cluster.Cluster, all bool) error {
+	return flowCheckSince(h, l, cs, all, nil)
+}
+
+// flowCheckSince — flowCheck без того, что уже было в старом плане old (дописывание поверх
+// построенного: смешанные ленты старой базы — не ошибка проекта, 427965634 и 267145981 после
+// стадии 48 — сера на ленте кирпича, железо на ленте меди). Прощается: та же ошибка и чужой
+// предмет на ленте той же пары «предмет — лента» (смешение старой ленты переходит на её
+// продление); nil — всё как в flowCheck.
+func flowCheckSince(h *act.Hands, l *layout.Layout, cs []*cluster.Cluster, all bool, old []layout.Placement) error {
 	skip := skipLater(cs)
 	if all {
 		skip = nil
 	}
 	errs := l.Flow(skip)
+	if old != nil {
+		lo := layout.New(l.P, l.W)
+		lo.DrillOre = l.DrillOre
+		for _, pl := range old {
+			lo.Add(pl)
+		}
+		was, pairs := map[string]bool{}, map[string]bool{}
+		for _, e := range lo.Flow(skip) {
+			was[e] = true
+			if i := strings.Index(e, "чужой предмет"); i >= 0 {
+				pairs[e[i:]] = true
+			}
+		}
+		n := 0
+		for _, e := range errs {
+			i := strings.Index(e, "чужой предмет")
+			if !was[e] && !(i >= 0 && pairs[e[i:]]) {
+				errs[n] = e
+				n++
+			}
+		}
+		if len(errs) > n {
+			h.Say("течение: %d нарушений — из старого плана (смешанные ленты базы), не в счёт", len(errs)-n)
+		}
+		errs = errs[:n]
+	}
 	for _, e := range errs {
 		h.Log("течение: %s", e)
 	}
