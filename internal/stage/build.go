@@ -10,11 +10,27 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
 
 // Общее для стадий стройки: построить раскладку по порядку, задать рецепты и фильтры.
+
+// tier2 — всё новое стадии — второго уровня (stages.md, стадия 42: с 43-й — быстрые ленты и
+// инсертеры, средние столбы, стальные сундуки); ставится в Do и paperStages по номеру стадии.
+var tier2 bool
+
+// tier2From — с какой стадии новые постройки — второго уровня.
+const tier2From = 43
+
+// tier — имя постройки своё стадии (буфер, столб): второго уровня, когда tier2 (cluster.Tier2).
+func tier(name string) string {
+	if t2, ok := cluster.Tier2[name]; ok && tier2 {
+		return t2
+	}
+	return name
+}
 
 // buildSorted — построить list (уже стоящее пропускается) в порядке order (чего нет в order — в
 // конце), недостающее — из хранения. Сборщики и инсертеры настраиваются сразу, как поставлены

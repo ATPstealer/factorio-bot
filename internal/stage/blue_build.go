@@ -16,14 +16,33 @@ import (
 // Общее для стройки проекта синей науки (стадии 29–41): постройки, которые стадия 5 дописала в
 // план, — по кластерам стадии; исследования — в очередь заранее и ждать.
 
-// blueAddedFor — дописанное стадией 5 для кластеров, которые выбирает pick: их постройки и
+// planSource — чей проект строит стадия: дописанное им (added — план после минус план до) и
+// весь план с ним (load).
+type planSource struct {
+	stage int // стадия проекта: 5 — синяя, 6 — фиолетовая
+	added func() ([]layout.Placement, *ClusterPlan, error)
+	load  func() (*ClusterPlan, error)
+}
+
+var (
+	blueSource   = planSource{5, blueAdded, LoadBluePlan}
+	purpleSource = planSource{6, purpleAdded, LoadPurplePlan}
+)
+
+// blueAddedFor — addedFor по проекту синей (стадия 5).
+func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, splitters bool,
+	more ...func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error)) ([]layout.Placement, error) {
+	return addedFor(h, file, blueSource, pick, splitters, more...)
+}
+
+// addedFor — дописанное проектом src для кластеров, которые выбирает pick: их постройки и
 // логистика (ленты, трубы, отводы), ленты шин их продуктов (и делители на шинах, если splitters)
 // и делители плана в разрывах этих лент (withSplitters), столбы к сети базы; один раз на карту
 // (file).
-func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, splitters bool,
+func addedFor(h *act.Hands, file string, src planSource, pick func(*cluster.Cluster) bool, splitters bool,
 	more ...func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error)) ([]layout.Placement, error) {
 	list, err := onceLayout(file, func() ([]layout.Placement, error) {
-		added, plan, err := blueAdded()
+		added, plan, err := src.added()
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +67,7 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 		var res []layout.Placement
 		for _, pl := range added {
 			onBus := slices.ContainsFunc(buses, func(b string) bool { return pl.Tag == cluster.Tag(b) }) &&
-				(items[pl.Recipe] || splitters && pl.Name == "splitter")
+				(items[pl.Recipe] || splitters && strings.HasSuffix(pl.Name, "splitter"))
 			if tags[pl.Tag] || onBus {
 				res = append(res, pl)
 			}
@@ -83,7 +102,7 @@ func blueAddedFor(h *act.Hands, file string, pick func(*cluster.Cluster) bool, s
 	// лента шины — без разрывов: делитель будущего отвода на ней — сейчас, иначе предмет дальше
 	// него не идёт (стадия 31 на 859088572: лента стали рвалась под отводом двигателей стадии 38
 	// — буфер стали пуст, печи стоят полные); и в раскладках, сохранённых до этого правила
-	plan, err := LoadBluePlan()
+	plan, err := src.load()
 	if err != nil {
 		return nil, err
 	}

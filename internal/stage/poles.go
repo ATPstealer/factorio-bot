@@ -20,6 +20,8 @@ import (
 // (станция, сам кластер-цель); столбы — ровными линиями (по горизонтали и вертикали); extra — что ещё будет стоять (своё стадии вне плана). Места столбов плана с тегом логистики — дешевле (их всё равно
 // ставить); прочие занятые планом тайлы — нельзя. Кратчайшее по числу столбов (Дейкстра).
 func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, start []bridge.Pos, allow []string, target func(pole bridge.Pos) bool) ([]layout.Placement, error) {
+	// пролёт и площадь — малого столба (сеть — из малых; средний в цепочке с малым достаёт не
+	// дальше малого), имя нового столба — по уровню стадии (tier: с 43-й — средний)
 	const pole = "small-electric-pole"
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return nil, err
@@ -29,7 +31,7 @@ func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, st
 	planPole := map[world.Tile]layout.Placement{}
 	for _, pl := range plan.Layout {
 		all.Add(pl)
-		if pl.Name == pole && pl.Tag == cluster.LogisticsTag {
+		if h.Protos.Entities[pl.Name].Type == "electric-pole" && pl.Tag == cluster.LogisticsTag {
 			planPole[world.TileOf(pl.Pos)] = pl
 		}
 	}
@@ -45,9 +47,9 @@ func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, st
 			areas = append(areas, c.Area)
 		}
 	}
-	// и полный план (синяя, стадия 5; все планы — до стройки): столбы ранних стадий вставали на
-	// место будущих кластеров и лент (двигатель power-2 на столбе — 954176679, на бумаге)
-	if full, err := LoadBluePlan(); err == nil {
+	// и полный план (синяя и фиолетовая; все планы — до стройки): столбы ранних стадий вставали
+	// на место будущих кластеров и лент (двигатель power-2 на столбе — 954176679, на бумаге)
+	if full, err := LoadPurplePlan(); err == nil {
 		for _, pl := range full.Layout {
 			if all.At(world.TileOf(pl.Pos)) == nil {
 				all.Add(pl)
@@ -104,7 +106,7 @@ func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, st
 			for st := cur; st.d >= 0; st = prev[st] {
 				pl, ok := planPole[st.t]
 				if !ok {
-					pl = layout.Placement{Name: pole, Pos: st.t.Center(), Tag: "poles"}
+					pl = layout.Placement{Name: tier(pole), Pos: st.t.Center(), Tag: "poles"}
 				}
 				res = append(res, pl)
 			}
@@ -195,8 +197,10 @@ func connectNet(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow 
 			allow = append(allow, o.Name)
 		}
 	}
+	// пролёт — малого столба (сеть из малых; средние стадий фиолетовой с малым достают не дальше)
 	const pole = "small-electric-pole"
 	reach := h.Protos.Entities[pole].MaxWireDistance
+	isPole := func(name string) bool { return h.Protos.Entities[name].Type == "electric-pole" }
 	net = slices.Clone(net)
 	near := func(a bridge.Pos, set []bridge.Pos) bool {
 		for _, b := range set {
@@ -208,7 +212,7 @@ func connectNet(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow 
 	}
 	var own []bridge.Pos
 	for _, pl := range list {
-		if pl.Name == pole {
+		if isPole(pl.Name) {
 			own = append(own, pl.Pos)
 		}
 	}
@@ -242,7 +246,7 @@ func connectNet(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow 
 		}
 	}
 	for _, pl := range list {
-		if !h.Protos.Entities[pl.Name].Electric || pl.Name == pole {
+		if !h.Protos.Entities[pl.Name].Electric || isPole(pl.Name) {
 			continue
 		}
 		ok := false
@@ -331,5 +335,5 @@ func healPower(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	h.Say("сеть: %d островов (%d столбов) вне сети станции — ставлю %d столбов", len(islands), n, len(add))
-	return buildSorted(ctx, h, add, []string{"small-electric-pole"})
+	return buildSorted(ctx, h, add, []string{"small-electric-pole", "medium-electric-pole"})
 }

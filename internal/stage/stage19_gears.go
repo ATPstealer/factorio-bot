@@ -65,7 +65,7 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 	}
 	var end *layout.Placement
 	for i, pl := range plan.Layout {
-		if buses[pl.Tag] && pl.Recipe == product && pl.Name == "transport-belt" && (end == nil || pl.Pos.X > end.Pos.X) {
+		if buses[pl.Tag] && pl.Recipe == product && strings.HasSuffix(pl.Name, "transport-belt") && (end == nil || pl.Pos.X > end.Pos.X) {
 			end = &plan.Layout[i]
 		}
 	}
@@ -76,7 +76,7 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 	future := planTaken(h)
 	t := world.TileOf(end.Pos)
 	for k := 0; k < 12; k++ {
-		if b := all.At(t); b == nil || b.Name != "transport-belt" || b.Recipe != product {
+		if b := all.At(t); b == nil || !strings.HasSuffix(b.Name, "transport-belt") || b.Recipe != product {
 			break
 		}
 		for _, side := range []int{(end.Dir + 4) % 16, (end.Dir + 12) % 16} {
@@ -84,8 +84,8 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 			if !bufferFree(all, future, ins) || !bufferFree(all, future, box) {
 				continue
 			}
-			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: product, Tag: tag}
-			pc := layout.Placement{Name: chest, Pos: box.Center(), Tag: tag}
+			pi := layout.Placement{Name: tier("inserter"), Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: product, Tag: tag}
+			pc := layout.Placement{Name: tier(chest), Pos: box.Center(), Tag: tag}
 			all.Add(pi)
 			all.Add(pc)
 			return []layout.Placement{pi, pc}, nil
@@ -118,12 +118,12 @@ func endBuffers(h *act.Hands, pick func(*cluster.Cluster) bool) func(*ClusterPla
 	}
 }
 
-// planTaken — тайлы под постройками полного плана (синяя, стадия 5; все планы — до стройки):
-// буфер выхода стадии сюда не ставить — на стадии 30 по ним кладутся новые ленты шин (на бумаге,
-// 954176679: лента bus-3 на месте инсертера буфера лент).
+// planTaken — тайлы под постройками полного плана (с синей и фиолетовой; все планы — до
+// стройки): буфер выхода стадии сюда не ставить — на стадии 30 по ним кладутся новые ленты шин
+// (на бумаге, 954176679: лента bus-3 на месте инсертера буфера лент).
 func planTaken(h *act.Hands) map[world.Tile]bool {
 	res := map[world.Tile]bool{}
-	full, err := LoadBluePlan()
+	full, err := LoadPurplePlan()
 	if err != nil {
 		return res
 	}

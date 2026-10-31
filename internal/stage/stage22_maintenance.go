@@ -30,6 +30,8 @@ const auditBatch = 200
 // keepItems — что не класть в хранение: понадобится на следующих стадиях (стройка кластеров).
 var keepItems = []string{"transport-belt", "underground-belt", "splitter", "inserter", "small-electric-pole",
 	"medium-electric-pole", "assembling-machine-1", "assembling-machine-2", ironChest, "electric-mining-drill",
+	// второй уровень (стадии 43–48)
+	"fast-transport-belt", "fast-underground-belt", "fast-splitter", "fast-inserter", "steel-chest", "steel-furnace",
 	// сырьё крафта стройки
 	"iron-plate", "copper-plate", "iron-gear-wheel", "copper-cable", "electronic-circuit"}
 
@@ -45,16 +47,20 @@ const greenOnFile = "state-green-on.json"
 // синей.
 const blueOnFile = "state-blue-on.json"
 
+// purpleOnFile — отметка: фиолетовые пакеты в лабораториях (стадия 48) — исследования и на
+// фиолетовой.
+const purpleOnFile = "state-purple-on.json"
+
 // rocketTechs — нужные для ракеты исследования на тех пакетах, что уже производятся (красная;
-// после стадии 27 — и зелёная; после 41 — и синяя), ещё не изученные, по порядку пути
-// (предпосылки раньше); исследования-триггеры (oil-processing) — не в очередь, открываются сами.
+// после стадии 27 — и зелёная; после 41 — и синяя; после 48 — и фиолетовая), ещё не изученные,
+// по порядку пути (предпосылки раньше); исследования-триггеры (oil-processing) — не в очередь,
+// открываются сами.
 func rocketTechs(h *act.Hands) ([]string, error) {
 	packs := map[string]bool{redPack: true}
-	if _, err := os.Stat(runPath(greenOnFile)); err == nil {
-		packs[greenPack] = true
-	}
-	if _, err := os.Stat(runPath(blueOnFile)); err == nil {
-		packs[bluePack] = true
+	for file, pack := range map[string]string{greenOnFile: greenPack, blueOnFile: bluePack, purpleOnFile: purplePack} {
+		if _, err := os.Stat(runPath(file)); err == nil {
+			packs[pack] = true
+		}
 	}
 	f, err := h.B.Force()
 	if err != nil {
@@ -478,9 +484,11 @@ func (d planDiff) String() string {
 	return fmt.Sprintf("%s в (%.1f, %.1f): %s", d.pl.Name, d.pl.Pos.X, d.pl.Pos.Y, d.why)
 }
 
-// directed — у постройки важно направление (ленты, подземки, делители, инсертеры).
+// directed — у постройки важно направление (ленты, подземки, делители, инсертеры — любого
+// уровня).
 func directed(name string) bool {
-	return name == "transport-belt" || name == "underground-belt" || name == "splitter" || name == "inserter" || name == "burner-inserter"
+	return strings.HasSuffix(name, "transport-belt") || strings.HasSuffix(name, "underground-belt") ||
+		strings.HasSuffix(name, "splitter") || name == "inserter" || name == "fast-inserter" || name == "burner-inserter"
 }
 
 // planNow — что из плана уже должно стоять: дописанное проектом зелёной науки (стадия 4) строят

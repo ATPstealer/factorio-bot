@@ -114,7 +114,7 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 	}
 	names, lists := stateLayouts()
 	for _, base := range names {
-		if base == planFile || base == greenBaseFile || base == blueBaseFile {
+		if base == planFile || base == greenBaseFile || base == blueBaseFile || base == purpleBaseFile {
 			continue
 		}
 		for _, pl := range lists[base] {
@@ -151,9 +151,10 @@ func extras(h *act.Hands, want []layout.Placement) ([]world.Object, error) {
 	for _, pl := range want {
 		in[k(pl.Name, pl.Pos)] = true
 	}
-	// что есть в плане на потом (весь план с синей) — не лишнее: поставленное раньше срока не
-	// разбирать (лента камня bus-1 — старым кодом на стадии 22, а по чертежу — стадия 30)
-	if full, err := LoadBluePlan(); err == nil {
+	// что есть в плане на потом (весь план, с синей и фиолетовой) — не лишнее: поставленное
+	// раньше срока не разбирать (лента камня bus-1 — старым кодом на стадии 22, а по чертежу —
+	// стадия 30)
+	if full, err := LoadPurplePlan(); err == nil {
 		for _, pl := range full.Layout {
 			in[k(pl.Name, pl.Pos)] = true
 		}

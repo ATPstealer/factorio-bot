@@ -153,6 +153,36 @@ func uniq(list []layout.Placement) []layout.Placement {
 
 func register(s Stage) { all[s.N] = s }
 
+// layoutTechs — исследования, открывающие рецепты построек раскладки стадии n, которых ещё нет в
+// игре и чьи рецепты закрыты (каждой — первая технология с её рецептом).
+func layoutTechs(h *act.Hands, n int) ([]string, error) {
+	list, err := planOf(h, n)
+	if err != nil {
+		return nil, fmt.Errorf("план стадии: %w", err)
+	}
+	f, err := h.B.Force()
+	if err != nil {
+		return nil, err
+	}
+	var recipes []string
+	for _, pl := range list {
+		it := h.Protos.ItemFor(pl.Name)
+		if it == "" || slices.Contains(f.Recipes, it) || slices.Contains(recipes, it) {
+			continue
+		}
+		if _, ok := h.Protos.Recipes[it]; ok {
+			recipes = append(recipes, it)
+		}
+	}
+	if len(recipes) == 0 {
+		return nil, nil
+	}
+	techs := h.Protos.TechsFor(recipes, h.Protos.NewAvailability(f.Researched, false))
+	// открываемые действием (oil-processing — добыть нефть) в очередь не встают: их ждёт своя
+	// стадия (oilReady)
+	return slices.DeleteFunc(techs, func(t string) bool { return h.Protos.Technologies[t].Trigger != nil }), nil
+}
+
 // Get — стадия N.
 func Get(n int) (Stage, error) {
 	s, ok := all[n]
@@ -213,6 +243,7 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
 		layout.Chest, chest = ironChest, ironChest
 	}
+	tier2 = n >= tier2From // своё стадии (буферы, столбы) — второго уровня (stages.md, стадия 42)
 	// нужное текущей стадии — по её плану (inventory.go)
 	curStage, needCache.items = n, nil
 	// добыча упёрлась в полный инвентарь (стадия 23 на 859088572) — в хранение ненужное; не
@@ -292,6 +323,20 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 				return err
 			}
 			h.Say("буферы лабораторий не снялись: %v", err)
+		}
+	}
+	// исследования, без которых постройки раскладки не скрафтить (сборщик 2, средний столб,
+	// быстрая лента…), — до проверки перед стройкой (она требует открытых рецептов); в очереди
+	// с прошлых стадий — обычно уже изучены
+	if n > 12 && !s.Plan && !s.Empty {
+		techs, err := layoutTechs(h, n)
+		if err != nil {
+			return fmt.Errorf("стадия %d: %w", n, err)
+		}
+		if len(techs) > 0 {
+			if err := waitResearch(ctx, h, techs...); err != nil {
+				return fmt.Errorf("стадия %d: %w", n, err)
+			}
 		}
 	}
 	// перед стройкой — проверка и расчистка площади раскладки (stages.md, общее)

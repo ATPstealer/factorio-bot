@@ -365,12 +365,12 @@ func withSplitters(h *act.Hands, plan *ClusterPlan, res []layout.Placement) []la
 	have := map[layout.Placement]bool{}
 	for _, pl := range res {
 		have[pl] = true
-		if pl.Name == "transport-belt" || pl.Name == "underground-belt" {
+		if strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") {
 			line[world.TileOf(pl.Pos)] = true
 		}
 	}
 	for _, pl := range plan.Layout {
-		if pl.Name != "splitter" || have[pl] {
+		if !strings.HasSuffix(pl.Name, "splitter") || have[pl] {
 			continue
 		}
 		for _, t := range layout.Tiles(h.Protos, pl) {

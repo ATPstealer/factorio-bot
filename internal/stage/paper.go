@@ -100,11 +100,15 @@ func (p *paperBuilt) remove(h *act.Hands, list []layout.Placement) {
 // flowSeen — нарушения течения на бумаге у прошлой стадии (в журнал — только новые).
 var flowSeen map[string]bool
 
+// isMaintenance — стадия обслуживания (чертёж: что ещё не стоит).
+func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 }
+
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.
 func paperStages(h *act.Hands, to int) error {
 	paper = &paperBuilt{at: map[world.Tile]int{}}
 	flowSeen = nil
-	defer func() { paper = nil }()
+	t2 := tier2 // по стадиям на бумаге, после — как было у текущей
+	defer func() { paper, tier2 = nil, t2 }()
 	var outposts []layout.Placement
 	for _, n := range List() {
 		if n < 10 || n > to {
@@ -118,12 +122,21 @@ func paperStages(h *act.Hands, to int) error {
 		if n >= 22 {
 			layout.Chest, chest = ironChest, ironChest
 		}
+		tier2 = n >= tier2From
 		switch n {
 		case 15: // разбор точек
 			paper.remove(h, outposts)
 		case 16: // сундук и электроинсертер стадии 11 у бойлера — убирает (runCoal)
 			if station, err := powerLayout(h); err == nil {
 				paper.remove(h, []layout.Placement{findPlaced(station, chest), findPlaced(station, "inserter")})
+			}
+		default: // стадии проектов: буферы выхода прошлых стадий не на новом месте — снимают
+			if s, ok := projectStage(n); ok {
+				if stale, err := s.staleBuffers(h); err == nil {
+					for _, list := range stale {
+						paper.remove(h, list)
+					}
+				}
 			}
 		}
 		list, err := planOf(h, n)
@@ -138,13 +151,13 @@ func paperStages(h *act.Hands, to int) error {
 		bad = append(bad, prepReach(h, list)...)
 		// обслуживание: всё из чертежа уже поставили стадии (при обновлении чертежа в игре — не
 		// ошибка: недостающее обслуживание и достроит)
-		if (n == 22 || n == 28) && len(list) > 0 && !freshLayouts {
+		if isMaintenance(n) && len(list) > 0 && !freshLayouts {
 			bad = append(bad, unbuilt(list))
 		}
 		// обслуживание при обновлении чертежа — на бумагу не кладёт: его список — из состояния,
 		// а там ещё старые раскладки следующих стадий (их столбы — потом лишние: новые столбы
 		// стадий 23–25 «держались» за них, после разбора — острова без тока, 1028292478)
-		if !freshLayouts || n != 22 && n != 28 {
+		if !freshLayouts || !isMaintenance(n) {
 			bad = append(bad, paper.add(h, list)...)
 		}
 		// проверки чертежа стадии (решение пользователя 28.10): лента до своего буфера в конце —
@@ -176,19 +189,23 @@ func paperStages(h *act.Hands, to int) error {
 		}
 	}
 	// весь план — в раскладках стадий (решение пользователя 28.10: трубы месторождений, НПЗ и
-	// сквозные ленты не входили ни в одну стадию — синей не было на всех картах)
-	if to >= 41 && !freshLayouts {
-		if miss := planCoverage(h, paper.list); miss != "" {
+	// сквозные ленты не входили ни в одну стадию — синей не было на всех картах): до 41 — план
+	// синей, до 48 — весь (с фиолетовой)
+	if (to == 41 || to >= lastPurpleStage) && !freshLayouts {
+		if miss := planCoverage(h, paper.list, to >= lastPurpleStage); miss != "" {
 			return fmt.Errorf("на бумаге: %s", miss)
 		}
 	}
 	return nil
 }
 
-// planCoverage — постройки полного плана, которых нет в built (раскладки стадий): по тегам; ""
-// — все есть.
-func planCoverage(h *act.Hands, built []layout.Placement) string {
+// planCoverage — постройки полного плана (whole — с фиолетовой, иначе до синей), которых нет в
+// built (раскладки стадий): по тегам; "" — все есть.
+func planCoverage(h *act.Hands, built []layout.Placement, whole bool) string {
 	plan, err := LoadBluePlan()
+	if whole {
+		plan, err = LoadPurplePlan()
+	}
 	if err != nil {
 		if plan, err = LoadPlan(); err != nil {
 			return ""
@@ -211,7 +228,7 @@ func planCoverage(h *act.Hands, built []layout.Placement) string {
 	if len(miss) == 0 {
 		return ""
 	}
-	return "плана нет ни в одной раскладке стадий 10–41: " + unbuilt(miss)
+	return "плана нет ни в одной раскладке стадий стройки: " + unbuilt(miss)
 }
 
 // laneToBuffer — лента предмета на шине доходит до своего буфера в конце: инсертер буфера выхода
@@ -235,7 +252,7 @@ func laneToBuffer(h *act.Hands, list []layout.Placement) []string {
 		// головы лент предмета: ленты шины с ним, в которые сзади никто не въезжает
 		reached := false
 		for t, q := range at {
-			if reached || q.Name != "transport-belt" || q.Recipe != pl.Recipe || !strings.HasPrefix(q.Tag, "c/bus-") {
+			if reached || !strings.HasSuffix(q.Name, "transport-belt") || q.Recipe != pl.Recipe || !strings.HasPrefix(q.Tag, "c/bus-") {
 				continue
 			}
 			if b, ok := at[layout.Step(t, (q.Dir+8)%16)]; ok && isBelt(b) && b.Dir == q.Dir {
@@ -288,10 +305,10 @@ func refreshLayouts(h *act.Hands, to int) error {
 		}
 	}
 	h.World.Hide(own)
-	stage, need, lc, c := curStage, needCache, layout.Chest, chest
+	stage, need, lc, c, t2 := curStage, needCache, layout.Chest, chest, tier2
 	freshLayouts = true
 	defer func() {
-		curStage, needCache, layout.Chest, chest = stage, need, lc, c
+		curStage, needCache, layout.Chest, chest, tier2 = stage, need, lc, c, t2
 		freshLayouts = false
 	}()
 	h.Say("обновляю чертёж: раскладки стадий 10–%d заново текущим кодом", to)

@@ -64,7 +64,12 @@ func runPowerBlue(ctx context.Context, h *act.Hands) error {
 	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
-	// запуск: каждый новый бойлер — углём руками (дальше — с ленты)
+	return fuelBoilers(ctx, h, list)
+}
+
+// fuelBoilers — запуск: каждый новый бойлер из list — углём руками (дальше — с ленты); и на
+// стадии 43 (рост станции под фиолетовую).
+func fuelBoilers(ctx context.Context, h *act.Hands, list []layout.Placement) error {
 	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err

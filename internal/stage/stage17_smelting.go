@@ -78,7 +78,7 @@ func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) 
 	t := layout.Step(out.T, (out.Dir+8)%16)
 	for k := 0; k < 12 && len(res) < 2*pairs; k++ {
 		b := all.At(t)
-		if b == nil || b.Name != "transport-belt" {
+		if b == nil || !strings.HasSuffix(b.Name, "transport-belt") {
 			break
 		}
 		for _, side := range []int{(b.Dir + 4) % 16, (b.Dir + 12) % 16} {
@@ -86,8 +86,8 @@ func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) 
 			if len(res) >= 2*pairs || !bufferFree(all, future, ins) || !bufferFree(all, future, box) {
 				continue
 			}
-			pi := layout.Placement{Name: "inserter", Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: out.Item, Tag: tag}
-			pc := layout.Placement{Name: chest, Pos: box.Center(), Tag: tag}
+			pi := layout.Placement{Name: tier("inserter"), Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, t), Recipe: out.Item, Tag: tag}
+			pc := layout.Placement{Name: tier(chest), Pos: box.Center(), Tag: tag}
 			all.Add(pi)
 			all.Add(pc)
 			res = append(res, pi, pc)
@@ -97,7 +97,7 @@ func outBuffer(h *act.Hands, all *layout.Layout, c *cluster.Cluster, pairs int) 
 		found := false
 		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
 			q := layout.Step(t, (d+8)%16)
-			if p := all.At(q); p != nil && p.Name == "transport-belt" && p.Dir == d && p.Tag == cluster.Tag(c.Name) {
+			if p := all.At(q); p != nil && strings.HasSuffix(p.Name, "transport-belt") && p.Dir == d && p.Tag == cluster.Tag(c.Name) {
 				next, found = q, true
 				break
 			}

@@ -61,7 +61,7 @@ var knownRecipes map[string][]string
 // healBelts — ленты (простые, не подземки и не делители) с чужим предметом поднять и поставить
 // назад.
 func healBelts(ctx context.Context, h *act.Hands) error {
-	plan, err := LoadBluePlan()
+	plan, err := LoadPurplePlan() // весь план: ленты синей и фиолетовой тоже
 	if err != nil {
 		return nil
 	}
@@ -85,7 +85,7 @@ func healBelts(ctx context.Context, h *act.Hands) error {
 	var belts []layout.Placement
 	var allowed []map[string]bool
 	for _, pl := range plan.Layout {
-		if pl.Name != "transport-belt" {
+		if !strings.HasSuffix(pl.Name, "transport-belt") { // любого уровня
 			continue
 		}
 		if a := beltAllowed(plan, byName, buses, pl); a != nil {
@@ -117,7 +117,7 @@ func healBelts(ctx context.Context, h *act.Hands) error {
 	if err := h.PickupAll(ctx, es); err != nil {
 		return err
 	}
-	if err := buildSorted(ctx, h, bad, []string{"transport-belt"}); err != nil {
+	if err := buildSorted(ctx, h, bad, []string{"transport-belt", "fast-transport-belt"}); err != nil {
 		return err
 	}
 	s := &worker{h: h, useStore: true}

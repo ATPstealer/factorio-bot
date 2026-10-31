@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -18,17 +20,24 @@ import (
 // (поставить заранее, дождаться), постройки части из плана стадии 5, стройка, проверка (всё
 // стоит и настроено — сверка с планом).
 
-// blueStage — описание стадии стройки синей.
+// blueStage — описание стадии стройки по проекту (синей — 32–41, фиолетовой — 43–48).
 type blueStage struct {
-	n      int
-	name   string
-	file   string                      // раскладка стадии: один раз на карту
-	wait   []string                    // исследования: изучены (иначе — ждать)
-	queue  []string                    // исследования: в очередь в самом начале (на следующие стадии)
-	pick   func(*cluster.Cluster) bool // кластеры части
-	more   func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
-	before func(ctx context.Context, h *act.Hands) error // до раскладки стадии (переделка построенного)
-	after  func(ctx context.Context, h *act.Hands) error // после стройки
+	n     int
+	name  string
+	file  string                      // раскладка стадии: один раз на карту
+	src   planSource                  // проект (пусто — синей)
+	wait  []string                    // исследования: изучены (иначе — ждать; до подготовки — Stage.Techs)
+	queue []string                    // исследования: в очередь в самом начале (на следующие стадии)
+	pick  func(*cluster.Cluster) bool // кластеры части
+	// buffers — чьи буферы выхода (cluster.md §6а) ставит стадия: в конце ленты продукта на
+	// шине; нет — у всех кластеров части (pick). Старый буфер кластера не на этом месте (лента
+	// продлена проектом, кирпич — с выходной ленты на bus-2) — снимается (staleBuffers)
+	buffers func(*cluster.Cluster) bool
+	more    func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
+	before  func(ctx context.Context, h *act.Hands) error // до раскладки стадии (переделка построенного)
+	// built — сразу после стройки, до проверки по факту (запуск: уголь в новые бойлеры)
+	built func(ctx context.Context, h *act.Hands, list []layout.Placement) error
+	after func(ctx context.Context, h *act.Hands) error // после стройки и проверки по факту
 	// fact — проверка по факту работы (stages.md: машины работают, жидкость дошла, лаборатории
 	// работают на синей): ждать до factWait, не подтвердилось — стадия не выполнена (решение
 	// пользователя 28.10: жёстко все)
@@ -148,11 +157,20 @@ func labsOn(item string) func(h *act.Hands, list []layout.Placement) error {
 	}
 }
 
-// blueOrder — порядок стройки: машины, жидкости, инсертеры, ленты, столбы.
+// blueOrder — порядок стройки: машины (станция, добыча, печи, сборщики), жидкости, сундуки,
+// инсертеры, ленты, столбы; обоих уровней (фиолетовые стадии — второй).
 var blueOrder = []string{"offshore-pump", "pumpjack", "storage-tank", "oil-refinery", "chemical-plant",
-	"assembling-machine-2", "assembling-machine-1", "stone-furnace", "pump", "pipe-to-ground", "pipe", chest,
-	"inserter", "long-handed-inserter", "fast-inserter", "transport-belt", "underground-belt", "splitter",
-	"small-electric-pole"}
+	"boiler", "steam-engine", "electric-mining-drill", "assembling-machine-2", "assembling-machine-1",
+	"steel-furnace", "stone-furnace", "pump", "pipe-to-ground", "pipe", ironChest, "steel-chest",
+	"burner-inserter", "inserter", "long-handed-inserter", "fast-inserter", "transport-belt", "fast-transport-belt",
+	"underground-belt", "fast-underground-belt", "splitter", "fast-splitter", "small-electric-pole", "medium-electric-pole"}
+
+func (s blueStage) source() planSource {
+	if s.src.stage == 0 {
+		return blueSource
+	}
+	return s.src
+}
 
 func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) {
 	pick := s.pick
@@ -161,11 +179,130 @@ func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) {
 	}
 	// буферы выхода (cluster.md §6а: у каждого кластера с продуктом-предметом) — вместе с
 	// кластерами стадии
-	more := []func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error){endBuffers(h, pick)}
+	more := []func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error){endBuffers(h, s.bufferPick())}
 	if s.more != nil {
 		more = append(more, s.more(h))
 	}
-	return blueAddedFor(h, s.file, pick, false, more...)
+	return addedFor(h, s.file, s.source(), pick, false, more...)
+}
+
+// bufferPick — чьи буферы выхода ставит стадия (buffers, иначе pick).
+func (s blueStage) bufferPick() func(*cluster.Cluster) bool {
+	if s.buffers != nil {
+		return s.buffers
+	}
+	if s.pick != nil {
+		return s.pick
+	}
+	return func(*cluster.Cluster) bool { return false }
+}
+
+// staleBuffers — буферы выхода кластеров стадии (bufferPick) из раскладок прошлых стадий, которых
+// нет в раскладке этой: лента продукта продлена проектом — буфер в конце переезжает; кирпич — с
+// выходной ленты кластера в конец ленты bus-2 (stages.md, стадия 43). Файл раскладки → список.
+func (s blueStage) staleBuffers(h *act.Hands) (map[string][]layout.Placement, error) {
+	list, err := s.layout(h)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := s.source().load()
+	if err != nil {
+		return nil, err
+	}
+	pick := s.bufferPick()
+	tags := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if (c.Kind == cluster.Make || c.Kind == cluster.Smelt) && pick(c) {
+			tags["outbuf/"+c.Name] = true
+		}
+	}
+	now := map[world.Tile]bool{}
+	for _, pl := range list {
+		if strings.HasPrefix(pl.Tag, "outbuf/") {
+			now[world.TileOf(pl.Pos)] = true
+		}
+	}
+	res := map[string][]layout.Placement{}
+	names, lists := stateLayouts()
+	for _, name := range names {
+		if name == s.file {
+			continue
+		}
+		for _, pl := range lists[name] {
+			if tags[pl.Tag] && !now[world.TileOf(pl.Pos)] {
+				res[name] = append(res[name], pl)
+			}
+		}
+	}
+	return res, nil
+}
+
+// dropStale — старые буферы выхода не на новом месте (staleBuffers) снять: содержимое и сами —
+// в хранение; из файлов раскладок убрать (проверки и буферы бота ищут их по файлам).
+func (s blueStage) dropStale(ctx context.Context, h *act.Hands) error {
+	stale, err := s.staleBuffers(h)
+	if err != nil || len(stale) == 0 {
+		return err
+	}
+	var es []bridge.Entity
+	for _, list := range stale {
+		for _, pl := range list {
+			if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
+				es = append(es, *e)
+			}
+		}
+	}
+	if len(es) > 0 {
+		h.Say("%s: старые буферы выхода не на месте — снимаю %d построек", s.name, len(es))
+		if err := h.PickupAll(ctx, es); err != nil {
+			return err
+		}
+		sites, err := outpostsLayout(h)
+		if err != nil {
+			return err
+		}
+		w := &worker{h: h, sites: sites, useStore: true}
+		p, err := h.B.Player()
+		if err != nil {
+			return err
+		}
+		if err := w.store(ctx, p.InventorySize-10); err != nil {
+			return err
+		}
+	}
+	for name, list := range stale {
+		if err := dropFromLayout(name, list); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropFromLayout — убрать list из файла раскладки file.
+func dropFromLayout(file string, list []layout.Placement) error {
+	data, err := os.ReadFile(runPath(file))
+	if err != nil {
+		return err
+	}
+	var all []layout.Placement
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	gone := map[layout.Placement]bool{}
+	for _, pl := range list {
+		gone[pl] = true
+	}
+	all = slices.DeleteFunc(all, func(pl layout.Placement) bool { return gone[pl] })
+	return writeState(file, all)
+}
+
+// projectStage — стадия стройки по проекту (синей 32–41, фиолетовой 43–48).
+func projectStage(n int) (blueStage, bool) {
+	if s, ok := blueStages[n]; ok {
+		return s, true
+	}
+	s, ok := purpleStages[n]
+	return s, ok
 }
 
 func (s blueStage) run(ctx context.Context, h *act.Hands) error {
@@ -180,13 +317,21 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
+	if err := s.dropStale(ctx, h); err != nil {
+		return err
+	}
 	list, err := s.layout(h)
 	if err != nil {
 		return err
 	}
-	h.Say("%s: %d построек по плану стадии 5", s.name, len(list))
+	h.Say("%s: %d построек по плану стадии %d", s.name, len(list), s.source().stage)
 	if err := buildSorted(ctx, h, list, blueOrder); err != nil {
 		return err
+	}
+	if s.built != nil {
+		if err := s.built(ctx, h, list); err != nil {
+			return err
+		}
 	}
 	if s.fact != nil {
 		if err := waitFact(ctx, h, list, s.fact); err != nil {

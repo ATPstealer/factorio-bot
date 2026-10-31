@@ -61,10 +61,13 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		return append(grow, list...), err
 	case 27:
 		return labsGreenLayout(h)
-	case 22, 28: // обслуживание: что из чертежа ещё не стоит (будущая добыча — стадии 30, не здесь)
+	case 22, 28, 42: // обслуживание: что из чертежа ещё не стоит (будущая добыча — стадии 30, не здесь)
 		base := planNow
-		if n == 28 {
+		switch n {
+		case 28:
 			base = planAll
+		case 42:
+			base = planBlueAll
 		}
 		list, err := blueprint(h, base)
 		if err != nil {
@@ -79,6 +82,9 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		return steelLayout(h)
 	}
 	if s, ok := blueStages[n]; ok { // 32–41 (stages_blue.go)
+		return s.layout(h)
+	}
+	if s, ok := purpleStages[n]; ok { // 43–48 (stages_purple.go)
 		return s.layout(h)
 	}
 	return nil, nil
@@ -728,7 +734,7 @@ func prepForward(h *act.Hands, n int) {
 				all = append(all, list...)
 			}
 		}
-		if miss := planCoverage(h, all); miss != "" {
+		if miss := planCoverage(h, all, true); miss != "" {
 			h.Say("проверка: %s", miss)
 		}
 	}
