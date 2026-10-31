@@ -191,13 +191,14 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 	}
 	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток, как на
 	// стадиях 4–6)
+	fails := map[string]int{} // неудач подвода у кластера
 	for try := 0; ; try++ {
 		base, l, err := yellowTry(h, rough, built, avoid)
 		if err == nil {
 			return nil
 		}
 		ce, ok := err.(*cluster.ConnectError)
-		if !ok || try >= 5 {
+		if !ok || try >= 9 {
 			if base != nil && l != nil {
 				planDraw(h, rough.Zones, base, l, yellowImage()) // что вышло — на картинку
 				if ok {
@@ -209,6 +210,13 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 		h.Say("кластер %s на %v: %v — ищу другое место", ce.Consumer.Name, ce.Consumer.Area, ce.Err)
 		drawAround(h, rough.Zones, base, l, ce.Consumer, image(fmt.Sprintf("plan-yellow-fail%d", try)))
 		a := ce.Consumer.Area
+		// второй отказ того же кластера — вся часть зоны, где он стоит, под запрет: соседнее место
+		// в той же тесной части (стопки, коридоры заняты подводами соседей) не помогает, а часть
+		// зоны правее бывает пуста (158846952: рамы роботов 4 раза по 11 тайлов вправо)
+		if fails[ce.Consumer.Name]++; fails[ce.Consumer.Name] >= 2 && ce.Consumer.Zone != nil {
+			a = *ce.Consumer.Zone
+			h.Say("кластер %s: часть зоны %v — под запрет", ce.Consumer.Name, a)
+		}
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {
 				avoid[world.Tile{X: x, Y: y}] = true
