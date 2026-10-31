@@ -113,6 +113,14 @@ func healBelts(ctx context.Context, h *act.Hands) error {
 	if len(bad) == 0 {
 		return nil
 	}
+	// сотни лент с чужим — источник в самой базе (ленты смешаны планом: сера на кирпиче,
+	// 267145981): все не поднимать — инвентарь забивается, стадия уходит на это; до 100 за
+	// стадию, остальное — в следующий раз или после починки плана
+	const healBeltsMax = 100
+	if len(bad) > healBeltsMax {
+		h.Say("на лентах чужие предметы: %d лент — источник в базе, поднимаю только %d", len(bad), healBeltsMax)
+		bad, es = bad[:healBeltsMax], es[:healBeltsMax]
+	}
 	h.Say("на лентах чужие предметы: %d лент — поднимаю и ставлю назад", len(bad))
 	if err := h.PickupAll(ctx, es); err != nil {
 		return err

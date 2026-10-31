@@ -1203,9 +1203,18 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 				d = *e.Direction
 			}
 			in := h.contents(e)
-			if err := h.Pickup(ctx, e); err != nil {
-				if errors.Is(err, ErrFull) && e.Type == "container" {
-					h.Log("обступили: %s не поднять (полон) — следующую", e.Name)
+			err := h.Pickup(ctx, e)
+			if errors.Is(err, ErrFull) && e.Type != "container" {
+				// инвентарь полон, а до хранения из кармана не дойти (стадия 46 на 267145981:
+				// 383 ленты с чужим подняты, сундуки буферов вокруг полны): освободить ячейку
+				// на месте — сундук из инвентаря рядом или стопку на землю — и ещё раз
+				if h.freeSlot(ctx) {
+					err = h.Pickup(ctx, e)
+				}
+			}
+			if err != nil {
+				if errors.Is(err, ErrFull) {
+					h.Log("обступили: %s не поднять (инвентарь полон) — следующую", e.Name)
 					continue
 				}
 				return err
@@ -1313,6 +1322,52 @@ func (h *Hands) refill(ctx context.Context, es []bridge.Entity, in map[string]in
 		}
 	}
 	return nil
+}
+
+// freeSlot — освободить хоть одну ячейку инвентаря, не уходя (персонаж заперт, инвентарь
+// полон): есть сундук в инвентаре — поставить рядом и переложить в него самую большую стопку
+// сырья; нет — стопку сырья на землю (Z по одному; поднять потом — PickupItem). true — освободил.
+func (h *Hands) freeSlot(ctx context.Context) bool {
+	p, err := h.B.Player()
+	if err != nil {
+		return false
+	}
+	bulk := []string{"sulfur", "stone-brick", "stone", "coal", "iron-ore", "copper-ore", "wood", "iron-plate", "copper-plate", "steel-plate", "plastic-bar"}
+	item, n := "", 0
+	for _, it := range bulk {
+		if p.Inventory[it] > n {
+			item, n = it, p.Inventory[it]
+		}
+	}
+	if item == "" {
+		return false
+	}
+	for _, chest := range []string{"steel-chest", "iron-chest", "wooden-chest"} {
+		if p.Inventory[chest] == 0 || h.World == nil {
+			continue
+		}
+		spot, ok := h.World.FreeSpot(p.Position, 1, 1, 3, nil)
+		if !ok || dist(spot, p.Position) > buildReach {
+			continue
+		}
+		es, err := h.PlaceAll(ctx, chest, []bridge.Pos{spot}, 0)
+		if err != nil || len(es) == 0 {
+			continue
+		}
+		h.Say("инвентарь полон в кармане — %s рядом, в него %s", chest, item)
+		if _, err := h.InsertAll(ctx, es[0], item); err == nil {
+			return true
+		}
+	}
+	stack := max(h.Protos.Items[item].StackSize, 1)
+	h.Say("инвентарь полон в кармане — %s ×%d на землю", item, min(n, stack))
+	for k := 0; k < min(n, stack); k++ {
+		if _, err := h.Drop(ctx, item, p.Position); err != nil {
+			break
+		}
+	}
+	q, err := h.B.Player()
+	return err == nil && q.InventorySize-len(q.InventorySlots) > 0
 }
 
 // breachable — свои постройки, которые можно поднять, чтобы пройти, и поставить назад
