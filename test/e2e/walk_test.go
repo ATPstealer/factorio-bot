@@ -97,6 +97,66 @@ func TestUnstuck(t *testing.T) {
 	clean(t, h)
 }
 
+// Выход из кармана станции (стадия 43 на 427965634: уголь в новые бойлеры power-3 — «не дошёл
+// до (361.0, 784.1): пути нет, стою в (344.37, 782.79)»): персонаж в тайле C между двумя
+// паровыми двигателями 3×5 (центры C + (−1.5, −0.5) и C + (2.5, −0.5)), сверху в тайле над ним
+// — средний столб (C + (0.5, −0.5)), снизу — бойлеры 3×2 (C + (−1.5, 3), C + (2.5, 3)) и труба
+// между ними (C + (0.5, 3.5)). Прорыв поднимал двигатель и ставил назад, не выйдя: точка «за
+// поднятым» в 2.5 тайла от центра двигателя — ещё внутри него. Дальше одна команда — «иди
+// туда» за двигатели; всё поднятое — назад на место.
+func TestUnstuckBetweenEngines(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 8*time.Minute)
+	have(t, h, "steam-engine", 2)
+	have(t, h, "boiler", 2)
+	have(t, h, "pipe", 1)
+	have(t, h, "medium-electric-pole", 1)
+	c := freeArea(t, h, 2*(8+5)+1)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	at := func(dx, dy float64) bridge.Pos { return bridge.Pos{X: float64(ct.X) + dx, Y: float64(ct.Y) + dy} }
+	type part struct {
+		item string
+		pos  []bridge.Pos
+	}
+	parts := []part{
+		{"steam-engine", []bridge.Pos{at(-1.5, -0.5), at(2.5, -0.5)}},
+		{"boiler", []bridge.Pos{at(-1.5, 3), at(2.5, 3)}},
+		{"pipe", []bridge.Pos{at(0.5, 3.5)}},
+		{"medium-electric-pole", []bridge.Pos{at(0.5, -0.5)}},
+	}
+	for _, pt := range parts {
+		if _, err := h.PlaceAll(ctx, pt.item, pt.pos, act.North); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); !h.World.Enclosed(p.Position) {
+		t.Fatalf("карман не замкнут: персонаж в (%.2f, %.2f)", p.Position.X, p.Position.Y)
+	}
+	target := at(8.5, 0.5)
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = h.B.Player()
+	if d := math.Hypot(p.Position.X-target.X, p.Position.Y-target.Y); d > 0.5 {
+		t.Errorf("до цели осталось %.2f", d)
+	}
+	for _, pt := range parts {
+		for _, pos := range pt.pos {
+			if e, _ := h.B.EntityAt(pt.item, pos); e == nil {
+				t.Errorf("%s в (%.1f, %.1f) не вернулся на место", pt.item, pos.X, pos.Y)
+			}
+		}
+	}
+	clean(t, h)
+}
+
 // Дойти до точки за лентами, которые несут по кругу назад (стадия 17 на 859088572: «не дошёл
 // до (46.7, -26.8): стою в (48.61, -27.02)», доводка 11.5 с). Раскладка у места — от тайла
 // персонажа C (48,-28): на запад (C-1,0) лента на юг, под ней (C-1,+1) — на восток, (C,+1) и

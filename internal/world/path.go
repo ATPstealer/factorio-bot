@@ -684,13 +684,15 @@ func (w *World) escape(from bridge.Pos) ([]bridge.Pos, bool) {
 }
 
 // Enclosed — из p никуда не выйти (во все стороны на 5 тайлов пути нет даже сквозь
-// деревья): персонажа обступили постройки.
+// деревья): персонажа обступили постройки. Карман бывает длинный (между двигателями
+// станции — 4 тайла): не заперт — когда путь дошёл или его конец дальше 4 тайлов от p, а не
+// по длине пути (TestUnstuckBetweenEngines).
 func (w *World) Enclosed(p bridge.Pos) bool {
 	for k := 0; k < 8; k++ {
 		a := float64(k) * math.Pi / 4
 		to := bridge.Pos{X: p.X + 5*math.Cos(a), Y: p.Y + 5*math.Sin(a)}
 		r, err := w.Route(p, to, 1.5, 20000, 6)
-		if err == nil || r.Length() > 2 {
+		if err == nil || len(r.Points) > 0 && dist(p, r.Points[len(r.Points)-1]) > 4 {
 			return false
 		}
 	}
