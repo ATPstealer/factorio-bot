@@ -342,6 +342,15 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 	if err := buildSorted(ctx, h, list, blueOrder); err != nil {
 		return err
 	}
+	// стоящее не так (подземка не тем концом, направление, рецепт, фильтр) — исправить сейчас,
+	// а не на следующем обслуживании: лента с такой подземкой оборвана (стадия 43 на 427965634)
+	sites, err := outpostsLayout(h)
+	if err != nil {
+		return err
+	}
+	if err := planFix(ctx, h, &worker{h: h, sites: sites, useStore: true}, list); err != nil {
+		return err
+	}
 	if s.built != nil {
 		if err := s.built(ctx, h, list); err != nil {
 			return err

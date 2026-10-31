@@ -541,6 +541,10 @@ func planAudit(h *act.Hands, list []layout.Placement) ([]planDiff, error) {
 			res = append(res, planDiff{pl, nil, "нет"})
 		case directed(pl.Name) && st.Direction != nil && *st.Direction != pl.Dir:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
+		// подземка не тем концом (вход на месте выхода): направление то же, лента оборвана
+		// (стадия 43 на 427965634: выход поставлен позже входа в другом участке, без разворота)
+		case strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe != "" && st.UGType != "" && st.UGType != pl.Recipe:
+			res = append(res, planDiff{pl, st, fmt.Sprintf("конец %s, в плане %s", st.UGType, pl.Recipe)})
 		case recipeMachine(pl.Name) && pl.Recipe != "" && st.Recipe != pl.Recipe:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("рецепт %q, в плане %s", st.Recipe, pl.Recipe)})
 		// у твердотопливного манипулятора фильтров нет (Recipe в плане — что он носит)
@@ -589,7 +593,7 @@ func planFix(ctx context.Context, h *act.Hands, s *worker, list []layout.Placeme
 				item = filterHold // не открыт — заглушка, чтобы инсертер стоял
 			}
 			err = h.SetFilter(ctx, d.st.Entity, item)
-		case d.pl.Name == "underground-belt", d.pl.Name == "splitter" && d.st.Direction != nil && *d.st.Direction%8 != d.pl.Dir%8:
+		case strings.HasSuffix(d.pl.Name, "underground-belt"), strings.HasSuffix(d.pl.Name, "splitter") && d.st.Direction != nil && *d.st.Direction%8 != d.pl.Dir%8:
 			// подземку R не поворачивает (меняет вход/выход), делитель поперёк — сдвинет центр:
 			// поднять и поставить заново
 			if err = h.Pickup(ctx, d.st.Entity); err == nil {
