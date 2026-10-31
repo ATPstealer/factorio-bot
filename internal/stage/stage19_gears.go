@@ -75,7 +75,9 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 	tag := "outbuf/" + c.Name
 	future := planTaken(h)
 	t := world.TileOf(end.Pos)
-	for k := 0; k < 12; k++ {
+	// назад по ленте — до 40 тайлов (у конца бывает тесно: 46082668, стадия 59 — лента
+	// процессоров bus-3 в окружении лент и отводов; ближнее место — то же, что раньше)
+	for k := 0; k < 40; k++ {
 		if b := all.At(t); b == nil || !strings.HasSuffix(b.Name, "transport-belt") || b.Recipe != product {
 			break
 		}
