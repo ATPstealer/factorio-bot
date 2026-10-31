@@ -363,13 +363,20 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 		}
 		h.Say("нефтетрасса %s → %s", c.Name, crudeTank.Name)
 	}
-	// трубы шин: старые — на поверхность (к подземной не подключиться), подключение всех
-	// жидкостных портов новых кластеров и складов, потом снова под землю, где не подходят
-	cluster.SurfaceLanes(l, zb)
+	// трубы шин: подключение всех жидкостных портов новых кластеров и складов (старые пары у
+	// порта — на поверхность), потом снова под землю, где к ним ничего не подходит
 	if err := base.FluidPipes(l, zb, fresh, cluster.FluidBus); err != nil {
 		return base, l, err
 	}
-	cluster.UnderPipes(l, zb)
+	// старые обычные трубы шин построены — на месте (конец при продлении не становится подземкой:
+	// стадия 50 на бумаге, 4 карты — «подземная труба на месте трубы»)
+	fixed := map[world.Tile]bool{}
+	for _, pl := range old.Layout {
+		if pl.Name == "pipe" && strings.HasPrefix(pl.Tag, "c/bus-") {
+			fixed[world.TileOf(pl.Pos)] = true
+		}
+	}
+	cluster.UnderPipes(l, zb, fixed)
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
 			var x, y int // чья постройка — в ошибку (разбор)

@@ -469,7 +469,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return base, l, err
 	}
 	// трубы шин — подземные везде, где к ним ничего не подходит (решение пользователя)
-	cluster.UnderPipes(l, zb)
+	cluster.UnderPipes(l, zb, nil)
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
 			var x, y int // чья постройка — в ошибку (разбор)

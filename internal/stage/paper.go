@@ -34,11 +34,17 @@ func (p *paperBuilt) has(pl layout.Placement) bool {
 	return ok && p.list[i].Name == pl.Name && p.list[i].Pos == pl.Pos
 }
 
-// replaces — new ставится поверх old штатно: делитель и подземка заменяют ленту (в игре — замена
-// на месте, PlaceDirs).
+// replaces — new ставится поверх old штатно: делитель и подземка заменяют ленту; труба и
+// подземная труба — друг друга (одна группа замены в данных игры, fast_replaceable_group
+// "pipe": продление трубы шины, отвод на месте подземной пары) — в игре замена на месте,
+// PlaceDirs.
 func replaces(newName, oldName string) bool {
 	belt := strings.HasSuffix(oldName, "transport-belt")
-	return belt && (strings.HasSuffix(newName, "splitter") || strings.HasSuffix(newName, "underground-belt"))
+	if belt && (strings.HasSuffix(newName, "splitter") || strings.HasSuffix(newName, "underground-belt")) {
+		return true
+	}
+	pipe := func(n string) bool { return n == "pipe" || n == "pipe-to-ground" }
+	return pipe(newName) && pipe(oldName) && newName != oldName
 }
 
 // add — построить list; занятый другим тайл — наложение (в ответ).

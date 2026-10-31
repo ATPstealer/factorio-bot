@@ -351,7 +351,9 @@ func pipeAlong(l *layout.Layout, x0, x1, y int, tag string) error {
 // UnderLane — труба шины tag в ряду y — подземная везде, где к ней ничего не подходит (решение
 // пользователя: иначе потом обходить): обычная труба остаётся на концах и у отводов (соседняя
 // не своя по ряду труба или соединение), между ними — подземные пары (до дальности прототипа).
-func UnderLane(l *layout.Layout, tag string, y int) {
+// fixed — обычные трубы, которые остаются как есть (дописывание плана: старые трубы шины
+// построены — их конец при продлении не становится подземкой).
+func UnderLane(l *layout.Layout, tag string, y int, fixed map[world.Tile]bool) {
 	const pipe, ptg = "pipe", "pipe-to-ground"
 	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
 	var xs []int
@@ -367,8 +369,8 @@ func UnderLane(l *layout.Layout, tag string, y int) {
 	keep := map[int]bool{xs[0]: true, xs[len(xs)-1]: true}
 	for _, x := range xs {
 		t := world.Tile{X: x, Y: y}
-		if p := l.At(t); p != nil && p.Name != pipe {
-			keep[x] = true // уже подземка (обход занятого) — на месте
+		if p := l.At(t); p != nil && p.Name != pipe || fixed[t] {
+			keep[x] = true // уже подземка (обход занятого) или построенная труба — на месте
 		}
 		for _, d := range []int{layout.N, layout.S} {
 			n := layout.Step(t, d)
@@ -422,8 +424,9 @@ func UnderLane(l *layout.Layout, tag string, y int) {
 	}
 }
 
-// UnderPipes — все трубы шин buses (ряды труб жидкостей) — UnderLane.
-func UnderPipes(l *layout.Layout, buses []*ZBus) {
+// UnderPipes — все трубы шин buses (ряды труб жидкостей) — UnderLane; fixed — обычные трубы,
+// которые не трогать (nil — все можно).
+func UnderPipes(l *layout.Layout, buses []*ZBus, fixed map[world.Tile]bool) {
 	// ряд трубы шины — где тайлов с её тегом больше всего (подходы отводов — тем же тегом, но
 	// поперёк)
 	rows := map[string]map[int]int{}
@@ -446,7 +449,7 @@ func UnderPipes(l *layout.Layout, buses []*ZBus) {
 				best, n = y, k
 			}
 		}
-		UnderLane(l, tag, best)
+		UnderLane(l, tag, best, fixed)
 	}
 }
 

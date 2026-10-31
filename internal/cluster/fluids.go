@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -345,7 +344,9 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 	if len(solids) > 0 && fluidAtHead(c, fluidsIn[0]) {
 		return fmt.Errorf("cluster %s: %s — с шины у головы, а голова занята подачами предметов", c.Name, fluidsIn[0])
 	}
-	if err := fluidPortAt(l, f, c, inV, 1, end, L, fluidsIn[0], rowTag(fluidsIn[0]), true, skipIn, add); err != nil {
+	// ряд — от первой машины: в голове ряда соединений — инсертеры буфера предмета 2 (кислота:
+	// труба воды шла через них — стадия 54 на бумаге, 4 карты)
+	if err := fluidPortAt(l, f, c, inV, c.Head, end, L, fluidsIn[0], rowTag(fluidsIn[0]), true, skipIn, add); err != nil {
 		return err
 	}
 	if len(fluidsIn) == 2 {
@@ -461,8 +462,9 @@ func fluidMakeRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 // FluidPipes — трубы шин для жидкостных портов кластеров cs (cluster.md §5): шина жидкости —
 // bus[fluid]; труба уже есть — продлевается до дальнего потребителя, нет — прокладывается;
 // выходы — раньше входов (трубы продуктов появляются), цистерны — к трубе своей жидкости через
-// насос (TankJoinPump). Перед подключением трубы шин выводятся на поверхность (SurfaceLanes:
-// к подземной подключиться негде), после — снова под землю (UnderPipes) зовёт стадия.
+// насос (TankJoinPump). Перед подключением пары трубы шины у порта выводятся на поверхность
+// (surfaceNear: к подземной подключиться негде), после — снова под землю (UnderPipes) зовёт
+// стадия.
 func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus map[string]int) error {
 	// докуда нужна труба жидкости: дальний потребитель или поставщик + 20; добыча нефти — не к
 	// трубе шины, а трассой в склад (OilTrunk): труба нефти тянулась к дальнему месторождению
@@ -534,6 +536,8 @@ func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus ma
 					if err != nil {
 						return err
 					}
+					x, _ := c.Area.Center()
+					surfaceNear(l, tag, int(x))
 					if err := TankJoinPump(l, c, tag); err != nil {
 						return err
 					}
@@ -549,6 +553,7 @@ func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus ma
 					return err
 				}
 				open(p)
+				surfaceNear(l, tag, p.T.X) // к подземной паре не подключиться — у порта на поверхность
 				if err := JoinLane(l, c, p, tag); err != nil {
 					return err
 				}
@@ -610,30 +615,23 @@ func extendPipeLane(l *layout.Layout, tag string, end int) error {
 	return nil
 }
 
-// SurfaceLanes — трубы шин buses обратно на поверхность (обратно UnderPipes): подземная пара,
-// под которой тайлы свободны, — снова обычные трубы (к ним можно подключиться, JoinPipe);
-// пары через занятое — на месте. Зовётся перед подключением новых потребителей.
-func SurfaceLanes(l *layout.Layout, buses []*ZBus) {
+// surfaceNear — подземные пары трубы шины tag у x (±surfaceR вдоль её ряда) — на поверхность
+// (к подземной паре не подключиться, JoinPipe ищет обычные трубы); пары через занятое — на месте.
+// Только у нового потребителя: все пары разом потом ложились подземками по-новому — старые трубы
+// шин в плане менялись местами с подземными (стадия 50 на бумаге, 7 карт), в игре — перестройка.
+func surfaceNear(l *layout.Layout, tag string, x0 int) {
 	const pipe, ptg = "pipe", "pipe-to-ground"
 	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
-	tags := map[string]bool{}
-	for _, bus := range buses {
-		prefix := Tag(bus.Name) + "/"
-		for _, p := range l.List {
-			if (p.Name == pipe || p.Name == ptg) && strings.HasPrefix(p.Tag, prefix) {
-				tags[p.Tag] = true
-			}
-		}
-	}
-	for _, tag := range slices.Sorted(maps.Keys(tags)) {
+	{
 		y, ok := pipeLaneRow(l, tag)
 		if !ok {
-			continue
+			return
 		}
-		var ends []int // входы пар (смотрят на запад) по ряду
+		var ends []int // входы пар (смотрят на запад) у x0 по ряду
 		for _, p := range l.List {
-			if p.Tag == tag && p.Name == ptg && p.Dir == layout.W && world.TileOf(p.Pos).Y == y {
-				ends = append(ends, world.TileOf(p.Pos).X)
+			if t := world.TileOf(p.Pos); p.Tag == tag && p.Name == ptg && p.Dir == layout.W && t.Y == y &&
+				t.X >= x0-surfaceR-maxUG && t.X <= x0+surfaceR {
+				ends = append(ends, t.X)
 			}
 		}
 		slices.Sort(ends)
@@ -664,7 +662,7 @@ func SurfaceLanes(l *layout.Layout, buses []*ZBus) {
 			}
 		}
 		if len(drop) == 0 {
-			continue
+			return
 		}
 		gone := map[world.Tile]bool{}
 		for _, t := range drop {
@@ -681,6 +679,10 @@ func SurfaceLanes(l *layout.Layout, buses []*ZBus) {
 		}
 	}
 }
+
+// surfaceR — у порта нового потребителя на поверхность выходят пары трубы шины в стольких
+// тайлах вдоль её ряда.
+const surfaceR = 24
 
 // TankJoinPump — блок цистерн tank — к трубе шины tag через насос на входе (stages.md, стадия
 // 51: склад наполняется, пока в трубе есть давление, и не отдаёт назад); насос не встаёт — без
