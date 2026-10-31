@@ -317,6 +317,38 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 			coalMine[c.Name] = true
 		}
 	}
+	// живая добыча: хоть половина стоящих буров на руде — иначе на подводе лишь остатки угля,
+	// застрявшие перед полной шиной (267145981: подвод переложили на ту же выработанную ленту)
+	var drills []layout.Placement
+	for _, pl := range plan.Layout {
+		if h.Protos.Entities[pl.Name].Type == "mining-drill" && coalMine[strings.TrimPrefix(pl.Tag, "c/")] {
+			drills = append(drills, pl)
+		}
+	}
+	dstates, err := entityStates(h, drills)
+	if err != nil {
+		return nil, err
+	}
+	total, gone := map[string]int{}, map[string]int{}
+	for i, st := range dstates {
+		if st == nil {
+			continue
+		}
+		name := strings.TrimPrefix(drills[i].Tag, "c/")
+		total[name]++
+		if st.Status == "no_minable_resources" {
+			gone[name]++
+		}
+	}
+	alive := map[string]bool{}
+	for name := range coalMine {
+		if total[name] > 0 && gone[name]*2 < total[name] {
+			alive[name] = true
+		}
+	}
+	if len(alive) == 0 { // живой нет — хоть с остатками
+		alive = coalMine
+	}
 	// стоит ли в игре
 	var belts []layout.Placement
 	for _, pl := range plan.Layout {
@@ -393,7 +425,7 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 			continue
 		}
 		parts := strings.Split(name, "/") // шина/добыча
-		if len(parts) != 2 || !coalMine[parts[1]] {
+		if len(parts) != 2 || !alive[parts[1]] {
 			continue
 		}
 		for _, side := range []int{(pl.Dir + 4) % 16, (pl.Dir + 12) % 16} {
