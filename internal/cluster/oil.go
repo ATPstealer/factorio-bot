@@ -51,6 +51,18 @@ func (b *Base) MoreOilN(zones []Zone, fields int) ([]Zone, []*Cluster, error) {
 		}
 		return nil
 	}
+	// usable — на месторождении нет чужих кластеров (своя добыча нефти — можно): под станцией
+	// или плавкой оно в счёт не идёт (1330900585, стадия 5: второе — под станцией, новых зон
+	// не искали — «месторождений нефти 1 из 2»)
+	usable := func(p world.Patch) bool {
+		r := Rect{world.Tile{X: p.Min.X - 3, Y: p.Min.Y - 3}, world.Tile{X: p.Max.X + 4, Y: p.Max.Y + 4}}
+		for _, c := range b.Clusters {
+			if c.Kind != Bus && !c.IsOil() && c.Area.Overlaps(r) {
+				return false
+			}
+		}
+		return true
+	}
 	pts := oilFields(b.W.Patches())
 	oil := 0.0
 	sort.Slice(pts, func(i, j int) bool {
@@ -60,8 +72,10 @@ func (b *Base) MoreOilN(zones []Zone, fields int) ([]Zone, []*Cluster, error) {
 	n := 0
 	for _, p := range pts {
 		if inZone(p) != nil {
-			n++
 			oil += float64(p.Amount)
+			if usable(p) {
+				n++
+			}
 		}
 	}
 	for k := 0; n < fields && k < len(pts); k++ { // зон мало — ещё одна на следующем пятне
@@ -73,8 +87,10 @@ func (b *Base) MoreOilN(zones []Zone, fields int) ([]Zone, []*Cluster, error) {
 		n, oil = 0, 0
 		for _, p := range pts {
 			if inZone(p) != nil {
-				n++
 				oil += float64(p.Amount)
+				if usable(p) {
+					n++
+				}
 			}
 		}
 	}
@@ -218,8 +234,18 @@ func PipeLaneTag(bus, fluid string) string { return Tag(bus) + "/" + fluid }
 func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, end int) (string, error) {
 	bus := buses[k]
 	tag := PipeLaneTag(bus.Name, fluid)
+	// ряды лент заняты; ряд, отведённый зонами под жидкость (лента с жидкостью — место трубы,
+	// лент там нет), — свободен, свой — первым (46082668, стадия 7: «нет ряда под трубу
+	// lubricant» — ряды смазки, масел и кислоты считались лентами)
 	used := map[int]bool{}
+	own := -1
 	for _, ln := range bus.Lanes {
+		if _, fl := b.P.Fluids[ln.Item]; fl {
+			if ln.Item == fluid {
+				own = ln.Y - bus.Rect.Min.Y
+			}
+			continue
+		}
 		used[ln.Y-bus.Rect.Min.Y] = true
 	}
 	pipeRow := func(v int) bool { // в ряду уже труба шины
@@ -230,8 +256,21 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 		}
 		return false
 	}
+	var rows []int
+	if own >= 0 {
+		rows = append(rows, own)
+	}
 	for j := 0; laneV(j) < bus.Rect.H(); j++ {
-		v := laneV(j)
+		if v := laneV(j); v != own {
+			rows = append(rows, v)
+		}
+	}
+	// рядов лент не хватило (в паре — одна труба) — средние ряды зазоров между парами
+	// (cluster.md §5; 267145981, стадия 7: «нет ряда под трубу heavy-oil» — пятая труба bus-2)
+	for j := 0; laneV(j)+3 < bus.Rect.H()-1; j += 2 {
+		rows = append(rows, laneV(j)+3)
+	}
+	for _, v := range rows {
 		if used[v] || pipeRow(v) || pipeRow(v-1) || pipeRow(v+1) {
 			continue
 		}
@@ -599,10 +638,17 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 			gas = ing.Name
 		}
 	}
-	if err := pipeRow(gasV, gas, c.Head, L); err != nil {
-		return err
+	if floorOf(c) == 2 { // химия на снабжении (батареи): жидкость — с шины снизу, вход у головы
+		if err := pipeRow(gasV, gas, 0, end+1); err != nil {
+			return err
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(-1, gasV), Dir: f.dir(layout.E), Item: gas, In: true})
+	} else {
+		if err := pipeRow(gasV, gas, c.Head, L); err != nil {
+			return err
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(L, gasV), Dir: f.dir(layout.W), Item: gas, In: true})
 	}
-	c.Ports = append(c.Ports, Port{T: f.tile(L, gasV), Dir: f.dir(layout.W), Item: gas, In: true})
 	if two {
 		if err := pipeRow(waterV, "water", 0, end+1); err != nil {
 			return err

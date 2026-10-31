@@ -534,6 +534,46 @@ func UpgradeNew(l *layout.Layout, old []layout.Placement) int {
 	return n
 }
 
+// beltTier1 — ленты второго уровня → первого (Tier2 наоборот, только ленты, подземки, делители).
+var beltTier1 = map[string]string{"fast-transport-belt": "transport-belt", "fast-underground-belt": "underground-belt", "fast-splitter": "splitter"}
+
+// TierBack — что было вторым уровнем в старом плане (по месту и имени первого уровня).
+type TierBack map[tierKey]string
+
+type tierKey struct {
+	x, y float64
+	name string
+}
+
+// Tier1Belts — старый план list с лентами второго уровня под именами первого: разметка шин
+// (ленты, отводы, обходы — FillLanes, zLaneBelts…) узнаёт ленты по именам первого уровня; без
+// этого стадия 7 не видела быстрых лент стадии 6 и клала новую в их ряд (лента электродвигателей
+// в ряду электропечей bus-3, 267145981). back — вернуть имена после (RestoreTier2).
+func Tier1Belts(list []layout.Placement) ([]layout.Placement, TierBack) {
+	res := slices.Clone(list)
+	back := TierBack{}
+	for i := range res {
+		if t1, ok := beltTier1[res[i].Name]; ok {
+			back[tierKey{res[i].Pos.X, res[i].Pos.Y, t1}] = res[i].Name
+			res[i].Name = t1
+		}
+	}
+	return res, back
+}
+
+// RestoreTier2 — постройкам старого плана в l — их второй уровень (обратно Tier1Belts); сколько.
+func RestoreTier2(l *layout.Layout, back TierBack) int {
+	n := 0
+	for i := range l.List {
+		p := &l.List[i]
+		if t2, ok := back[tierKey{p.Pos.X, p.Pos.Y, p.Name}]; ok {
+			p.Name = t2
+			n++
+		}
+	}
+	return n
+}
+
 // AddLaneC — лента C блока лабораторий (cluster.md §2а «Лаборатории»): поперёк блока над первым
 // рядом лабораторий (ряд Head−2), от дальнего края к голове; инсертеры (ряд Head−1) — в каждую
 // лабораторию первого ряда, дальше пакеты идут от лаборатории к лаборатории. Подача — с

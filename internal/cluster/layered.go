@@ -71,6 +71,9 @@ func floorOf(c *Cluster) int {
 			case "rocket-silo":
 				return 3 // шахта — на этаже конечного продукта, справа (четвёртого этажа нет)
 			case "oil-refinery", "chemical-plant":
+				if c.Product == "battery" {
+					return 2 // батареи — снабжение (stages.md, стадия 55): химия из пластин и кислоты, выход — на bus-3 к рамам
+				}
 				return 1
 			}
 		}

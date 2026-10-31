@@ -410,8 +410,8 @@ func (b *Base) MoreMineZones(zones []Zone, it string, want float64) []Zone {
 		if pt.Name != it {
 			continue
 		}
-		if _, fluid := b.P.Fluids[pt.Name]; !fluid && pt.Amount < minBlockOre {
-			continue // меньше блока добычи — не зона (MineZones)
+		if _, fluid := b.P.Fluids[pt.Name]; !fluid && (pt.Amount < minBlockOre || !patchHasPair(b.W, pt)) {
+			continue // меньше блока добычи или пары буров не уложить — не зона (MineZones; 158846952, стадия 3: уголь 80k в 21×10)
 		}
 		r := Rect{pt.Min, world.Tile{X: pt.Max.X + 1, Y: pt.Max.Y + 1}}.Grow(ZoneBorder)
 		if slices.ContainsFunc(zones, func(z Zone) bool { return z.Rect.Overlaps(r) }) || b.avoids(r) {

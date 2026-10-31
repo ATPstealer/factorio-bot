@@ -71,7 +71,7 @@ func yellowBase() (*ClusterPlan, error) {
 
 // yellowGroups — новые кластеры проекта по группам размещения (слева направо: поставщики раньше
 // потребителей): переработка — НПЗ‑2, смазка и крекинг (смазка выше по трубе тяжёлого),
-// кислота, батареи; снабжение — электродвигатели, рамы, ЛПС, процессоры; конечный — жёлтая.
+// кислота; снабжение — батареи (химия), электродвигатели, рамы, ЛПС, процессоры; конечный — жёлтая.
 func yellowGroups(pr *knowledge.Prototypes) ([][]*cluster.Cluster, error) {
 	plan, err := calc.Solve(pr, map[string]float64{yellowPack: yellowRate}, calc.Options{All: true, Machines: yellowMachines})
 	if err != nil {
@@ -132,7 +132,9 @@ func yellowGroups(pr *knowledge.Prototypes) ([][]*cluster.Cluster, error) {
 		{acid, []string{"sulfur", "iron-plate", "water"}},
 		{battery, []string{"iron-plate", "copper-plate", "sulfuric-acid"}},
 		{by["electric-engine-unit"], []string{"engine-unit", "electronic-circuit", "lubricant"}},
-		{by["flying-robot-frame"], []string{"electric-engine-unit", "battery", "steel-plate", "electronic-circuit"}},
+		// лента входа — сталь (снизу, bus-2) | зелёные (сверху, bus-3); лента C — электродвигатели |
+		// батареи (сверху, bus-3) — stages.md, стадия 57
+		{by["flying-robot-frame"], []string{"steel-plate", "electronic-circuit", "electric-engine-unit", "battery"}},
 		{by["low-density-structure"], []string{"copper-plate", "plastic-bar", "steel-plate"}},
 		{by["processing-unit"], []string{"electronic-circuit", "advanced-circuit", "sulfuric-acid"}},
 		{by[yellowPack], []string{"flying-robot-frame", "low-density-structure", "processing-unit"}},
@@ -227,6 +229,10 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 	if err != nil {
 		return nil, nil, err
 	}
+	// быстрые ленты стадии 6 — на время разметки обычными (разметка шин узнаёт ленты по ним),
+	// в конце — назад
+	var back cluster.TierBack
+	old.Layout, back = cluster.Tier1Belts(old.Layout)
 	base := cluster.NewBase(pr, h.World, world.Tile{})
 	base.Log = h.Log
 	base.Avoid = avoid
@@ -425,6 +431,7 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 	}
 	// всё новое — вторым уровнем (stages.md, стадия 42: с 43-й все новые постройки — второго уровня)
 	h.Say("второй уровень: %d новых построек", cluster.UpgradeNew(l, old.Layout))
+	cluster.RestoreTier2(l, back)
 	all := append(base.Sorted(), buses...)
 	return base, l, writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})
 }

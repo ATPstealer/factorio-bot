@@ -424,9 +424,14 @@ func fluidMakeRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 // насос (TankJoinPump). Перед подключением трубы шин выводятся на поверхность (SurfaceLanes:
 // к подземной подключиться негде), после — снова под землю (UnderPipes) зовёт стадия.
 func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus map[string]int) error {
-	// докуда нужна труба жидкости: дальний потребитель или поставщик + 20
+	// докуда нужна труба жидкости: дальний потребитель или поставщик + 20; добыча нефти — не к
+	// трубе шины, а трассой в склад (OilTrunk): труба нефти тянулась к дальнему месторождению
+	// за край шины (1330900585, стадия 7)
 	ends := map[string]int{}
 	for _, c := range b.Clusters {
+		if c.Kind == Mine {
+			continue
+		}
 		for _, fl := range append(slices.Clone(c.In), c.Out...) {
 			if _, ok := b.P.Fluids[fl.Item]; ok {
 				ends[fl.Item] = max(ends[fl.Item], c.Area.Max.X+20)
@@ -451,6 +456,9 @@ func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus ma
 	}
 	for _, in := range []bool{false, true} {
 		for _, c := range cs {
+			if c.Kind == Mine {
+				continue // нефть с месторождения — трассой в склад (46082668: oil-3 подключался к трубе bus-1)
+			}
 			if c.Kind == Tank {
 				if in {
 					tag, err := ensure(c.Product)
@@ -526,7 +534,10 @@ func extendPipeLane(l *layout.Layout, tag string, end int) error {
 	if last+1 >= end {
 		return nil
 	}
-	return pipeAlong(l, last+1, end, y, tag)
+	// по ряду не прошла (препятствие длиннее подземки: 1330900585, труба газа bus-2) — сколько
+	// легло, столько и есть: к трубе подключаются в любом месте (JoinPipe ищет путь сам)
+	_ = pipeAlong(l, last+1, end, y, tag)
+	return nil
 }
 
 // SurfaceLanes — трубы шин buses обратно на поверхность (обратно UnderPipes): подземная пара,
