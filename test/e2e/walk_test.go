@@ -157,6 +157,82 @@ func TestUnstuckBetweenEngines(t *testing.T) {
 	clean(t, h)
 }
 
+// Выход из кольца с полным инвентарём (стадия 46 на 267145981: персонаж среди полных сундуков
+// буферов, инвентарь полон после подъёма лент с чужим, до хранения не дойти — ни одну постройку
+// не поднять, по кругу на каждом дереве расчистки). Инвентарь наполняется из сундуков базы
+// (нечем — пропуск), в запасе один сундук; кольцо из 8 сундуков; «иди туда» за кольцо. Бот
+// должен освободить ячейку на месте (запасной сундук рядом или стопка на землю) и выйти.
+func TestUnstuckFullInventory(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 10*time.Minute)
+	have(t, h, "iron-chest", 9)
+	p, _ := h.B.Player()
+	chests, err := h.B.FindNearest(bridge.FindArgs{Type: "container", Radius: 400, Limit: 60, Position: &p.Position})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := func() bool {
+		q, err := h.B.Player()
+		return err == nil && q.InventorySize-len(q.InventorySlots) == 0
+	}
+	for _, e := range chests {
+		if full() {
+			break
+		}
+		if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || !st.Own {
+			continue
+		}
+		if _, err := h.Take(ctx, e); err != nil {
+			t.Logf("забрать из %s: %v", e.Name, err)
+		}
+	}
+	if !full() {
+		t.Skip("инвентарь не наполнить: мало сундуков с содержимым рядом")
+	}
+	c := freeArea(t, h, 2*(8+2)+1)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = h.B.Player()
+	ct := world.TileOf(p.Position)
+	var ring []bridge.Pos
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx != 0 || dy != 0 {
+				ring = append(ring, world.Tile{X: ct.X + dx, Y: ct.Y + dy}.Center())
+			}
+		}
+	}
+	if _, err := h.PlaceAll(ctx, "iron-chest", ring, act.North); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); !h.World.Enclosed(p.Position) {
+		t.Fatalf("кольцо не замкнуто: персонаж в (%.2f, %.2f)", p.Position.X, p.Position.Y)
+	}
+	if !full() {
+		t.Fatalf("инвентарь после кольца не полон")
+	}
+	target := bridge.Pos{X: ct.Center().X + 8, Y: ct.Center().Y}
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = h.B.Player()
+	if d := math.Hypot(p.Position.X-target.X, p.Position.Y-target.Y); d > 0.5 {
+		t.Errorf("до цели осталось %.2f", d)
+	}
+	left := 0
+	for _, pos := range ring {
+		if e, _ := h.B.EntityAt("iron-chest", pos); e != nil {
+			left++
+		}
+	}
+	t.Logf("сундуков кольца на месте: %d из %d", left, len(ring))
+	clean(t, h)
+}
+
 // Дойти до точки за лентами, которые несут по кругу назад (стадия 17 на 859088572: «не дошёл
 // до (46.7, -26.8): стою в (48.61, -27.02)», доводка 11.5 с). Раскладка у места — от тайла
 // персонажа C (48,-28): на запад (C-1,0) лента на юг, под ней (C-1,+1) — на восток, (C,+1) и
