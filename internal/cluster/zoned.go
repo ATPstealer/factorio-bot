@@ -193,6 +193,12 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 			// над собой): продукт кладётся в ленту шины у столбца поставщика, отвод — только ниже
 			// по течению (zones.md)
 			for _, in := range c.In {
+				if _, fluid := b.P.Fluids[in.Item]; fluid {
+					// жидкость — трубой, к трубе шины подключаются в любом месте: поставщик (кислота
+					// справа на переработке) не тянет потребителей вправо (238178543: батареи,
+					// процессоры, рамы — за кислотой, жёлтой не осталось места)
+					continue
+				}
 				first := math.MaxInt // самый левый поставщик предмета
 				for _, p := range b.Clusters {
 					if f2 := floorOf(p); f2 > 0 && (f2 < f || f2 == f && c.TakesAbove()) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
@@ -212,6 +218,11 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 				ps, err := b.placePieces(c, parts)
 				if err != nil {
 					return nil, nil, err
+				}
+				for _, x := range append([]*Cluster{c}, ps...) {
+					if x.HeadAbove { // голова — к шине сверху, как у лабораторий (площадь та же)
+						x.Upright, x.Rect = false, x.Area
+					}
 				}
 				placed = append(placed, ps...)
 				continue

@@ -252,6 +252,12 @@ func Extra(p *knowledge.Prototypes, cs []*Cluster, c *Cluster, built, n int) (*C
 	if c.Kind != Smelt && c.Kind != Make && c.Kind != Mine {
 		return nil, fmt.Errorf("cluster: %s: новый кластер вида %s — пока не умею", c.Name, c.Kind)
 	}
+	if c.Sub != "" {
+		// пара (промежуточное внутри) — как стоящий кластер: в расчёте всей базы промежуточное
+		// бывает своим кластером с шины, а его ленты на шине нет (158846952, стадия 7: красные
+		// схемы-2 ждали провод с bus-3)
+		cs = []*Cluster{c}
+	}
 	for _, o := range cs {
 		if o.Kind != c.Kind || o.Product != c.Product {
 			continue
@@ -267,6 +273,7 @@ func Extra(p *knowledge.Prototypes, cs []*Cluster, c *Cluster, built, n int) (*C
 		}
 		x := scaleCluster(o, float64(n-built)/m)
 		x.Name, x.Area, x.Rect, x.Ports, x.Zone = "", Rect{}, Rect{}, nil, nil
+		x.MinX, x.MaxX, x.Upright, x.Vertical = nil, nil, false, false
 		shape(p, x)
 		if x.Kind == Mine { // новое пятно — блоком, вторая итерация (cluster.md §2а «Добыча»)
 			x.Ore = OreNext

@@ -43,11 +43,6 @@ var yellowSeparate = append([]string{"battery", "electric-engine-unit", "flying-
 // yellowOrder — новые кластеры сборки: поставщики раньше потребителя (zones.md: потребитель правее).
 var yellowOrder = []string{"battery", "electric-engine-unit", "flying-robot-frame", "low-density-structure", "processing-unit", yellowPack}
 
-// yellowFluidBus — шина трубы каждой жидкости (stages.md, стадия 7): нефть и вода — bus-1,
-// продукты переработки — bus-2 (над этажом переработки).
-var yellowFluidBus = map[string]int{"crude-oil": 0, "water": 0, "heavy-oil": 1, "light-oil": 1, "petroleum-gas": 1,
-	"lubricant": 1, "sulfuric-acid": 1}
-
 func init() {
 	register(Stage{N: 7, Name: "проект жёлтой науки", Run: runYellowPlan, Check: checkYellowPlan, Plan: true})
 }
@@ -114,6 +109,7 @@ func yellowGroups(pr *knowledge.Prototypes) ([][]*cluster.Cluster, error) {
 	lube := cluster.ChemFluid(pr, "lubricant", count("chemical-plant", "lubricant", need("lubricant"), 2))
 	crack := cluster.ChemFluid(pr, "heavy-oil-cracking", 2)
 	acid := cluster.ChemFluid(pr, "sulfuric-acid", max(count("chemical-plant", "sulfuric-acid", need("sulfuric-acid"), 2), 3))
+	acid.HeadAbove = true // сера и железо — с bus-2 над переработкой: голова (подачи, буферы) — сверху
 	battery := cluster.Chem(pr, "battery", count("chemical-plant", "battery", need("battery"), cluster.MinUnits))
 	battery.HeadBuffers() // буферы железа и меди в голове (cluster.md §6)
 	for _, c := range []*cluster.Cluster{by["electric-engine-unit"], by["processing-unit"]} {
@@ -370,7 +366,7 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 	// трубы шин: старые — на поверхность (к подземной не подключиться), подключение всех
 	// жидкостных портов новых кластеров и складов, потом снова под землю, где не подходят
 	cluster.SurfaceLanes(l, zb)
-	if err := base.FluidPipes(l, zb, fresh, yellowFluidBus); err != nil {
+	if err := base.FluidPipes(l, zb, fresh, cluster.FluidBus); err != nil {
 		return base, l, err
 	}
 	cluster.UnderPipes(l, zb)

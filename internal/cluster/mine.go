@@ -46,6 +46,9 @@ func (b *Base) mineRect(c *Cluster, z Zone, head world.Tile) (Rect, bool) {
 		if r.W() < 7 || r.H() < 7 {
 			continue // вне зоны или узко: ни одного ряда (7 поперёк) не встанет
 		}
+		if p.Amount < minBlockOre || !blockHasDrill(b.W, r, c.Product) {
+			continue // клочок в зоне у большого пятна: ни одного бура (17466282, стадия 3: железо 8×8)
+		}
 		if d := math.Hypot(p.Center.X-float64(head.X), p.Center.Y-float64(head.Y)); d < bd {
 			best, bd = r, d
 		}

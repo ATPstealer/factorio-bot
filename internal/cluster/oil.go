@@ -638,7 +638,7 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 			gas = ing.Name
 		}
 	}
-	if floorOf(c) == 2 { // химия на снабжении (батареи): жидкость — с шины снизу, вход у головы
+	if fluidAtHead(c, gas) { // жидкость — с шины у головы (батареи на снабжении: кислота с bus-2 снизу)
 		if err := pipeRow(gasV, gas, 0, end+1); err != nil {
 			return err
 		}
@@ -889,7 +889,19 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 		if !ok {
 			return fmt.Errorf("cluster %s: насосу нет места у (%d, %d)", field.Name, p.X, p.Y)
 		}
+		// место насоса — закрыто на время отрезка: труба шла через него (238178543, стадия 5:
+		// подземная труба и насос на одном тайле)
+		var shut []world.Tile
+		for _, t := range layout.Tiles(l.P, pump) {
+			if !l.Solid[t] {
+				l.Solid[t] = true
+				shut = append(shut, t)
+			}
+		}
 		leg, err := l.RoutePipe(cur, in, tag)
+		for _, t := range shut {
+			delete(l.Solid, t)
+		}
 		if err != nil {
 			return fmt.Errorf("нефтетрасса %s → насос %d у (%d, %d): %w", field.Name, k, p.X, p.Y, err)
 		}

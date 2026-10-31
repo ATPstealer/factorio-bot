@@ -19,7 +19,53 @@ import (
 // одной жидкости проходит через своё соединение прямо, чужие соединения в том же ряду обходит
 // парой подземных труб (подземная труба сбоку не соединяется), а соединение чужой жидкости
 // уводится подземной парой в свой ряд дальше от машины. Ряды труб разных жидкостей — через
-// пустой ряд (cluster.md §5: соседние трубы соединяются).
+// пустой ряд (cluster.md §5: соседние трубы соединяются). Порт жидкости — с той стороны ряда,
+// где её шина (FluidBus): вода и нефть — с bus-1, продукты переработки — с bus-2.
+
+// FluidBus — шина трубы каждой жидкости (номер в списке шин: 0 — bus-1; stages.md, стадия 7):
+// нефть и вода — bus-1, продукты этажа переработки — bus-2 (над ним).
+var FluidBus = map[string]int{"crude-oil": 0, "water": 0, "heavy-oil": 1, "light-oil": 1, "petroleum-gas": 1,
+	"lubricant": 1, "sulfuric-acid": 1}
+
+// fluidAtHead — порт жидкости fluid кластера c — у головы ряда (u = −1), иначе — у конца (u = L):
+// со стороны её шины (снизу этажа или сверху); голова — снизу у Upright, сверху — без него.
+func fluidAtHead(c *Cluster, fluid string) bool {
+	k, ok := FluidBus[fluid]
+	if !ok {
+		return false
+	}
+	below := k < floorOf(c)
+	return below == c.Upright
+}
+
+// fluidPortAt — ряд трубы v жидкости fluid и порт со стороны её шины: порт у головы — ряд с 0 до
+// end (последнее соединение машин), у конца — с u0 до L−1.
+func fluidPortAt(l *layout.Layout, f frame, c *Cluster, v, u0, end, L int, fluid, tag string, in bool, skip map[world.Tile]bool, add func(layout.Placement) error) error {
+	head := fluidAtHead(c, fluid)
+	from, to := u0, L
+	if head {
+		from, to = 0, end
+	}
+	if err := pipeRowSkip(l, f, v, from, to, tag, skip, add); err != nil {
+		return err
+	}
+	// порт: вход — поток в ряд, выход — из ряда (JoinLane: тайл трубы кластера — с той стороны,
+	// откуда течёт вход / куда течёт выход)
+	if head {
+		d := layout.E // от головы внутрь ряда
+		if !in {
+			d = layout.W
+		}
+		c.Ports = append(c.Ports, Port{T: f.tile(-1, v), Dir: f.dir(d), Item: fluid, In: in})
+		return nil
+	}
+	d := layout.W
+	if !in {
+		d = layout.E
+	}
+	c.Ports = append(c.Ports, Port{T: f.tile(L, v), Dir: f.dir(d), Item: fluid, In: in})
+	return nil
+}
 
 // coord — координаты тайла t в системе ряда f (поиск в окне); false — вне окна.
 func (f frame) coord(t world.Tile, umax, vmax int) (u, v int, ok bool) {
@@ -198,23 +244,17 @@ func refineryAdvRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, ad
 		}
 	}
 	// ряд входа 1: прямые трубы, через чужие соединения — подземной парой; вход 2 и продукты —
-	// свои ряды целиком
-	if err := pipeRowSkip(l, f, refAdvInV, 0, end, rowTag(fluidsIn[0]), skipIn, add); err != nil {
+	// свои ряды целиком; порты — со стороны шины каждой жидкости
+	if err := fluidPortAt(l, f, c, refAdvInV, c.Head, end, L, fluidsIn[0], rowTag(fluidsIn[0]), true, skipIn, add); err != nil {
 		return err
 	}
-	if err := pipeRowSkip(l, f, refAdvIn2V, 0, end, rowTag(fluidsIn[1]), nil, add); err != nil {
+	if err := fluidPortAt(l, f, c, refAdvIn2V, c.Head, end, L, fluidsIn[1], rowTag(fluidsIn[1]), true, nil, add); err != nil {
 		return err
 	}
 	for k, v := range refAdvOutRows {
-		if err := pipeRowSkip(l, f, v, c.Head, L, rowTag(fluidsOut[k]), nil, add); err != nil {
+		if err := fluidPortAt(l, f, c, v, c.Head, end, L, fluidsOut[k], rowTag(fluidsOut[k]), false, nil, add); err != nil {
 			return err
 		}
-	}
-	c.Ports = append(c.Ports,
-		Port{T: f.tile(-1, refAdvInV), Dir: f.dir(layout.E), Item: fluidsIn[0], In: true},
-		Port{T: f.tile(-1, refAdvIn2V), Dir: f.dir(layout.E), Item: fluidsIn[1], In: true})
-	for k, v := range refAdvOutRows {
-		c.Ports = append(c.Ports, Port{T: f.tile(L, v), Dir: f.dir(layout.E), Item: fluidsOut[k]})
 	}
 	return nil
 }
@@ -300,15 +340,18 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 			return err
 		}
 	}
-	if err := pipeRowSkip(l, f, inV, 1, L, rowTag(fluidsIn[0]), skipIn, add); err != nil {
+	// порты жидкостей — со стороны их шин (у головы — только без предметов: голова занята подачами
+	// и буферами; кислоте с предметами с шины сверху голова — сверху, HeadAbove)
+	if len(solids) > 0 && fluidAtHead(c, fluidsIn[0]) {
+		return fmt.Errorf("cluster %s: %s — с шины у головы, а голова занята подачами предметов", c.Name, fluidsIn[0])
+	}
+	if err := fluidPortAt(l, f, c, inV, 1, end, L, fluidsIn[0], rowTag(fluidsIn[0]), true, skipIn, add); err != nil {
 		return err
 	}
-	c.Ports = append(c.Ports, Port{T: f.tile(L, inV), Dir: f.dir(layout.W), Item: fluidsIn[0], In: true})
 	if len(fluidsIn) == 2 {
-		if err := pipeRowSkip(l, f, in2V, 1, L, rowTag(fluidsIn[1]), nil, add); err != nil {
+		if err := fluidPortAt(l, f, c, in2V, 1, end, L, fluidsIn[1], rowTag(fluidsIn[1]), true, nil, add); err != nil {
 			return err
 		}
-		c.Ports = append(c.Ports, Port{T: f.tile(L, in2V), Dir: f.dir(layout.W), Item: fluidsIn[1], In: true})
 	}
 	if len(solids) > 0 { // лента предметов: подачи боком в голову по полосам, буферы в голове
 		if err := sideIn(beltV); err != nil {
@@ -329,11 +372,7 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 			}
 		}
 	}
-	if err := pipeRowSkip(l, f, outV, c.Head, L, rowTag(product), nil, add); err != nil {
-		return err
-	}
-	c.Ports = append(c.Ports, Port{T: f.tile(L, outV), Dir: f.dir(layout.E), Item: product})
-	return nil
+	return fluidPortAt(l, f, c, outV, c.Head, end, L, product, rowTag(product), false, nil, add)
 }
 
 // FluidMake — сборка с жидкостью на входе (stages.md, стадия 55; cluster.md §2а «Сборка»):
@@ -389,10 +428,11 @@ func fluidMakeRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 			return err
 		}
 	}
-	if err := pipeRowSkip(l, f, pipeV, c.Head, L, rowTag, nil, add); err != nil {
+	// жидкость — со стороны её шины (смазка, кислота — с bus-2 под снабжением: у головы; ряд
+	// трубы в голове свободен — буферы в рядах инсертеров и за лентой выхода)
+	if err := fluidPortAt(l, f, c, pipeV, c.Head, end, L, fluid, rowTag, true, nil, add); err != nil {
 		return err
 	}
-	c.Ports = append(c.Ports, Port{T: f.tile(L, pipeV), Dir: f.dir(layout.W), Item: fluid, In: true})
 	if err := sideIn(beltV); err != nil {
 		return err
 	}
@@ -454,6 +494,35 @@ func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus ma
 		}
 		return tag, extendPipeLane(l, tag, end)
 	}
+	// порты жидкостей до подключения закрыты вместе с соседними тайлами: труба, проложенная раньше
+	// вплотную к чужому порту, закрывала ему начало («чужая труба рядом» — 158846952, крекинг)
+	guard := map[world.Tile][]Port{}
+	for _, c := range cs {
+		for _, p := range c.Ports {
+			if _, fl := b.P.Fluids[p.Item]; !fl || c.Kind == Mine {
+				continue
+			}
+			for _, t := range []world.Tile{p.T, layout.Step(p.T, layout.N), layout.Step(p.T, layout.E), layout.Step(p.T, layout.S), layout.Step(p.T, layout.W)} {
+				if l.Free(t, layout.AnyLand) {
+					l.Reserved[t] = true
+					guard[t] = append(guard[t], p)
+				}
+			}
+		}
+	}
+	open := func(p Port) {
+		for t, ps := range guard {
+			if slices.Contains(ps, p) {
+				delete(l.Reserved, t)
+				delete(guard, t)
+			}
+		}
+	}
+	defer func() {
+		for t := range guard {
+			delete(l.Reserved, t)
+		}
+	}()
 	for _, in := range []bool{false, true} {
 		for _, c := range cs {
 			if c.Kind == Mine {
@@ -479,6 +548,7 @@ func (b *Base) FluidPipes(l *layout.Layout, buses []*ZBus, cs []*Cluster, bus ma
 				if err != nil {
 					return err
 				}
+				open(p)
 				if err := JoinLane(l, c, p, tag); err != nil {
 					return err
 				}
@@ -572,8 +642,12 @@ func SurfaceLanes(l *layout.Layout, buses []*ZBus) {
 		for _, x := range ends {
 			out := -1
 			for k := x + 1; k <= x+maxUG+1; k++ {
-				q := l.At(world.Tile{X: k, Y: y})
+				t := world.Tile{X: k, Y: y}
+				q := l.At(t)
 				if q == nil {
+					if !l.Free(t, layout.AnyLand) || fluidNear(l, t, tag) {
+						break // под парой — вода, утёс или закрытое: пара на месте (238178543: вода bus-1 рвалась)
+					}
 					continue
 				}
 				if q.Tag == tag && q.Name == ptg && q.Dir == layout.E {
