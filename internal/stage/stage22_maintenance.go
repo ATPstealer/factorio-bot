@@ -580,8 +580,28 @@ func planFix(ctx context.Context, h *act.Hands, s *worker, list []layout.Placeme
 			return err
 		}
 	}
+	// подземки не так (не тем концом, направление) — все разом: снять и поставить стройкой, она
+	// ставит входы раньше выходов (по одной в порядке списка выход вставал раньше входа — игра
+	// делала все концы наоборот, груз уходил на соседнюю ленту шины: стадия 47 на 427965634)
+	var ugs []layout.Placement
+	var ugEnts []bridge.Entity
 	for _, d := range diffs {
-		if d.st == nil {
+		if d.st != nil && strings.HasSuffix(d.pl.Name, "underground-belt") {
+			ugs = append(ugs, d.pl)
+			ugEnts = append(ugEnts, d.st.Entity)
+		}
+	}
+	if len(ugs) > 0 {
+		h.Say("сверка: %d подземок не так — снимаю и ставлю заново по порядку", len(ugs))
+		if err := h.PickupAll(ctx, ugEnts); err != nil {
+			return err
+		}
+		if err := buildSorted(ctx, h, ugs, []string{"underground-belt", "fast-underground-belt"}); err != nil {
+			return err
+		}
+	}
+	for _, d := range diffs {
+		if d.st == nil || strings.HasSuffix(d.pl.Name, "underground-belt") {
 			continue
 		}
 		var err error
@@ -593,9 +613,8 @@ func planFix(ctx context.Context, h *act.Hands, s *worker, list []layout.Placeme
 				item = filterHold // не открыт — заглушка, чтобы инсертер стоял
 			}
 			err = h.SetFilter(ctx, d.st.Entity, item)
-		case strings.HasSuffix(d.pl.Name, "underground-belt"), strings.HasSuffix(d.pl.Name, "splitter") && d.st.Direction != nil && *d.st.Direction%8 != d.pl.Dir%8:
-			// подземку R не поворачивает (меняет вход/выход), делитель поперёк — сдвинет центр:
-			// поднять и поставить заново
+		case strings.HasSuffix(d.pl.Name, "splitter") && d.st.Direction != nil && *d.st.Direction%8 != d.pl.Dir%8:
+			// делитель поперёк — сдвинет центр: поднять и поставить заново
 			if err = h.Pickup(ctx, d.st.Entity); err == nil {
 				_, err = h.PlaceDirs(ctx, d.pl.Name, []bridge.Pos{d.pl.Pos}, []int{d.pl.Dir})
 			}
