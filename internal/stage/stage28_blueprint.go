@@ -102,10 +102,14 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 	if err != nil {
 		return nil, err
 	}
+	// прав план: и сохранённый, и чертёж стадии (стадия 42 — с проектом синей: делитель отвода
+	// на месте ленты плана, а в раскладке стадии 18 — ещё лента; 427965634 на бумаге)
 	taken := map[world.Tile]layout.Placement{}
-	for _, pl := range plan.Layout {
-		for _, t := range layout.Tiles(h.Protos, pl) { // все тайлы (делитель — два)
-			taken[t] = pl
+	for _, list := range [][]layout.Placement{plan.Layout, res} {
+		for _, pl := range list {
+			for _, t := range layout.Tiles(h.Protos, pl) { // все тайлы (делитель — два)
+				taken[t] = pl
+			}
 		}
 	}
 	have := map[layout.Placement]bool{}
