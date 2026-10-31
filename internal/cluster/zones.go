@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"container/heap"
 	"fmt"
 	"math"
 	"slices"
@@ -142,7 +143,7 @@ func (b *Base) Zones(lay *Layered) []Zone {
 // тайлов. Возвращает функцию: расстояние до ближайшего тайла прямоугольника и достижим ли он.
 func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, bool) {
 	const step = 2
-	type cell struct{ x, y int }
+	const _ = 0
 	land := func(c cell) bool {
 		switch w.TileAt(world.Tile{X: c.x * step, Y: c.y * step}) {
 		case world.Land, world.Shallow:
@@ -151,22 +152,40 @@ func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, b
 		return false
 	}
 	o := cell{origin.X / step, origin.Y / step}
-	d := map[cell]int{o: 0}
-	queue := []cell{o}
+	// Дейкстра по 8 соседям (диагональ — √2): расстояние близко к настоящему, а не
+	// манхэттенское (4 соседа тянули к пятнам по прямой на юг вместо юго-западных — 17466282)
+	d := map[cell]float64{o: 0}
+	done := map[cell]bool{}
+	pq := &cellHeap{{o, 0}}
 	lim := limit / step
-	for len(queue) > 0 {
-		c := queue[0]
-		queue = queue[1:]
-		for _, n := range []cell{{c.x + 1, c.y}, {c.x - 1, c.y}, {c.x, c.y + 1}, {c.x, c.y - 1}} {
-			if _, seen := d[n]; seen || abs(n.x-o.x) > lim || abs(n.y-o.y) > lim || !land(n) {
-				continue
+	for pq.Len() > 0 {
+		cur := heap.Pop(pq).(cellDist)
+		if done[cur.c] {
+			continue
+		}
+		done[cur.c] = true
+		for dx := -1; dx <= 1; dx++ {
+			for dy := -1; dy <= 1; dy++ {
+				if dx == 0 && dy == 0 {
+					continue
+				}
+				n := cell{cur.c.x + dx, cur.c.y + dy}
+				if done[n] || abs(n.x-o.x) > lim || abs(n.y-o.y) > lim || !land(n) {
+					continue
+				}
+				w := 1.0
+				if dx != 0 && dy != 0 {
+					w = math.Sqrt2
+				}
+				if v, seen := d[n]; !seen || cur.d+w < v {
+					d[n] = cur.d + w
+					heap.Push(pq, cellDist{n, cur.d + w})
+				}
 			}
-			d[n] = d[c] + 1
-			queue = append(queue, n)
 		}
 	}
 	return func(r Rect) (int, bool) {
-		best, ok := 0, false
+		best, ok := 0.0, false
 		for y := r.Min.Y / step; y <= r.Max.Y/step; y++ {
 			for x := r.Min.X / step; x <= r.Max.X/step; x++ {
 				if v, seen := d[cell{x, y}]; seen && (!ok || v < best) {
@@ -174,24 +193,50 @@ func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, b
 				}
 			}
 		}
-		return best * step, ok
+		return int(best * step), ok
 	}
 }
+
+type cellDist struct {
+	c cell
+	d float64
+}
+
+type cellHeap []cellDist
+
+func (h cellHeap) Len() int           { return len(h) }
+func (h cellHeap) Less(i, j int) bool { return h[i].d < h[j].d }
+func (h cellHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *cellHeap) Push(x any)        { *h = append(*h, x.(cellDist)) }
+func (h *cellHeap) Pop() any          { o := *h; v := o[len(o)-1]; *h = o[:len(o)-1]; return v }
 
 // patchHasPair — на пятне укладывается пара буров ряда блока добычи (zones.md §4): два бура
 // через 4 тайла вдоль ряда (как в mineBlock), у каждого под зоной добычи 5×5 больше половины —
 // свой ресурс.
-func patchHasPair(pt world.Patch) bool {
+func patchHasPair(w *world.World, pt world.Patch) bool {
 	own := map[world.Tile]bool{}
 	for _, t := range pt.Tiles {
 		own[t] = true
 	}
+	// как mineBlock: под зоной добычи 5×5 больше половины — свой ресурс и ни тайла чужого
+	// (OreUnder: mixed), сам бур 3×3 — на суше (17466282: пятно с чужой рудой прошло проверку
+	// по числу тайлов, блок не поставил ни одного бура)
 	fits := func(cx, cy int) bool {
 		n := 0
 		for y := cy - 2; y <= cy+2; y++ {
 			for x := cx - 2; x <= cx+2; x++ {
-				if own[world.Tile{X: x, Y: y}] {
+				t := world.Tile{X: x, Y: y}
+				if own[t] {
 					n++
+				} else if r, ok := w.ResourceAt(t); ok && r.Name != pt.Name {
+					return false
+				}
+			}
+		}
+		for y := cy - 1; y <= cy+1; y++ {
+			for x := cx - 1; x <= cx+1; x++ {
+				if ok, _ := w.Buildable(world.Tile{X: x, Y: y}); !ok {
+					return false
 				}
 			}
 		}
@@ -257,7 +302,7 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 			}
 			// и пара буров ряда на нём укладывается (решение пользователя; 158846952: уголь 80k
 			// в зоне 21×10 — «ни одного бура на coal»)
-			if _, fluid := b.P.Fluids[pt.Name]; !fluid && !patchHasPair(pt) {
+			if _, fluid := b.P.Fluids[pt.Name]; !fluid && !patchHasPair(b.W, pt) {
 				continue
 			}
 			if !reach[i] && have > 0 {
@@ -409,3 +454,6 @@ const (
 func union(a, b Rect) Rect {
 	return Rect{world.Tile{X: min(a.Min.X, b.Min.X), Y: min(a.Min.Y, b.Min.Y)}, world.Tile{X: max(a.Max.X, b.Max.X), Y: max(a.Max.Y, b.Max.Y)}}
 }
+
+// cell — ячейка сетки заливки landDist (шаг 2 тайла).
+type cell struct{ x, y int }
