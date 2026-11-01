@@ -192,12 +192,30 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток, как на
 	// стадиях 4–6)
 	fails := map[string]int{} // неудач подвода у кластера
+	var wide map[world.Tile]bool // тайлы последнего запрета части зоны (откат, если места не стало)
+	var wideArea cluster.Rect
 	for try := 0; ; try++ {
 		base, l, err := yellowTry(h, rough, built, avoid)
 		if err == nil {
 			return nil
 		}
 		ce, ok := err.(*cluster.ConnectError)
+		if _, nosite := err.(*cluster.NoSiteError); (nosite || strings.Contains(err.Error(), "нет места")) && wide != nil && try < 9 {
+			// под запретом части зоны места не осталось (427965634: процессоры) — запрет части
+			// снять, взамен — площадь кластера с запасом
+			for t := range wide {
+				delete(avoid, t)
+			}
+			g := wideArea.Grow(15)
+			for y := g.Min.Y; y < g.Max.Y; y++ {
+				for x := g.Min.X; x < g.Max.X; x++ {
+					avoid[world.Tile{X: x, Y: y}] = true
+				}
+			}
+			h.Say("под запретом части зоны места нет — запрет снят, взамен %v", g)
+			wide = nil
+			continue
+		}
 		if !ok || try >= 9 {
 			if base != nil && l != nil {
 				planDraw(h, rough.Zones, base, l, yellowImage()) // что вышло — на картинку
@@ -229,7 +247,9 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 				}
 			}
 			if parts > 1 {
+				wideArea = a
 				a = *ce.Consumer.Zone
+				wide = map[world.Tile]bool{}
 			} else {
 				a = a.Grow(15)
 			}
@@ -237,7 +257,11 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 		}
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {
-				avoid[world.Tile{X: x, Y: y}] = true
+				t := world.Tile{X: x, Y: y}
+				if wide != nil && !avoid[t] {
+					wide[t] = true
+				}
+				avoid[t] = true
 			}
 		}
 	}
