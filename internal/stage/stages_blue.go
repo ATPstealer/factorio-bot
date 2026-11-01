@@ -136,7 +136,7 @@ func labsOn(item string) func(h *act.Hands, list []layout.Placement) error {
 		if !needs {
 			return fmt.Errorf("текущее исследование %q не на %s", f.Current, item)
 		}
-		plan, err := LoadBluePlan()
+		plan, err := LoadPlan()
 		if err != nil {
 			return err
 		}

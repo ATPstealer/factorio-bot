@@ -399,11 +399,9 @@ func dropStorageExtra(pos bridge.Pos) error {
 func storageExtra(h *act.Hands, list []layout.Placement, n int) ([]layout.Placement, error) {
 	// весь план, с синей: места трассы нефти и прочего проекта синей — не под сундуки (стадия 34
 	// на 1028292478: сундук встал на месте подземной трубы)
-	plan, err := LoadBluePlan()
+	plan, err := LoadPlan()
 	if err != nil {
-		if plan, err = LoadPlan(); err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return nil, err

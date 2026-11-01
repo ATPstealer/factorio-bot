@@ -171,7 +171,7 @@ func extras(h *act.Hands, want []layout.Placement) ([]world.Object, error) {
 	// что есть в плане на потом (весь план, с синей и фиолетовой) — не лишнее: поставленное
 	// раньше срока не разбирать (лента камня bus-1 — старым кодом на стадии 22, а по чертежу —
 	// стадия 30)
-	if full, err := LoadWholePlan(); err == nil {
+	if full, err := LoadPlan(); err == nil {
 		for _, pl := range full.Layout {
 			in[k(pl.Name, pl.Pos)] = true
 		}

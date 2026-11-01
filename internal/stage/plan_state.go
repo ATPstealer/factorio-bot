@@ -45,15 +45,6 @@ func LoadPlan() (*ClusterPlan, error) {
 	return s, nil
 }
 
-// LoadBluePlan, LoadPurplePlan, LoadWholePlan — тот же план всей базы (раньше — планы до
-// проектов синей, фиолетовой и жёлтой науки; стадии берут из него своё).
-func LoadBluePlan() (*ClusterPlan, error)   { return LoadPlan() }
-func LoadPurplePlan() (*ClusterPlan, error) { return LoadPlan() }
-func LoadWholePlan() (*ClusterPlan, error)  { return LoadPlan() }
-
-// rawPlan — план как сохранён.
-func rawPlan() (*ClusterPlan, error) { return LoadPlan() }
-
 // LoadPlanFile — план кластеров из файла состояния (bin/bot flow — разбор течения по плану).
 func LoadPlanFile(path string) (*ClusterPlan, error) { return loadPlanFile(path) }
 

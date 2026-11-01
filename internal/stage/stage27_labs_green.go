@@ -104,7 +104,7 @@ func runLabsGreen(ctx context.Context, h *act.Hands) error {
 	}
 	// вход буфера, чей выход кладёт на чужую полосу (crossBuffers), — снять, если уже стоит
 	// (раскладка стадии 21 его ставила): иначе забирает зелёный с ленты весь
-	raw, err := rawPlan() // по плану целиком: подачи — до лент шины
+	raw, err := LoadPlan() // по плану целиком: подачи — до лент шины
 	if err != nil {
 		return err
 	}

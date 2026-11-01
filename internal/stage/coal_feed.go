@@ -32,11 +32,9 @@ const (
 // вида (боком в ленту станции — уголь на одну полосу) — отвод поднять и проложить заново от того
 // же делителя, во вход делителя на ленте станции.
 func healCoal(ctx context.Context, h *act.Hands) error {
-	plan, err := LoadBluePlan()
+	plan, err := LoadPlan()
 	if err != nil {
-		if plan, err = LoadPlan(); err != nil {
-			return nil // плана нет — нечего
-		}
+		return nil // плана нет — нечего
 	}
 	var list []layout.Placement
 	if data, err := os.ReadFile(runPath(coalFeedFile)); err == nil && json.Unmarshal(data, &list) == nil && len(list) > 0 {
@@ -578,7 +576,7 @@ func coalFeed(h *act.Hands, plan *ClusterPlan, keep *layout.Placement) ([]layout
 // цистерны (решение пользователя 28.10); своя жидкость натечёт сама. Сеть — один раз: после
 // слива остальные её цистерны уже чисты.
 func healFluids(ctx context.Context, h *act.Hands) error {
-	plan, err := LoadBluePlan()
+	plan, err := LoadPlan()
 	if err != nil {
 		return nil
 	}

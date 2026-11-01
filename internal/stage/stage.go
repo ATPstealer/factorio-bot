@@ -83,7 +83,7 @@ func planCross() map[layout.Placement]bool {
 	}
 	key := fmt.Sprint(runPath(planFile), fi.ModTime().UnixNano(), fi.Size())
 	if crossCache.key != key {
-		raw, err := rawPlan()
+		raw, err := LoadPlan()
 		if err != nil {
 			return nil
 		}

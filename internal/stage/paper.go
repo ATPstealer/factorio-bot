@@ -192,9 +192,8 @@ func paperStages(h *act.Hands, to int) error {
 			return fmt.Errorf("стадия %d на бумаге: %s", n, strings.Join(bad, "; "))
 		}
 	}
-	// весь план — в раскладках стадий (решение пользователя 28.10: трубы месторождений, НПЗ и
-	// сквозные ленты не входили ни в одну стадию — синей не было на всех картах): до 41 — план
-	// синей, до 48 — с фиолетовой, до 61 — весь (с жёлтой)
+	// план стадий до to — в раскладках стадий (решение пользователя: трубы месторождений, НПЗ и
+	// сквозные ленты не входили ни в одну стадию — синей не было на всех картах)
 	if (to == 41 || to == lastPurpleStage || to >= lastYellowStage) && !freshLayouts {
 		if miss := planCoverage(h, paper.list, to); miss != "" {
 			return fmt.Errorf("на бумаге: %s", miss)
@@ -203,20 +202,12 @@ func paperStages(h *act.Hands, to int) error {
 	return nil
 }
 
-// planCoverage — постройки плана, который строят стадии до to (до 41 — синей, до 48 — с
-// фиолетовой, до 61 — весь), которых нет в built (раскладки стадий): по тегам; "" — все есть.
+// planCoverage — постройки плана стадий до to, которых нет в built (раскладки стадий); "" — все
+// есть.
 func planCoverage(h *act.Hands, built []layout.Placement, to int) string {
-	plan, err := LoadBluePlan()
-	switch {
-	case to >= lastYellowStage:
-		plan, err = LoadWholePlan()
-	case to >= lastPurpleStage:
-		plan, err = LoadPurplePlan()
-	}
+	plan, err := LoadPlan()
 	if err != nil {
-		if plan, err = LoadPlan(); err != nil {
-			return ""
-		}
+		return ""
 	}
 	type key struct {
 		name string
@@ -227,7 +218,7 @@ func planCoverage(h *act.Hands, built []layout.Placement, to int) string {
 		have[key{pl.Name, int(pl.Pos.X * 2), int(pl.Pos.Y * 2)}] = true
 	}
 	var miss []layout.Placement
-	for _, pl := range plan.Layout {
+	for _, pl := range stageAdded(plan, 1, to) {
 		if !have[key{pl.Name, int(pl.Pos.X * 2), int(pl.Pos.Y * 2)}] {
 			miss = append(miss, pl)
 		}
