@@ -1344,6 +1344,45 @@ func TestPlaceUndergroundInBeltCorridor(t *testing.T) {
 // TestPlacePipeToGroundChain — трасса подземных труб: пары вплотную друг к другу, как у трассы
 // нефти (стадия 34 на 427965634: 182 из 188 подземных труб «встал не тем направлением —
 // переставляю», по три подбора на каждую). Все встают своим направлением, без перестановок.
+// Подземная труба на месте своей обычной и обычная на месте подземной — замена на месте (одна
+// группа замены; стадия 50 на 427965634: продление трубы шины — подземная на месте конца, «место
+// занято своей постройкой»).
+func TestReplacePipeUnderground(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "pipe-to-ground", 2) // раньше труб: крафт подземных съедает трубы
+	have(t, h, "pipe", 2)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	c, ok := spot(h, p0.Position, 8, 3, 60)
+	if !ok {
+		t.Skip("нет свободной площадки 8×3")
+	}
+	a := bridge.Pos{X: math.Floor(c.X) - 2 + 0.5, Y: math.Floor(c.Y) + 0.5}
+	b := bridge.Pos{X: a.X + 3, Y: a.Y}
+	ctx := ctxT(t, 4*time.Minute)
+	if _, err := h.PlaceDirs(ctx, "pipe", []bridge.Pos{a}, []int{act.North}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceDirs(ctx, "pipe-to-ground", []bridge.Pos{b}, []int{act.East}); err != nil {
+		t.Fatal(err)
+	}
+	// труба → подземная, подземная → труба
+	if _, err := h.PlaceDirs(ctx, "pipe-to-ground", []bridge.Pos{a}, []int{act.West}); err != nil {
+		t.Fatalf("подземная на месте трубы: %v", err)
+	}
+	if _, err := h.PlaceDirs(ctx, "pipe", []bridge.Pos{b}, []int{act.North}); err != nil {
+		t.Fatalf("труба на месте подземной: %v", err)
+	}
+	if st, _ := h.B.GetEntity("pipe-to-ground", a); st == nil {
+		t.Errorf("в (%.1f, %.1f) нет подземной трубы", a.X, a.Y)
+	}
+	if st, _ := h.B.GetEntity("pipe", b); st == nil {
+		t.Errorf("в (%.1f, %.1f) нет трубы", b.X, b.Y)
+	}
+}
+
 func TestPlacePipeToGroundChain(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "pipe-to-ground", 6)

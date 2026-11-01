@@ -66,7 +66,8 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 			// своё на месте — помеха, кроме быстрой замены: ленты друг друга, сундук сундуком
 			// (железный поверх деревянного — содержимое остаётся, стадия 22)
 			pt := h.Protos.Entities[entity].Type
-			own := o.Own && !wreck && o.Type != "character" && !(beltLike(o.Type) && beltLike(pt)) && !(o.Type == "container" && pt == "container")
+			own := o.Own && !wreck && o.Type != "character" && !(beltLike(o.Type) && beltLike(pt)) && !(o.Type == "container" && pt == "container") &&
+				!(pipeLike(o.Type) && pipeLike(pt)) // труба и подземная — одна группа замены (стадия 50 на 427965634)
 			if o.Type != "tree" && !rock && !wreck && !own || seen[o.Pos] {
 				continue
 			}
@@ -121,6 +122,10 @@ func sameBox(a, b bridge.Box) bool {
 func beltLike(typ string) bool {
 	return typ == "transport-belt" || typ == "underground-belt" || typ == "splitter"
 }
+
+// pipeLike — труба или подземная труба: заменяют друг друга на месте (fast_replaceable_group
+// "pipe" в данных игры).
+func pipeLike(typ string) bool { return typ == "pipe" || typ == "pipe-to-ground" }
 
 func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
 	return p.X > b.LeftTop.X-margin && p.X < b.RightBottom.X+margin && p.Y > b.LeftTop.Y-margin && p.Y < b.RightBottom.Y+margin
