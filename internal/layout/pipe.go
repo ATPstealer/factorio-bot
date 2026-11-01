@@ -111,7 +111,12 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		gd, ok := goals[out]
 		return !ok || gd == d
 	}
-	type edge struct{ from rstate }
+	// atStart — подземный вход — сам начальный тайл (вокруг начала — ленты: порт под головой
+	// ряда в окружении подводов, 158846952 — смазка электродвигателей)
+	type edge struct {
+		from    rstate
+		atStart bool
+	}
 	h := func(t world.Tile) float64 {
 		m := -1
 		for g := range goals {
@@ -168,6 +173,26 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		if cur.s.D != plain {
 			dirs = []int{cur.s.D} // выход подземки соединён только вперёд
 		}
+		if cur.s == s0 && l.usable(ptg) {
+			// подземный вход на самом начале: ход — от from.At через начало, наземное соединение
+			// входа — назад, к from.At
+			d := -1
+			for _, dd := range []int{N, E, S, W} {
+				if Step(from.At, dd) == start {
+					d = dd
+				}
+			}
+			if d >= 0 {
+				out := start
+				for k := 1; k <= maxUG; k++ {
+					out = Step(out, d)
+					if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || !ugClear(start, d, k) {
+						continue
+					}
+					push(rstate{T: out, D: d}, edge{from: cur.s, atStart: true}, cur.g+7+0.1*float64(k))
+				}
+			}
+		}
 		for _, d := range dirs {
 			n := Step(t, d)
 			if pipeOK(n) && !used(cur.s, n) {
@@ -190,11 +215,16 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		return nil, fmt.Errorf("%w: пути нет (состояний %d из %d)", ErrNoPipe, len(best), limit)
 	}
 	var res []Placement
+	startUG := false // начало — подземный вход (не обычная труба)
 	for s := end; s != s0; {
 		e := came[s]
 		if s.D != plain {
-			// вход — сосед e.from по ходу; наземное соединение входа смотрит назад, выхода — вперёд
+			// вход — сосед e.from по ходу (или само начало); наземное соединение входа смотрит
+			// назад, выхода — вперёд
 			in := Step(e.from.T, s.D)
+			if e.atStart {
+				in, startUG = start, true
+			}
 			res = append(res,
 				Placement{Name: ptg, Pos: s.T.Center(), Dir: s.D, Tag: tag},
 				Placement{Name: ptg, Pos: in.Center(), Dir: (s.D + 8) % 16, Tag: tag})
@@ -203,7 +233,9 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 		}
 		s = e.from
 	}
-	res = append(res, Placement{Name: pipe, Pos: start.Center(), Tag: tag})
+	if !startUG {
+		res = append(res, Placement{Name: pipe, Pos: start.Center(), Tag: tag})
+	}
 	for _, p := range res {
 		l.Add(p)
 	}
