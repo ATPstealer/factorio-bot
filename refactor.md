@@ -99,73 +99,74 @@
 ## Что ставит каждая стадия (пункт 5)
 
 Столбцы: «Ставит» — новых зданий на стадии сейчас; «Выход всего» — со всеми такими же
-зданиями, поставленными до неё; «Нужно на науку стадии» — `bin/bot calc` на науку уровня
-стадии, по 0.12/с каждой, как в плане (до 22 — красная, до 28 — + зелёная, до 41 — + синяя,
-до 48 — + фиолетовая, дальше — + жёлтая; без ракеты); «Нужно к жёлтой» — на все пять наук;
-«Т2, шт» — столько зданий второго уровня на этот темп (сборщик-2, стальная печь; буры,
-химзаводы, НПЗ — как есть). Уголь — топливо, калькулятор его в выходе не считает. «Пар» —
-бойлеры, по 1.8 МВт. Качалки — без выхода: он зависит от месторождения.
+зданиями, поставленными до неё; «Нужно к жёлтой» — `bin/bot calc` на все пять наук по 0.12/с,
+как в плане (без ракеты); «Т2, шт» — столько зданий второго уровня на этот темп (сборщик-2,
+стальная печь; буры, химзаводы, НПЗ — как есть); «Нужно на стройку» — сколько этого продукта
+уходит на постройки стадий от этой до 61: сами постройки (ленты, инсертеры, трубы) и всё, из
+чего они крафтятся (шестерни, схемы, провод, пластины). Уголь — топливо, калькулятор его в
+выходе не считает. «Пар» — бойлеры, по 1.8 МВт. Качалки — без выхода: он зависит от
+месторождения.
 
-| Стадия | Продукт | Здание сейчас | Ставит, шт | Выход всего, /с | Нужно на науку стадии, /с | Т2, шт | Нужно к жёлтой, /с | Т2, шт |
-|---|---|---|---|---|---|---|---|---|
-| 11 | пар, МВт | boiler | 3 | 5.40 | 0.40 | 1 | 22 | 12 |
-| 16 | coal | electric-mining-drill | 13 | 6.50 | — | — | 1.04 | 3 |
-| 17 | copper-ore | electric-mining-drill | 14 | 7.00 | 0.12 | 1 | 9.48 | 19 |
-| 17 | copper-plate | stone-furnace | 30 | 9.38 | 0.12 | 1 | 9.48 | 16 |
-| 17 | iron-ore | electric-mining-drill | 16 | 8.00 | 0.24 | 1 | 13 | 26 |
-| 17 | iron-plate | stone-furnace | 30 | 9.38 | 0.24 | 1 | 13 | 21 |
-| 19 | iron-gear-wheel | assembling-machine-1 | 10 | 10 | 0.12 | 1 | 0.46 | 1 |
-| 20 | automation-science-pack | assembling-machine-1 | 5 | 0.50 | 0.12 | 1 | 0.12 | 1 |
-| 21 | лаборатории | lab | 5 | — | — | — | — | — |
-| 23 | copper-cable | assembling-machine-1 | 14 | 28 | 0.36 | 1 | 14 | 5 |
-| 23 | electronic-circuit | assembling-machine-1 | 7 | 7.00 | 0.12 | 1 | 3.60 | 3 |
-| 24 | inserter | assembling-machine-1 | 5 | 5.00 | 0.12 | 1 | 0.12 | 1 |
-| 24 | iron-gear-wheel | assembling-machine-1 | 5 | 15 | 0.30 | 1 | 0.46 | 1 |
-| 25 | iron-gear-wheel | assembling-machine-1 | 7 | 22 | 0.30 | 1 | 0.46 | 1 |
-| 25 | transport-belt | assembling-machine-1 | 7 | 14 | 0.12 | 1 | 0.12 | 1 |
-| 26 | logistic-science-pack | assembling-machine-1 | 5 | 0.42 | 0.12 | 1 | 0.12 | 1 |
-| 29 | пар, МВт | boiler | 29 | 58 | 4.20 | 3 | 22 | 12 |
-| 30 | coal | electric-mining-drill | 43 | 28 | 0.18 | 1 | 1.04 | 3 |
-| 30 | copper-ore | electric-mining-drill | 114 | 64 | 1.20 | 3 | 9.48 | 19 |
-| 30 | copper-plate | stone-furnace | 5 | 11 | 1.20 | 2 | 9.48 | 16 |
-| 30 | iron-ore | electric-mining-drill | 68 | 42 | 2.34 | 5 | 13 | 26 |
-| 30 | iron-plate | stone-furnace | 114 | 45 | 2.34 | 4 | 13 | 21 |
-| 30 | stone | electric-mining-drill | 74 | 37 | — | — | 1.40 | 3 |
-| 30 | stone-brick | stone-furnace | 24 | 7.50 | — | — | 0.40 | 1 |
-| 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 2.34 | 4 | 13 | 21 |
-| 31 | steel-plate | stone-furnace | 30 | 1.88 | 0.12 | 1 | 1.44 | 12 |
-| 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | — | — |
-| 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | — | — |
-| 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.42 | 1 | 0.46 | 1 |
-| 34 | crude-oil | pumpjack | 4 | — | 4.62 | — | 26 | — |
-| 36 | petroleum-gas | oil-refinery | 5 | 45 | 4.50 | 1 | 25 | 3 |
-| 37 | plastic-bar | chemical-plant | 5 | 10 | 0.36 | 1 | 2.08 | 2 |
-| 37 | sulfur | chemical-plant | 5 | 10 | 0.06 | 1 | 0.26 | 1 |
-| 38 | engine-unit | assembling-machine-2 | 5 | 0.38 | 0.12 | 2 | 0.16 | 3 |
-| 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.24 | 1 | 0.32 | 1 |
-| 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.18 | 2 | 0.74 | 6 |
-| 39 | copper-cable | assembling-machine-1 | 5 | 38 | 2.16 | 1 | 14 | 5 |
-| 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | 0.12 | 2 |
-| 43 | пар, МВт | boiler | 7 | 70 | 13 | 8 | 22 | 12 |
-| 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | 0.04 | 1 |
-| 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | 0.04 | 1 |
-| 46 | iron-stick | assembling-machine-2 | 5 | 15 | 0.60 | 1 | 0.60 | 1 |
-| 46 | rail | assembling-machine-2 | 5 | 15 | 1.20 | 1 | 1.20 | 1 |
-| 47 | production-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | 0.12 | 2 |
-| 50 | crude-oil | pumpjack | 1 | — | 26 | — | 26 | — |
-| 50 | пар, МВт | boiler | 7 | 83 | 22 | 12 | 22 | 12 |
-| 51 | heavy-oil | oil-refinery | 2 | 10 | 6.41 | 2 | 6.41 | 2 |
-| 52 | light-oil | chemical-plant | 2 | 30 | 16 | 2 | 16 | 2 |
-| 53 | lubricant | chemical-plant | 2 | 20 | 0.60 | 1 | 0.60 | 1 |
-| 54 | sulfuric-acid | chemical-plant | 3 | 150 | 2.00 | 1 | 2.00 | 1 |
-| 55 | battery | chemical-plant | 5 | 1.25 | 0.08 | 1 | 0.08 | 1 |
-| 56 | electric-engine-unit | assembling-machine-2 | 5 | 0.38 | 0.04 | 1 | 0.04 | 1 |
-| 57 | flying-robot-frame | assembling-machine-2 | 5 | 0.19 | 0.04 | 2 | 0.04 | 2 |
-| 58 | low-density-structure | assembling-machine-2 | 6 | 0.30 | 0.12 | 3 | 0.12 | 3 |
-| 59 | advanced-circuit | assembling-machine-2 | 5 | 1.04 | 0.74 | 6 | 0.74 | 6 |
-| 59 | copper-cable | assembling-machine-2 | 5 | 53 | 14 | 5 | 14 | 5 |
-| 59 | processing-unit | assembling-machine-2 | 5 | 0.38 | 0.08 | 2 | 0.08 | 2 |
-| 60 | utility-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | 0.12 | 2 |
+| Стадия | Продукт | Здание сейчас | Ставит, шт | Выход всего, /с | Нужно к жёлтой, /с | Т2, шт | Нужно на стройку, шт |
+|---|---|---|---|---|---|---|---|
+| 11 | пар, МВт | boiler | 3 | 5.40 | 22 | 12 | — |
+| 16 | coal | electric-mining-drill | 13 | 6.50 | 1.04 | 3 | — |
+| 17 | copper-ore | electric-mining-drill | 14 | 7.00 | 9.48 | 19 | — |
+| 17 | copper-plate | stone-furnace | 30 | 9.38 | 9.48 | 16 | 8 889 |
+| 17 | iron-ore | electric-mining-drill | 16 | 8.00 | 13 | 26 | — |
+| 17 | iron-plate | stone-furnace | 30 | 9.38 | 13 | 21 | 165 174 |
+| 19 | iron-gear-wheel | assembling-machine-1 | 10 | 10 | 0.46 | 1 | 53 104 |
+| 20 | automation-science-pack | assembling-machine-1 | 5 | 0.50 | 0.12 | 1 | — |
+| 21 | лаборатории | lab | 5 | — | — | — | — |
+| 23 | copper-cable | assembling-machine-1 | 14 | 28 | 14 | 5 | 15 832 |
+| 23 | electronic-circuit | assembling-machine-1 | 7 | 7.00 | 3.60 | 3 | 4 565 |
+| 24 | inserter | assembling-machine-1 | 5 | 5.00 | 0.12 | 1 | 1 124 |
+| 24 | iron-gear-wheel | assembling-machine-1 | 5 | 15 | 0.46 | 1 | 52 150 |
+| 25 | iron-gear-wheel | assembling-machine-1 | 7 | 22 | 0.46 | 1 | 51 791 |
+| 25 | transport-belt | assembling-machine-1 | 7 | 14 | 0.12 | 1 | 18 639 |
+| 26 | logistic-science-pack | assembling-machine-1 | 5 | 0.42 | 0.12 | 1 | — |
+| 29 | пар, МВт | boiler | 29 | 58 | 22 | 12 | — |
+| 30 | coal | electric-mining-drill | 43 | 28 | 1.04 | 3 | — |
+| 30 | copper-ore | electric-mining-drill | 114 | 64 | 9.48 | 19 | — |
+| 30 | copper-plate | stone-furnace | 5 | 11 | 9.48 | 16 | 7 370 |
+| 30 | iron-ore | electric-mining-drill | 68 | 42 | 13 | 26 | — |
+| 30 | iron-plate | stone-furnace | 114 | 45 | 13 | 21 | 146 823 |
+| 30 | stone | electric-mining-drill | 74 | 37 | 1.40 | 3 | 1 225 |
+| 30 | stone-brick | stone-furnace | 24 | 7.50 | 0.40 | 1 | 70 |
+| 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 13 | 21 | 125 091 |
+| 31 | steel-plate | stone-furnace | 30 | 1.88 | 1.44 | 12 | 1 778 |
+| 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | 207 |
+| 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | 5 947 |
+| 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 44 158 |
+| 34 | crude-oil | pumpjack | 4 | — | 26 | — | — |
+| 36 | petroleum-gas | oil-refinery | 5 | 45 | 25 | 3 | — |
+| 37 | plastic-bar | chemical-plant | 5 | 10 | 2.08 | 2 | — |
+| 37 | sulfur | chemical-plant | 5 | 10 | 0.26 | 1 | — |
+| 38 | engine-unit | assembling-machine-2 | 5 | 0.38 | 0.16 | 3 | 14 |
+| 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.32 | 1 | 4 771 |
+| 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — |
+| 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 7 252 |
+| 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — |
+| 43 | пар, МВт | boiler | 7 | 70 | 22 | 12 | — |
+| 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — |
+| 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | — |
+| 46 | iron-stick | assembling-machine-2 | 5 | 15 | 0.60 | 1 | 1 776 |
+| 46 | rail | assembling-machine-2 | 5 | 15 | 1.20 | 1 | — |
+| 47 | production-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — |
+| 50 | crude-oil | pumpjack | 1 | — | 26 | — | — |
+| 50 | пар, МВт | boiler | 7 | 83 | 22 | 12 | — |
+| 51 | heavy-oil | oil-refinery | 2 | 10 | 6.41 | 2 | — |
+| 52 | light-oil | chemical-plant | 2 | 30 | 16 | 2 | — |
+| 53 | lubricant | chemical-plant | 2 | 20 | 0.60 | 1 | — |
+| 54 | sulfuric-acid | chemical-plant | 3 | 150 | 2.00 | 1 | — |
+| 55 | battery | chemical-plant | 5 | 1.25 | 0.08 | 1 | — |
+| 56 | electric-engine-unit | assembling-machine-2 | 5 | 0.38 | 0.04 | 1 | — |
+| 57 | flying-robot-frame | assembling-machine-2 | 5 | 0.19 | 0.04 | 2 | — |
+| 58 | low-density-structure | assembling-machine-2 | 6 | 0.30 | 0.12 | 3 | — |
+| 59 | advanced-circuit | assembling-machine-2 | 5 | 1.04 | 0.74 | 6 | — |
+| 59 | copper-cable | assembling-machine-2 | 5 | 53 | 14 | 5 | 1 039 |
+| 59 | processing-unit | assembling-machine-2 | 5 | 0.38 | 0.08 | 2 | — |
+| 60 | utility-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — |
 
 Стадии 10 (временные точки), 15 (их разбор), 33, 35, 41, 48, 61 и обслуживание (22, 28, 42, 49)
 производственных зданий не ставят. Стадия 10 — временные буры и печи, их разбирает стадия 15.
