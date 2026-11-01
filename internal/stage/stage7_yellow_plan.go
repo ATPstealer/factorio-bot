@@ -214,8 +214,26 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 		// в той же тесной части (стопки, коридоры заняты подводами соседей) не помогает, а часть
 		// зоны правее бывает пуста (158846952: рамы роботов 4 раза по 11 тайлов вправо)
 		if fails[ce.Consumer.Name]++; fails[ce.Consumer.Name] >= 2 && ce.Consumer.Zone != nil {
-			a = *ce.Consumer.Zone
-			h.Say("кластер %s: часть зоны %v — под запрет", ce.Consumer.Name, a)
+			// других частей этажа нет — вся часть под запретом не оставит места (427965634:
+			// снабжение — одна часть 316×94): тогда — площадь кластера с запасом
+			parts := 0
+			var kind cluster.ZoneKind
+			for _, z := range rough.Zones {
+				if z.Rect == *ce.Consumer.Zone {
+					kind = z.Kind
+				}
+			}
+			for _, z := range rough.Zones {
+				if kind != "" && z.Kind == kind {
+					parts++
+				}
+			}
+			if parts > 1 {
+				a = *ce.Consumer.Zone
+			} else {
+				a = a.Grow(15)
+			}
+			h.Say("кластер %s: %v — под запрет", ce.Consumer.Name, a)
 		}
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {
