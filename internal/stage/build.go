@@ -71,6 +71,39 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 		}
 		return ia - ib
 	})
+	// машины с жидкостными входами и рецептом (НПЗ, химзаводы, сборщики) — раньше всех труб
+	// стадии, на всех участках, и сразу рецепт: иначе труба соседнего участка, уже полная через
+	// отводы шины, заливала машину до рецепта — чужая жидкость в ячейке (вода в ячейке нефти у
+	// НПЗ‑2: стадия 51 на 427965634)
+	fluidRecipe := func(name string) bool {
+		r, ok := h.Protos.Recipes[name]
+		if !ok {
+			return false
+		}
+		for _, a := range append(slices.Clone(r.Ingredients), r.Products...) {
+			if _, fl := h.Protos.Fluids[a.Name]; fl {
+				return true
+			}
+		}
+		return false
+	}
+	var fluidM, rest []layout.Placement
+	for _, pl := range sorted {
+		if len(h.Protos.Entities[pl.Name].PipeConnections) > 0 && fluidRecipe(pl.Recipe) {
+			fluidM = append(fluidM, pl)
+		} else {
+			rest = append(rest, pl)
+		}
+	}
+	if len(fluidM) > 0 && len(rest) > 0 {
+		if err := s.build(ctx, fluidM); err != nil {
+			return err
+		}
+		if err := configure(ctx, h, fluidM); err != nil {
+			return err
+		}
+		sorted = rest
+	}
 	// по участкам, а не по видам (stages.md, общее): участок — чанк; следующий — ближайший к
 	// персонажу; в участке — виды по order
 	regions, keys := buildRegions(sorted)
