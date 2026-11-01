@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"factorio-bot/internal/layout"
@@ -38,6 +39,11 @@ func TestBuildTemplates(t *testing.T) {
 			continue
 		}
 		t.Logf("%-30s ряд %3d × %2d (голова %d, шаг %d, мест %d)", c.Name, L, c.Cross, c.Head, c.Pitch, c.Count)
+		for _, e := range l.Validate() { // столбы внутри площади достают до всего
+			if strings.Contains(e, "без электричества") {
+				t.Errorf("%s: %s", c.Name, e)
+			}
+		}
 		if w, ok := wantLen[c.Product]; ok && L != w {
 			t.Errorf("%s: длина ряда %d, ждали %d", c.Name, L, w)
 		}

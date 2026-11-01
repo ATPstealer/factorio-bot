@@ -72,6 +72,11 @@ type Base struct {
 	// и ширины, поиск мест — до Deadline (нулевой — без предела); ошибка в ~20% допустима
 	Quick    bool
 	Deadline time.Time
+	// Spare — этажам шире ещё на столько процентов (план всей базы не встал: места на этаже не
+	// хватило — этаж шире и зоны заново)
+	Spare [floors + 1]int
+	// NoOil — месторождения нефти, к которым трассу не провести: мимо (MoreOilWells)
+	NoOil []Rect
 
 	// feedLane — выход блока добычи → Y его ленты bus-1 (orderedMineLanes)
 	feedLane map[world.Tile]int
@@ -83,6 +88,7 @@ type Base struct {
 
 	mineZones []Zone         // прикидка: зоны добычи (MineZones)
 	zoneRects []Rect         // зоны (PlaceZoned): кластеры без зоны — вне их
+	bands     []Rect         // полосы этажей от шины под ним до шины над ним (PlaceZoned): кластеры без зоны — вне их
 	busRects  []Rect         // шины (PlaceZoned): подводы с добычи — в обход (fence)
 	floors    map[int][]Rect // части этажей (PlaceZoned): глубина этажа — предел длины кластера
 
@@ -418,27 +424,35 @@ func (b *Base) pack(c *Cluster) *cand {
 		}
 		return nil
 	}
-	// сначала — вплотную к шине своих входов (голова — к ней: снизу, у HeadAbove — сверху): подвод
-	// короткий; нет такого места — стопкой над (под) соседом, подвод — по коридору мимо него
+	// самое левое место (в столбце — от низа); рядом правее, не дальше edgeReach, — вплотную к шине
+	// своих входов (голова — к ней: снизу, у HeadAbove — сверху): подвод короткий, а не по
+	// коридору мимо соседа снизу; дальше — нет: кластер правее тянет вправо своих потребителей
+	var left *Rect
+	for x := z.Min.X; x+w <= z.Max.X && left == nil; x++ {
+		for y := z.Max.Y - h; y >= z.Min.Y; y-- {
+			if r := (Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + w, Y: y + h}}); b.fits(c, r, true) {
+				left = &r
+				break
+			}
+		}
+	}
+	if left == nil {
+		return nil
+	}
 	edge := z.Max.Y - h
 	if c.HeadAbove {
 		edge = z.Min.Y
 	}
-	for x := z.Min.X; x+w <= z.Max.X; x++ {
+	for x := left.Min.X; x+w <= z.Max.X && x <= left.Min.X+edgeReach; x++ {
 		if r := (Rect{world.Tile{X: x, Y: edge}, world.Tile{X: x + w, Y: edge + h}}); b.fits(c, r, true) {
 			return &cand{r, 0, true}
 		}
 	}
-	for x := z.Min.X; x+w <= z.Max.X; x++ {
-		for y := z.Max.Y - h; y >= z.Min.Y; y-- {
-			r := Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + w, Y: y + h}}
-			if b.fits(c, r, true) {
-				return &cand{r, 0, true}
-			}
-		}
-	}
-	return nil
+	return &cand{*left, 0, true}
 }
+
+// edgeReach — насколько правее самого левого места кластер ещё ищет место вплотную к шине.
+const edgeReach = 30
 
 // fits — r годится кластеру c.
 func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
@@ -457,6 +471,13 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 		for _, z := range append(b.zoneRects, b.Keep...) {
 			if ring.Overlaps(z) {
 				return false // вне зон и стартовых точек
+			}
+		}
+		// и вне полос этажей: в промежутках между зоной и шинами — подводы к головам кластеров
+		// (станция встала между снабжением и bus-2 — 267145981)
+		for _, z := range b.bands {
+			if ring.Overlaps(z) {
+				return false
 			}
 		}
 	}

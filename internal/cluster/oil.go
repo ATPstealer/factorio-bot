@@ -158,7 +158,7 @@ func (b *Base) MoreOilWells(zones []Zone, wells int) ([]Zone, []*Cluster, error)
 				return false
 			}
 		}
-		return true
+		return !slices.ContainsFunc(b.NoOil, grown(p).Overlaps) // трассу не провести — мимо
 	}
 	pts := oilFields(b.W.Patches())
 	sort.Slice(pts, func(i, j int) bool {
@@ -283,10 +283,14 @@ func Refinery(p *knowledge.Prototypes, n int) *Cluster {
 		Units: []Unit{{Recipe: "basic-oil-processing", Machine: "oil-refinery", Machines: float64(n)}},
 		In:    []Flow{{"crude-oil", in * k}}, Out: []Flow{{"petroleum-gas", out * k}},
 		PowerW: float64(n) * p.Entities["oil-refinery"].EnergyUsage * 60}
-	c.Cross, c.Pitch, c.Head = 7, 5, 1
+	c.Cross, c.Pitch, c.Head = 7, refPitch, 1
 	c.Count, c.Room, c.Need = n, n, n
 	return c
 }
+
+// refPitch — шаг НПЗ (5×5) вдоль ряда: между заводами — тайл под столб (места под рост в конце
+// ряда больше нет — столбу было негде встать: 427965634, 267145981).
+const refPitch = 6
 
 // IsRefinery — кластер НПЗ (свой шаблон).
 func (c *Cluster) IsRefinery() bool { return c.Kind == Make && c.machine() == "oil-refinery" }
@@ -722,8 +726,10 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 				}
 			}
 		}
-		if err := add(f.inserter(l, "inserter", u+1, 3, 2, tag)); err != nil {
-			return err
+		if c.solidInputs(l.P) > 0 { // с ленты входа — только если на входе есть предметы (сера — газ и вода)
+			if err := add(f.inserter(l, "inserter", u+1, 3, 2, tag)); err != nil {
+				return err
+			}
 		}
 		if err := add(f.inserter(l, "long-handed-inserter", u+1, 7, 5, tag)); err != nil {
 			return err
@@ -1026,6 +1032,11 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 		cur = out
 	}
 	leg, err := routeInlet(l, cur, goals, tag)
+	if err != nil { // соединения склада заняты насосами других трасс — в трубу соседней у склада
+		if jl, jerr := joinInlet(l, cur, tank, tag); jerr == nil {
+			leg, err = jl, nil
+		}
+	}
 	if err != nil {
 		var near []string // разбор: что у начала последнего отрезка
 		for _, p := range l.List {
@@ -1064,6 +1075,42 @@ func routeInlet(l *layout.Layout, cur layout.Conn, goals []layout.Conn, tag stri
 		}
 		err = rerr
 		l.Rollback(mark)
+	}
+	return nil, err
+}
+
+// joinInlet — последний отрезок трассы tag от cur — не в склад tank (его соединения заняты
+// насосами других трасс: месторождений бывает 7 — 427965634), а через свой насос в трубу другой
+// трассы у самого склада (ближе inletCut): участок до насоса — свой, после — короткий общий с
+// её последним отрезком до насоса на входе склада.
+func joinInlet(l *layout.Layout, cur layout.Conn, tank *Cluster, tag string) ([]layout.Placement, error) {
+	var pipes []world.Tile
+	for _, p := range l.List {
+		if p.Name == "pipe" && p.Tag != tag && strings.HasPrefix(p.Tag, LogisticsTag+"/") && rectDist(tank.Area, world.TileOf(p.Pos)) <= inletCut {
+			pipes = append(pipes, world.TileOf(p.Pos))
+		}
+	}
+	sort.Slice(pipes, func(i, j int) bool { return dist(pipes[i], cur.To) < dist(pipes[j], cur.To) })
+	err := fmt.Errorf("у склада ни насосу на входе, ни трубы другой трассы")
+	for _, t := range pipes {
+		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+			q := layout.Step(t, d)
+			if !l.Free(q, layout.AnyLand) || l.Solid[q] {
+				continue
+			}
+			pump, in, ok := inletPump(l, layout.Conn{At: t, To: q, Dir: d}, tag)
+			if !ok {
+				continue
+			}
+			mark := l.Mark()
+			l.Add(pump)
+			leg, rerr := l.RoutePipe(cur, in, tag)
+			if rerr == nil {
+				return append(leg, pump), nil
+			}
+			err = rerr
+			l.Rollback(mark)
+		}
 	}
 	return nil, err
 }
@@ -1245,7 +1292,9 @@ func pumpNear(l *layout.Layout, p, to world.Tile, tag string) (layout.Placement,
 	case abs(dy) > abs(dx):
 		d = layout.N
 	}
-	for r := 0; r <= 20; r++ {
+	// до 100 тайлов: прямая к складу идёт через базу — точка насоса внутри неё, место — снаружи
+	// (46082668: нефть с востока за базой)
+	for r := 0; r <= 100; r++ {
 		for _, o := range ringOffsets(r) {
 			t := world.Tile{X: p.X + o.X, Y: p.Y + o.Y}
 			pl := layout.Placement{Name: "pump", Pos: layout.CenterAt(l.P, "pump", d, t), Dir: d, Tag: tag}

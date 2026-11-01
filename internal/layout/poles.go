@@ -3,6 +3,7 @@ package layout
 import (
 	"container/heap"
 	"math"
+	"strings"
 
 	"factorio-bot/internal/world"
 )
@@ -17,7 +18,9 @@ func (l *Layout) Poles(pole, tag string) int {
 		poles := l.poleList()
 		for i, p := range l.List {
 			e := l.P.Entities[p.Name]
-			if e.Electric && !isPole(p.Name) && (l.PoleTag == "" || p.Tag == l.PoleTag) && !l.powered(p, poles) {
+			// свои — с тегом PoleTag и его частями (тег/…: части блока лабораторий под пакеты)
+			own := l.PoleTag == "" || p.Tag == l.PoleTag || strings.HasPrefix(p.Tag, l.PoleTag+"/")
+			if e.Electric && !isPole(p.Name) && own && !l.powered(p, poles) {
 				res = append(res, i)
 			}
 		}

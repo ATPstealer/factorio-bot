@@ -115,6 +115,19 @@ func (b *Base) FillMine(l *layout.Layout, c *Cluster, tag string) error {
 	return b.growInterior(l, c, 0, tag)
 }
 
+// FillMineTo — блок добычи c дописан до ore руды под бурами (не дальше своего пятна): буры — дальше
+// по тому же шаблону, старые на месте (stages.md, стадия 30: добыча — до цели под бурами).
+func (b *Base) FillMineTo(l *layout.Layout, c *Cluster, ore int, tag string) error {
+	if c.Kind != Mine {
+		return fmt.Errorf("cluster: %s — не добыча", c.Name)
+	}
+	if ore <= c.OreUnder {
+		return nil
+	}
+	c.Ore = ore
+	return b.growInterior(l, c, 0, tag)
+}
+
 // OreIn — руды ресурса c в площади блока добычи c (оценка: всё пятно в ней).
 func (b *Base) OreIn(c *Cluster) int { return b.oreIn(c.Area, c.Product) }
 

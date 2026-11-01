@@ -386,7 +386,7 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 	}
 	h.Log("центр базы (%d, %d)", origin.X, origin.Y)
 	base := cluster.NewBase(pr, h.World, origin)
-	base.Log, base.CliffZones = h.Log, roughCliffs
+	base.Log, base.CliffZones, base.Spare = h.Log, roughCliffs, floorSpare
 	base.MaxR = 2000 // вся база: радиус поиска мест — вся сгенерированная карта
 	if roughQuick {  // прикидка стадии 1 (stages.md): быстро, с лимитом времени, по всему открытому
 		base.Quick, base.Deadline = true, time.Now().Add(roughQuickLimit)

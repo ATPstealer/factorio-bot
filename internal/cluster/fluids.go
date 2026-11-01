@@ -174,7 +174,7 @@ func RefineryAdv(p *knowledge.Prototypes, n int) *Cluster {
 	for _, o := range r.Products {
 		c.Out = append(c.Out, Flow{o.Name, o.Amount * k})
 	}
-	c.Cross, c.Pitch, c.Head = refAdvCross, 5, 1
+	c.Cross, c.Pitch, c.Head = refAdvCross, refPitch, 1
 	c.Count, c.Room, c.Need = n, n, n
 	return c
 }

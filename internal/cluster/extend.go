@@ -258,7 +258,7 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 					continue // жидкость — трубой с трубы шины (Pipes), не лентой
 				}
 				if p.In && below(p) == first {
-					if err := feedIn(l, buses, c, p, g); err != nil {
+					if err := b.feedIn(l, buses, c, p, g); err != nil {
 						return err
 					}
 				}
@@ -267,7 +267,7 @@ func (b *Base) ConnectMore(l *layout.Layout, buses []*ZBus, fresh []*Cluster, ex
 	}
 	for c, ps := range extra {
 		for _, p := range ps {
-			if err := feedIn(l, buses, c, p, g); err != nil {
+			if err := b.feedIn(l, buses, c, p, g); err != nil {
 				return err
 			}
 		}

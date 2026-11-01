@@ -132,6 +132,15 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 		b.zoneRects = append(b.zoneRects, z.Rect)
 	}
 	sort.Slice(buses, func(i, j int) bool { return buses[i].Name < buses[j].Name })
+	b.bands = nil
+	for f, ps := range floor { // полоса этажа: от шины под ним до шины над ним, по ширине части
+		if f < 1 || f >= len(buses) {
+			continue
+		}
+		for _, z := range ps {
+			b.bands = append(b.bands, Rect{world.Tile{X: z.Min.X, Y: buses[f].Rect.Max.Y}, world.Tile{X: z.Max.X, Y: buses[f-1].Rect.Min.Y}})
+		}
+	}
 	for _, ps := range floor {
 		sort.Slice(ps, func(i, j int) bool { return ps[i].Min.X < ps[j].Min.X })
 	}
@@ -645,16 +654,23 @@ func guardPorts(l *layout.Layout, cs []*Cluster) *portGuard {
 	return g
 }
 
+// close — порт и тайл подхода к нему (откуда лента входит в порт): чужая лента вплотную под
+// головой замуровывала соседний порт (427965634: уголь плавки меди — слева, снизу ленты, справа
+// порт руды).
 func (g *portGuard) close(p Port) {
-	if !g.l.Reserved[p.T] && g.l.At(p.T) == nil {
-		g.l.Reserved[p.T], g.ports[p.T] = true, true
+	for _, t := range []world.Tile{p.T, layout.Step(p.T, (p.Dir+8)%16)} {
+		if !g.l.Reserved[t] && g.l.At(t) == nil {
+			g.l.Reserved[t], g.ports[t] = true, true
+		}
 	}
 }
 
 func (g *portGuard) open(p Port) {
-	if g.ports[p.T] {
-		delete(g.l.Reserved, p.T)
-		delete(g.ports, p.T)
+	for _, t := range []world.Tile{p.T, layout.Step(p.T, (p.Dir+8)%16)} {
+		if g.ports[t] {
+			delete(g.l.Reserved, t)
+			delete(g.ports, t)
+		}
 	}
 }
 
@@ -809,7 +825,7 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 
 // feedIn — вход p кластера c: делителем с ленты шины снизу (сборка — и сверху), у своего
 // столбца, только ниже подвода в ленту.
-func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) error {
+func (b *Base) feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) error {
 	f := floorOf(c)
 	var lines [][]layout.Placement
 	var used []*ZoneLane
@@ -850,6 +866,15 @@ func feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *portGuard) e
 			return nil
 		}
 	}
+	// разбор: что между портом и ближней лентой (порт замуровали чужие ленты — 427965634)
+	near := world.TileOf(lines[0][0].Pos)
+	for _, pl := range lines[0] {
+		if t := world.TileOf(pl.Pos); dist(t, p.T) < dist(near, p.T) {
+			near = t
+		}
+	}
+	b.logf("отвод %s → %s: порт %v, лента у %v", p.Item, c.Name, p.T, near)
+	b.dumpBetween(l, p.T, near)
 	return &ConnectError{c, fmt.Errorf("шина → %s (%s): %w", c.Name, p.Item, err)}
 }
 
@@ -1284,6 +1309,9 @@ func (b *Base) fence(l *layout.Layout, bus *ZBus, c *Cluster) []world.Tile {
 			rs = append(rs, r)
 		}
 	}
+	// и полосы этажей: в промежутке между bus-1 и переработкой подвод с дальней добычи шёл к
+	// голове bus-1 и закрыл отводы к головам кластеров (427965634)
+	rs = append(rs, b.bands...)
 	for _, o := range b.Clusters {
 		if o == c {
 			continue
@@ -1457,7 +1485,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 		}
 		for _, p := range c.Ports {
 			if _, fluid := b.P.Fluids[p.Item]; p.In && !fluid { // жидкости — трубами (FluidPipes)
-				if err := feedIn(l, buses, c, p, g); err != nil {
+				if err := b.feedIn(l, buses, c, p, g); err != nil {
 					return err
 				}
 			}

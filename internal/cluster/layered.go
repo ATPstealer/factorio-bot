@@ -175,20 +175,25 @@ func (b *Base) placeFits(cs []*Cluster, depth, width int) bool {
 					}
 				}
 			}
-		} else {
-			edge := depth - l
-			if c.HeadAbove {
-				edge = 0
-			}
-			for x := minX; x+c.Cross <= width && got == nil; x++ {
-				if r := at(x, edge); free(c, r) {
-					got = &r
+		} else { // как pack: самое левое место, рядом правее (edgeReach) — вплотную к шине
+			var left *Rect
+			for x := minX; x+c.Cross <= width && left == nil; x++ {
+				for y := depth - l; y >= 0 && left == nil; y-- {
+					if r := at(x, y); free(c, r) {
+						left = &r
+					}
 				}
 			}
-			for x := minX; x+c.Cross <= width && got == nil; x++ {
-				for y := depth - l; y >= 0 && got == nil; y-- {
-					if r := at(x, y); free(c, r) {
+			if left != nil {
+				got = left
+				edge := depth - l
+				if c.HeadAbove {
+					edge = 0
+				}
+				for x := left.Min.X; x+c.Cross <= width && x <= left.Min.X+edgeReach; x++ {
+					if r := at(x, edge); free(c, r) {
 						got = &r
+						break
 					}
 				}
 			}
@@ -299,7 +304,7 @@ func (b *Base) PlaceLayered(cs []*Cluster) (*Layered, error) {
 	}
 	for _, spare := range spares {
 		for f := 1; f <= floors; f++ {
-			zw[f] = zw0[f] * (100 + spare) / 100
+			zw[f] = zw0[f] * (100 + spare + b.Spare[f]) / 100
 		}
 		base := 0
 		for f := 1; f <= floors; f++ {

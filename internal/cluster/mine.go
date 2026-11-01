@@ -241,7 +241,8 @@ func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluste
 	var res []*Cluster
 	for _, k := range cs {
 		for have < want { // пятно может дать и несколько блоков (остатки мимо соседей)
-			c := &Cluster{Kind: Mine, Product: like.Product, Reserve: like.Reserve, Ore: math.MaxInt32,
+			// буры — до остатка цели под бурами (stages.md, стадия 30: «ещё по 2M»), не на всё пятно
+			c := &Cluster{Kind: Mine, Product: like.Product, Reserve: like.Reserve, Ore: want - have,
 				Units: []Unit{{Recipe: like.Units[0].Recipe, Machine: like.Units[0].Machine, Machines: 1}}}
 			s := &mineSpot{c, k.z, k.r, head}
 			r, ok := b.fitMine(s)
@@ -255,7 +256,7 @@ func (b *Base) MoreMines(like *Cluster, zones []Zone, have, want int) ([]*Cluste
 			b.commitMine(s, r)
 			c.Name = b.name(c.Product, res)
 			res = append(res, c)
-			have += ore
+			have += min(ore, c.Ore)
 			b.logf("добыча: %s на %v — руды %d, всего %d из %d", c.Name, r, ore, have, want)
 		}
 		if have >= want {
