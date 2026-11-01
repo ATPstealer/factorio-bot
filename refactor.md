@@ -137,9 +137,9 @@
 | 30 | stone-brick | stone-furnace | 24 | 7.50 | 0.40 | 1 | 7 | 1 | 1 | только кирпич: 2 каменные печи (0.4/с на жёлтую) |
 | 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 13 | 21 | 12 510 | 6 | 26 | 15 — в парах со сталью: руда → железо |
 | 31 | steel-plate | stone-furnace | 30 | 1.88 | 1.44 | 12 | 178 | 1 | 12 | 15 пар «руда → железо → сталь»: каменные — 0.94/с, на жёлтую (~1.5/с) — стальные, 1.9/с |
-| 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | 21 | 1 | 1 | 1 |
-| 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | 595 | 1 | 1 | 1 |
-| 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 4 416 | 1 | 2 | 1 (внутри быстрых лент) |
+| 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | 21 | 1 | 1 | убираем — 207 за игру, руками ~2 мин |
+| 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | 595 | 1 | 1 | 3 пары «шестерня + быстрая лента»: 0.9/с (упор в шестерни, по 5 на ленту) |
+| 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 4 416 | 1 | 2 | 3 — в парах с быстрыми лентами |
 | 34 | crude-oil | pumpjack | 4 | — | 26 | — | — | — | — | по месторождениям (нефть к жёлтой ~26/с) |
 | 36 | petroleum-gas | oil-refinery | 5 | 45 | 25 | 3 | — | — | 3 | 1 (газ синей; с 51 — НПЗ‑2) |
 | 37 | plastic-bar | chemical-plant | 5 | 10 | 2.08 | 2 | — | — | 2 | 2 |
