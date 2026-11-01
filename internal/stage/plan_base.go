@@ -531,7 +531,7 @@ func laterMines(base *cluster.Base, rough *RoughPlan, boost map[string]float64) 
 			}
 		}
 		have = min(have, want) // своего пятна хватает — новых блоков нет
-		if like == nil { // ресурса нет в первых блоках (камень) — образец из таблицы
+		if like == nil {       // ресурса нет в первых блоках (камень) — образец из таблицы
 			if first[it] > 0 {
 				return nil, fmt.Errorf("в плане нет добычи %s", it)
 			}
