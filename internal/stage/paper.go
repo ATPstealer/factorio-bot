@@ -265,13 +265,15 @@ func laneToBuffer(h *act.Hands, list []layout.Placement) []string {
 		if q, ok := at[from]; !ok || !isBelt(q) || !strings.HasPrefix(q.Tag, "c/bus-") {
 			continue // берёт не с ленты шины (плавка, кирпич — с выходной ленты кластера)
 		}
-		// головы лент предмета: ленты шины с ним, в которые сзади никто не въезжает
+		// головы лент предмета: ленты шины с ним, позади которых нет ленты того же предмета (позади
+		// подземка или делитель — тоже голова: выход кластера вливается в ленту делителем, а у
+		// начала ленты подземка — головы не было ни одной, 18604156: двигатели на стадии 56)
 		reached := false
 		for t, q := range at {
 			if reached || !strings.HasSuffix(q.Name, "transport-belt") || q.Recipe != pl.Recipe || !strings.HasPrefix(q.Tag, "c/bus-") {
 				continue
 			}
-			if b, ok := at[layout.Step(t, (q.Dir+8)%16)]; ok && isBelt(b) && b.Dir == q.Dir {
+			if b, ok := at[layout.Step(t, (q.Dir+8)%16)]; ok && strings.HasSuffix(b.Name, "transport-belt") && b.Recipe == q.Recipe && b.Dir == q.Dir {
 				continue // не голова
 			}
 			reached = downstream(at, pair, t)[from]
