@@ -282,11 +282,12 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 		return nil, nil, err
 	}
 	fresh = append(fresh, ps...)
-	// склад газа — 5×4 у головы bus-2, на свободном месте (cluster.md §2а «Нефть»)
+	// склад газа — 2×2 (склад продукта — 4 цистерны, решение пользователя) у головы bus-2, на
+	// свободном месте (cluster.md §2а «Нефть»)
 	var gasTank *cluster.Cluster
 	for _, z := range rough.Zones {
 		if z.Name == "bus-2" {
-			gasTank = cluster.Tanks("petroleum-gas", 5, 4, world.Tile{X: z.Rect.Min.X - 15, Y: (z.Rect.Min.Y + z.Rect.Max.Y) / 2})
+			gasTank = cluster.Tanks("petroleum-gas", 2, 2, world.Tile{X: z.Rect.Min.X - 15, Y: (z.Rect.Min.Y + z.Rect.Max.Y) / 2})
 			gasTank.Name = "gas-tank-1"
 		}
 	}

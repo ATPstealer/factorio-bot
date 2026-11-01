@@ -322,8 +322,8 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 		fresh = append(fresh, ps...)
 		sci = append(sci, ps...)
 	}
-	// склады: тяжёлое, лёгкое (лёгкое — на всю игру, не меньше 4 цистерн) и кислота — у головы
-	// bus-2 в начале своих труб (stages.md, стадии 51, 54; cluster.md §2а «Нефть»)
+	// склады: тяжёлое, лёгкое и кислота — по 4 цистерны (решение пользователя), у головы bus-2 в
+	// начале своих труб (stages.md, стадии 51, 54; cluster.md §2а «Нефть»)
 	var tanks []*cluster.Cluster
 	for _, z := range rough.Zones {
 		if z.Name == "bus-2" {
@@ -331,7 +331,7 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 			for _, t := range []struct {
 				fluid      string
 				cols, rows int
-			}{{"heavy-oil", 2, 2}, {"light-oil", 2, 2}, {"sulfuric-acid", 1, 2}} {
+			}{{"heavy-oil", 2, 2}, {"light-oil", 2, 2}, {"sulfuric-acid", 2, 2}} {
 				tank := cluster.Tanks(t.fluid, t.cols, t.rows, near)
 				tank.Name = strings.TrimSuffix(t.fluid, "-oil") + "-tank-1"
 				tanks = append(tanks, tank)
