@@ -146,8 +146,8 @@
 | 37 | sulfur | chemical-plant | 5 | 10 | 0.26 | 1 | — | — | 1 | 3 — 6 серы/с |
 | 38 | engine-unit | assembling-machine-2 | 5 | 0.38 | 0.16 | 3 | 2 | 1 | 3 | 4 пар «труба + двигатель» — 0.3/с (нужно 0.16); шестерня — вопрос ниже |
 | 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.32 | 1 | 478 | 1 | 1 | 4 — в парах с двигателями |
-| 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — | — | 6 | 6 |
-| 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 726 | 1 | 5 | 1 (провод красных схем) |
+| 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — | — | 6 | 8 пар «провод + красная» — 1/с (нужно 0.74), колонка 64 |
+| 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 726 | 1 | 5 | 8 — в парах с красными |
 | 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — | — | 2 | 2 |
 | 43 | пар, МВт | boiler | 7 | 70 | 22 | 12 | — | — | 12 | 0 |
 | 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — | — | 1 | 1 |
