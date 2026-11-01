@@ -47,31 +47,15 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 		return smeltingLayout(h)
 	case 18:
 		return busPlatesLayout(h)
-	case 19, 20, 24, 25, 26:
+	case 20, 23, 24, 25, 26:
 		list, _, err := makeLayout(h, makeProduct[n])
 		return list, err
 	case 21:
 		return labsLayout(h)
-	case 23:
-		grow, err := growLayout(h)
-		if err != nil {
-			return nil, err
-		}
-		list, _, err := makeLayout(h, circuitProduct)
-		return append(grow, list...), err
 	case 27:
 		return labsGreenLayout(h)
-	case 22, 28, 42, 49: // обслуживание: что из чертежа ещё не стоит (будущая добыча — стадии 30, не здесь)
-		base := planNow
-		switch n {
-		case 28:
-			base = planAll
-		case 42:
-			base = planBlueAll
-		case 49:
-			base = planPurpleAll
-		}
-		list, err := blueprint(h, base)
+	case 22, 28, 42, 49: // обслуживание: что из чертежа (постройки плана стадий до этой) ещё не стоит
+		list, err := blueprint(h, planBefore(n))
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +122,7 @@ func notBuilt(h *act.Hands, list []layout.Placement) ([]layout.Placement, error)
 }
 
 // makeProduct — продукт завода с шины по стадии (makeLayout).
-var makeProduct = map[int]string{19: "iron-gear-wheel", 20: "automation-science-pack", 24: "inserter", 25: "transport-belt", 26: greenPack}
+var makeProduct = map[int]string{20: "automation-science-pack", 23: circuitProduct, 24: "inserter", 25: "transport-belt", 26: greenPack}
 
 // prepare — перед стадией n: проверка (prepCheck) и расчистка площади плана (prepClear).
 func prepare(ctx context.Context, h *act.Hands, n int) error {

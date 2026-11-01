@@ -11,7 +11,6 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
-	"factorio-bot/internal/world"
 )
 
 // Стадии 32–41 (stages.md): стройка проекта синей науки по одной части — исследования
@@ -277,7 +276,7 @@ func init() {
 			queue: []string{"advanced-circuit", "engine"}, pick: func(c *cluster.Cluster) bool { return c.IsChem() },
 			fact: working("chemical-plant")},
 		{n: 38, name: "двигатели", file: "state-engines.json", wait: []string{"engine", "automation-2"},
-			pick: product("engine-unit"), more: pipeChest, fact: working("assembling-machine-1", "assembling-machine-2")},
+			pick: product("engine-unit"), fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 39, name: "красные схемы", file: "state-adv-circuits.json", wait: []string{"advanced-circuit"},
 			pick: product("advanced-circuit"), fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 40, name: "синяя наука", file: "state-blue-science.json", wait: []string{bluePack},
@@ -303,39 +302,3 @@ func init() {
 // blueStages — стадии 32–41 по номеру: их раскладка — план стадии для проверки перед стройкой
 // и «нужного» (prepare.go planOf).
 var blueStages = map[int]blueStage{}
-
-// pipeChest — из одного сборщика труб кластера двигателей — инсертер в сундук: буфер бота
-// (stages.md, стадия 38: трубы на стройку нефти и химии).
-func pipeChest(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error) {
-	return func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error) {
-		for _, c := range plan.Clusters {
-			if !product("engine-unit")(c) {
-				continue
-			}
-			for _, pl := range all.List {
-				if pl.Tag != cluster.Tag(c.Name) || pl.Recipe != "pipe" || !strings.HasPrefix(pl.Name, "assembling-machine") {
-					continue
-				}
-				m := world.TileOf(pl.Pos) // центр сборщика 3×3
-				for _, d := range []int{layout.N, layout.S, layout.E, layout.W} {
-					ins := layout.Step(layout.Step(m, d), d)
-					box := layout.Step(ins, d)
-					if all.At(ins) != nil || all.At(box) != nil {
-						continue
-					}
-					if ok, _ := h.World.Buildable(ins); !ok {
-						continue
-					}
-					if ok, _ := h.World.Buildable(box); !ok {
-						continue
-					}
-					tag := cluster.Tag(c.Name) + "/pipes"
-					in := layout.Placement{Name: "inserter", Pos: ins.Center(),
-						Dir: layout.InserterDir(h.Protos, "inserter", ins, layout.Step(ins, (d+8)%16)), Tag: tag, Recipe: "pipe"}
-					return []layout.Placement{in, {Name: "iron-chest", Pos: box.Center(), Tag: tag}}, nil
-				}
-			}
-		}
-		return nil, fmt.Errorf("у сборщиков труб двигателей нет места под сундук")
-	}
-}

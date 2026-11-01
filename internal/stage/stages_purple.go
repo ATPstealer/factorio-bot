@@ -26,15 +26,6 @@ var purpleStages = map[int]blueStage{}
 // purpleProducts — продукты новых кластеров проекта и стадии их стройки.
 var purpleProducts = map[string]int{"electric-furnace": 44, "productivity-module": 45, "rail": 46, purplePack: 47}
 
-// purpleAdded — постройки плана стадий фиолетовой науки (43–48) и весь план.
-func purpleAdded() ([]layout.Placement, *ClusterPlan, error) {
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, nil, err
-	}
-	return stageAdded(plan, 43, 48), plan, nil
-}
-
 // inBuffer — item дошёл до буфера выхода (cluster.md §6а): есть хоть в одном сундуке буферов
 // раскладки стадии (лента шины — до конца, за всеми потребителями).
 func inBuffer(item string) func(h *act.Hands, list []layout.Placement) error {

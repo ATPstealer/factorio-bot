@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
@@ -20,21 +19,9 @@ func init() {
 	register(Stage{N: 16, Name: "добыча угля", Run: runCoal, Check: checkCoal})
 }
 
-// coalLayout — coalBase и столбы питания; один раз на карту (файл).
-func coalLayout(h *act.Hands) ([]layout.Placement, error) {
-	return onceLayout(coalFile, func() ([]layout.Placement, error) {
-		plan, err := LoadPlan()
-		if err != nil {
-			return nil, err
-		}
-		res := coalBase(h, plan)
-		if len(res) == 0 {
-			return nil, fmt.Errorf("в плане нет добычи угля или станции")
-		}
-		poles, err := connectPower(h, plan, res, []string{clusterOf(plan, cluster.Mine, "coal").Name})
-		return append(res, poles...), err
-	})
-}
+// coalLayout — постройки плана стадии 16: угольный блок станции со своей лентой к станции, блок
+// угля на плавку с подводом в bus-1 и лента угля шины; столбы к сети; один раз на карту (файл).
+func coalLayout(h *act.Hands) ([]layout.Placement, error) { return addedFor(h, coalFile, 16) }
 
 func runCoal(ctx context.Context, h *act.Hands) error {
 	list, err := coalLayout(h)

@@ -40,19 +40,10 @@ func runBlueprint(ctx context.Context, h *act.Hands) error {
 	if err := refreshLayouts(h, 27); err != nil {
 		return err
 	}
-	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planAll) }, true)
+	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planBefore(28)) }, true)
 }
 
-func checkBlueprint(h *act.Hands) error { return checkDrawing(h, planAll) }
-
-// planAll — весь план стройки (без будущей добычи — она на стадии 30).
-func planAll(h *act.Hands) ([]layout.Placement, error) {
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, err
-	}
-	return withoutLater(h, plan, plan.Layout), nil
-}
+func checkBlueprint(h *act.Hands) error { return checkDrawing(h, planBefore(28)) }
 
 // checkDrawing — проверка обслуживания по чертежу (план — base): лишнего нет, остальное — checkKept.
 func checkDrawing(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) error {

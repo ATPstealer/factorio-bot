@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
@@ -23,23 +22,9 @@ func init() {
 	register(Stage{N: 21, Name: "кластер лабораторий", Run: runLabs, Check: checkLabs})
 }
 
-// labsLayout — внутренность кластера лабораторий, отводы к нему, делители, столбы; один раз
-// на карту (файл).
-func labsLayout(h *act.Hands) ([]layout.Placement, error) {
-	return onceLayout(labsFile, func() ([]layout.Placement, error) {
-		plan, err := LoadPlan()
-		if err != nil {
-			return nil, err
-		}
-		c := clusterOf(plan, cluster.Lab, "")
-		if c == nil {
-			return nil, fmt.Errorf("в плане нет кластера лабораторий")
-		}
-		res := withSplitters(h, plan, tagged(plan, cluster.Tag(c.Name), cluster.LogisticsTag+"/"+c.Name))
-		poles, err := connectPower(h, plan, res, []string{c.Name})
-		return append(res, poles...), err
-	})
-}
+// labsLayout — постройки плана стадии 21: блок лабораторий, лента A с подачей красного и отвод к
+// ней; столбы; один раз на карту (файл).
+func labsLayout(h *act.Hands) ([]layout.Placement, error) { return addedFor(h, labsFile, 21) }
 
 // labsTech — исследование на одной красной науке, доступное (предпосылки изучены), не
 // изученное; самое дорогое: дешёвое (gun-turret) кончалось из буфера пакетов раньше проверки

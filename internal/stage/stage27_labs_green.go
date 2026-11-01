@@ -26,28 +26,10 @@ func init() {
 	register(Stage{N: 27, Name: "зелёная наука в лаборатории", Run: runLabsGreen, Check: checkLabsGreen})
 }
 
-// labsGreenLayout — дописанное стадией 4 в кластер лабораторий и его отводы, лента зелёной науки
-// шины конечных с подводом, делители, столбы; один раз на карту (файл).
+// labsGreenLayout — постройки плана стадии 27: подача зелёной в ленту A и отвод к ней с bus-4;
+// один раз на карту (файл).
 func labsGreenLayout(h *act.Hands) ([]layout.Placement, error) {
-	return onceLayout(labsGreenFile, func() ([]layout.Placement, error) {
-		added, plan, err := greenAdded()
-		if err != nil {
-			return nil, err
-		}
-		lab, green := clusterOf(plan, cluster.Lab, ""), clusterOf(plan, cluster.Make, greenPack)
-		if lab == nil || green == nil {
-			return nil, fmt.Errorf("в плане нет лабораторий или зелёной науки")
-		}
-		var res []layout.Placement
-		for _, pl := range added {
-			if pl.Tag == cluster.Tag(lab.Name) || pl.Tag == cluster.LogisticsTag+"/"+lab.Name {
-				res = append(res, pl)
-			}
-		}
-		res = withSplitters(h, plan, append(res, busParts(plan, []string{greenPack}, []string{green.Name})...))
-		poles, err := connectPower(h, plan, res, []string{lab.Name})
-		return append(res, poles...), err
-	})
+	return addedFor(h, labsGreenFile, labPackStage[greenPack])
 }
 
 // greenTechs — доступные (предпосылки изучены), не изученные исследования на красной и зелёной

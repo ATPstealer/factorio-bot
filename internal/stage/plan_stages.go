@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -137,11 +138,30 @@ func planStages(s *ClusterPlan) stageMap {
 			}
 		}
 	}
+	// уголь станции лентой — со своим угольным блоком (стадия 16; до неё — сундук у бойлера,
+	// stages.md, стадия 11): лента и инсертеры ряда, буфер угля, лента от блока
+	coalStage := 0
+	power := map[string]bool{}
+	for _, c := range s.Clusters {
+		switch {
+		case c.Kind == cluster.Mine && c.ToPower:
+			coalStage = clusterStage(c)
+		case c.Kind == cluster.Power:
+			power[cluster.Tag(c.Name)], power[cluster.LogisticsTag+"/"+c.Name] = true, true
+		}
+	}
+	coalPart := func(pl layout.Placement) bool {
+		return power[pl.Tag] && (strings.HasSuffix(pl.Name, "inserter") || strings.HasSuffix(pl.Name, "chest") ||
+			strings.HasSuffix(pl.Name, "belt") || strings.HasSuffix(pl.Name, "splitter"))
+	}
 	res := stageMap{}
 	for _, pl := range s.Layout {
 		res[pl] = stageOf(pl, by, itemStage, rowStage, rowItem)
-		if pl.Name == "pump" && tank[world.TileOf(pl.Pos)] && tankStage > 0 {
+		switch {
+		case pl.Name == "pump" && tank[world.TileOf(pl.Pos)] && tankStage > 0:
 			res[pl] = tankStage
+		case coalStage > 0 && coalPart(pl):
+			res[pl] = coalStage
 		}
 	}
 	return res
@@ -226,6 +246,18 @@ func clusterStage(c *cluster.Cluster) int {
 		return mineStage(c)
 	}
 	return c.Stage
+}
+
+// planBefore — чертёж плана к стадии n: постройки плана стадий до n (обслуживание сверяет с ним
+// построенное).
+func planBefore(n int) func(*act.Hands) ([]layout.Placement, error) {
+	return func(*act.Hands) ([]layout.Placement, error) {
+		plan, err := LoadPlan()
+		if err != nil {
+			return nil, err
+		}
+		return stageAdded(plan, 1, n-1), nil
+	}
 }
 
 // stageAdded — постройки плана стадий from…to (их строят эти стадии).

@@ -32,14 +32,14 @@ func runBlueprintPurple(ctx context.Context, h *act.Hands) error {
 	if err := refreshLayouts(h, lastPurpleStage); err != nil {
 		return err
 	}
-	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planPurpleAll) }, true)
+	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planBefore(49)) }, true)
 }
 
 // checkBlueprintPurple — построенное по чертежу фиолетовой, лишнего нет (checkDrawing);
 // исследования проекта жёлтой — изучены или в очереди (очередь игры — 7: полная — доставятся по
 // ходу).
 func checkBlueprintPurple(h *act.Hands) error {
-	if err := checkDrawing(h, planPurpleAll); err != nil {
+	if err := checkDrawing(h, planBefore(49)); err != nil {
 		return err
 	}
 	f, err := h.B.Force()
@@ -56,18 +56,4 @@ func checkBlueprintPurple(h *act.Hands) error {
 		return fmt.Errorf("исследования проекта не в очереди: %s", strings.Join(miss, ", "))
 	}
 	return nil
-}
-
-// planPurpleAll — весь план стройки до жёлтой: чертёж синей (planBlueAll) и дописанное проектом
-// фиолетовой (43–48); постройка под делителем или подземкой проекта — не чертёж (overlay).
-func planPurpleAll(h *act.Hands) ([]layout.Placement, error) {
-	base, err := planBlueAll(h)
-	if err != nil {
-		return nil, err
-	}
-	added, _, err := purpleAdded()
-	if err != nil {
-		return nil, err
-	}
-	return overlay(h, base, added), nil
 }

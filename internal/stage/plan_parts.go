@@ -2,7 +2,6 @@ package stage
 
 import (
 	"slices"
-	"sort"
 	"strings"
 
 	"factorio-bot/internal/act"
@@ -234,64 +233,6 @@ func clusterOfName(plan *ClusterPlan, name string) cluster.Cluster {
 	return cluster.Cluster{}
 }
 
-// laterTags — теги будущей добычи плана (cluster.Later — строится на стадии 30): её кластеры, их
-// логистика, дописанное на потом в блоки первой итерации (LaterTag).
-func laterTags(plan *ClusterPlan) map[string]bool {
-	res := map[string]bool{}
-	for _, c := range plan.Clusters {
-		if c.Kind == cluster.Mine || c.Kind == cluster.Smelt {
-			res[cluster.LaterTag(c.Name)] = true
-		}
-		if !c.Later {
-			continue
-		}
-		res[cluster.Tag(c.Name)], res[cluster.LogisticsTag+"/"+c.Name] = true, true
-		for _, bus := range busNames(plan) {
-			res[cluster.LogisticsTag+"/"+bus+"/"+c.Name] = true
-		}
-	}
-	return res
-}
-
-// withoutLater — list без будущей добычи и её лент шин (их строит стадия 30).
-func withoutLater(h *act.Hands, plan *ClusterPlan, list []layout.Placement) []layout.Placement {
-	later := laterTags(plan)
-	lanes := map[layout.Placement]bool{}
-	for _, pl := range laterLanes(h, plan) {
-		lanes[pl] = true
-	}
-	return slices.DeleteFunc(slices.Clone(list), func(pl layout.Placement) bool { return later[pl.Tag] || lanes[pl] })
-}
-
-// laterLanes — ленты шин предметов, которые даёт только будущая добыча (камень, кирпич — кластеры
-// Later), с подземками и делителями в разрыве: их строит стадия 30 вместе с добычей (stages.md:
-// «добыча камня, свои ленты bus-1»). Лента камня bus-1 — в плане первой итерации, а не в
-// будущей добыче: её не ставила ни одна стадия (на бумаге, 260647970).
-func laterLanes(h *act.Hands, plan *ClusterPlan) []layout.Placement {
-	now, later := map[string]bool{}, map[string]bool{}
-	for _, c := range plan.Clusters {
-		if c.Kind != cluster.Mine && c.Kind != cluster.Smelt {
-			continue
-		}
-		if c.Later {
-			later[c.Product] = true
-		} else {
-			now[c.Product] = true
-		}
-	}
-	var items []string
-	for it := range later {
-		if !now[it] {
-			items = append(items, it)
-		}
-	}
-	if len(items) == 0 {
-		return nil
-	}
-	sort.Strings(items)
-	return withSplitters(h, plan, busParts(plan, items, nil))
-}
-
 // busNames — шины плана (зоны шин: bus-1 … bus-4).
 func busNames(plan *ClusterPlan) []string {
 	var res []string
@@ -448,18 +389,4 @@ func smeltingBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
 	}
 	res = append(res, busParts(plan, []string{"iron-ore", "copper-ore"}, srcs)...)
 	return withSplitters(h, plan, res)
-}
-
-// busPlatesBase — стадия 18 из плана: ленты пластин шины, подводы в них от плавки, делители на них
-// (отводы будущих потребителей стоят в разрыве ленты).
-func busPlatesBase(h *act.Hands, plan *ClusterPlan) []layout.Placement {
-	var srcs []string
-	for _, it := range []string{"iron-plate", "copper-plate"} {
-		for _, c := range clustersOf(plan, cluster.Smelt, it) {
-			srcs = append(srcs, c.Name)
-		}
-	}
-	// сквозные ленты пластин на шины выше — подводы с шины снизу
-	srcs = append(srcs, busNames(plan)...)
-	return withSplitters(h, plan, busParts(plan, []string{"iron-plate", "copper-plate"}, srcs))
 }

@@ -148,7 +148,7 @@ func runMaintenance(ctx context.Context, h *act.Hands) error {
 	if err := refreshLayouts(h, 21); err != nil {
 		return err
 	}
-	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planNow) }, true)
+	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planBefore(22)) }, true)
 }
 
 // maintain — обслуживание: list — с чем сверять построенное (чертёж: стадия 22 — без того, что
@@ -499,28 +499,6 @@ func directed(name string) bool {
 		strings.HasSuffix(name, "splitter") || name == "inserter" || name == "fast-inserter" || name == "burner-inserter"
 }
 
-// planNow — что из плана уже должно стоять: дописанное проектом зелёной науки (стадия 4) строят
-// стадии после обслуживания — не сверять.
-func planNow(h *act.Hands) ([]layout.Placement, error) {
-	plan, err := LoadPlan()
-	if err != nil {
-		return nil, err
-	}
-	later := map[layout.Placement]bool{}
-	if added, _, err := greenAdded(); err == nil {
-		for _, pl := range added {
-			later[pl] = true
-		}
-	}
-	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		if !later[pl] {
-			res = append(res, pl)
-		}
-	}
-	return withoutLater(h, plan, res), nil // будущая добыча — на стадии 30
-}
-
 // planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр
 // инсертера.
 func planAudit(h *act.Hands, list []layout.Placement) ([]planDiff, error) {
@@ -661,7 +639,7 @@ func renameChests() error {
 
 // checkMaintenance — нет своих деревянных сундуков; каждое нужное исследование изучено или в
 // очереди; построенное — по чертежу, лишнего нет.
-func checkMaintenance(h *act.Hands) error { return checkDrawing(h, planNow) }
+func checkMaintenance(h *act.Hands) error { return checkDrawing(h, planBefore(22)) }
 
 // checkKept — проверка обслуживания со сверкой по list (стадия 28 — чертёж: одна сверка, не две).
 func checkKept(h *act.Hands, list []layout.Placement) error {

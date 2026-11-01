@@ -20,19 +20,10 @@ func init() {
 	register(Stage{N: 18, Name: "пластины на шину", Run: runBusPlates, Check: checkBusPlates})
 }
 
-// busPlatesLayout — busPlatesBase; один раз на карту (файл).
+// busPlatesLayout — постройки плана стадии 18: ленты пластин bus-2 и вывод плавки в них; один
+// раз на карту (файл).
 func busPlatesLayout(h *act.Hands) ([]layout.Placement, error) {
-	return onceLayout(busPlatesFile, func() ([]layout.Placement, error) {
-		plan, err := LoadPlan()
-		if err != nil {
-			return nil, err
-		}
-		res := busPlatesBase(h, plan)
-		if len(res) == 0 {
-			return nil, fmt.Errorf("в плане нет лент пластин шины")
-		}
-		return res, nil
-	})
+	return addedFor(h, busPlatesFile, platesOnBus)
 }
 
 func runBusPlates(ctx context.Context, h *act.Hands) error {
