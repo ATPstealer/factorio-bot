@@ -110,59 +110,68 @@
 бойлеры, по 1.8 МВт. Качалки — без выхода: он зависит от месторождения. Пики стройки (стадия
 30 — 7 153 ленты разом) часы не сглаживают — их держит буфер.
 
-| Стадия | Продукт | Здание сейчас | Ставит, шт | Выход всего, /с | Нужно к жёлтой, /с | Т2, шт | На стройку, /ч | Т2 под стройку, шт | Т2 всего, шт |
-|---|---|---|---|---|---|---|---|---|---|
-| 11 | пар, МВт | boiler | 3 | 5.40 | 22 | 12 | — | — | 12 |
-| 17 | copper-plate | stone-furnace | 30 | 9.38 | 9.48 | 16 | 889 | 1 | 16 |
-| 17 | iron-plate | stone-furnace | 30 | 9.38 | 13 | 21 | 16 518 | 8 | 28 |
-| 19 | iron-gear-wheel | assembling-machine-1 | 10 | 10 | 0.46 | 1 | 5 311 | 1 | 2 |
-| 20 | automation-science-pack | assembling-machine-1 | 5 | 0.50 | 0.12 | 1 | — | — | 1 |
-| 21 | лаборатории | lab | 5 | — | — | — | — | — | — |
-| 23 | copper-cable | assembling-machine-1 | 14 | 28 | 14 | 5 | 1 584 | 1 | 5 |
-| 23 | electronic-circuit | assembling-machine-1 | 7 | 7.00 | 3.60 | 3 | 457 | 1 | 3 |
-| 24 | inserter | assembling-machine-1 | 5 | 5.00 | 0.12 | 1 | 113 | 1 | 1 |
-| 24 | iron-gear-wheel | assembling-machine-1 | 5 | 15 | 0.46 | 1 | 5 215 | 1 | 2 |
-| 25 | iron-gear-wheel | assembling-machine-1 | 7 | 22 | 0.46 | 1 | 5 180 | 1 | 2 |
-| 25 | transport-belt | assembling-machine-1 | 7 | 14 | 0.12 | 1 | 1 864 | 1 | 1 |
-| 26 | logistic-science-pack | assembling-machine-1 | 5 | 0.42 | 0.12 | 1 | — | — | 1 |
-| 29 | пар, МВт | boiler | 29 | 58 | 22 | 12 | — | — | 12 |
-| 30 | copper-plate | stone-furnace | 5 | 11 | 9.48 | 16 | 737 | 1 | 16 |
-| 30 | iron-plate | stone-furnace | 114 | 45 | 13 | 21 | 14 683 | 7 | 27 |
-| 30 | stone-brick | stone-furnace | 24 | 7.50 | 0.40 | 1 | 7 | 1 | 1 |
-| 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 13 | 21 | 12 510 | 6 | 26 |
-| 31 | steel-plate | stone-furnace | 30 | 1.88 | 1.44 | 12 | 178 | 1 | 12 |
-| 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | 21 | 1 | 1 |
-| 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | 595 | 1 | 1 |
-| 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 4 416 | 1 | 2 |
-| 34 | crude-oil | pumpjack | 4 | — | 26 | — | — | — | — |
-| 36 | petroleum-gas | oil-refinery | 5 | 45 | 25 | 3 | — | — | 3 |
-| 37 | plastic-bar | chemical-plant | 5 | 10 | 2.08 | 2 | — | — | 2 |
-| 37 | sulfur | chemical-plant | 5 | 10 | 0.26 | 1 | — | — | 1 |
-| 38 | engine-unit | assembling-machine-2 | 5 | 0.38 | 0.16 | 3 | 2 | 1 | 3 |
-| 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.32 | 1 | 478 | 1 | 1 |
-| 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — | — | 6 |
-| 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 726 | 1 | 5 |
-| 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — | — | 2 |
-| 43 | пар, МВт | boiler | 7 | 70 | 22 | 12 | — | — | 12 |
-| 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — | — | 1 |
-| 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | — | — | 1 |
-| 46 | iron-stick | assembling-machine-2 | 5 | 15 | 0.60 | 1 | 178 | 1 | 1 |
-| 46 | rail | assembling-machine-2 | 5 | 15 | 1.20 | 1 | — | — | 1 |
-| 47 | production-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 |
-| 50 | crude-oil | pumpjack | 1 | — | 26 | — | — | — | — |
-| 50 | пар, МВт | boiler | 7 | 83 | 22 | 12 | — | — | 12 |
-| 51 | heavy-oil | oil-refinery | 2 | 10 | 6.41 | 2 | — | — | 2 |
-| 52 | light-oil | chemical-plant | 2 | 30 | 16 | 2 | — | — | 2 |
-| 53 | lubricant | chemical-plant | 2 | 20 | 0.60 | 1 | — | — | 1 |
-| 54 | sulfuric-acid | chemical-plant | 3 | 150 | 2.00 | 1 | — | — | 1 |
-| 55 | battery | chemical-plant | 5 | 1.25 | 0.08 | 1 | — | — | 1 |
-| 56 | electric-engine-unit | assembling-machine-2 | 5 | 0.38 | 0.04 | 1 | — | — | 1 |
-| 57 | flying-robot-frame | assembling-machine-2 | 5 | 0.19 | 0.04 | 2 | — | — | 2 |
-| 58 | low-density-structure | assembling-machine-2 | 6 | 0.30 | 0.12 | 3 | — | — | 3 |
-| 59 | advanced-circuit | assembling-machine-2 | 5 | 1.04 | 0.74 | 6 | — | — | 6 |
-| 59 | copper-cable | assembling-machine-2 | 5 | 53 | 14 | 5 | 104 | 1 | 5 |
-| 59 | processing-unit | assembling-machine-2 | 5 | 0.38 | 0.08 | 2 | — | — | 2 |
-| 60 | utility-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 |
+| Стадия | Продукт | Здание сейчас | Ставит, шт | Выход всего, /с | Нужно к жёлтой, /с | Т2, шт | На стройку, /ч | Т2 под стройку, шт | Т2 всего, шт | Ставим после реф, шт |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 11 | пар, МВт | boiler | 3 | 5.40 | 22 | 12 | — | — | 12 | 3 бойлера (на старт) |
+| 17 | copper-plate | stone-furnace | 30 | 9.38 | 9.48 | 16 | 889 | 1 | 16 | 2 (до стадии 30) |
+| 17 | iron-plate | stone-furnace | 30 | 9.38 | 13 | 21 | 16 518 | 8 | 28 | 7 (до стадии 30) |
+| 19 | iron-gear-wheel | assembling-machine-1 | 10 | 10 | 0.46 | 1 | 5 311 | 1 | 2 | 2 |
+| 20 | automation-science-pack | assembling-machine-1 | 5 | 0.50 | 0.12 | 1 | — | — | 1 | 1 |
+| 21 | лаборатории | lab | 5 | — | — | — | — | — | — | 5 |
+| 23 | copper-cable | assembling-machine-1 | 14 | 28 | 14 | 5 | 1 584 | 1 | 5 | 4 (провод зелёных схем) |
+| 23 | electronic-circuit | assembling-machine-1 | 7 | 7.00 | 3.60 | 3 | 457 | 1 | 3 | 3 |
+| 24 | inserter | assembling-machine-1 | 5 | 5.00 | 0.12 | 1 | 113 | 1 | 1 | 1 |
+| 24 | iron-gear-wheel | assembling-machine-1 | 5 | 15 | 0.46 | 1 | 5 215 | 1 | 2 | 1 (внутри инсертеров) |
+| 25 | iron-gear-wheel | assembling-machine-1 | 7 | 22 | 0.46 | 1 | 5 180 | 1 | 2 | 1 (внутри лент) |
+| 25 | transport-belt | assembling-machine-1 | 7 | 14 | 0.12 | 1 | 1 864 | 1 | 1 | 1 |
+| 26 | logistic-science-pack | assembling-machine-1 | 5 | 0.42 | 0.12 | 1 | — | — | 1 | 1 |
+| 29 | пар, МВт | boiler | 29 | 58 | 22 | 12 | — | — | 12 | +12, всего 15 бойлеров |
+| 30 | copper-plate | stone-furnace | 5 | 11 | 9.48 | 16 | 737 | 1 | 16 | +14, всего 16 |
+| 30 | iron-plate | stone-furnace | 114 | 45 | 13 | 21 | 14 683 | 7 | 27 | +21, всего 28 (и на сталь) |
+| 30 | stone-brick | stone-furnace | 24 | 7.50 | 0.40 | 1 | 7 | 1 | 1 | 1 |
+| 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 13 | 21 | 12 510 | 6 | 26 | 0 (железо — с шины) |
+| 31 | steel-plate | stone-furnace | 30 | 1.88 | 1.44 | 12 | 178 | 1 | 12 | 12 |
+| 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | 21 | 1 | 1 | 1 |
+| 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | 595 | 1 | 1 | 1 |
+| 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 4 416 | 1 | 2 | 1 (внутри быстрых лент) |
+| 34 | crude-oil | pumpjack | 4 | — | 26 | — | — | — | — | по месторождениям (нефть к жёлтой ~26/с) |
+| 36 | petroleum-gas | oil-refinery | 5 | 45 | 25 | 3 | — | — | 3 | 1 (газ синей; с 51 — НПЗ‑2) |
+| 37 | plastic-bar | chemical-plant | 5 | 10 | 2.08 | 2 | — | — | 2 | 2 |
+| 37 | sulfur | chemical-plant | 5 | 10 | 0.26 | 1 | — | — | 1 | 1 |
+| 38 | engine-unit | assembling-machine-2 | 5 | 0.38 | 0.16 | 3 | 2 | 1 | 3 | 3 |
+| 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.32 | 1 | 478 | 1 | 1 | 1 |
+| 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — | — | 6 | 6 |
+| 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 726 | 1 | 5 | 1 (провод красных схем) |
+| 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — | — | 2 | 2 |
+| 43 | пар, МВт | boiler | 7 | 70 | 22 | 12 | — | — | 12 | 0 |
+| 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — | — | 1 | 1 |
+| 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | — | — | 1 | 1 |
+| 46 | iron-stick | assembling-machine-2 | 5 | 15 | 0.60 | 1 | 178 | 1 | 1 | 1 |
+| 46 | rail | assembling-machine-2 | 5 | 15 | 1.20 | 1 | — | — | 1 | 1 |
+| 47 | production-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 | 2 |
+| 50 | crude-oil | pumpjack | 1 | — | 26 | — | — | — | — | по месторождениям |
+| 50 | пар, МВт | boiler | 7 | 83 | 22 | 12 | — | — | 12 | 0 |
+| 51 | heavy-oil | oil-refinery | 2 | 10 | 6.41 | 2 | — | — | 2 | 2 |
+| 52 | light-oil | chemical-plant | 2 | 30 | 16 | 2 | — | — | 2 | 2 |
+| 53 | lubricant | chemical-plant | 2 | 20 | 0.60 | 1 | — | — | 1 | 1 |
+| 54 | sulfuric-acid | chemical-plant | 3 | 150 | 2.00 | 1 | — | — | 1 | 1 |
+| 55 | battery | chemical-plant | 5 | 1.25 | 0.08 | 1 | — | — | 1 | 1 |
+| 56 | electric-engine-unit | assembling-machine-2 | 5 | 0.38 | 0.04 | 1 | — | — | 1 | 1 |
+| 57 | flying-robot-frame | assembling-machine-2 | 5 | 0.19 | 0.04 | 2 | — | — | 2 | 2 |
+| 58 | low-density-structure | assembling-machine-2 | 6 | 0.30 | 0.12 | 3 | — | — | 3 | 3 |
+| 59 | advanced-circuit | assembling-machine-2 | 5 | 1.04 | 0.74 | 6 | — | — | 6 | 0 (стоят с 39) |
+| 59 | copper-cable | assembling-machine-2 | 5 | 53 | 14 | 5 | 104 | 1 | 5 | 0 |
+| 59 | processing-unit | assembling-machine-2 | 5 | 0.38 | 0.08 | 2 | — | — | 2 | 2 |
+| 60 | utility-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 | 2 |
+
+«Ставим после реф» — по решениям выше: каждый кластер — один раз, сразу итогового размера по
+Т2 (стройка плюс жёлтая, вверх); основа — часть на 17 (темп до стадии 30: железо ~4/с, медь
+~0.7/с), остальное на 30; станция — 3 бойлера на старт, до 15 на стадии 29 (`Станция в конце
+игры`); рост на 43, 50, 59 — не нужен. Машины внутри кластера (провод в схемах, шестерни в
+лентах и инсертерах, железо под сталь) — по своему кластеру, а не по всей нужде продукта. В
+начале игры ставится Т1: печей и сборщиков первого уровня — вдвое больше этих чисел (печи
+каменные 0.31/с против 0.63/с стальной), пока их не сменит Т2. Буры — как сейчас (таблица
+добычи ниже), качалки — по месторождениям.
 
 **Добыча — по руде под бурами, а не по бурам в секунду** (поправка пользователя): бур выдаёт
 полный темп, пока под ним есть руда, потом ноль — поэтому буров много, с запасом. Мера — руда
