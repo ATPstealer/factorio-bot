@@ -135,8 +135,8 @@
 | 30 | copper-plate | stone-furnace | 5 | 11 | 9.48 | 16 | 737 | 1 | 16 | 0 — стоят с 17 |
 | 30 | iron-plate | stone-furnace | 114 | 45 | 13 | 21 | 14 683 | 7 | 27 | 0 — стоят с 17 |
 | 30 | stone-brick | stone-furnace | 24 | 7.50 | 0.40 | 1 | 7 | 1 | 1 | только кирпич: 2 каменные печи (0.4/с на жёлтую) |
-| 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 13 | 21 | 12 510 | 6 | 26 | 0 (железо — с шины) |
-| 31 | steel-plate | stone-furnace | 30 | 1.88 | 1.44 | 12 | 178 | 1 | 12 | 12 |
+| 31 | iron-plate (для стали) | stone-furnace | 30 | 54 | 13 | 21 | 12 510 | 6 | 26 | 15 — в парах со сталью: руда → железо |
+| 31 | steel-plate | stone-furnace | 30 | 1.88 | 1.44 | 12 | 178 | 1 | 12 | 15 пар «руда → железо → сталь»: каменные — 0.94/с, на жёлтую (~1.5/с) — стальные, 1.9/с |
 | 32 | fast-inserter | assembling-machine-1 | 5 | 5.00 | — | — | 21 | 1 | 1 | 1 |
 | 32 | fast-transport-belt | assembling-machine-1 | 5 | 5.00 | — | — | 595 | 1 | 1 | 1 |
 | 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 4 416 | 1 | 2 | 1 (внутри быстрых лент) |
