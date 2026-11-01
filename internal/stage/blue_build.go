@@ -16,11 +16,9 @@ import (
 // кластеры стадии, их логистика и части, ленты и трубы шин, которые стадия начинает);
 // исследования — в очередь заранее и ждать.
 
-// addedFor — постройки плана стадии n (stageAdded), что ещё дают функции more (по всему плану),
-// делители плана в разрывах лент шин (withSplitters), столбы к сети базы; один раз на карту
-// (file).
-func addedFor(h *act.Hands, file string, n int,
-	more ...func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error)) ([]layout.Placement, error) {
+// addedFor — постройки плана стадии n (stageAdded), делители плана в разрывах лент шин
+// (withSplitters), столбы к сети базы; один раз на карту (file).
+func addedFor(h *act.Hands, file string, n int) ([]layout.Placement, error) {
 	list, err := onceLayout(file, func() ([]layout.Placement, error) {
 		plan, err := LoadPlan()
 		if err != nil {
@@ -31,19 +29,6 @@ func addedFor(h *act.Hands, file string, n int,
 		for _, c := range plan.Clusters {
 			if c.Kind != cluster.Bus && clusterStage(c) == n {
 				allow = append(allow, c.Name)
-			}
-		}
-		if len(more) > 0 { // своё стадии — по всему плану
-			all := layout.New(h.Protos, h.World)
-			for _, pl := range plan.Layout {
-				all.Add(pl)
-			}
-			for _, m := range more {
-				add, err := m(plan, all)
-				if err != nil {
-					return nil, err
-				}
-				res = append(res, add...)
 			}
 		}
 		if len(res) == 0 {

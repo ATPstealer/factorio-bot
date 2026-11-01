@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
@@ -21,11 +20,9 @@ import (
 type blueStage struct {
 	n     int
 	name  string
-	file  string                      // раскладка стадии: один раз на карту
-	wait  []string                    // исследования: изучены (иначе — ждать; до подготовки — Stage.Techs)
-	queue []string                    // исследования: в очередь в самом начале (на следующие стадии)
-	pick  func(*cluster.Cluster) bool // кластеры стадии (проверки по факту, исследования)
-	more  func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
+	file  string   // раскладка стадии: один раз на карту
+	wait  []string // исследования: изучены (иначе — ждать; до подготовки — Stage.Techs)
+	queue []string // исследования: в очередь в самом начале (на следующие стадии)
 	// before — до раскладки стадии (переделка построенного)
 	before func(ctx context.Context, h *act.Hands) error
 	// built — сразу после стройки, до проверки по факту (запуск: уголь в новые бойлеры)
@@ -158,14 +155,8 @@ var blueOrder = []string{"offshore-pump", "pumpjack", "storage-tank", "oil-refin
 	"burner-inserter", "inserter", "long-handed-inserter", "fast-inserter", "transport-belt", "fast-transport-belt",
 	"underground-belt", "fast-underground-belt", "splitter", "fast-splitter", "small-electric-pole", "medium-electric-pole"}
 
-// layout — постройки плана стадии (и своё стадии — more), один раз на карту.
-func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) {
-	var more []func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error)
-	if s.more != nil {
-		more = append(more, s.more(h))
-	}
-	return addedFor(h, s.file, s.n, more...)
-}
+// layout — постройки плана стадии, один раз на карту.
+func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) { return addedFor(h, s.file, s.n) }
 
 func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 	if err := queueTechs(ctx, h, s.queue...); err != nil {
@@ -229,60 +220,26 @@ func (s blueStage) check(h *act.Hands) error {
 	return nil
 }
 
-// tagsPrefix — постройки плана с тегом, начинающимся с одного из prefixes (трубы шин, помпа).
-func tagsPrefix(prefixes ...string) func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error) {
-	return func(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error) {
-		return func(plan *ClusterPlan, _ *layout.Layout) ([]layout.Placement, error) {
-			added, _, err := blueAdded()
-			if err != nil {
-				return nil, err
-			}
-			var res []layout.Placement
-			for _, pl := range added {
-				for _, p := range prefixes {
-					if strings.HasPrefix(pl.Tag, p) {
-						res = append(res, pl)
-						break
-					}
-				}
-			}
-			return res, nil
-		}
-	}
-}
-
-func product(p string) func(*cluster.Cluster) bool {
-	return func(c *cluster.Cluster) bool { return c.Kind == cluster.Make && c.Product == p }
-}
-
 func init() {
 	for _, s := range []blueStage{
 		{n: 32, name: "быстрые инсертеры и ленты", file: "state-fast.json", wait: []string{"logistics-2", "fast-inserter"},
-			pick: func(c *cluster.Cluster) bool {
-				return product("fast-transport-belt")(c) || product("fast-inserter")(c)
-			}, fact: working("assembling-machine-1", "assembling-machine-2")},
+			fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 33, name: "склады цистерн", file: "state-tanks.json", queue: []string{"fluid-handling", "oil-gathering", "engine"},
-			wait: []string{"fluid-handling"}, pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Tank }},
+			wait: []string{"fluid-handling"}},
 		{n: 34, name: "нефть: качалки и трасса", file: "state-oil.json", wait: []string{"oil-gathering", "engine"}, // engine — насосы трассы
-			pick: func(c *cluster.Cluster) bool { return c.IsOil() }, fact: inTanks("crude-oil")},
-		{n: 35, name: "вода для химии", file: "state-water.json",
-			more: tagsPrefix(cluster.PipeLaneTag("bus-1", "water")), fact: holds("water", "pipe", "pipe-to-ground")},
+			fact: inTanks("crude-oil")},
+		{n: 35, name: "вода для химии", file: "state-water.json", fact: holds("water", "pipe", "pipe-to-ground")},
 		{n: 36, name: "НПЗ", file: "state-refinery.json", wait: []string{"oil-processing"},
-			queue: []string{"plastics", "sulfur-processing"}, pick: func(c *cluster.Cluster) bool { return c.IsRefinery() },
-			before: oilReady,
-			more:   tagsPrefix(cluster.PipeLaneTag("bus-1", "crude-oil"), cluster.PipeLaneTag("bus-2", "petroleum-gas")),
-			fact:   working("oil-refinery")},
+			queue: []string{"plastics", "sulfur-processing"}, before: oilReady, fact: working("oil-refinery")},
 		{n: 37, name: "пластик и сера", file: "state-chem.json", wait: []string{"plastics", "sulfur-processing"},
-			queue: []string{"advanced-circuit", "engine"}, pick: func(c *cluster.Cluster) bool { return c.IsChem() },
-			fact: working("chemical-plant")},
+			queue: []string{"advanced-circuit", "engine"}, fact: working("chemical-plant")},
 		{n: 38, name: "двигатели", file: "state-engines.json", wait: []string{"engine", "automation-2"},
-			pick: product("engine-unit"), fact: working("assembling-machine-1", "assembling-machine-2")},
+			fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 39, name: "красные схемы", file: "state-adv-circuits.json", wait: []string{"advanced-circuit"},
-			pick: product("advanced-circuit"), fact: working("assembling-machine-1", "assembling-machine-2")},
+			fact: working("assembling-machine-1", "assembling-machine-2")},
 		{n: 40, name: "синяя наука", file: "state-blue-science.json", wait: []string{bluePack},
-			pick: product(bluePack), fact: working("assembling-machine-1", "assembling-machine-2")},
-		{n: 41, name: "синяя в лаборатории", file: "state-labs-blue.json",
-			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: labsOn(bluePack),
+			fact: working("assembling-machine-1", "assembling-machine-2")},
+		{n: 41, name: "синяя в лаборатории", file: "state-labs-blue.json", fact: labsOn(bluePack),
 			// синяя в лабораториях — исследования и на ней (rocketTechs; решение пользователя 26.10):
 			// до стройки и на синей — первыми, иначе к проверке по факту текущее — не на синей
 			// (очередь пуста или забита красными и зелёными: стадия 41 на 267145981)

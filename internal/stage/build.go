@@ -50,8 +50,7 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 		}
 		return configure(ctx, h, these)
 	}
-	// повторы одного места — один раз (лента камня стадии 30 — и из лент будущей добычи, и из
-	// дописанного проектом синей: вторую такую же игра не ставит — «не удалось поставить»,
+	// повторы одного места — один раз (вторую такую же игра не ставит — «не удалось поставить»,
 	// 859088572)
 	seen := map[layout.Placement]bool{}
 	var sorted []layout.Placement

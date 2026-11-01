@@ -1,13 +1,11 @@
 // Package cluster — кластерная база (cluster.md, zones.md): кластер — прямоугольник на карте с
-// известными входами и выходами (шт/с, Вт). Split режет план калькулятора на кластеры; зоны —
-// MineZones и PlaceLayered (стадия 2); места кластеров в зонах — PlaceZoned, связи —
-// ConnectZoned (стадия 3), дописывание — ConnectMore, рост — GrowRow/Extra (стадия 4).
+// известными входами и выходами (шт/с, Вт). Что ставим — таблица Builds; зоны — MineZones и
+// PlaceLayered, места кластеров в зонах — PlaceZoned, связи — ConnectZoned (всё — стадия 2).
 package cluster
 
 import (
 	"fmt"
 	"math"
-	"slices"
 	"sort"
 	"strings"
 
@@ -164,150 +162,6 @@ func flows(fs []Flow) string {
 	return strings.Join(s, ", ")
 }
 
-// Split режет план калькулятора на кластеры. Добыча — по ресурсу, плавка — по продукту,
-// прочее — по продукту (с Merge промежуточный продукт, который тратит ровно один кластер
-// сборки и он не цель, делается внутри него — internal). Топливо (уголь печей и бойлеров) — в
-// кластер добычи угля (свободный уголь have — первым). reserve — запас роста out. separate —
-// продукты, которые всегда отдельным кластером (не внутрь потребителя).
-func Split(p *knowledge.Prototypes, plan *calc.Plan, reserve float64, have map[string]float64, separate ...string) ([]*Cluster, error) {
-	nodes, owner := splitShared(p, plan)
-	index := map[*calc.Node]int{}
-	for i, n := range nodes {
-		index[n] = i
-	}
-	kind := make([]Kind, len(nodes))
-	product := make([]string, len(nodes))
-	parent := make([]int, len(nodes))
-	for i, n := range nodes {
-		parent[i] = i
-		switch {
-		case strings.HasPrefix(n.Recipe, "mine:"):
-			kind[i] = Mine
-		case strings.HasPrefix(n.Recipe, "pump:"), strings.HasPrefix(n.Recipe, "source:"):
-			kind[i] = "" // вода — внутри потребителя; source — руками, не кластер
-		case p.Recipes[n.Recipe].Category == "smelting":
-			kind[i] = Smelt
-		default:
-			kind[i] = Make
-		}
-		product[i] = mainOut(n)
-	}
-	find := func(i int) int {
-		for parent[i] != i {
-			i = parent[i]
-		}
-		return i
-	}
-	// промежуточное (не цель) с одним потребителем-сборкой — внутрь него парой прямой подачи
-	// (сборщик промежуточного → инсертер → основной), если у пары остаётся не больше двух
-	// входов с лент (шаблон — одна лента, две полосы)
-	subOf := map[int]int{}
-	for i := range nodes {
-		if kind[i] != Make || plan.Targets[product[i]] > 0 || slices.Contains(separate, product[i]) {
-			continue
-		}
-		var cons []int
-		if o, ok := owner[nodes[i]]; ok {
-			cons = []int{index[o]} // доля общего промежуточного — своему потребителю
-		} else {
-			for j, m := range nodes {
-				if j != i && m.In[product[i]] > 0 {
-					cons = append(cons, j)
-				}
-			}
-		}
-		if len(cons) != 1 || kind[cons[0]] != Make || parent[cons[0]] != cons[0] {
-			continue
-		}
-		j := cons[0]
-		if _, has := subOf[j]; has {
-			continue
-		}
-		in := map[string]bool{}
-		for it := range nodes[j].In {
-			if it != product[i] {
-				in[it] = true
-			}
-		}
-		for it := range nodes[i].In {
-			if it != "water" {
-				in[it] = true
-			}
-		}
-		if len(in) > 2 {
-			continue
-		}
-		parent[i], subOf[j] = j, i
-	}
-	groups := map[int][]int{}
-	var roots []int
-	for i := range nodes {
-		if kind[i] == "" {
-			continue
-		}
-		r := find(i)
-		if groups[r] == nil {
-			roots = append(roots, r)
-		}
-		groups[r] = append(groups[r], i)
-	}
-	var res []*Cluster
-	var fuel float64 // уголь печей кластеров (бойлеры — ниже)
-	for _, r := range roots {
-		c := &Cluster{Kind: kind[r], Product: product[r], Reserve: reserve}
-		if si, ok := subOf[r]; ok {
-			c.Main, c.Sub = nodes[r].Recipe, nodes[si].Recipe
-			c.SubPer = min(2, max(1, int(math.Ceil(nodes[si].Machines/math.Max(nodes[r].Machines, 1e-9)-1e-9))))
-		}
-		in, out := map[string]float64{}, map[string]float64{}
-		for _, i := range groups[r] {
-			n := nodes[i]
-			c.Units = append(c.Units, Unit{Recipe: n.Recipe, Machine: n.Machine, Machines: n.Machines * Margin})
-			for it, v := range n.In {
-				in[it] += v
-			}
-			for it, v := range n.Out {
-				out[it] += v
-			}
-			c.PowerW += n.PowerW * Margin
-			if n.Fuel > 0 {
-				in["coal"] += n.Fuel
-				fuel += n.Fuel
-			}
-		}
-		// вода — помпой внутри
-		if w := in["water"]; w > 0 {
-			c.Internal = append(c.Internal, Flow{"water", w * Margin})
-			delete(in, "water")
-		}
-		for it := range in {
-			if d := math.Min(in[it], out[it]); d > 1e-9 {
-				c.Internal = append(c.Internal, Flow{it, d * Margin})
-				in[it] -= d
-				out[it] -= d
-			}
-		}
-		c.In, c.Out = toFlows(in), toFlows(out)
-		res = append(res, c)
-	}
-	for _, c := range res {
-		for i := range c.Out {
-			c.Out[i].Rate *= Margin
-		}
-		for i := range c.In {
-			c.In[i].Rate *= Margin
-		}
-		shape(p, c)
-	}
-	// уголь печей — в добычу угля
-	if fuel > 0 {
-		if err := addCoal(p, &res, fuel, reserve, have); err != nil {
-			return nil, err
-		}
-	}
-	return res, nil
-}
-
 // AddPower — станция под потребление всех кластеров (с лабораториями и добычей), уголь
 // бойлеров — в добычу угля. Вызывать после всех Split/Labs.
 func AddPower(p *knowledge.Prototypes, cs []*Cluster, reserve float64, have map[string]float64) ([]*Cluster, error) {
@@ -406,57 +260,6 @@ func addCoal(p *knowledge.Prototypes, cs *[]*Cluster, rate, reserve float64, hav
 	return nil
 }
 
-// splitShared — промежуточное сборки (не цель), которое тратят несколько сборок (шестерни —
-// науке, лентам, инсертерам): узел делится на доли по потребителям — каждому своя пара прямой
-// подачи. Копии узлов, план не меняется.
-func splitShared(p *knowledge.Prototypes, plan *calc.Plan) ([]*calc.Node, map[*calc.Node]*calc.Node) {
-	owner := map[*calc.Node]*calc.Node{} // копия → её потребитель
-	var nodes []*calc.Node
-	for _, n := range plan.Nodes {
-		c := *n
-		nodes = append(nodes, &c)
-	}
-	isMake := func(n *calc.Node) bool {
-		return !strings.HasPrefix(n.Recipe, "mine:") && !strings.HasPrefix(n.Recipe, "pump:") && !strings.HasPrefix(n.Recipe, "source:") && p.Recipes[n.Recipe].Category != "smelting"
-	}
-	var out []*calc.Node
-	for _, x := range nodes {
-		prod := mainOut(x)
-		var cons []*calc.Node
-		for _, m := range nodes {
-			if m != x && m.In[prod] > 0 {
-				cons = append(cons, m)
-			}
-		}
-		if !isMake(x) || plan.Targets[prod] > 0 || len(cons) < 2 {
-			out = append(out, x)
-			continue
-		}
-		all := true
-		for _, m := range cons {
-			all = all && isMake(m)
-		}
-		if !all {
-			out = append(out, x)
-			continue
-		}
-		total := x.Out[prod]
-		for _, m := range cons {
-			share := m.In[prod] / total
-			c := &calc.Node{Recipe: x.Recipe, Machine: x.Machine, Crafts: x.Crafts * share, Machines: x.Machines * share,
-				In: map[string]float64{}, Out: map[string]float64{}, PowerW: x.PowerW * share, Fuel: x.Fuel * share}
-			for it, v := range x.In {
-				c.In[it] = v * share
-			}
-			// выход копии — только этому потребителю (Out — по одному продукту)
-			c.Out[prod] = m.In[prod]
-			owner[c] = m
-			out = append(out, c)
-		}
-	}
-	return out, owner
-}
-
 // Labs — научный кластер: лаборатории под пакеты (шт/с) при среднем времени на пакет sec
 // (единица исследования / пакетов в ней) — сколько лабораторий держат этот поток.
 func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float64) *Cluster {
@@ -511,17 +314,6 @@ func StorageCluster() *Cluster {
 	c.Cross, c.Pitch, c.Head = geometry(Storage)
 	c.Count, c.Room = 8, 8
 	return c
-}
-
-// mainOut — продукт узла: самый большой выход.
-func mainOut(n *calc.Node) string {
-	best, v := "", -1.0
-	for it, r := range n.Out {
-		if r > v || r == v && it < best {
-			best, v = it, r
-		}
-	}
-	return best
 }
 
 func toFlows(m map[string]float64) []Flow {

@@ -172,7 +172,7 @@ func main() {
 		for _, pl := range plan.Layout {
 			l.Add(pl)
 		}
-		skip := stage.SkipLater(plan.Clusters) // «all» последним аргументом — и будущие блоки (план стадии 5)
+		skip := stage.SkipLater(plan.Clusters) // «all» последним аргументом — и блоки добычи стадии 30
 		if args[len(args)-1] == "all" {
 			skip, args = nil, args[:len(args)-1]
 		}

@@ -55,12 +55,6 @@ type Base struct {
 	MaxR     int // радиус поиска места от якоря, тайлов
 	// Avoid — занятые тайлы (раскладки прошлых задач): ни кластеров, ни логистики
 	Avoid map[world.Tile]bool
-	// Pre — уже спланированное (план прошлой стадии планирования): кладётся в раскладку первым,
-	// внутренности новых кластеров его не занимают (Layout)
-	Pre []layout.Placement
-	// Refeed — старые кластеры, чей выход подвести к ленте шины, появившейся позже них
-	// (ConnectMore: кирпич на bus-2 к электропечам — stages.md, стадии 6 и 43)
-	Refeed []*Cluster
 	// Usable — доступна ли постройка (изучено); nil — всё (подземки — после logistics)
 	Usable func(entity string) bool
 	// Log — журнал прокладки (попытки, время); nil — молча
@@ -591,19 +585,13 @@ func (b *Base) Sorted() []*Cluster {
 // Tag — тег размещений кластера в раскладке (стройка — plan.Built с этим тегом).
 func Tag(name string) string { return "c/" + name }
 
-// Layout — раскладка кластеров fresh (нет — всех): внутренности (Interior); Area всех
-// кластеров базы закрыты (маршруты потом идут только по коридорам).
-func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
-	if len(fresh) == 0 {
-		fresh = b.Clusters
-	}
+// Layout — раскладка кластеров: внутренности (Interior); Area кластеров закрыты (маршруты потом
+// идут только по коридорам).
+func (b *Base) Layout() (*layout.Layout, error) {
 	l := layout.New(b.P, b.W)
 	l.Usable = b.Usable
 	for t := range b.Avoid {
 		l.Reserved[t] = true
-	}
-	for _, pl := range b.Pre {
-		l.Add(pl)
 	}
 	area := func(c *Cluster, on bool) {
 		for y := c.Area.Min.Y; y < c.Area.Max.Y; y++ {
@@ -638,7 +626,7 @@ func (b *Base) Layout(fresh ...*Cluster) (*layout.Layout, error) {
 		area(c, true)
 		solid(c, true)
 	}
-	for _, c := range fresh {
+	for _, c := range b.Clusters {
 		if c.Kind == Bus {
 			continue // ленты шины — в ConnectZoned (по потребителям)
 		}

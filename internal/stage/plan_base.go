@@ -496,7 +496,7 @@ func planTry(h *act.Hands, rough *RoughPlan, own []world.Object, rt *planRetry) 
 	for _, bus := range buses { // шины — в план кластерами (теги лент c/<шина>)
 		all = append(all, &cluster.Cluster{Name: bus.Name, Kind: cluster.Bus, Product: "bus", Area: bus.Rect, Rect: bus.Rect})
 	}
-	if err := flowCheck(h, l, all, true); err != nil {
+	if err := flowCheck(h, l, all); err != nil {
 		return base, l, err
 	}
 	for _, c := range all {
