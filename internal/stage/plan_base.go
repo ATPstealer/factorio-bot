@@ -195,8 +195,9 @@ func planBase(h *act.Hands) error {
 	rt := &planRetry{avoid: map[world.Tile]bool{}, boost: map[string]float64{}, widen: map[string]int{}, wells: cluster.OilWells}
 	avoid := rt.avoid
 	short, shortWells := 0, 0
-	fails := map[string]int{} // неудач подвода у кластера
-	respared := 0             // сколько раз этажи шире и зоны заново
+	fails := map[string]int{}          // неудач подвода у кластера
+	respared := 0                      // сколько раз этажи шире и зоны заново
+	mineAvoid := map[world.Tile]bool{} // места блоков добычи, чей подвод не провёлся: и при зонах заново
 	for try := 0; ; try++ {
 		base, l, err := planTry(h, rough, own, rt)
 		if err == nil {
@@ -243,8 +244,11 @@ func planBase(h *act.Hands) error {
 				if rough, err = LoadRough(); err != nil {
 					return err
 				}
+				// попытки переложить — заново: зоны другие; места добычи с непроведённым подводом —
+				// под запретом и дальше (пятно то же: 238178543 — камень трижды по 4 минуты)
 				clear(avoid)
-				try = -1 // попытки переложить — заново: зоны другие
+				maps.Copy(avoid, mineAvoid)
+				try = -1
 				continue
 			}
 		}
@@ -298,6 +302,9 @@ func planBase(h *act.Hands) error {
 		for y := a.Min.Y; y < a.Max.Y; y++ {
 			for x := a.Min.X; x < a.Max.X; x++ {
 				avoid[world.Tile{X: x, Y: y}] = true
+				if c.Kind == cluster.Mine {
+					mineAvoid[world.Tile{X: x, Y: y}] = true
+				}
 			}
 		}
 	}
