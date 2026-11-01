@@ -9,8 +9,9 @@
 # По RCON ничего не пишется: сохраняет сам сервер при штатной остановке.
 #   INST=N …                         — экземпляр N (scripts/inst.sh); снимки общие
 # Папки (решение пользователя 30.10): run/snapshots/tests/ — карты -0 для e2e и бенча,
-# run/snapshots/last_run/ — все стадии карт, прошедших 1–41, корень — снимки идущих прогонов;
-# снимок ищется во всех (snapdir из inst.sh).
+# run/snapshots/last_run/ — все стадии карт, прошедших 1–41, run/snapshots/explored/ — карты
+# после разведки (-1; 1.11), корень — снимки идущих прогонов; снимок ищется во всех (snapdir из
+# inst.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/inst.sh
@@ -19,6 +20,7 @@ S=$(snapdir "${2:-}")
 # идущих прогонов); перекладывать в last_run — руками. Замер стадии 18 на 427965634 затёр
 # last_run/427965634-18 (30.10)
 case "${1:-}" in save | grab) [[ $S == */tests/* || $S == */last_run/* ]] && S="run/snapshots/${2:-}" ;; esac
+case "${1:-}" in save | grab) [[ ${2:-} == *-1 ]] && S="run/snapshots/explored/${2:-}" ;; esac # разведка — в explored
 case "${1:-}" in
 save)
   [[ -n "${2:-}" ]] || { echo "нужно имя" >&2; exit 1; }

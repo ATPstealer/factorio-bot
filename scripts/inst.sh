@@ -21,14 +21,19 @@ export INST R RCON_PORT
 export BOT_RUN=$R BOT_DISPLAY=$DISPLAY_NUM BOT_RCON=127.0.0.1:$RCON_PORT
 
 # snapdir ИМЯ — папка снимка: run/snapshots/ИМЯ или в подпапке (tests — карты -0 для e2e,
-# last_run — все стадии карт, прошедших 1–41; решение пользователя 30.10). Нет нигде — корень
-# (новые снимки стадий кладутся туда; -0 — в tests).
+# last_run — все стадии карт, прошедших 1–41; решение пользователя 30.10; explored — карты после
+# разведки, -1: для работы потом, решение пользователя 1.11). Нет нигде — корень (новые снимки
+# стадий кладутся туда; -0 — в tests, -1 — в explored).
 snapdir() {
   local d
   for d in "$ROOT/run/snapshots/$1" "$ROOT"/run/snapshots/*/"$1"; do
     [[ -d $d ]] && { echo "$d"; return; }
   done
-  [[ $1 == *-0 ]] && echo "$ROOT/run/snapshots/tests/$1" || echo "$ROOT/run/snapshots/$1"
+  case $1 in
+  *-0) echo "$ROOT/run/snapshots/tests/$1" ;;
+  *-1) echo "$ROOT/run/snapshots/explored/$1" ;;
+  *) echo "$ROOT/run/snapshots/$1" ;;
+  esac
 }
 
 # inst_setup — папки экземпляра по образцу run/: config.ini (свой write-data), моды (симлинки
