@@ -142,8 +142,8 @@
 | 32 | iron-gear-wheel | assembling-machine-1 | 10 | 32 | 0.46 | 1 | 4 416 | 1 | 2 | 3 — в парах с быстрыми лентами |
 | 34 | crude-oil | pumpjack | 4 | — | 26 | — | — | — | — | не меньше 30 скважин; месторождения — целиком (12 + 6 + 6 + 11 — все 35, а не до 30) |
 | 36 | petroleum-gas | oil-refinery | 5 | 45 | 25 | 3 | — | — | 3 | 3 — газа 27/с (синей нужно 4.5, фиолетовой 12.5), нефти на полном ходу 60/с — как 30 скважин на минимуме |
-| 37 | plastic-bar | chemical-plant | 5 | 10 | 2.08 | 2 | — | — | 2 | 2 |
-| 37 | sulfur | chemical-plant | 5 | 10 | 0.26 | 1 | — | — | 1 | 1 |
+| 37 | plastic-bar | chemical-plant | 5 | 10 | 2.08 | 2 | — | — | 2 | 3 — 6 пластика/с (на полном ходу 60 газа/с) |
+| 37 | sulfur | chemical-plant | 5 | 10 | 0.26 | 1 | — | — | 1 | 3 — 6 серы/с |
 | 38 | engine-unit | assembling-machine-2 | 5 | 0.38 | 0.16 | 3 | 2 | 1 | 3 | 3 |
 | 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.32 | 1 | 478 | 1 | 1 | 1 |
 | 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — | — | 6 | 6 |
