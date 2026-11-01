@@ -427,6 +427,9 @@ func yellowTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool)
 		}
 	}
 	cluster.UnderPipes(l, zb, fixed)
+	if err := splitPipes(h, l); err != nil {
+		return base, l, err
+	}
 	for _, e := range l.Validate() {
 		if !before[e] && !strings.Contains(e, "столбы не связаны") {
 			var x, y int // чья постройка — в ошибку (разбор)
