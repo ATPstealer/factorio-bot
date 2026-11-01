@@ -148,7 +148,7 @@
 | 38 | pipe | assembling-machine-2 | 5 | 7.50 | 0.32 | 1 | 478 | 1 | 1 | 4 — в парах с двигателями |
 | 39 | advanced-circuit | assembling-machine-1 | 5 | 0.42 | 0.74 | 6 | — | — | 6 | 8 пар «провод + красная» — 1/с (нужно 0.74), колонка 64 |
 | 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 726 | 1 | 5 | 8 — в парах с красными |
-| 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — | — | 2 | 2 |
+| 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — | — | 2 | 3 — 0.19/с (нужно 0.12) |
 | 43 | пар, МВт | boiler | 7 | 70 | 22 | 12 | — | — | 12 | 0 |
 | 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — | — | 1 | 1 |
 | 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | — | — | 1 | 1 |
