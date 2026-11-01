@@ -807,6 +807,20 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 			}
 		}
 	}
+	// и суша, до которой от базы не дойти (острова): подземная труба на ней — не поставить
+	reach := b.landReach(tank.Area.Min)
+	box := Rect{world.Tile{X: min(field.Area.Min.X, tank.Area.Min.X), Y: min(field.Area.Min.Y, tank.Area.Min.Y)},
+		world.Tile{X: max(field.Area.Max.X, tank.Area.Max.X), Y: max(field.Area.Max.Y, tank.Area.Max.Y)}}.Grow(60)
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		for x := box.Min.X; x < box.Max.X; x++ {
+			t := world.Tile{X: x, Y: y}
+			own := x >= field.Area.Min.X && x < field.Area.Max.X && y >= field.Area.Min.Y && y < field.Area.Max.Y
+			if !l.Solid[t] && !own && l.Free(t, layout.AnyLand) && !reach(t) {
+				l.Solid[t] = true
+				shut = append(shut, t)
+			}
+		}
+	}
 	defer func() {
 		for _, t := range shut {
 			delete(l.Solid, t)

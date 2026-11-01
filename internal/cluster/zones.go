@@ -142,8 +142,40 @@ func (b *Base) Zones(lay *Layered) []Zone {
 // мелководью (вода шире — стена; объекты — деревья, камни, утёсы — не считаются), до limit
 // тайлов. Возвращает функцию: расстояние до ближайшего тайла прямоугольника и достижим ли он.
 func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, bool) {
-	const step = 2
-	const _ = 0
+	const step = landStep
+	d := landCells(w, origin, limit)
+	return func(r Rect) (int, bool) {
+		best, ok := 0.0, false
+		for y := r.Min.Y / step; y <= r.Max.Y/step; y++ {
+			for x := r.Min.X / step; x <= r.Max.X/step; x++ {
+				if v, seen := d[cell{x, y}]; seen && (!ok || v < best) {
+					best, ok = v, true
+				}
+			}
+		}
+		return int(best * step), ok
+	}
+}
+
+// landReach — до тайла дойти пешком от from (база; та же заливка, что landDist, один раз на
+// базу): нефтетрасса не выходит на остров — подземную трубу там не поставить (208708719,
+// стадия 34 на бумаге: «не дойти (вода)»).
+func (b *Base) landReach(from world.Tile) func(world.Tile) bool {
+	if b.reach == nil {
+		b.reach = landCells(b.W, from, 2500)
+	}
+	return func(t world.Tile) bool {
+		_, ok := b.reach[cell{t.X / landStep, t.Y / landStep}]
+		return ok
+	}
+}
+
+// landStep — шаг сетки заливки по суше.
+const landStep = 2
+
+// landCells — заливка по суше от origin: ячейка сетки landStep → расстояние в ячейках.
+func landCells(w *world.World, origin world.Tile, limit int) map[cell]float64 {
+	const step = landStep
 	land := func(c cell) bool {
 		switch w.TileAt(world.Tile{X: c.x * step, Y: c.y * step}) {
 		case world.Land, world.Shallow:
@@ -184,17 +216,7 @@ func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, b
 			}
 		}
 	}
-	return func(r Rect) (int, bool) {
-		best, ok := 0.0, false
-		for y := r.Min.Y / step; y <= r.Max.Y/step; y++ {
-			for x := r.Min.X / step; x <= r.Max.X/step; x++ {
-				if v, seen := d[cell{x, y}]; seen && (!ok || v < best) {
-					best, ok = v, true
-				}
-			}
-		}
-		return int(best * step), ok
-	}
+	return d
 }
 
 type cellDist struct {
