@@ -781,6 +781,9 @@ type ThroughError struct {
 func (e *ThroughError) Error() string { return e.Err.Error() }
 func (e *ThroughError) Unwrap() error { return e.Err }
 
+// ThroughTag — тег сквозной ленты item с шины from на шину to.
+func ThroughTag(to, from, item string) string { return LogisticsTag + "/" + to + "/" + from + "/" + item }
+
 func feedThrough(l *layout.Layout, buses []*ZBus) error {
 	for k := 1; k < len(buses); k++ {
 		for i := range buses[k].Lanes {
@@ -809,7 +812,9 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			err := layout.ErrNoRoute
 			unguard := laneGuard(l, buses, low, ln) // вдоль шин не идти (поперёк — подземкой)
 			for _, p := range to {
-				if err = SplitTap(l, line, p, LogisticsTag+"/"+buses[k].Name+"/"+buses[k-1].Name, 40); err == nil {
+				// тег — с предметом: стадия сквозной — стадия её предмета (stages.md: ленты шин — вместе
+				// с кластерами)
+				if err = SplitTap(l, line, p, ThroughTag(buses[k].Name, buses[k-1].Name, ln.Item), 40); err == nil {
 					ln.feed(p.T.X, low.Now) // сквозная течёт, когда течёт нижняя
 					break
 				}
@@ -855,14 +860,18 @@ func (b *Base) feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *po
 		return fmt.Errorf("cluster: %s ← %s: на шинах рядом нет ленты", c.Name, p.Item)
 	}
 	g.open(p)
+	tag := LogisticsTag + "/" + c.Name
+	if c.Kind == Lab { // отвод пакета — с частью блока под него (строит стадия пакета)
+		tag = LabPart(tag, p.Item)
+	}
 	var err error
 	for i, line := range lines {
 		unguard := laneGuard(l, buses, used[i]) // вдоль шин не идти (238178543: подвод кирпича в ряду медной руды)
-		err = SplitTap(l, line, p, LogisticsTag+"/"+c.Name, 40)
+		err = SplitTap(l, line, p, tag, 40)
 		unguard()
 		if err == nil {
 			used[i].Taps++
-			pairBefore(l, buses, used[i], LogisticsTag+"/"+c.Name)
+			pairBefore(l, buses, used[i], tag)
 			return nil
 		}
 	}

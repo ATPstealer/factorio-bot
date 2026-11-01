@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
@@ -20,57 +19,10 @@ func init() {
 	register(Stage{N: 30, Name: "расширение дохода", Run: runIncome, Check: checkIncome})
 }
 
-// incomeLayout — будущая добыча из плана стадии 3 (Later: блоки до 2M, камень, кирпич, буры на
-// потом в блоках первой итерации, их подводы и перекидки) и дописанное стадией 5 в плавку (не
-// сталь); буфер кирпича; столбы к сети.
-func incomeLayout(h *act.Hands) ([]layout.Placement, error) {
-	return blueAddedFor(h, incomeFile, func(c *cluster.Cluster) bool {
-		return c.Kind == cluster.Smelt && !c.IsSteel()
-	}, true, func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error) {
-		later := laterTags(plan)
-		var res []layout.Placement
-		for _, pl := range plan.Layout {
-			if later[pl.Tag] {
-				res = append(res, pl)
-			}
-		}
-		// ленты шин, которые кормит только будущая добыча (камень): в плане они — с первой
-		// итерацией, а не с добычей
-		have := map[layout.Placement]bool{}
-		for _, pl := range res {
-			have[pl] = true
-		}
-		for _, pl := range laterLanes(h, plan) { // часть их бывает и в дописанном проектом синей
-			if !have[pl] {
-				res = append(res, pl)
-			}
-		}
-		// ленты шин, дописанные стадией 5 (продления, новые ленты, их подземки и делители) — здесь
-		// все сразу: стадия долгая и раньше всех частей синей (пустые ленты подождут)
-		if added, _, err := blueAdded(); err == nil {
-			buses := map[string]bool{}
-			for _, b := range busNames(plan) {
-				buses[cluster.Tag(b)] = true
-			}
-			for _, pl := range added {
-				if buses[pl.Tag] {
-					res = append(res, pl)
-				}
-			}
-		}
-		// кирпич — в буфер у кластера (на шину — когда появится потребитель): бот берёт на крафт
-		for _, c := range plan.Clusters {
-			if c.Kind == cluster.Smelt && c.Product == "stone-brick" {
-				buf, err := outBuffer(h, all, c, 1)
-				if err != nil {
-					return nil, err
-				}
-				res = append(res, buf...)
-			}
-		}
-		return res, nil
-	})
-}
+// incomeLayout — постройки плана стадии 30: добыча до цели (новые блоки и буры сверх цели стадий
+// 16–17 — тег «later»), их подводы, перекидки и ленты bus-1, кирпич (буфер выхода — в шаблоне);
+// столбы к сети.
+func incomeLayout(h *act.Hands) ([]layout.Placement, error) { return addedFor(h, incomeFile, 30) }
 
 func runIncome(ctx context.Context, h *act.Hands) error {
 	if err := queueTechs(ctx, h, steelTech); err != nil {

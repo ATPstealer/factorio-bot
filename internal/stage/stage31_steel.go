@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
@@ -23,10 +22,9 @@ func init() {
 	register(Stage{N: 31, Name: "сталь", Run: runSteel, Check: checkSteel})
 }
 
-func steelLayout(h *act.Hands) ([]layout.Placement, error) {
-	pick := func(c *cluster.Cluster) bool { return c.IsSteel() }
-	return blueAddedFor(h, steelFile, pick, false, endBuffers(h, pick)) // буфер стали для бота (cluster.md §6а)
-}
+// steelLayout — постройки плана стадии 31: пары «руда → железо → сталь» (буфер выхода — в шаблоне),
+// их отводы и лента стали bus-2; столбы к сети.
+func steelLayout(h *act.Hands) ([]layout.Placement, error) { return addedFor(h, steelFile, 31) }
 
 func runSteel(ctx context.Context, h *act.Hands) error {
 	if err := queueTechs(ctx, h, "fast-inserter"); err != nil { // на стадию 32

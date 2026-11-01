@@ -140,17 +140,6 @@ func paperStages(h *act.Hands, to int) error {
 			if station, err := powerLayout(h); err == nil {
 				paper.remove(h, []layout.Placement{findPlaced(station, chest), findPlaced(station, "inserter")})
 			}
-		default: // стадии проектов: буферы выхода прошлых стадий не на новом месте — снимают
-			if s, ok := projectStage(n); ok {
-				if stale, err := s.staleBuffers(h); err == nil {
-					for _, list := range stale {
-						paper.remove(h, list)
-						for _, pl := range list {
-							paper.stale[pl] = true
-						}
-					}
-				}
-			}
 		}
 		list, err := planOf(h, n)
 		if err != nil {

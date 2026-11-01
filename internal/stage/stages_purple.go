@@ -53,78 +53,24 @@ func inBuffer(item string) func(h *act.Hands, list []layout.Placement) error {
 	}
 }
 
-// fresh — кластер стадий фиолетовой науки (43–48).
-func fresh(c *cluster.Cluster) bool { return c.Stage >= 43 && c.Stage <= 48 }
-
-// purpleLanes — ленты шин, дописанные проектом фиолетовой (новые ленты кирпича, электропечей,
-// модулей, рельсов, фиолетовой, продления, их подземки и делители) — все сразу на стадии 43,
-// как стадия 30 для синей: подземки лент шин в раскладку стадии иначе не попадают (в Recipe у
-// них «вход/выход», не предмет), пустые ленты подождут своих кластеров.
-func purpleLanes(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error) {
-	return func(plan *ClusterPlan, _ *layout.Layout) ([]layout.Placement, error) {
-		added, _, err := purpleAdded()
-		if err != nil {
-			return nil, err
-		}
-		buses := map[string]bool{}
-		for _, b := range busNames(plan) {
-			buses[cluster.Tag(b)] = true
-		}
-		var res []layout.Placement
-		for _, pl := range added {
-			if buses[pl.Tag] {
-				res = append(res, pl)
-			}
-		}
-		// делители плана в разрывах этих лент — с лентами (отвод фиолетовой на ленте электропечей
-		// иначе строила стадия 47, а лента до неё рвалась: электропечи не доходили до буфера —
-		// 238178543, 260647970, стадия 44 на бумаге)
-		return withSplitters(h, plan, res), nil
-	}
-}
-
 func init() {
 	for _, s := range []blueStage{
-		// рост под фиолетовую (станция первой — cluster.md §7; плавка, добыча, сборка, кроме
-		// красных схем — они до электропечей, стадия 44), ленты шин проекта с предметами этих
-		// кластеров (кирпич — в новую ленту bus-2, сквозная камня bus-1 → bus-2), буфер кирпича —
-		// в конце ленты bus-2 (старый, на выходной ленте кластера, снимается — staleBuffers)
-		{n: 43, name: "кирпич на шину и рост под фиолетовую", file: "state-brick.json", src: purpleSource,
-			pick: func(c *cluster.Cluster) bool {
-				switch c.Kind {
-				case cluster.Power, cluster.Smelt, cluster.Mine:
-					return true
-				case cluster.Make:
-					_, p := purpleProducts[c.Product]
-					return !p && c.Product != "advanced-circuit"
-				}
-				return false
-			},
-			// буферы — у кирпича (переезжает на bus-2) и новых кластеров роста; у старых плавка
-			// держит буферы на выходной ленте (стадия 17), сборка — в конце своих лент (как есть)
-			buffers: func(c *cluster.Cluster) bool {
-				_, own := purpleProducts[c.Product] // у кластеров проекта буферы ставят их стадии (44–47)
-				return c.Kind == cluster.Smelt && c.Product == "stone-brick" || fresh(c) && !own
-			},
-			more:  purpleLanes,
-			built: fuelBoilers, // новые бойлеры при запуске — углём руками (как на стадии 29)
-			fact:  inBuffer("stone-brick")},
 		// сначала рост красных схем (под синюю и фиолетовую вместе), потом кластер электропечей
-		{n: 44, name: "электропечи", file: "state-electric-furnaces.json", src: purpleSource,
+		{n: 44, name: "электропечи", file: "state-electric-furnaces.json",
 			wait: []string{"advanced-material-processing-2"},
 			pick: func(c *cluster.Cluster) bool { return product("advanced-circuit")(c) || product("electric-furnace")(c) },
 			fact: inBuffer("electric-furnace")},
-		{n: 45, name: "модули продуктивности", file: "state-modules.json", src: purpleSource,
+		{n: 45, name: "модули продуктивности", file: "state-modules.json",
 			wait: []string{"modules", "productivity-module"}, pick: product("productivity-module"),
 			fact: inBuffer("productivity-module")},
 		// пары «стержни → рельсы»; камень — сквозной лентой bus-1 → bus-2 (вход стадии — throughLanes)
-		{n: 46, name: "рельсы", file: "state-rails.json", src: purpleSource, wait: []string{"railway"},
+		{n: 46, name: "рельсы", file: "state-rails.json", wait: []string{"railway"},
 			pick: product("rail"), fact: inBuffer("rail")},
-		{n: 47, name: "фиолетовая наука", file: "state-purple-science.json", src: purpleSource,
+		{n: 47, name: "фиолетовая наука", file: "state-purple-science.json",
 			wait: []string{purplePack}, pick: product(purplePack), fact: working("assembling-machine-2")},
 		// лента C блока лабораторий, её инсертеры, отвод фиолетовой с bus-4 (cluster.md §2а
 		// «Лаборатории»); исследования — и на фиолетовой, первыми (как стадия 41 — на синей)
-		{n: 48, name: "фиолетовая в лаборатории", file: "state-labs-purple.json", src: purpleSource,
+		{n: 48, name: "фиолетовая в лаборатории", file: "state-labs-purple.json",
 			pick: func(c *cluster.Cluster) bool { return c.Kind == cluster.Lab }, fact: labsOn(purplePack),
 			before: func(ctx context.Context, h *act.Hands) error {
 				if err := os.WriteFile(runPath(purpleOnFile), []byte("{}\n"), 0o644); err != nil {

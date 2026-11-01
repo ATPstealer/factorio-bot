@@ -13,14 +13,16 @@ import (
 	"factorio-bot/internal/world"
 )
 
-// Стадия 19 (stages.md): кластер шестерён по плану стадии 3, сразу как положено — отвод железа
-// с шины делителем, буфер входа, сборщики с рецептом, выход — в ленту шестерён шины, буфер
-// выхода, питание по коридорам. Общая часть (завод с шины) — makeLayout/runMake/checkMake.
+// Стадии 19, 29, 43 (stages.md) — пропуск: кластера шестерён нет (шестерни — в парах), вся
+// станция — на стадии 11, роста нет (ленты шин — со своими кластерами); номера стадий не меняются.
+// Общая часть сборки с шины — makeLayout/runMake/checkMake.
 
 func init() {
-	register(Stage{N: 19, Name: "кластер шестерён",
-		Run:   func(ctx context.Context, h *act.Hands) error { return runMake(ctx, h, "iron-gear-wheel") },
-		Check: func(h *act.Hands) error { return checkMake(h, "iron-gear-wheel") }})
+	for _, n := range []int{19, 29, 43} {
+		register(Stage{N: n, Name: "пропуск", Empty: true,
+			Run:   func(context.Context, *act.Hands) error { return nil },
+			Check: func(*act.Hands) error { return nil }})
+	}
 }
 
 // makeLayout — завод продукта product с шины: внутренность кластера, отводы с шины (с буферами
@@ -128,29 +130,6 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 		return []layout.Placement{pi, pc}, nil
 	}
 	return nil, fmt.Errorf("у конца ленты %s нет места под буфер выхода %s", product, c.Name)
-}
-
-// endBuffers — буферы выхода (cluster.md §6а) кластеров плана, выбранных pick: у каждого, чей
-// продукт — предмет (не наука, не жидкость): в конце ленты продукта на шине, нет на шине — на
-// выходной ленте кластера. Для стадий синей (blueStage) и стали.
-func endBuffers(h *act.Hands, pick func(*cluster.Cluster) bool) func(*ClusterPlan, *layout.Layout) ([]layout.Placement, error) {
-	return func(plan *ClusterPlan, all *layout.Layout) ([]layout.Placement, error) {
-		var res []layout.Placement
-		for _, c := range plan.Clusters {
-			if !pick(c) || c.Kind != cluster.Make && c.Kind != cluster.Smelt || isScience(c.Product) {
-				continue
-			}
-			if _, fluid := h.Protos.Fluids[c.Product]; fluid {
-				continue
-			}
-			buf, err := endBuffer(h, all, plan, c, c.Product)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, buf...)
-		}
-		return res, nil
-	}
 }
 
 // planTaken — тайлы под постройками полного плана (с синей и фиолетовой; все планы — до

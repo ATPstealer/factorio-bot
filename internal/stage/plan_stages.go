@@ -18,15 +18,25 @@ import (
 // Стадии частей блока лабораторий по пакетам (stages.md, 21, 27, 41, 48, 61).
 var labPackStage = map[string]int{redPack: 21, greenPack: 27, bluePack: 41, purplePack: 48, yellowPack: 61}
 
-// Особые стадии: пластины на шину — стадия 18 (стадия 17 копит их в буферах выхода); вода химии —
+// Особые стадии: пластины на шину — стадия 18 (стадия 17 копит их в буферах выхода); кирпич на
+// шину — со своим потребителем (стадия 30 — только в буфер выхода, stages.md); вода химии —
 // своя стадия 35.
 const (
 	platesOnBus = 18
 	waterStage  = 35
 )
 
+// onBusWithUser — продукт, чья лента шины — со стадией первого потребителя, а не поставщика.
+var onBusWithUser = map[string]bool{"stone-brick": true}
+
 // stageMap — стадия каждой постройки плана.
 type stageMap map[layout.Placement]int
+
+// busKey — предмет на шине k (0 — bus-1).
+type busKey struct {
+	k    int
+	item string
+}
 
 // planStages — стадии построек плана s.
 func planStages(s *ClusterPlan) stageMap {
@@ -34,38 +44,56 @@ func planStages(s *ClusterPlan) stageMap {
 	for _, c := range s.Clusters {
 		by[c.Name] = c
 	}
-	// стадия предмета на шине: первый, кто его делает или берёт (кластеры этажей и добыча)
-	itemStage := map[string]int{}
-	use := func(it string, st int) {
-		if v, ok := itemStage[it]; !ok || st < v {
-			itemStage[it] = st
+	// стадия предмета на шине k: первый, кто кладёт его в эту шину (этаж под ней, добыча — в
+	// bus-1) или берёт с неё (этаж над ней; сборка и лаборатории — и с шины над собой)
+	itemStage := map[busKey]int{}
+	use := func(k int, it string, st int) {
+		if v, ok := itemStage[busKey{k, it}]; !ok || st < v {
+			itemStage[busKey{k, it}] = st
 		}
 	}
+	fluidBus := func(it string) (int, bool) { k, ok := cluster.FluidBus[it]; return k, ok }
 	for _, c := range s.Clusters {
-		if c.Stage == 0 || c.Kind == cluster.Tank || c.Kind == cluster.Lab {
+		if c.Stage == 0 && c.Kind != cluster.Mine || c.Kind == cluster.Tank || c.Kind == cluster.Bus {
 			continue
 		}
-		for _, f := range c.Out {
-			st := c.Stage
-			if c.Kind == cluster.Smelt && (f.Item == "iron-plate" || f.Item == "copper-plate") {
+		f := cluster.FloorOf(c)
+		for _, o := range c.Out {
+			st, k := clusterStage(c), f
+			if c.Kind == cluster.Mine {
+				k = 0
+			}
+			if kf, ok := fluidBus(o.Item); ok {
+				k = kf
+			}
+			if c.Kind == cluster.Smelt && (o.Item == "iron-plate" || o.Item == "copper-plate") {
 				st = max(st, platesOnBus)
 			}
-			use(f.Item, st)
+			if onBusWithUser[o.Item] {
+				continue
+			}
+			use(k, o.Item, st)
 		}
-		for _, f := range c.In {
-			use(f.Item, c.Stage)
-		}
-	}
-	for _, c := range s.Clusters { // пакеты — лабораториям по своим стадиям
-		if c.Kind == cluster.Lab {
-			for _, f := range c.In {
-				if st, ok := labPackStage[f.Item]; ok {
-					use(f.Item, st)
+		for _, in := range c.In {
+			st := clusterStage(c)
+			if c.Kind == cluster.Lab {
+				if ps, ok := labPackStage[in.Item]; ok {
+					st = ps
 				}
+			}
+			if kf, ok := fluidBus(in.Item); ok {
+				use(kf, in.Item, st)
+				continue
+			}
+			if f > 0 {
+				use(f-1, in.Item, st) // с шины под этажом
+			}
+			if c.TakesAbove() && f > 0 {
+				use(f, in.Item, st) // и с шины над ним
 			}
 		}
 	}
-	use("water", waterStage)
+	use(0, "water", waterStage)
 	// лента добытого в bus-1 — стадия блока, чей подвод входит в неё (у головы ряда)
 	feederAt := map[world.Tile]int{}
 	for _, pl := range s.Layout {
@@ -77,12 +105,16 @@ func planStages(s *ClusterPlan) stageMap {
 			}
 		}
 	}
-	rowStage := map[string]int{} // «шина/y» → стадия ряда (лента добытого)
+	rowStage := map[string]int{}   // «шина/y» → стадия ряда (лента добытого)
+	rowItem := map[string]string{} // «шина/y» → предмет ленты ряда (делители и подземки — без него)
 	for _, pl := range s.Layout {
 		if !strings.HasPrefix(pl.Tag, "c/bus-") || strings.Count(pl.Tag, "/") != 1 || pl.Recipe == "" {
 			continue
 		}
 		t := world.TileOf(pl.Pos)
+		if strings.HasSuffix(pl.Name, "transport-belt") {
+			rowItem[pl.Tag+"/"+strconv.Itoa(t.Y)] = pl.Recipe
+		}
 		for _, n := range []world.Tile{{X: t.X - 1, Y: t.Y}, {X: t.X, Y: t.Y - 1}, {X: t.X, Y: t.Y + 1}} {
 			if st, ok := feederAt[n]; ok {
 				key := pl.Tag + "/" + strconv.Itoa(t.Y)
@@ -107,7 +139,7 @@ func planStages(s *ClusterPlan) stageMap {
 	}
 	res := stageMap{}
 	for _, pl := range s.Layout {
-		res[pl] = stageOf(pl, by, itemStage, rowStage)
+		res[pl] = stageOf(pl, by, itemStage, rowStage, rowItem)
 		if pl.Name == "pump" && tank[world.TileOf(pl.Pos)] && tankStage > 0 {
 			res[pl] = tankStage
 		}
@@ -127,10 +159,23 @@ func mineStage(c *cluster.Cluster) int {
 }
 
 // stageOf — стадия постройки pl по её тегу (0 — неизвестно).
-func stageOf(pl layout.Placement, by map[string]*cluster.Cluster, itemStage map[string]int, rowStage map[string]int) int {
+func stageOf(pl layout.Placement, by map[string]*cluster.Cluster, itemStage map[busKey]int, rowStage map[string]int, rowItem map[string]string) int {
 	tag := pl.Tag
+	busOf := func(name string) int { // bus-N → N−1
+		n, _ := strconv.Atoi(strings.TrimPrefix(name, "bus-"))
+		return n - 1
+	}
 	if name, ok := strings.CutPrefix(tag, cluster.LogisticsTag+"/"); ok { // логистика кластера
 		parts := strings.Split(name, "/")
+		isBus := func(s string) bool { c := by[s]; return c != nil && c.Kind == cluster.Bus }
+		if len(parts) == 3 && isBus(parts[0]) && isBus(parts[1]) { // сквозная: шина/шина/предмет —
+			return itemStage[busKey{busOf(parts[0]), parts[2]}] // стадия ленты наверху
+		}
+		if c := by[parts[0]]; len(parts) == 2 && c != nil && c.Kind == cluster.Lab { // отвод пакета
+			if st, ok := labPackStage[parts[1]]; ok {
+				return st
+			}
+		}
 		for i := len(parts) - 1; i >= 0; i-- { // подвод добычи: logistics/<шина>/<блок>
 			if c := by[parts[i]]; c != nil && c.Kind != cluster.Bus {
 				return clusterStage(c)
@@ -148,13 +193,19 @@ func stageOf(pl layout.Placement, by map[string]*cluster.Cluster, itemStage map[
 		return 0
 	}
 	if c.Kind == cluster.Bus { // лента или труба шины
-		if len(parts) > 1 { // труба жидкости parts[1]
-			return itemStage[parts[1]]
+		k := busOf(c.Name)
+		if len(parts) > 1 { // труба жидкости parts[1] (её насосы и столбы — тоже)
+			return itemStage[busKey{k, parts[1]}]
 		}
-		if st, ok := rowStage[tag+"/"+strconv.Itoa(world.TileOf(pl.Pos).Y)]; ok {
+		row := tag + "/" + strconv.Itoa(world.TileOf(pl.Pos).Y)
+		if st, ok := rowStage[row]; ok {
 			return st
 		}
-		return itemStage[pl.Recipe]
+		it := pl.Recipe
+		if !strings.HasSuffix(pl.Name, "transport-belt") { // делитель, подземка — по ленте своего ряда
+			it = rowItem[row]
+		}
+		return itemStage[busKey{k, it}]
 	}
 	if len(parts) > 1 {
 		switch {

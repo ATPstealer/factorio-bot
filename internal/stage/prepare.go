@@ -76,8 +76,6 @@ func planOf(h *act.Hands, n int) ([]layout.Placement, error) {
 			return nil, err
 		}
 		return notBuilt(h, list)
-	case 29:
-		return powerBlueLayout(h)
 	case 30:
 		return incomeLayout(h)
 	case 31:
