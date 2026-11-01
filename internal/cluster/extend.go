@@ -447,9 +447,10 @@ func AddLaneB(l *layout.Layout, c *Cluster, item string, rate float64, tag strin
 	return port, nil
 }
 
-// labBufferChests — сундуков в буфере одного пакета блока лабораторий (в голове — по два буфера
-// друг за другом с каждой стороны: Head = 4n + 2).
-func labBufferChests(c *Cluster) int { return (c.Head - 2) / 4 }
+// labReserve — места блока лабораторий под будущие ленты: блок теперь сразу в конечном виде
+// (labBlock), резерва нет. AddInput, AddLaneB, AddLaneC — дописывание планов стадий 4–7, уходят
+// вместе с ними (refactor.md, шаг 5).
+func labReserve(frame, *Cluster) []world.Tile { return nil }
 
 // AddInput — второй пакет ленты A уже построенного блока лабораторий (cluster.md §2а «Лаборатории»): подача
 // с другой стороны ленты — боком в её голову (на свою полосу), буфер — напротив подачи, на

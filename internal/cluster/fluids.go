@@ -259,20 +259,14 @@ func refineryAdvRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, ad
 }
 
 // ChemFluid — химия с выходом жидкостью (stages.md, стадии 52–54): n химзаводов рецепта recipe
-// (крекинг тяжёлого — тяжёлое + вода → лёгкое; смазка — тяжёлое → смазка; кислота — сера +
-// железо + вода → кислота) в столбец этажа переработки; продукт — в трубу шины над этажом.
+// (крекинг тяжёлого — тяжёлое + вода → лёгкое, крекинг лёгкого — лёгкое + вода → газ; смазка —
+// тяжёлое → смазка; кислота — сера + железо + вода → кислота) в столбец этажа переработки;
+// продукт — в трубу шины над этажом.
 func ChemFluid(p *knowledge.Prototypes, recipe string, n int) *Cluster {
 	c := Chem(p, recipe, n)
 	c.Cross, c.Pitch, c.Head = chemFluidCross, 4, 1
-	if c.solidInputs(p) > 0 { // буферы предметов в голове (cluster.md §6)
-		c.Head = bufferHead
-	}
 	return c
 }
-
-// HeadBuffers — буферы предметов входа в голове ряда (cluster.md §6) у кластера, собранного не
-// через Split (Chem: батареи — железо | медь).
-func (c *Cluster) HeadBuffers() { c.Head = bufferHead }
 
 // IsChemFluid — химия с продуктом-жидкостью (свой шаблон).
 func (c *Cluster) IsChemFluid(p *knowledge.Prototypes) bool {
@@ -283,11 +277,10 @@ func (c *Cluster) IsChemFluid(p *knowledge.Prototypes) bool {
 	return fl
 }
 
-// Ряды химии с выходом жидкостью (chemFluidRow): 0 — труба второй жидкости входа (или сундуки
-// буфера предмета 1), 1 — выходы её подземных пар (или инсертеры буфера 1), 2 — лента предметов,
-// 3 — соединения входов: труба первой жидкости, у второго соединения — инсертер с ленты или
-// вход подземной пары второй жидкости, 4–6 — химзаводы (в голове — буфер предмета 2), 7 —
-// соединения выходов и труба продукта. Подача предметов — боком в голову ленты по полосам
+// Ряды химии с выходом жидкостью (chemFluidRow): 0 — труба второй жидкости входа (или подача
+// предмета 1), 1 — выходы её подземных пар, 2 — лента предметов, 3 — соединения входов: труба
+// первой жидкости, у второго соединения — инсертер с ленты или вход подземной пары второй
+// жидкости, 4–6 — химзаводы, 7 — соединения выходов и труба продукта. Подача предметов — боком в голову ленты по полосам
 // (sideIn), жидкости — с дальнего конца ряда (голова занята подачами), продукт — в конце ряда.
 const chemFluidCross = 8
 
@@ -339,8 +332,8 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 			return err
 		}
 	}
-	// порты жидкостей — со стороны их шин (у головы — только без предметов: голова занята подачами
-	// и буферами; кислоте с предметами с шины сверху голова — сверху, HeadAbove)
+	// порты жидкостей — со стороны их шин (у головы — только без предметов: голова занята
+	// подачами; кислоте с предметами с шины сверху голова — сверху, HeadAbove)
 	if len(solids) > 0 && fluidAtHead(c, fluidsIn[0]) {
 		return fmt.Errorf("cluster %s: %s — с шины у головы, а голова занята подачами предметов", c.Name, fluidsIn[0])
 	}
@@ -354,7 +347,7 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 			return err
 		}
 	}
-	if len(solids) > 0 { // лента предметов: подачи боком в голову по полосам, буферы в голове
+	if len(solids) > 0 { // лента предметов: подачи боком в голову по полосам
 		if err := sideIn(beltV); err != nil {
 			return err
 		}
@@ -362,16 +355,6 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 			return err
 		}
 		deadEnd(beltV, end-1)
-		if c.Head >= bufferHead {
-			if err := bufferAt(l, f, c, beltV, beltV-1, beltV-2, bufferChestsN, solids[0], tag, 1); err != nil {
-				return err
-			}
-			if len(solids) > 1 {
-				if err := bufferAt(l, f, c, beltV, inV, plantV, bufferChestsN, solids[1], tag, 1); err != nil {
-					return err
-				}
-			}
-		}
 	}
 	return fluidPortAt(l, f, c, outV, c.Head, end, L, product, rowTag(product), false, nil, add)
 }
@@ -379,7 +362,7 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 // FluidMake — сборка с жидкостью на входе (stages.md, стадия 55; cluster.md §2а «Сборка»):
 // кластер из Split переводится на шаблон fluidMakeRow; размер — по темпу (ByRate).
 func FluidMake(c *Cluster) *Cluster {
-	c.Cross, c.Pitch, c.Head = fluidMakeCross, 4, bufferHead
+	c.Cross, c.Pitch, c.Head = fluidMakeCross, 4, 1
 	c.ByRate()
 	return c
 }
@@ -390,10 +373,9 @@ func (c *Cluster) IsFluidMake(p *knowledge.Prototypes) bool {
 }
 
 // Ряды сборки с жидкостью (fluidMakeRow): 0 — труба жидкости (соединения сборщиков), 1–3 —
-// сборщики (в голове — сундуки буфера предмета 1 в ряду 3), 4 — инсертеры (вход обычный с ряда
-// 5, выход длинный в ряд 6; в голове — инсертеры буфера 1), 5 — лента входа (два предмета по
-// полосам), 6 — лента выхода (в голове — инсертеры буфера 2), 7 — сундуки буфера 2.
-const fluidMakeCross = 8
+// сборщики, 4 — инсертеры (вход обычный с ряда 5, выход длинный в ряд 6), 5 — лента входа (два
+// предмета по полосам; подачи боком в голову из рядов 4 и 6), 6 — лента выхода.
+const fluidMakeCross = 7
 
 func fluidMakeRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(layout.Placement) error,
 	row func(v, from, to, d int) error, deadEnd func(v, to int), sideIn func(v int) error) error {
@@ -441,17 +423,12 @@ func fluidMakeRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 		return err
 	}
 	deadEnd(beltV, end-1)
-	if c.Head >= bufferHead { // буферы входов в голове (cluster.md §6)
-		if err := bufferAt(l, f, c, beltV, insV, insV-1, bufferChestsN, solids[0], tag, 1); err != nil {
-			return err
-		}
-		if len(solids) > 1 {
-			if err := bufferAt(l, f, c, beltV, outV, outV+1, bufferChestsN, solids[1], tag, 1); err != nil {
-				return err
-			}
-		}
-	}
 	if err := row(outV, c.Head, L, layout.E); err != nil {
+		return err
+	}
+	// буфер выхода — в зазоре перед последним сборщиком: длинный инсертер в ряду инсертеров берёт
+	// с ленты выхода через ленту входа и кладёт в сундук между сборщиками
+	if err := outBuffer(l, f, c, c.Head+(c.Count-1)*c.Pitch-1, insV, outV, insV-2, tag, add); err != nil {
 		return err
 	}
 	l.AllowEnd(f.tile(L, outV))

@@ -54,10 +54,15 @@ type Cluster struct {
 	Product string `json:"product"`
 	Units   []Unit `json:"units"`
 	// пара прямой подачи: Main — основной рецепт, Sub — промежуточный (его сборщик кладёт
-	// инсертером прямо в основной), SubPer — сборщиков Sub на один основной (1–2)
-	Main     string  `json:"main,omitempty"`
-	Sub      string  `json:"sub,omitempty"`
-	SubPer   int     `json:"sub_per,omitempty"`
+	// инсертером прямо в основной), SubPer — сборщиков промежуточного на один основной (1–2);
+	// тройка — второй справа от основного, рецепт Sub2 ("" — тот же Sub)
+	Main   string `json:"main,omitempty"`
+	Sub    string `json:"sub,omitempty"`
+	Sub2   string `json:"sub2,omitempty"`
+	SubPer int    `json:"sub_per,omitempty"`
+	// SubChest — промежуточное (рецепт Sub) ещё и в сундук бота: из первого сборщика Sub
+	// инсертер в сундук в голове ряда (трубы двигателей — stages.md, стадия 38)
+	SubChest string  `json:"sub_chest,omitempty"`
 	In       []Flow  `json:"in,omitempty"`
 	Out      []Flow  `json:"out,omitempty"`
 	Internal []Flow  `json:"internal,omitempty"` // делается и тратится внутри
@@ -560,20 +565,20 @@ func SmeltOf(p *knowledge.Prototypes, product string, reserve float64) (*Cluster
 	return nil, fmt.Errorf("cluster: в расчёте нет плавки %s", product)
 }
 
-// Steel — кластер стали из руды (cluster.md §2а «Сталь»): пары печей «пластины → сталь», сразу
-// на MaxUnits пар (стали нужно тонны). Потоки — по печам второго уровня (как у всей плавки).
-func Steel(p *knowledge.Prototypes, reserve float64) *Cluster {
+// Steel — кластер стали из руды (cluster.md §2а «Сталь»): pairs пар печей «пластины → сталь».
+// Потоки — по печам второго уровня (как у всей плавки).
+func Steel(p *knowledge.Prototypes, pairs int) *Cluster {
 	const furnace = "stone-furnace"
-	n := float64(MaxUnits)
+	n := float64(pairs)
 	speed := p.Entities[furnace].CraftingSpeed * upgrade(p, furnace)
 	plate, steel := p.Recipes["iron-plate"], p.Recipes["steel-plate"]
 	plates := n * speed / plate.Energy // пластин/с у печей пластин (столько же ест печь стали)
-	c := &Cluster{Kind: Smelt, Product: "steel-plate", Reserve: reserve,
+	c := &Cluster{Kind: Smelt, Product: "steel-plate", Reserve: 1,
 		Units: []Unit{{Recipe: "iron-plate", Machine: furnace, Machines: n}, {Recipe: "steel-plate", Machine: furnace, Machines: n}},
 		In:    []Flow{{"coal", 2 * n * p.Entities[furnace].EnergyUsage * 60 / 4e6}, {"iron-ore", plates}},
 		Out:   []Flow{{"steel-plate", n * speed / steel.Energy}}}
 	c.Cross, c.Pitch, c.Head = steelCross, 3, 1
-	c.Count, c.Room, c.Need = MaxUnits, MaxUnits, MaxUnits
+	c.Count, c.Room, c.Need = pairs, pairs, pairs
 	return c
 }
 
@@ -713,14 +718,15 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Storage {
 		return
 	}
-	// один вход — буфер в начале ряда, до первой машины: ящики на u = 1, 3, …, 2n−1
 	if c.Kind == Make && len(c.In) >= 3 { // третий вход — лента C за выходом (thirdIn), четвёртый — подача боком в неё
 		c.Cross += len(c.In) - 2
 	}
-	// буферы входов — в голове ряда, у каждого твёрдого входа (cluster.md §6; решение
-	// пользователя 26.10): плавка, сталь, сборка, химия с предметом на входе, станция (уголь)
-	if c.Kind != Mine && c.Kind != Lab && c.solidInputs(p) > 0 {
+	// буферов входа нет (cluster.md §6), кроме угля станции: ящики в голове ряда
+	if c.Kind == Power {
 		c.Head = bufferHead
+	}
+	if c.SubChest != "" { // сундук промежуточного для бота — в голове, у первого сборщика
+		c.Head = 2
 	}
 	m := c.machine()
 	n := 0.0
@@ -766,9 +772,7 @@ func shape(p *knowledge.Prototypes, c *Cluster) {
 	if c.Kind == Smelt || c.Kind == Make {
 		c.Room = c.Count // кластер строится сразу целиком — запаса в ряду нет
 	}
-	if c.Kind == Lab { // блок сразу на все места (cluster.md §2а «Лаборатории»); в голове — буферы двух
-		// пакетов друг за другом (по n сундуков) и ещё лента C с инсертерами
-		c.Room = max(labRoom, c.Count)
-		c.Head = 4*bufferChestsN + 2
+	if c.Kind == Lab { // блок сразу в конечном виде, никогда не расширяем (cluster.md §2а «Лаборатории»)
+		c.Room = c.Count
 	}
 }

@@ -111,7 +111,6 @@ func yellowGroups(pr *knowledge.Prototypes) ([][]*cluster.Cluster, error) {
 	acid := cluster.ChemFluid(pr, "sulfuric-acid", max(count("chemical-plant", "sulfuric-acid", need("sulfuric-acid"), 2), 3))
 	acid.HeadAbove = true // сера и железо — с bus-2 над переработкой: голова (подачи, буферы) — сверху
 	battery := cluster.Chem(pr, "battery", count("chemical-plant", "battery", need("battery"), cluster.MinUnits))
-	battery.HeadBuffers() // буферы железа и меди в голове (cluster.md §6)
 	for _, c := range []*cluster.Cluster{by["electric-engine-unit"], by["processing-unit"]} {
 		cluster.FluidMake(c)
 	}

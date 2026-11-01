@@ -234,7 +234,7 @@ func blueTry(h *act.Hands, rough *RoughPlan, built, avoid map[world.Tile]bool) (
 	}
 	fresh = append(fresh, ps...)
 	// сталь — из руды, сразу на 30 пар печей (cluster.md §2а «Сталь»); длиннее глубины — кусками
-	steel := cluster.Steel(pr, planReserve)
+	steel := cluster.Steel(pr, cluster.MaxUnits)
 	if ps, _, err = base.PlaceZoned([]*cluster.Cluster{steel}, rough.Zones); err != nil {
 		return nil, nil, err
 	}

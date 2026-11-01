@@ -703,18 +703,13 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 			return err
 		}
 		deadEnd(2, end)
-		if c.Head >= bufferHead { // буферы предметов в голове (cluster.md §6): ящики в ряду химзаводов и над лентой
-			if err := bufferAt(l, f, c, 2, 3, 4, bufferChestsN, solids[0], tag, 1); err != nil {
-				return err
-			}
-			if len(solids) > 1 {
-				if err := bufferAt(l, f, c, 2, 1, 0, bufferChestsN, solids[1], tag, 1); err != nil {
-					return err
-				}
-			}
-		}
 	}
 	if err := row(9, c.Head, L, layout.E); err != nil {
+		return err
+	}
+	// буфер выхода (предмет) — в зазоре перед последним химзаводом: длинный инсертер в ряду
+	// инсертеров выхода берёт с ленты выхода через трубу и кладёт в сундук между химзаводами
+	if err := outBuffer(l, f, c, c.Head+(c.Count-1)*c.Pitch-1, 7, 9, 5, tag, add); err != nil {
 		return err
 	}
 	l.AllowEnd(f.tile(L, 9))

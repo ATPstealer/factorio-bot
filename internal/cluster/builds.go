@@ -1,6 +1,9 @@
 package cluster
 
-import "factorio-bot/internal/knowledge"
+import (
+	"factorio-bot/internal/knowledge"
+	"factorio-bot/internal/world"
+)
 
 // Что ставит каждая стадия стройки (stages.md, строки «Ставит»): одна таблица на всю игру. План
 // всей базы (стадия 2) берёт числа отсюда; калькулятор только проверяет, что их хватает
@@ -22,6 +25,8 @@ type Build struct {
 	Ore int
 	// ToPower — добыча угля станции: своя лента к станции, мимо шины
 	ToPower bool
+	// SubChest — промежуточное ещё и в сундук бота (трубы двигателей, stages.md — стадия 38)
+	SubChest string
 }
 
 // Tier2From — стадия замены печей и сборщиков на второй уровень (stages.md, стадия 50): до неё на
@@ -57,7 +62,7 @@ var Builds = []Build{
 	{Stage: 36, Kind: Make, Product: "petroleum-gas", Recipe: "basic-oil-processing", N: 3},
 	{Stage: 37, Kind: Make, Product: "plastic-bar", Recipe: "plastic-bar", N: 3},
 	{Stage: 37, Kind: Make, Product: "sulfur", Recipe: "sulfur", N: 3},
-	{Stage: 38, Kind: Make, Product: "engine-unit", Recipe: "engine-unit", Subs: []string{"iron-gear-wheel", "pipe"}, N: 4},
+	{Stage: 38, Kind: Make, Product: "engine-unit", Recipe: "engine-unit", Subs: []string{"pipe", "iron-gear-wheel"}, N: 4, SubChest: "pipe"},
 	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 8},
 	{Stage: 40, Kind: Make, Product: "chemical-science-pack", Recipe: "chemical-science-pack", N: 3},
 	{Stage: 44, Kind: Make, Product: "electric-furnace", Recipe: "electric-furnace", N: 3},
@@ -124,6 +129,118 @@ func (b Build) Capacity(p *knowledge.Prototypes, t2 bool) map[string]float64 {
 		out[o.Name] += amountOf(o) * crafts
 	}
 	return out
+}
+
+// labPackSec — секунд исследования на пакет (среднее; лабораторий — числом из таблицы, это только
+// для потоков и электричества).
+const labPackSec = 30
+
+// Cluster — кластер плана по строке таблицы: ровно N машин (пар), машины — первого уровня до
+// стадии Tier2From (той же площади), потоки — на полном ходу второго уровня. Добыча — образец
+// (ресурс, бур, цель Ore): блоки на месторождениях ставит план; склад нефти — без места (Near
+// задаёт план).
+func (b Build) Cluster(p *knowledge.Prototypes) *Cluster {
+	switch b.Kind {
+	case Power:
+		return Station(p, b.N)
+	case Storage:
+		return StorageCluster()
+	case Tank:
+		const rows = 5 // блок 6×5 (cluster.md §2а «Нефть»)
+		return Tanks(b.Product, (b.N+rows-1)/rows, rows, world.Tile{})
+	case Lab:
+		packs := map[string]float64{}
+		for _, s := range []string{packRed, packGreen, packBlue, packPurple, packYellow} {
+			packs[s] = 0.1
+		}
+		c := Labs(p, packs, labPackSec, 1)
+		c.Count, c.Room, c.Need = b.N, b.N, b.N
+		return c
+	case Mine:
+		drill := "electric-mining-drill"
+		if b.Product == "crude-oil" {
+			drill = "pumpjack"
+		}
+		c := &Cluster{Kind: Mine, Product: b.Product, Reserve: 1, Ore: b.Ore,
+			Units: []Unit{{Recipe: "mine:" + b.Product, Machine: drill, Machines: float64(b.N)}}}
+		c.Cross, c.Pitch, c.Head = geometry(Mine)
+		c.Count, c.Room, c.Need = b.N, b.N, b.N
+		return c
+	}
+	r := p.Recipes[b.Recipe]
+	switch {
+	case r.Category == "oil-processing" && b.Recipe == "advanced-oil-processing":
+		return RefineryAdv(p, b.N)
+	case r.Category == "oil-processing":
+		return Refinery(p, b.N)
+	case r.Category == "chemistry":
+		if _, fluid := p.Fluids[b.Product]; fluid {
+			return ChemFluid(p, b.Recipe, b.N)
+		}
+		return Chem(p, b.Recipe, b.N)
+	case b.Product == "steel-plate":
+		return Steel(p, b.N)
+	}
+	// плавка и сборка: основной рецепт и промежуточные пар (тройки) — по одному на основной
+	t2 := b.Stage >= Tier2From
+	c := &Cluster{Kind: b.Kind, Product: b.Product, Reserve: 1, SubChest: b.SubChest}
+	crafts := 0.0
+	for _, o := range r.Products {
+		if v := b.Capacity(p, true)[o.Name]; v > 0 && o.Name == b.Product {
+			crafts = v / amountOf(o)
+		}
+	}
+	in, out := map[string]float64{}, map[string]float64{}
+	internal := map[string]float64{}
+	subs := map[string]string{} // продукт → рецепт промежуточного
+	for _, s := range b.Subs {
+		subs[product(p.Recipes[s])] = s
+	}
+	power := 0.0
+	addUnit := func(recipe string, n int) {
+		m := BuildMachine(p, recipe, t2)
+		c.Units = append(c.Units, Unit{Recipe: recipe, Machine: m, Machines: float64(n)})
+		e := p.Entities[m]
+		if e.Burner != nil { // печи — на угле
+			in["coal"] += float64(n) * e.EnergyUsage * 60 / coalJ
+		} else {
+			power += float64(n) * e.EnergyUsage * 60
+		}
+	}
+	addUnit(b.Recipe, b.N)
+	for _, i := range r.Ingredients {
+		need := amountOf(i) * crafts
+		s, ok := subs[i.Name]
+		if !ok {
+			in[i.Name] += need
+			continue
+		}
+		internal[i.Name] += need
+		sr := p.Recipes[s]
+		sc := need / amount(sr.Products, i.Name)
+		for _, si := range sr.Ingredients {
+			in[si.Name] += amountOf(si) * sc
+		}
+	}
+	for _, s := range b.Subs {
+		addUnit(s, b.N)
+	}
+	for _, o := range r.Products {
+		out[o.Name] += amountOf(o) * crafts
+	}
+	c.In, c.Out, c.Internal, c.PowerW = toFlows(in), toFlows(out), toFlows(internal), power
+	if len(b.Subs) > 0 {
+		c.Main, c.Sub, c.SubPer = b.Recipe, b.Subs[0], len(b.Subs)
+		if len(b.Subs) > 1 {
+			c.Sub2 = b.Subs[1]
+		}
+	}
+	shape(p, c)
+	if c.IsFluidMake(p) {
+		c.Cross, c.Pitch, c.Head = fluidMakeCross, 4, 1
+	}
+	c.Count, c.Room, c.Need = b.N, b.N, b.N
+	return c
 }
 
 // product — главный продукт рецепта.
