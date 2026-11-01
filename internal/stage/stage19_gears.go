@@ -116,6 +116,17 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 		}
 		t = next
 	}
+	// по бокам места нет (с одной стороны — лента пары, в зазоре с другой — чужая лента вдоль:
+	// 46082668, стадия 59, процессоры) — за концом ленты, инсертер берёт с последнего тайла
+	te := world.TileOf(end.Pos)
+	ins, box := layout.Step(te, end.Dir), layout.Step(layout.Step(te, end.Dir), end.Dir)
+	if bufferFree(all, future, ins) && bufferFree(all, future, box) {
+		pi := layout.Placement{Name: tier("inserter"), Pos: ins.Center(), Dir: layout.InserterDir(h.Protos, "inserter", ins, te), Recipe: product, Tag: tag}
+		pc := layout.Placement{Name: tier(chest), Pos: box.Center(), Tag: tag}
+		all.Add(pi)
+		all.Add(pc)
+		return []layout.Placement{pi, pc}, nil
+	}
 	return nil, fmt.Errorf("у конца ленты %s нет места под буфер выхода %s", product, c.Name)
 }
 
