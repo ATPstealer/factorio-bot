@@ -897,6 +897,19 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 		if err != nil {
 			return fmt.Errorf("нефтетрасса %s → насос %d у (%d, %d): %w", field.Name, k, p.X, p.Y, err)
 		}
+		// отрезок (первый — с трубами месторождения) — не шире участка игры: насос, нашедший место
+		// далеко от прямой, растягивал его (1330900585: 132×456 — насосу не встать, нефть стоит)
+		box := leg
+		if k == 1 {
+			for _, q := range l.List {
+				if strings.HasPrefix(q.Tag, Tag(field.Name)+"/") && (q.Name == "pipe" || q.Name == "pipe-to-ground") {
+					box = append(box, q)
+				}
+			}
+		}
+		if w := pipeExtent(box); w > layout.PipeExtentGame {
+			return fmt.Errorf("нефтетрасса %s → насос %d у (%d, %d): отрезок %d шире %d", field.Name, k, p.X, p.Y, w, layout.PipeExtentGame)
+		}
 		l.Add(pump)
 		legs = append(legs, leg)
 		cur = out
@@ -928,6 +941,19 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 		polesAlong(l, leg, tag)
 	}
 	return nil
+}
+
+// pipeExtent — большая сторона рамки труб из list (как участок игры, default_pipeline_extent).
+func pipeExtent(list []layout.Placement) int {
+	if len(list) == 0 {
+		return 0
+	}
+	lo, hi := world.TileOf(list[0].Pos), world.TileOf(list[0].Pos)
+	for _, p := range list {
+		t := world.TileOf(p.Pos)
+		lo.X, lo.Y, hi.X, hi.Y = min(lo.X, t.X), min(lo.Y, t.Y), max(hi.X, t.X), max(hi.Y, t.Y)
+	}
+	return max(hi.X-lo.X+1, hi.Y-lo.Y+1)
 }
 
 // routeInlet — последний отрезок трассы tag от cur в склад — через насос на входе (cluster.md §2а
