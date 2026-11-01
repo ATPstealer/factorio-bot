@@ -79,7 +79,7 @@ func (b *Base) laneCount(k int, it string) int {
 	n := 1
 	if k == 0 {
 		for _, c := range b.Clusters {
-			if c.Kind == Mine && c.Product == it {
+			if c.Kind == Mine && c.Product == it && !c.ToPower {
 				n = max(n, min(len(outPorts(c)), 2))
 			}
 		}
@@ -193,16 +193,17 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 			// над собой): продукт кладётся в ленту шины у столбца поставщика, отвод — только ниже
 			// по течению (zones.md)
 			for _, in := range c.In {
-				if _, fluid := b.P.Fluids[in.Item]; fluid {
-					// жидкость — трубой, к трубе шины подключаются в любом месте: поставщик (кислота
-					// справа на переработке) не тянет потребителей вправо (238178543: батареи,
-					// процессоры, рамы — за кислотой, жёлтой не осталось места)
-					continue
-				}
-				first := math.MaxInt // самый левый поставщик предмета
+				// жидкость — тоже (решение пользователя): все её поставщики левее потребителей, тогда
+				// она течёт по ходу шины и насосы смотрят по ходу; поставщик — на любом этаже не выше
+				_, fluid := b.P.Fluids[in.Item]
+				first := math.MaxInt // самый левый поставщик предмета (жидкости — самый правый)
 				for _, p := range b.Clusters {
-					if f2 := floorOf(p); f2 > 0 && (f2 < f || f2 == f && c.TakesAbove()) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
-						first = min(first, p.Area.Min.X)
+					if f2 := floorOf(p); f2 > 0 && (f2 < f || f2 == f && (c.TakesAbove() || fluid)) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
+						if fluid && first != math.MaxInt {
+							first = max(first, p.Area.Min.X)
+						} else {
+							first = min(first, p.Area.Min.X)
+						}
 					}
 				}
 				if first != math.MaxInt && (c.MinX == nil || first > *c.MinX) {
@@ -276,55 +277,12 @@ func (b *Base) placeIn(c *Cluster, parts []Rect) error {
 	return err
 }
 
-// placePieces — кластер плавки или производства в части этажа кусками (cluster.md §2
-// «Разбивка на кластеры», решение пользователя 26.10: 30 — потолок, а куски — какие влезают,
-// 20 + 8 тоже годится): первый — сам c, на столько мест, сколько влезает (не длиннее глубины;
-// сначала с местом под рост до minDepthShare глубины, нет — без), остаток — следующими
-// кусками («<имя>.2», «<имя>.3»…), каждый не короче MinUnits; потоки — по доле мест.
-// Возвращает куски после c.
+// placePieces — кластер плавки или производства в части этажа целиком (cluster.md §2 «Размер»:
+// один столбец, не длиннее глубины своего этажа; кусками не режется, места под рост нет — §7).
+// Кусков нет: возвращает nil.
 func (b *Base) placePieces(c *Cluster, parts []Rect) ([]*Cluster, error) {
-	orig := scaleCluster(c, 1)
-	total, need := c.Room, c.Need
-	depth := parts[0].H()
-	cap, spare := max(c.FitUnits(depth), 1), c.FitUnits(int(float64(depth)*minDepthShare))
-	var res []*Cluster
-	cur, rest := c, total
-	for rest > 0 {
-		n := min(rest, cap)
-		var err error = fmt.Errorf("cluster: нет зоны этажа под %s", cur.Name)
-		for ; n >= 1; n-- {
-			if left := rest - n; left > 0 && left < MinUnits {
-				continue // остаток — не короче MinUnits
-			}
-			cur.Count, cur.Need = n, min(n, need)
-			for _, room := range []int{max(n, spare), n} {
-				cur.Room = room
-				if err = b.placeIn(cur, parts); err == nil {
-					break
-				}
-			}
-			if err == nil {
-				break
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-		sc := scaleCluster(orig, float64(n)/float64(total))
-		cur.In, cur.Out, cur.Internal, cur.PowerW, cur.Units = sc.In, sc.Out, sc.Internal, sc.PowerW, sc.Units
-		rest, need = rest-n, need-cur.Need
-		if cur != c {
-			b.logf("кластер %s: кусок %s на %d мест (из %d)", c.Name, cur.Name, n, total)
-			res = append(res, cur)
-		} else if rest > 0 {
-			b.logf("кластер %s: %d мест в один не влезли — %d, остальное кусками", c.Name, total, n)
-		}
-		if rest > 0 {
-			cur = scaleCluster(orig, 1)
-			cur.Name, cur.MinX, cur.MaxX = fmt.Sprintf("%s.%d", c.Name, len(res)+2), c.MinX, c.MaxX
-		}
-	}
-	return res, nil
+	c.Room = c.Count
+	return nil, b.placeIn(c, parts)
 }
 
 // storageRight, storageBelow — хранение от головы bus-1: правее (подальше от развязки подводов)
@@ -1006,8 +964,8 @@ func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
 	hx, hy := float64(bus.Rect.Min.X), float64(bus.Rect.Min.Y+bus.Rect.Max.Y)/2
 	var outs []mineOut
 	for _, c := range b.Clusters {
-		if c.Kind != Mine || c.IsOil() {
-			continue
+		if c.Kind != Mine || c.IsOil() || c.ToPower {
+			continue // нефть — трассой, уголь станции — своей лентой к станции
 		}
 		for _, p := range outPorts(c) {
 			outs = append(outs, mineOut{c: c, p: p})
@@ -1464,7 +1422,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 	// между лентами угля: смешанный поток всех добыч — своя добыча станции выработалась на всех
 	// картах, решение пользователя 28.10, cluster.md «Станция»)
 	for _, m := range b.Clusters {
-		if m.Kind == Mine && m.Product == "coal" {
+		if m.Kind == Mine && m.Product == "coal" && !m.ToPower {
 			if err := feedMine(m); err != nil {
 				return err
 			}
@@ -1498,7 +1456,7 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			continue
 		}
 		for _, p := range c.Ports {
-			if p.In {
+			if _, fluid := b.P.Fluids[p.Item]; p.In && !fluid { // жидкости — трубами (FluidPipes)
 				if err := feedIn(l, buses, c, p, g); err != nil {
 					return err
 				}
@@ -1527,6 +1485,22 @@ func (b *Base) stationCoal(l *layout.Layout, bus *ZBus) error {
 		return nil
 	}
 	tag := LogisticsTag + "/" + pw.Name
+	// своя добыча угля станции (cluster.md §2а «Станция»): её выход — своей лентой прямо в вход
+	// станции, мимо шины
+	for _, m := range b.Clusters {
+		if m.Kind != Mine || !m.ToPower {
+			continue
+		}
+		op, ok := outPort(m)
+		if !ok {
+			return &ConnectError{m, fmt.Errorf("у %s нет выхода", m.Name)}
+		}
+		defer unsolid(l, m)()
+		if _, err := l.RouteBelt(op.T, op.Dir, pp.T, pp.Dir, tag); err != nil {
+			return &ConnectError{pw, fmt.Errorf("уголь %s своей лентой с %s: %w", pw.Name, m.Name, err)}
+		}
+		return nil
+	}
 	var mines []*Cluster
 	for _, m := range b.Clusters {
 		if m.Kind == Mine && m.Product == "coal" && !m.Later {

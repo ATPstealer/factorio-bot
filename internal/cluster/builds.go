@@ -3,6 +3,7 @@ package cluster
 import (
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/world"
+	"slices"
 )
 
 // Что ставит каждая стадия стройки (stages.md, строки «Ставит»): одна таблица на всю игру. План
@@ -27,6 +28,10 @@ type Build struct {
 	ToPower bool
 	// SubChest — промежуточное ещё и в сундук бота (трубы двигателей, stages.md — стадия 38)
 	SubChest string
+	// Inputs — порядок входов (stages.md, текст стадии; cluster.md §2а «Сборка»): первые два — лента
+	// входа по полосам, третий — лента C за лентой выхода, четвёртый — её вторая полоса; nil — как
+	// есть
+	Inputs []string
 }
 
 // Tier2From — стадия замены печей и сборщиков на второй уровень (stages.md, стадия 50): до неё на
@@ -63,23 +68,36 @@ var Builds = []Build{
 	{Stage: 37, Kind: Make, Product: "plastic-bar", Recipe: "plastic-bar", N: 3},
 	{Stage: 37, Kind: Make, Product: "sulfur", Recipe: "sulfur", N: 3},
 	{Stage: 38, Kind: Make, Product: "engine-unit", Recipe: "engine-unit", Subs: []string{"pipe", "iron-gear-wheel"}, N: 4, SubChest: "pipe"},
-	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 8},
-	{Stage: 40, Kind: Make, Product: "chemical-science-pack", Recipe: "chemical-science-pack", N: 3},
-	{Stage: 44, Kind: Make, Product: "electric-furnace", Recipe: "electric-furnace", N: 3},
-	{Stage: 45, Kind: Make, Product: "productivity-module", Recipe: "productivity-module", N: 3},
-	{Stage: 46, Kind: Make, Product: "rail", Recipe: "rail", Subs: []string{"iron-stick"}, N: 3},
-	{Stage: 47, Kind: Make, Product: "production-science-pack", Recipe: "production-science-pack", N: 4},
+	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 8,
+		Inputs: []string{"copper-plate", "plastic-bar", "electronic-circuit"}},
+	{Stage: 40, Kind: Make, Product: "chemical-science-pack", Recipe: "chemical-science-pack", N: 3,
+		Inputs: []string{"engine-unit", "advanced-circuit", "sulfur"}},
+	{Stage: 44, Kind: Make, Product: "electric-furnace", Recipe: "electric-furnace", N: 3,
+		Inputs: []string{"steel-plate", "stone-brick", "advanced-circuit"}},
+	{Stage: 45, Kind: Make, Product: "productivity-module", Recipe: "productivity-module", N: 3,
+		Inputs: []string{"electronic-circuit", "advanced-circuit"}},
+	{Stage: 46, Kind: Make, Product: "rail", Recipe: "rail", Subs: []string{"iron-stick"}, N: 3,
+		Inputs: []string{"iron-plate", "steel-plate", "stone"}},
+	{Stage: 47, Kind: Make, Product: "production-science-pack", Recipe: "production-science-pack", N: 4,
+		Inputs: []string{"rail", "electric-furnace", "productivity-module"}},
 	{Stage: 51, Kind: Make, Product: "heavy-oil", Recipe: "advanced-oil-processing", N: 2},
 	{Stage: 52, Kind: Make, Product: "light-oil", Recipe: "heavy-oil-cracking", N: 2},
 	{Stage: 52, Kind: Make, Product: "petroleum-gas", Recipe: "light-oil-cracking", N: 2},
 	{Stage: 53, Kind: Make, Product: "lubricant", Recipe: "lubricant", N: 2},
-	{Stage: 54, Kind: Make, Product: "sulfuric-acid", Recipe: "sulfuric-acid", N: 2},
-	{Stage: 55, Kind: Make, Product: "battery", Recipe: "battery", N: 2},
-	{Stage: 56, Kind: Make, Product: "electric-engine-unit", Recipe: "electric-engine-unit", N: 2},
-	{Stage: 57, Kind: Make, Product: "flying-robot-frame", Recipe: "flying-robot-frame", N: 3},
-	{Stage: 58, Kind: Make, Product: "low-density-structure", Recipe: "low-density-structure", N: 5},
-	{Stage: 59, Kind: Make, Product: "processing-unit", Recipe: "processing-unit", N: 5},
-	{Stage: 60, Kind: Make, Product: "utility-science-pack", Recipe: "utility-science-pack", N: 4},
+	{Stage: 54, Kind: Make, Product: "sulfuric-acid", Recipe: "sulfuric-acid", N: 2,
+		Inputs: []string{"sulfur", "iron-plate", "water"}},
+	{Stage: 55, Kind: Make, Product: "battery", Recipe: "battery", N: 2,
+		Inputs: []string{"iron-plate", "copper-plate", "sulfuric-acid"}},
+	{Stage: 56, Kind: Make, Product: "electric-engine-unit", Recipe: "electric-engine-unit", N: 2,
+		Inputs: []string{"engine-unit", "electronic-circuit", "lubricant"}},
+	{Stage: 57, Kind: Make, Product: "flying-robot-frame", Recipe: "flying-robot-frame", N: 3,
+		Inputs: []string{"steel-plate", "electronic-circuit", "electric-engine-unit", "battery"}},
+	{Stage: 58, Kind: Make, Product: "low-density-structure", Recipe: "low-density-structure", N: 5,
+		Inputs: []string{"copper-plate", "plastic-bar", "steel-plate"}},
+	{Stage: 59, Kind: Make, Product: "processing-unit", Recipe: "processing-unit", N: 5,
+		Inputs: []string{"electronic-circuit", "advanced-circuit", "sulfuric-acid"}},
+	{Stage: 60, Kind: Make, Product: "utility-science-pack", Recipe: "utility-science-pack", N: 4,
+		Inputs: []string{"flying-robot-frame", "low-density-structure", "processing-unit"}},
 }
 
 // BuildMachine — машина рецепта кластера: печь или сборщик второго уровня, если t2 (после стадии
@@ -138,8 +156,28 @@ const labPackSec = 30
 // Cluster — кластер плана по строке таблицы: ровно N машин (пар), машины — первого уровня до
 // стадии Tier2From (той же площади), потоки — на полном ходу второго уровня. Добыча — образец
 // (ресурс, бур, цель Ore): блоки на месторождениях ставит план; склад нефти — без места (Near
-// задаёт план).
+// задаёт план). Стадия кластера — из таблицы.
 func (b Build) Cluster(p *knowledge.Prototypes) *Cluster {
+	c := b.cluster(p)
+	c.Stage, c.ToPower = b.Stage, b.ToPower
+	if len(b.Inputs) > 0 { // порядок входов — по шаблону ленты входа и ленты C
+		var in []Flow
+		for _, it := range b.Inputs {
+			if i := slices.IndexFunc(c.In, func(f Flow) bool { return f.Item == it }); i >= 0 {
+				in = append(in, c.In[i])
+			}
+		}
+		for _, f := range c.In { // чего в списке нет — в конец
+			if !slices.Contains(b.Inputs, f.Item) {
+				in = append(in, f)
+			}
+		}
+		c.In = in
+	}
+	return c
+}
+
+func (b Build) cluster(p *knowledge.Prototypes) *Cluster {
 	switch b.Kind {
 	case Power:
 		return Station(p, b.N)
@@ -174,10 +212,23 @@ func (b Build) Cluster(p *knowledge.Prototypes) *Cluster {
 	case r.Category == "oil-processing":
 		return Refinery(p, b.N)
 	case r.Category == "chemistry":
+		c := Chem(p, b.Recipe, b.N)
 		if _, fluid := p.Fluids[b.Product]; fluid {
-			return ChemFluid(p, b.Recipe, b.N)
+			c = ChemFluid(p, b.Recipe, b.N)
 		}
-		return Chem(p, b.Recipe, b.N)
+		// предметы на входе — не сырьё bus-1 (кислота: сера и железо с bus-2 над переработкой) —
+		// голова ряда — к шине сверху (stages.md, стадия 54)
+		solids, made := 0, 0
+		for _, in := range c.In {
+			if _, fluid := p.Fluids[in.Item]; !fluid {
+				solids++
+				if len(p.RecipesFor(in.Item)) > 0 {
+					made++
+				}
+			}
+		}
+		c.HeadAbove = floorOf(c) == 1 && solids > 0 && made == solids
+		return c
 	case b.Product == "steel-plate":
 		return Steel(p, b.N)
 	}

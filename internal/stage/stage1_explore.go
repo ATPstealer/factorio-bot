@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
-	"factorio-bot/internal/calc"
 	"factorio-bot/internal/world"
 )
 
@@ -31,24 +30,7 @@ func init() {
 }
 
 // roughNeed — сколько угля, железной и медной руды нужно за игру (как стадия 2).
-func roughNeed(h *act.Hands) (map[string]float64, error) {
-	targets, _, err := roughTargets(h)
-	if err != nil {
-		return nil, err
-	}
-	plan, err := calc.Solve(h.Protos, targets, calc.Options{All: true,
-		Machines: map[string]string{"smelting": "steel-furnace", "crafting": "assembling-machine-2"}})
-	if err != nil {
-		return nil, err
-	}
-	need := map[string]float64{}
-	for it, rate := range plan.Raw {
-		if it != "water" {
-			need[it] = rate * roughHours * 3600
-		}
-	}
-	return need, nil
-}
+func roughNeed(h *act.Hands) (map[string]float64, error) { return mineNeed(), nil }
 
 // scoutFound — крупные (не меньше трети нужного) пятна всех трёх ресурсов открыты.
 func scoutFound(h *act.Hands, need map[string]float64) bool {

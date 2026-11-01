@@ -743,8 +743,12 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 			}
 		}
 	}
-	// лента сбора (u = 0) от ряда до края не встаёт — ряд без буров
+	// лента сбора (u = 0) от ряда до края не встаёт — ряд без буров; уголь станции — одним
+	// выходом (своя лента к станции): все ряды — к v = −1
 	half0 := (rows + 1) / 2
+	if c.ToPower {
+		half0 = rows
+	}
 	for r := range stop {
 		from, to := 0, 7*r+3 // первая половина — к v = −1
 		if r >= half0 {
@@ -805,7 +809,7 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 		}
 	}
 	// ленты рядов — к голове; сбор — по u = 0, две половины к разным краям
-	half := (rows + 1) / 2
+	half := half0
 	lo, hi := -1, -1 // крайние занятые ряды каждой половины
 	for r := 0; r < rows; r++ {
 		if last[r] < 0 {

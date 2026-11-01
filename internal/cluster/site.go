@@ -337,9 +337,17 @@ func (b *Base) border(c *Cluster) int {
 		return MineBorder // блок добычи (cluster.md §2а «Добыча»)
 	}
 	if c.Zone != nil {
-		return ZoneBorder
+		return c.zoneBorder()
 	}
 	return Corridor
+}
+
+// zoneBorder — бордюр кластера в зоне: по факту (Border) или ZoneBorder.
+func (c *Cluster) zoneBorder() int {
+	if c.Border > 0 {
+		return c.Border
+	}
+	return ZoneBorder
 }
 
 // NoSiteError — кластеру нет места на открытой карте (добыче — нет свободного
@@ -410,6 +418,17 @@ func (b *Base) pack(c *Cluster) *cand {
 		}
 		return nil
 	}
+	// сначала — вплотную к шине своих входов (голова — к ней: снизу, у HeadAbove — сверху): подвод
+	// короткий; нет такого места — стопкой над (под) соседом, подвод — по коридору мимо него
+	edge := z.Max.Y - h
+	if c.HeadAbove {
+		edge = z.Min.Y
+	}
+	for x := z.Min.X; x+w <= z.Max.X; x++ {
+		if r := (Rect{world.Tile{X: x, Y: edge}, world.Tile{X: x + w, Y: edge + h}}); b.fits(c, r, true) {
+			return &cand{r, 0, true}
+		}
+	}
 	for x := z.Min.X; x+w <= z.Max.X; x++ {
 		for y := z.Max.Y - h; y >= z.Min.Y; y-- {
 			r := Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + w, Y: y + h}}
@@ -438,6 +457,14 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 		for _, z := range append(b.zoneRects, b.Keep...) {
 			if ring.Overlaps(z) {
 				return false // вне зон и стартовых точек
+			}
+		}
+	}
+	if c.Kind == Power && c.Zone != nil { // станция — в своей зоне (с запасом), не в чужих
+		for _, z := range b.zoneRects {
+			inside := z.Min.X >= c.Zone.Min.X && z.Min.Y >= c.Zone.Min.Y && z.Max.X <= c.Zone.Max.X && z.Max.Y <= c.Zone.Max.Y
+			if !inside && ring.Overlaps(z) {
+				return false
 			}
 		}
 	}

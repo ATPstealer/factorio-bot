@@ -49,6 +49,9 @@ func (b *Base) mineRect(c *Cluster, z Zone, head world.Tile) (Rect, bool) {
 		if p.Amount < minBlockOre || !blockHasDrill(b.W, r, c.Product) {
 			continue // клочок в зоне у большого пятна: ни одного бура (17466282, стадия 3: железо 8×8)
 		}
+		if c.ToPower && float64(p.Amount)*MineCover < float64(c.Ore) {
+			continue // уголь станции — одним блоком: пятно на всю цель
+		}
 		if d := math.Hypot(p.Center.X-float64(head.X), p.Center.Y-float64(head.Y)); d < bd {
 			best, bd = r, d
 		}
@@ -362,11 +365,20 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 	var spots []*mineSpot
 	for _, c := range cs {
 		found := false
-		for _, z := range zones {
+		at, zs := head, zones // уголь станции — ближе к станции (Near — зона энергии)
+		if c.Near != nil {
+			at, zs = *c.Near, slices.Clone(zones)
+			sort.SliceStable(zs, func(i, j int) bool {
+				xi, yi := zs[i].Rect.Center()
+				xj, yj := zs[j].Rect.Center()
+				return math.Hypot(xi-float64(at.X), yi-float64(at.Y)) < math.Hypot(xj-float64(at.X), yj-float64(at.Y))
+			})
+		}
+		for _, z := range zs {
 			if z.Resources[c.Product] == 0 {
 				continue
 			}
-			if r, ok := b.mineRect(c, z, head); ok {
+			if r, ok := b.mineRect(c, z, at); ok {
 				// пятно уже под другим блоком добычи — к следующему (новый блок
 				// железа шёл на стартовое пятно, где стоит iron-ore-1 — 238178543)
 				if slices.ContainsFunc(b.Clusters, func(o *Cluster) bool { return o != c && o.Kind == Mine && o.Area.Overlaps(r) }) {
@@ -375,7 +387,7 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 				if c.Ore == 0 {
 					c.Ore = OreFirst
 				}
-				spots = append(spots, &mineSpot{c, z, r, head})
+				spots = append(spots, &mineSpot{c, z, r, at})
 				found = true
 				break
 			}

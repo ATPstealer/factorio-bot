@@ -126,6 +126,98 @@ func (b *Base) MoreOilN(zones []Zone, fields int) ([]Zone, []*Cluster, error) {
 	return zones, res, nil
 }
 
+// OilWells — скважин нефти на игру не меньше (cluster.md §2а «Нефть»: 30 на минимуме — 60/с).
+const OilWells = 30
+
+// MoreOilWells — добыча нефти на месторождениях в зонах добычи, ближние к голове bus-1 первыми,
+// каждое целиком (качалка на каждой скважине), пока скважин меньше wells; зон с нефтью мало —
+// дописываются (MoreMineZones). Возвращает зоны, новые кластеры и сколько скважин набралось.
+func (b *Base) MoreOilWells(zones []Zone, wells int) ([]Zone, []*Cluster, error) {
+	b.grid()
+	var head world.Tile
+	for _, z := range zones {
+		if z.Name == "bus-1" {
+			head = z.Rect.Min
+		}
+	}
+	inZone := func(p world.Patch) *Zone {
+		for i, z := range zones {
+			if z.Kind == ZoneMine && z.Resources["crude-oil"] > 0 && z.Rect.Overlaps(Rect{p.Min, world.Tile{X: p.Max.X + 1, Y: p.Max.Y + 1}}) {
+				return &zones[i]
+			}
+		}
+		return nil
+	}
+	// месторождение годится, если на нём нет чужих кластеров (под станцией или плавкой — не в счёт)
+	grown := func(p world.Patch) Rect {
+		return Rect{world.Tile{X: p.Min.X - 3, Y: p.Min.Y - 3}, world.Tile{X: p.Max.X + 4, Y: p.Max.Y + 4}}
+	}
+	usable := func(p world.Patch) bool {
+		for _, c := range b.Clusters {
+			if c.Kind != Bus && !c.IsOil() && c.Area.Overlaps(grown(p)) {
+				return false
+			}
+		}
+		return true
+	}
+	pts := oilFields(b.W.Patches())
+	sort.Slice(pts, func(i, j int) bool {
+		return math.Hypot(pts[i].Center.X-float64(head.X), pts[i].Center.Y-float64(head.Y)) <
+			math.Hypot(pts[j].Center.X-float64(head.X), pts[j].Center.Y-float64(head.Y))
+	})
+	count := func() (n int, oil float64) {
+		for _, p := range pts {
+			if inZone(p) != nil {
+				oil += float64(p.Amount)
+				if usable(p) {
+					n += len(p.Tiles)
+				}
+			}
+		}
+		return n, oil
+	}
+	for n, oil := count(); n < wells; n, oil = count() { // зон мало — ещё одна на следующем пятне
+		zs := b.MoreMineZones(zones, "crude-oil", oil+1)
+		if len(zs) == len(zones) {
+			break
+		}
+		zones = zs
+	}
+	have := 0
+	for _, c := range b.Clusters {
+		if c.IsOil() {
+			have += c.Count
+		}
+	}
+	var res []*Cluster
+	for _, p := range pts {
+		if have >= wells {
+			break
+		}
+		z := inZone(p)
+		if z == nil || !usable(p) || b.taken(grown(p)) {
+			continue
+		}
+		r := grown(p)
+		c := &Cluster{Kind: Mine, Product: "crude-oil", Reserve: 1, Area: r, Rect: r,
+			Units: []Unit{{Recipe: "mine:crude-oil", Machine: "pumpjack", Machines: float64(len(p.Tiles))}}}
+		zr := z.Rect
+		c.Zone, c.Near = &zr, &head
+		c.Count, c.Room = len(p.Tiles), len(p.Tiles)
+		c.Name = b.name(c.Product, res)
+		b.Clusters = append(b.Clusters, c)
+		if b.g != nil {
+			b.g.mark(b.occupied(c))
+		}
+		res = append(res, c)
+		have += c.Count
+	}
+	if have < wells {
+		return zones, res, fmt.Errorf("cluster: скважин нефти %d из %d", have, wells)
+	}
+	return zones, res, nil
+}
+
 // oilFields — месторождения нефти: пятна, чьи рамки (+3 — качалка) задевают друг друга, — одно
 // месторождение (кластер на них один, 238178543).
 func oilFields(all []world.Patch) []world.Patch {
@@ -730,23 +822,8 @@ func (b *Base) ChemPipes(l *layout.Layout, buses []*ZBus, chems []*Cluster, gas 
 	var wtag string
 	if water {
 		var err error
-		if wtag, err = b.PipeLane(l, buses, 0, "water", end); err != nil {
+		if wtag, err = b.WaterLane(l, buses, end); err != nil {
 			return err
-		}
-		head := world.Tile{X: buses[0].Rect.Min.X, Y: (buses[0].Rect.Min.Y + buses[0].Rect.Max.Y) / 2}
-		// вода бывает далеко (238178543 — дальше 150 тайлов): труба — подземная, как нефтетрасса
-		l.PipeUnder = true
-		_, err = l.WaterPumpR(head, 400, wtag, func(pump layout.Placement) bool {
-			if !l.CanPlace(pump, layout.OffOre) {
-				return false
-			}
-			l.Add(pump)
-			_, err := l.JoinPipe(layout.Connections(l.P, pump)[0], wtag)
-			return err == nil
-		})
-		l.PipeUnder = false
-		if err != nil {
-			return fmt.Errorf("cluster: помпа воды для химии: %w", err)
 		}
 	}
 	for _, c := range chems {
@@ -762,6 +839,31 @@ func (b *Base) ChemPipes(l *layout.Layout, buses []*ZBus, chems []*Cluster, gas 
 		}
 	}
 	return nil
+}
+
+// WaterLane — труба воды химии в bus-1 до end от своей помпы (не от станции; stages.md, стадия 35):
+// помпа — у ближней к голове шины воды, труба от неё — подземная, как нефтетрасса. Тег трубы.
+func (b *Base) WaterLane(l *layout.Layout, buses []*ZBus, end int) (string, error) {
+	wtag, err := b.PipeLane(l, buses, 0, "water", end)
+	if err != nil {
+		return "", err
+	}
+	head := world.Tile{X: buses[0].Rect.Min.X, Y: (buses[0].Rect.Min.Y + buses[0].Rect.Max.Y) / 2}
+	// вода бывает далеко (238178543 — дальше 150 тайлов): труба — подземная, как нефтетрасса
+	l.PipeUnder = true
+	_, err = l.WaterPumpR(head, 400, wtag, func(pump layout.Placement) bool {
+		if !l.CanPlace(pump, layout.OffOre) {
+			return false
+		}
+		l.Add(pump)
+		_, err := l.JoinPipe(layout.Connections(l.P, pump)[0], wtag)
+		return err == nil
+	})
+	l.PipeUnder = false
+	if err != nil {
+		return "", fmt.Errorf("cluster: помпа воды для химии: %w", err)
+	}
+	return wtag, nil
 }
 
 // tankBlock — цистерны шахматкой: соседние повёрнуты на 90° — угловые соединения стыкуются,

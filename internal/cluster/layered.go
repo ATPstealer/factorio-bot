@@ -22,24 +22,20 @@ const (
 	floors     = 3              // этажей: переработка, снабжение, конечный продукт (zones.md)
 	nBus       = floors + 1     // шин: под каждым этажом и над верхним (bus-4)
 	floorGap   = 2 * ZoneBorder // между кластерами зоны — бордюры 3+3 = коридор 6 (zones.md)
-	floorDepth = 46             // кластер длиннее — несколькими столбцами (46: с буферами в голове куски по 40 не ставились по 3 в столбец — база шире на 140)
 	layerHead  = 10             // начало шин: головы лент, подвод с добычи
 	layerSlack = 24             // запас ширины базы: зонам — сдвигаться влево-вправо
 	maxShift   = 44             // зазор шина — зона сверх коридора 6 (снизу и сверху от зоны): всего 6…50 (zones.md)
-	busLanes0  = 20             // лент шины ресурсов (zones.md), не меньше
-	busSpare0  = 4              // шине ресурсов — ещё лент в запас на будущее (решение пользователя)
-	busLanes   = 16             // лент шин 2 и 3, не меньше
-	busLanes4  = 8              // лент шины конечных (4) — вдвое меньше, не меньше
 	mineGap    = 16             // от зон базы до зон добычи — подводам развернуться (zones.md)
 	// этаж выше — правее нижнего на долю ширины нижнего (zones.md): лучше floorShift, хоть floorShiftMin
 	floorShift, floorShiftMin = 0.5, 0.3
 )
 
-// minCols — столбцов в зоне этажа не меньше (zones.md): 15 (30 на картах не влезают); colWidth — ширина столбца: кластер с бордюрами (плавка 8+6, сборка 9+6).
-var (
-	minCols  = [floors + 1]int{1: 15, 2: 15, 3: 15}
-	colWidth = [floors + 1]int{1: 14, 2: 15, 3: 15}
-)
+// BusLines — линий (лент и труб) шин bus-1…bus-4 (zones.md, решение пользователя: с запасом под
+// будущие стадии).
+var BusLines = [nBus]int{22, 14, 18, 8}
+
+// colWidth — ширина столбца этажа: кластер с бордюрами (плавка 7+6, сборка 8+6).
+var colWidth = [floors + 1]int{1: 13, 2: 14, 3: 14}
 
 // LayerBus — шина этажной базы: прямоугольник, лент по предметам (трубы жидкостей — тоже),
 // всего лент с запасом, направление течения (E — вправо, W — влево; меняется).
@@ -58,7 +54,9 @@ type Layered struct {
 	Of     map[string]int `json:"of"`
 }
 
-// floorOf — этаж кластера (0 — вне этажей: добыча, станция, хранение).
+// FloorOf — этаж кластера (0 — вне этажей: добыча, станция, хранение).
+func FloorOf(c *Cluster) int { return floorOf(c) }
+
 func floorOf(c *Cluster) int {
 	switch c.Kind {
 	case Smelt:
@@ -100,14 +98,15 @@ func pack(cs []*Cluster, depth int, length func(*Cluster) int) (pos []world.Tile
 	type stack struct{ x, w, used int }
 	var st []stack
 	pos = make([]world.Tile, len(cs))
-	x := 0
+	x, last := 0, 0
 	for _, i := range order {
 		c := cs[i]
+		gap := 2 * c.zoneBorder() // коридор — бордюры по факту (cluster.md §3)
 		placed := false
 		for k := range st {
-			if st[k].used+floorGap+length(c) <= depth && c.Cross <= st[k].w {
-				pos[i] = world.Tile{X: st[k].x, Y: st[k].used + floorGap}
-				st[k].used += floorGap + length(c)
+			if st[k].used+gap+length(c) <= depth && c.Cross <= st[k].w {
+				pos[i] = world.Tile{X: st[k].x, Y: st[k].used + gap}
+				st[k].used += gap + length(c)
 				placed = true
 				break
 			}
@@ -115,16 +114,120 @@ func pack(cs []*Cluster, depth int, length func(*Cluster) int) (pos []world.Tile
 		if !placed {
 			pos[i] = world.Tile{X: x, Y: 0}
 			st = append(st, stack{x, c.Cross, length(c)})
-			x += c.Cross + floorGap
+			x, last = x+c.Cross+gap, gap
 		}
 	}
-	return pos, max(0, x-floorGap)
+	return pos, max(0, x-last)
+}
+
+// placeFits — кластеры этажа cs встают в зону width × depth так же, как их ставит PlaceZoned (в
+// этом порядке, слева направо: сначала вплотную к шине своих входов по всей ширине, нет — стопкой;
+// коридоры — бордюры по факту; потребитель — не левее поставщиков этого этажа: предмета у
+// сборки — самого левого, жидкости — самого правого; лаборатории — у правого края). Поставщики с
+// нижних этажей не учитываются (этажи сдвинуты вправо).
+func (b *Base) placeFits(cs []*Cluster, depth, width int) bool {
+	type box struct {
+		r Rect
+		c *Cluster
+	}
+	var placed []box
+	free := func(c *Cluster, r Rect) bool {
+		if r.Min.X < 0 || r.Max.X > width {
+			return false
+		}
+		ring := r.Grow(c.zoneBorder())
+		for _, o := range placed {
+			if ring.Overlaps(o.r.Grow(o.c.zoneBorder())) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, c := range cs {
+		l := c.Len()
+		if l > depth {
+			return false
+		}
+		minX := 0
+		for _, in := range c.In {
+			_, fluid := b.P.Fluids[in.Item]
+			first := math.MaxInt
+			for _, o := range placed {
+				if (c.TakesAbove() || fluid) && slices.ContainsFunc(o.c.Out, func(f Flow) bool { return f.Item == in.Item }) {
+					if fluid && first != math.MaxInt {
+						first = max(first, o.r.Min.X)
+					} else {
+						first = min(first, o.r.Min.X)
+					}
+				}
+			}
+			if first != math.MaxInt {
+				minX = max(minX, first)
+			}
+		}
+		at := func(x, y int) Rect { return Rect{world.Tile{X: x, Y: y}, world.Tile{X: x + c.Cross, Y: y + l}} }
+		var got *Rect
+		if c.Kind == Lab { // у правого края
+			for x := width - c.Cross; x >= minX && got == nil; x-- {
+				for y := depth - l; y >= 0 && got == nil; y-- {
+					if r := at(x, y); free(c, r) {
+						got = &r
+					}
+				}
+			}
+		} else {
+			edge := depth - l
+			if c.HeadAbove {
+				edge = 0
+			}
+			for x := minX; x+c.Cross <= width && got == nil; x++ {
+				if r := at(x, edge); free(c, r) {
+					got = &r
+				}
+			}
+			for x := minX; x+c.Cross <= width && got == nil; x++ {
+				for y := depth - l; y >= 0 && got == nil; y-- {
+					if r := at(x, y); free(c, r) {
+						got = &r
+					}
+				}
+			}
+		}
+		if got == nil {
+			return false
+		}
+		placed = append(placed, box{*got, c})
+	}
+	return true
+}
+
+// placeWidth — самая узкая зона глубиной depth, куда встают кластеры этажа cs (placeFits; двоичный
+// поиск от самого широкого кластера до всех в ряд); не встают и в ряд — math.MaxInt.
+func (b *Base) placeWidth(cs []*Cluster, depth int) int {
+	lo, hi := 0, 0
+	for _, c := range cs {
+		lo = max(lo, c.Cross)
+		hi += c.Cross + 2*c.zoneBorder()
+	}
+	if len(cs) == 0 {
+		return 0
+	}
+	if !b.placeFits(cs, depth, hi) {
+		return math.MaxInt
+	}
+	for lo < hi {
+		if m := (lo + hi) / 2; b.placeFits(cs, depth, m) {
+			hi = m
+		} else {
+			lo = m + 1
+		}
+	}
+	return lo
 }
 
 // PlaceLayered — зоны всей базы этажами: добыча — по месторождениям, этажи — ближе к центру
-// базы, станция — у воды ближе к базе, хранение — рядом. belt — пропускная способность ленты
-// шины, шт/с.
-func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
+// базы, станция — у воды ближе к базе, хранение — рядом.
+func (b *Base) PlaceLayered(cs []*Cluster) (*Layered, error) {
 	g := b.grid()
 	for _, c := range cs {
 		if c.Name == "" {
@@ -140,100 +243,31 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		case f == 0:
 			later = append(later, c)
 		default:
-			if k := int(math.Ceil(float64(c.Len()) / floorDepth)); k > 1 { // длинный — столбцами
-				fl[f] = append(fl[f], splitInto(scaleCluster(c, 1), k)...) // копия: план не трогать
-				continue
-			}
-			fl[f] = append(fl[f], c)
+			fl[f] = append(fl[f], c) // кластер — одним столбцом, не длиннее глубины этажа
 		}
 	}
-	// шины: шина i — выходы этажа i (шина 0 — то, что приходит извне); жидкости — трубами
-	producedOn := map[string]int{}
-	for f := 1; f <= floors; f++ {
-		for _, c := range fl[f] {
-			for _, o := range c.Out {
-				producedOn[o.Item] = f
-			}
-		}
-	}
-	demand := make([]map[string]float64, nBus)
-	for i := range demand {
-		demand[i] = map[string]float64{}
-	}
-	for f := 1; f <= floors; f++ {
-		for _, c := range fl[f] {
-			for _, in := range c.In {
-				if in.Item == "water" {
-					continue // вода — помпой на месте
-				}
-				if bus := producedOn[in.Item]; bus < nBus {
-					demand[bus][in.Item] += in.Rate
-				}
-			}
-		}
-	}
+	// шины — ширины плана (zones.md: 22, 14, 18, 8 линий; линия — лента или труба)
 	L := &Layered{Of: map[string]int{}}
 	widths := make([]int, nBus)
-	for i := range demand {
-		lanes := map[string]int{}
-		n := 0
-		for it, r := range demand[i] {
-			if _, fluid := b.P.Fluids[it]; fluid {
-				lanes[it] = 1 // труба
-			} else {
-				lanes[it] = max(1, int(math.Ceil(r/belt)))
-			}
-			n += lanes[it]
-		}
-		least := busLanes
-		switch i {
-		case 0:
-			least = busLanes0
-		case 3:
-			least = busLanes4
-		}
-		n = max(n, least)
-		if i == 0 {
-			n += busSpare0 // шине ресурсов — ещё ленты в запас (решение пользователя)
-		}
-		L.Buses = append(L.Buses, LayerBus{Lanes: lanes, Total: n, Dir: "E"})
-		widths[i] = busWidth(n)
+	for i := range widths {
+		L.Buses = append(L.Buses, LayerBus{Total: BusLines[i], Dir: "E"})
+		widths[i] = busWidth(BusLines[i])
 	}
-	// глубина зон — по самой глубокой (самый длинный кластер), ширина — по укладке. Минимум
-	// MinUnits мест удлиняет кластеры — этажи растут в глубину, а не в ширину (cluster.md §2):
-	// ширина — как у кластеров без минимума, глубина — пока укладка в неё не влезет
-	len0 := func(c *Cluster) int {
-		if c.Need == 0 || c.Need > c.Count {
-			return c.Len()
-		}
-		return c.Len() - (c.Count-c.Need)*c.Pitch
-	}
-	depth, depth0 := 0, 0
-	for f := 1; f <= floors; f++ {
-		for _, c := range fl[f] {
-			depth, depth0 = max(depth, c.Len()), max(depth0, len0(c))
-		}
-	}
-	widest := func(d int, length func(*Cluster) int) int {
-		w := 0
-		for f := 1; f <= floors; f++ {
-			_, x := pack(fl[f], d, length)
-			w = max(w, x)
-		}
-		return w
-	}
-	for w0 := widest(depth0, len0); widest(depth, nil) > w0 && depth < 4*max(depth0, 1); {
-		depth += 2
-	}
+	// глубина — у каждого этажа своя (zones.md): не мельче самого длинного кластера этажа; из
+	// глубин до полуторной — та, где площадь зоны (глубина × ширина расстановки) меньше
 	depths := make([]int, floors+1)
+	fitW := make([]int, floors+1)
 	for f := 1; f <= floors; f++ {
-		depths[f] = depth
-	}
-	// верхний этаж (конечный продукт с лабораториями и шахтой справа) — вдвое мельче (zones.md),
-	// не короче своих кластеров
-	depths[floors] = depth / 2
-	for _, c := range fl[floors] {
-		depths[floors] = max(depths[floors], c.Len())
+		least := 0
+		for _, c := range fl[f] {
+			least = max(least, c.Len())
+		}
+		best := math.MaxInt
+		for d := least; d <= least*3/2; d += 2 {
+			if w := b.placeWidth(fl[f], d); w < math.MaxInt && d*w < best {
+				best, depths[f], fitW[f] = d*w, d, w
+			}
+		}
 	}
 	// лаборатории и шахта — правее сборки этажа (укладка — слева направо)
 	right := func(c *Cluster) int {
@@ -246,17 +280,16 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 	zw := make([]int, floors+1)
 	var pos [floors + 1][]world.Tile
 	for f := 1; f <= floors; f++ {
-		pos[f], zw[f] = pack(fl[f], depths[f], nil)
-		if len(fl[f]) > 0 { // не уже минимума (zones.md): прикидка даёт мало машин
-			zw[f] = max(zw[f], minCols[f]*colWidth[f])
-		}
+		pos[f], _ = pack(fl[f], depths[f], nil) // места кластеров на картинке зон — прикидка
+		zw[f] = fitW[f]
 		if b.CliffZones && zw[f] > 0 { // утёсы съедают место — шире на половину (zones.md)
 			zw[f] = zw[f] * 3 / 2
 		}
 	}
-	// переработка почти забита — шире на 30% (решение пользователя); не влезает — запас мягкий:
-	// +15%, потом без запаса (решение пользователя 2026-10-26: 689494172 — лучшая полоса 272 из 273)
-	zw1 := zw[1]
+	// укладка — впритык, а в зоне кластеры встают с порядком (потребитель правее поставщиков) и
+	// коридорами по факту: этажи шире на 30% (решение пользователя — у переработки); не влезает —
+	// запас мягкий: +15%, потом без запаса (689494172 — лучшая полоса 272 из 273)
+	zw0 := slices.Clone(zw)
 	var lo *layered
 	var width int
 	b.logf("этажи: ширины зон %v, глубины %v, шины %v (кластеров по этажам %d/%d/%d)", zw[1:], depths[1:], widths, len(fl[1]), len(fl[2]), len(fl[3]))
@@ -265,8 +298,8 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		spares, extrasOf = []int{30, 0}, func(base int) []int { return []int{0, base / 2} }
 	}
 	for _, spare := range spares {
-		if zw1 > 0 {
-			zw[1] = zw1 * (100 + spare) / 100
+		for f := 1; f <= floors; f++ {
+			zw[f] = zw0[f] * (100 + spare) / 100
 		}
 		base := 0
 		for f := 1; f <= floors; f++ {
@@ -284,7 +317,7 @@ func (b *Base) PlaceLayered(cs []*Cluster, belt float64) (*Layered, error) {
 		}
 		if lo != nil {
 			if spare < 30 {
-				b.logf("этажи: переработка с запасом +30%% не встала — запас +%d%%", spare)
+				b.logf("этажи: с запасом +30%% не встали — запас +%d%%", spare)
 			}
 			break
 		}

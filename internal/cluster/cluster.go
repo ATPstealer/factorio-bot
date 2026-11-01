@@ -89,6 +89,15 @@ type Cluster struct {
 	// Later — в плане сразу (место, подвод, лента шины), строится позже (будущая добыча до 2M,
 	// камень, кирпич — стадия 30; zones.md)
 	Later bool `json:"later,omitempty"`
+	// Stage — стадия, что строит кластер (stages.md, строки «Ставит»; cluster.Builds); 0 — старый
+	// план по стадиям проектов
+	Stage int `json:"stage,omitempty"`
+	// ToPower — добыча угля станции: один выход, своя лента прямо к станции, мимо шины (cluster.md
+	// §2а «Станция»)
+	ToPower bool `json:"to_power,omitempty"`
+	// Border — бордюр кластера в зоне по факту (cluster.md §3: коридор между соседями — сумма их
+	// бордюров, не меньше 2); 0 — ZoneBorder
+	Border int `json:"border,omitempty"`
 	// Back — ряд в обратную сторону (голова — у Max: снизу у вертикального, справа у
 	// горизонтального); у блока добычи — голова к шине ресурсов
 	Back bool `json:"back,omitempty"`
