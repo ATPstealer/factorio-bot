@@ -97,9 +97,7 @@ func drawAround(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layou
 
 // drawPlan — картинка плана с центром center и радиусом radius в файл path.
 func drawPlan(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.Layout, center world.Tile, radius int, path string) error {
-	// крупно: ~8000 px на сторону, не меньше 3 px на тайл (пользователь: большие картинки в
-	// хорошем качестве)
-	ro := world.RenderOptions{Center: center, Radius: radius, Scale: max(3, min(12, 8000/(2*radius))), Labels: true}
+	ro := world.RenderOptions{Center: center, Radius: radius, Scale: imageScale(radius), Labels: true}
 	img := h.World.Render(ro)
 	cluster.DrawZones(img, ro, zones)
 	base.Draw(img, ro)
@@ -116,6 +114,14 @@ func drawPlan(h *act.Hands, zones []cluster.Zone, base *cluster.Base, l *layout.
 	}
 	return f.Close()
 }
+
+// imageSide — сторона картинки плана и зон, px: в максимальном разрешении (пользователь), но не
+// больше того, что открывают просмотрщики (16384).
+const imageSide = 16000
+
+// imageScale — пикселей на тайл для картинки радиусом radius тайлов: как можно крупнее (до 12),
+// сторона — не больше imageSide.
+func imageScale(radius int) int { return max(3, min(12, imageSide/(2*radius))) }
 
 // planStart — места всех своих построек (точки стадии 10): кластеры без зоны их не задевают
 // (до разборки на стадии 15).
