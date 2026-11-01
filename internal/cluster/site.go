@@ -80,12 +80,12 @@ type Base struct {
 	// NoMine — где зон добычи не выбирать (MineZones): место базы прошлой разметки
 	NoMine []Rect
 
-	mineZones []Zone         // прикидка: зоны добычи (MineZones)
-	zoneRects []Rect         // зоны (PlaceZoned): кластеры без зоны — вне их
-	bands     []Rect         // полосы этажей от шины под ним до шины над ним (PlaceZoned): кластеры без зоны — вне их
-	busRects  []Rect         // шины (PlaceZoned): подводы с добычи — в обход (fence)
+	mineZones []Zone           // прикидка: зоны добычи (MineZones)
+	zoneRects []Rect           // зоны (PlaceZoned): кластеры без зоны — вне их
+	bands     []Rect           // полосы этажей от шины под ним до шины над ним (PlaceZoned): кластеры без зоны — вне их
+	busRects  []Rect           // шины (PlaceZoned): подводы с добычи — в обход (fence)
 	reach     map[cell]float64 // заливка по суше от Origin (landReach)
-	floors    map[int][]Rect // части этажей (PlaceZoned): глубина этажа — предел длины кластера
+	floors    map[int][]Rect   // части этажей (PlaceZoned): глубина этажа — предел длины кластера
 
 	g *grid
 }
