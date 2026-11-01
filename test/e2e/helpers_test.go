@@ -152,7 +152,7 @@ func abs(x int) int {
 	return x
 }
 
-const gameVersion = "2.1.23"
+const gameVersion = "2.1.24"
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
