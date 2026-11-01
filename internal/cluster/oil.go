@@ -833,6 +833,14 @@ func (b *Base) OilTrunk(l *layout.Layout, field, tank *Cluster) error {
 func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn, start, to world.Tile, goals []layout.Conn, n, off int, tag string) error {
 	var legs [][]layout.Placement
 	length := max(abs(start.X-to.X)+abs(start.Y-to.Y), 1)
+	// сдвиг удлиняет крайний отрезок на |off| — насосов столько, чтобы и он был не длиннее
+	// pumpEvery (17555262: сдвиг 120 — отрезок 340 тайлов, участок шире 320)
+	if a := abs(off); n > 0 && a > 0 && a < pumpEvery {
+		n = max(n, (length+pumpEvery-a-1)/(pumpEvery-a)-1)
+		if sp := length / (n + 1); sp <= a { // насос ушёл бы за начало или конец трассы
+			return fmt.Errorf("cluster %s: сдвиг насосов %d больше шага %d", field.Name, off, sp)
+		}
+	}
 	for k := 1; k <= n; k++ {
 		p := world.Tile{X: start.X + (to.X-start.X)*(k*length/(n+1)+off)/length, Y: start.Y + (to.Y-start.Y)*(k*length/(n+1)+off)/length}
 		pump, in, out, ok := pumpNear(l, p, to, tag)
