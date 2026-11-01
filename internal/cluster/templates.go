@@ -76,31 +76,6 @@ func (c *Cluster) FitUnits(L int) int {
 	return max((L-c.Head)/c.Pitch, 0)
 }
 
-// minDepthShare — длина кластера в зоне — не меньше такой доли глубины (cluster.md §2
-// «Разбивка на кластеры»: 40%, чтобы два влезали в столбец друг над другом с коридором).
-const minDepthShare = 0.4
-
-// splitInto — кластер c на k кластеров того же продукта (cluster.md §2 «Разбивка»): потоки и
-// машины — по доле, места — поровну; первый — сам c (в нём остаётся первая доля), остальные —
-// копии с именами «<имя>.2», «<имя>.3»…
-func splitInto(c *Cluster, k int) []*Cluster {
-	count, need, name := c.Count, c.Need, c.Name
-	res := make([]*Cluster, k)
-	for i := range res {
-		p := scaleCluster(c, 1/float64(k))
-		p.Count = max(1, (count+k-1)/k)
-		p.Room = p.Count
-		p.Need = min(p.Count, max(1, (need+k-1)/k))
-		if i > 0 {
-			p.Name = fmt.Sprintf("%s.%d", name, i+1)
-		}
-		res[i] = p
-	}
-	*c = *res[0]
-	res[0] = c
-	return res
-}
-
 // smeltGap — сдвиг второй половины ряда плавки: третий свободный тайл под перекладку выхода
 // (подача сбоку на ленту с прямой лентой сзади — полосы меняются).
 const smeltGap = 1

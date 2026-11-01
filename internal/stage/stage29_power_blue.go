@@ -24,27 +24,13 @@ func init() {
 	register(Stage{N: 29, Name: "энергия под синюю науку", Run: runPowerBlue, Check: checkPowerBlue})
 }
 
-// blueAdded — дописанное стадией 5 (весь план минус план до неё) и весь план.
+// blueAdded — постройки плана стадий синей науки (29–41) и весь план.
 func blueAdded() ([]layout.Placement, *ClusterPlan, error) {
-	plan, err := LoadBluePlan()
+	plan, err := LoadPlan()
 	if err != nil {
 		return nil, nil, err
 	}
-	base, err := loadPlanFile(runPath(blueBaseFile))
-	if err != nil {
-		return nil, nil, fmt.Errorf("нет плана до стадии 5: %w", err)
-	}
-	was := map[layout.Placement]bool{}
-	for _, pl := range base.Layout {
-		was[pl] = true
-	}
-	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		if !was[pl] {
-			res = append(res, pl)
-		}
-	}
-	return res, plan, nil
+	return stageAdded(plan, 29, 41), plan, nil
 }
 
 // powerBlueLayout — дописанное в станции и новые станции с их логистикой (вода, отвод угля),

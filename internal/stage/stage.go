@@ -77,11 +77,11 @@ var crossCache struct {
 
 // planCross — crossBuffers плана стройки (как сохранён); плана нет — пусто.
 func planCross() map[layout.Placement]bool {
-	fi, err := os.Stat(runPath(planNowFile()))
+	fi, err := os.Stat(runPath(planFile))
 	if err != nil {
 		return nil
 	}
-	key := fmt.Sprint(runPath(planNowFile()), fi.ModTime().UnixNano(), fi.Size())
+	key := fmt.Sprint(runPath(planFile), fi.ModTime().UnixNano(), fi.Size())
 	if crossCache.key != key {
 		raw, err := rawPlan()
 		if err != nil {

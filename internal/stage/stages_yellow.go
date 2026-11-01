@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
@@ -61,45 +60,17 @@ func onStage(n int) func(*cluster.Cluster) bool {
 	return func(c *cluster.Cluster) bool { return yellowStageOf(c) == n }
 }
 
-// yellowAdded — дописанное стадией 7 (весь план минус план до неё) и весь план.
+// yellowAdded — постройки плана стадий жёлтой науки (50–61) и весь план.
 func yellowAdded() ([]layout.Placement, *ClusterPlan, error) {
-	plan, err := LoadWholePlan()
+	plan, err := LoadPlan()
 	if err != nil {
 		return nil, nil, err
 	}
-	base, err := loadPlanFile(runPath(yellowBaseFile))
-	if err != nil {
-		return nil, nil, fmt.Errorf("нет плана до стадии 7: %w", err)
-	}
-	was := map[layout.Placement]bool{}
-	for _, pl := range base.Layout {
-		was[pl] = true
-	}
-	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		if !was[pl] {
-			res = append(res, pl)
-		}
-	}
-	return res, plan, nil
+	return stageAdded(plan, 50, 61), plan, nil
 }
 
-// yellowFresh — кластер дописан проектом жёлтой (его нет в плане до стадии 7); имена старых — из
-// файла один раз.
-var yellowFresh = func() func(*cluster.Cluster) bool {
-	var old map[string]bool
-	return func(c *cluster.Cluster) bool {
-		if old == nil {
-			old = map[string]bool{}
-			if base, err := loadPlanFile(runPath(yellowBaseFile)); err == nil {
-				for _, o := range base.Clusters {
-					old[o.Name] = true
-				}
-			}
-		}
-		return len(old) > 0 && !old[c.Name]
-	}
-}()
+// yellowFresh — кластер стадий жёлтой науки (50–61).
+func yellowFresh(c *cluster.Cluster) bool { return c.Stage >= 50 && c.Stage <= 61 }
 
 // yellowLanes — ленты и трубы шин, дописанные проектом жёлтой (новые ленты, трубы масел, смазки,
 // кислоты, их отводы и насосы, продления старых, подземки и делители) — все сразу на стадии 50,

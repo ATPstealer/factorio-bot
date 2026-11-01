@@ -26,27 +26,13 @@ var purpleStages = map[int]blueStage{}
 // purpleProducts — продукты новых кластеров проекта и стадии их стройки.
 var purpleProducts = map[string]int{"electric-furnace": 44, "productivity-module": 45, "rail": 46, purplePack: 47}
 
-// purpleAdded — дописанное стадией 6 (весь план минус план до неё) и весь план.
+// purpleAdded — постройки плана стадий фиолетовой науки (43–48) и весь план.
 func purpleAdded() ([]layout.Placement, *ClusterPlan, error) {
-	plan, err := LoadPurplePlan()
+	plan, err := LoadPlan()
 	if err != nil {
 		return nil, nil, err
 	}
-	base, err := loadPlanFile(runPath(purpleBaseFile))
-	if err != nil {
-		return nil, nil, fmt.Errorf("нет плана до стадии 6: %w", err)
-	}
-	was := map[layout.Placement]bool{}
-	for _, pl := range base.Layout {
-		was[pl] = true
-	}
-	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		if !was[pl] {
-			res = append(res, pl)
-		}
-	}
-	return res, plan, nil
+	return stageAdded(plan, 43, 48), plan, nil
 }
 
 // inBuffer — item дошёл до буфера выхода (cluster.md §6а): есть хоть в одном сундуке буферов
@@ -67,22 +53,8 @@ func inBuffer(item string) func(h *act.Hands, list []layout.Placement) error {
 	}
 }
 
-// fresh — кластер дописан проектом фиолетовой (его нет в плане до стадии 6); имена старых —
-// из файла один раз (buffers зовётся на каждый кластер).
-var fresh = func() func(*cluster.Cluster) bool {
-	var old map[string]bool
-	return func(c *cluster.Cluster) bool {
-		if old == nil {
-			old = map[string]bool{}
-			if base, err := loadPlanFile(runPath(purpleBaseFile)); err == nil {
-				for _, o := range base.Clusters {
-					old[o.Name] = true
-				}
-			}
-		}
-		return len(old) > 0 && !old[c.Name]
-	}
-}()
+// fresh — кластер стадий фиолетовой науки (43–48).
+func fresh(c *cluster.Cluster) bool { return c.Stage >= 43 && c.Stage <= 48 }
 
 // purpleLanes — ленты шин, дописанные проектом фиолетовой (новые ленты кирпича, электропечей,
 // модулей, рельсов, фиолетовой, продления, их подземки и делители) — все сразу на стадии 43,

@@ -20,7 +20,6 @@ import (
 const (
 	researchFile = "state-research.json"
 	firstLabs    = 2
-	redPack      = "automation-science-pack"
 )
 
 var firstTechs = []string{"automation", "electric-mining-drill", "logistics"}

@@ -18,113 +18,8 @@ import (
 // скважине, трубы между ними, столбы; выход — конец трубы у ближней к базе качалки (оттуда —
 // трасса на базу).
 
-// OilFields — месторождений нефти на игру (решение пользователя: обычно 2).
-const OilFields = 2
-
 // IsOil — кластер добычи нефти.
 func (c *Cluster) IsOil() bool { return c.Kind == Mine && c.Product == "crude-oil" }
-
-// MoreOil — кластеры добычи нефти до OilFields на месторождениях в зонах добычи, ближние к
-// голове bus-1 первыми (уже стоящие — в счёт); зон с нефтью мало — дописываются (MoreMineZones).
-func (b *Base) MoreOil(zones []Zone) ([]Zone, []*Cluster, error) { return b.MoreOilN(zones, OilFields) }
-
-// MoreOilN — как MoreOil, но до n месторождений (проект жёлтой — третье: stages.md, стадия 7).
-func (b *Base) MoreOilN(zones []Zone, fields int) ([]Zone, []*Cluster, error) {
-	b.grid()
-	var head world.Tile
-	for _, z := range zones {
-		if z.Name == "bus-1" {
-			head = z.Rect.Min
-		}
-	}
-	have := 0
-	for _, c := range b.Clusters {
-		if c.IsOil() {
-			have++
-		}
-	}
-	inZone := func(p world.Patch) *Zone {
-		for i, z := range zones {
-			if z.Kind == ZoneMine && z.Resources["crude-oil"] > 0 && z.Rect.Overlaps(Rect{p.Min, world.Tile{X: p.Max.X + 1, Y: p.Max.Y + 1}}) {
-				return &zones[i]
-			}
-		}
-		return nil
-	}
-	// usable — на месторождении нет чужих кластеров (своя добыча нефти — можно): под станцией
-	// или плавкой оно в счёт не идёт (1330900585, стадия 5: второе — под станцией, новых зон
-	// не искали — «месторождений нефти 1 из 2»)
-	usable := func(p world.Patch) bool {
-		r := Rect{world.Tile{X: p.Min.X - 3, Y: p.Min.Y - 3}, world.Tile{X: p.Max.X + 4, Y: p.Max.Y + 4}}
-		for _, c := range b.Clusters {
-			if c.Kind != Bus && !c.IsOil() && c.Area.Overlaps(r) {
-				return false
-			}
-		}
-		return true
-	}
-	pts := oilFields(b.W.Patches())
-	oil := 0.0
-	sort.Slice(pts, func(i, j int) bool {
-		return math.Hypot(pts[i].Center.X-float64(head.X), pts[i].Center.Y-float64(head.Y)) <
-			math.Hypot(pts[j].Center.X-float64(head.X), pts[j].Center.Y-float64(head.Y))
-	})
-	n := 0
-	for _, p := range pts {
-		if inZone(p) != nil {
-			oil += float64(p.Amount)
-			if usable(p) {
-				n++
-			}
-		}
-	}
-	for k := 0; n < fields && k < len(pts); k++ { // зон мало — ещё одна на следующем пятне
-		zs := b.MoreMineZones(zones, "crude-oil", oil+1)
-		if len(zs) == len(zones) {
-			break
-		}
-		zones = zs
-		n, oil = 0, 0
-		for _, p := range pts {
-			if inZone(p) != nil {
-				oil += float64(p.Amount)
-				if usable(p) {
-					n++
-				}
-			}
-		}
-	}
-	var res []*Cluster
-	for _, p := range pts {
-		if have >= fields {
-			break
-		}
-		z := inZone(p)
-		if z == nil {
-			continue
-		}
-		r := Rect{world.Tile{X: p.Min.X - 3, Y: p.Min.Y - 3}, world.Tile{X: p.Max.X + 4, Y: p.Max.Y + 4}}
-		if b.taken(r) {
-			continue // уже есть кластер на этом пятне
-		}
-		c := &Cluster{Kind: Mine, Product: "crude-oil", Reserve: 1, Area: r, Rect: r,
-			Units: []Unit{{Recipe: "mine:crude-oil", Machine: "pumpjack", Machines: float64(len(p.Tiles))}}}
-		zr := z.Rect
-		c.Zone, c.Near = &zr, &head
-		c.Count, c.Room = len(p.Tiles), len(p.Tiles)
-		c.Name = b.name(c.Product, res)
-		b.Clusters = append(b.Clusters, c)
-		if b.g != nil {
-			b.g.mark(b.occupied(c))
-		}
-		res = append(res, c)
-		have++
-	}
-	if have < fields {
-		return zones, res, fmt.Errorf("cluster: месторождений нефти %d из %d", have, fields)
-	}
-	return zones, res, nil
-}
 
 // OilWells — скважин нефти на игру не меньше (cluster.md §2а «Нефть»: 30 на минимуме — 60/с).
 const OilWells = 30
@@ -598,41 +493,6 @@ func TankJoin(l *layout.Layout, tank *Cluster, tag string) error {
 	return &ConnectError{tank, fmt.Errorf("цистерны %s → %s: трубу не провести", tank.Name, tag)}
 }
 
-// fluidPort — порт жидкости fluid кластера c.
-func fluidPort(c *Cluster, fluid string, in bool) (Port, bool) {
-	for _, p := range c.Ports {
-		if p.Item == fluid && p.In == in {
-			return p, true
-		}
-	}
-	return Port{}, false
-}
-
-// RefineryPipes — трубы НПЗ ref: нефть — с трубы bus-1 (из склада tank), газ — в трубу bus-2
-// (cluster.md §2а «Нефть»: всё через шину). end — докуда тянуть трубу газа (потребители).
-func (b *Base) RefineryPipes(l *layout.Layout, buses []*ZBus, ref, tank *Cluster, gasEnd int) (string, error) {
-	crude, err := b.PipeLane(l, buses, 0, "crude-oil", ref.Area.Max.X+10)
-	if err != nil {
-		return "", err
-	}
-	if err := TankJoin(l, tank, crude); err != nil {
-		return "", err
-	}
-	in, _ := fluidPort(ref, "crude-oil", true)
-	if err := JoinLane(l, ref, in, crude); err != nil {
-		return "", err
-	}
-	if len(buses) < 2 {
-		return "", fmt.Errorf("cluster: нет шины над переработкой")
-	}
-	gas, err := b.PipeLane(l, buses, 1, "petroleum-gas", max(gasEnd, ref.Area.Max.X+20))
-	if err != nil {
-		return "", err
-	}
-	out, _ := fluidPort(ref, "petroleum-gas", false)
-	return gas, JoinLane(l, ref, out, gas)
-}
-
 // Chem — химия (cluster.md §2а «Нефть»): n химзаводов рецепта recipe (пластик — газ + уголь,
 // сера — газ + вода) в столбец этажа переработки.
 func Chem(p *knowledge.Prototypes, recipe string, n int) *Cluster {
@@ -812,38 +672,6 @@ func chemRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add func(
 	}
 	l.AllowEnd(f.tile(L, 9))
 	c.Ports = append(c.Ports, Port{T: f.tile(L, 9), Dir: f.dir(layout.E), Item: c.Product})
-	return nil
-}
-
-// ChemPipes — трубы химии: газ — с трубы bus-2 (tag gas), вода — своей трубой в bus-1 от своей
-// помпы (stages.md, стадия 5: вода для химии — своя помпа и своя линия).
-func (b *Base) ChemPipes(l *layout.Layout, buses []*ZBus, chems []*Cluster, gas string) error {
-	end := 0
-	water := false
-	for _, c := range chems {
-		end = max(end, c.Area.Max.X+10)
-		_, w := fluidPort(c, "water", true)
-		water = water || w
-	}
-	var wtag string
-	if water {
-		var err error
-		if wtag, err = b.WaterLane(l, buses, end); err != nil {
-			return err
-		}
-	}
-	for _, c := range chems {
-		if p, ok := fluidPort(c, "petroleum-gas", true); ok {
-			if err := JoinLane(l, c, p, gas); err != nil {
-				return err
-			}
-		}
-		if p, ok := fluidPort(c, "water", true); ok {
-			if err := JoinLane(l, c, p, wtag); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 

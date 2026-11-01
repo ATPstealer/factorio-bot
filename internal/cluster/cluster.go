@@ -345,19 +345,7 @@ func AddPower(p *knowledge.Prototypes, cs []*Cluster, reserve float64, have map[
 // PowerStart — бойлеров станции с начала (по 2 двигателя).
 const PowerStart = 3
 
-// PumpBoilers — сколько бойлеров кормит одна помпа (вода: помпа / расход бойлера).
-func PumpBoilers(p *knowledge.Prototypes) int {
-	one := calc.SteamFor(p, p.Entities["steam-engine"].MaxEnergyProduction*60*2) // бойлер = 2 двигателя
-	if one.Pumps <= 0 {
-		return 20
-	}
-	return int(math.Floor(one.Boilers/one.Pumps + 1e-9))
-}
-
-// SizePower — станция cs — под одну помпу (cluster.md §2а «Станция»): столько бойлеров, сколько
-// она кормит водой, по 2 двигателя; дальше — вторая станция.
-// Station — станция на boilers бойлеров (вторая — рядом с первой у воды, когда ряд первой
-// кончился; cluster.md §2а «Станция»): строится сразу вся.
+// Station — станция на boilers бойлеров (cluster.md §2а «Станция»): строится сразу вся.
 func Station(p *knowledge.Prototypes, boilers int) *Cluster {
 	W := float64(boilers) * p.Entities["boiler"].MaxEnergyUsage * 60
 	cs, err := AddPower(p, []*Cluster{{PowerW: W}}, 1, nil)
@@ -373,27 +361,6 @@ func Station(p *knowledge.Prototypes, boilers int) *Cluster {
 	c.Count = max(boilers, c.Count)
 	c.Room = c.Count
 	return c
-}
-
-func SizePower(p *knowledge.Prototypes, cs []*Cluster) {
-	n := float64(PumpBoilers(p))
-	st := calc.SteamFor(p, n*p.Entities["boiler"].MaxEnergyUsage*60)
-	W := st.Engines * p.Entities["steam-engine"].MaxEnergyProduction * 60
-	for _, c := range cs {
-		if c.Kind != Power {
-			continue
-		}
-		c.PowerW = W
-		for i := range c.Units {
-			switch c.Units[i].Machine {
-			case "boiler":
-				c.Units[i].Machines = st.Boilers
-			case "steam-engine":
-				c.Units[i].Machines = st.Engines
-			}
-		}
-		shape(p, c)
-	}
 }
 
 // coalJ — энергия угля, Дж.
@@ -513,66 +480,6 @@ func Labs(p *knowledge.Prototypes, packs map[string]float64, sec, reserve float6
 
 // StorageChest — сундук хранения: сразу железный, потом не менять (stages.md, стадия 13).
 const StorageChest = "iron-chest"
-
-// Pair — кластер main с промежуточным sub внутри (пары прямой подачи: сборщик sub → инсертер →
-// main; stages.md, стадия 5: провод — в красных схемах, трубы — в двигателях): входы sub вместо
-// его продукта.
-func Pair(p *knowledge.Prototypes, main, sub *Cluster) *Cluster {
-	c := &Cluster{Kind: Make, Product: main.Product, Reserve: main.Reserve,
-		Main: main.Units[0].Recipe, Sub: sub.Units[0].Recipe, PowerW: main.PowerW + sub.PowerW}
-	c.Units = append(append([]Unit(nil), main.Units...), sub.Units...)
-	in := map[string]float64{}
-	for _, f := range main.In {
-		if f.Item != sub.Product {
-			in[f.Item] += f.Rate
-		}
-	}
-	for _, f := range sub.In {
-		in[f.Item] += f.Rate
-	}
-	c.In = toFlows(in)
-	c.Out = append([]Flow(nil), main.Out...)
-	c.Internal = []Flow{{sub.Product, sub.Out[0].Rate}}
-	nm, ns := 0.0, 0.0
-	for _, u := range main.Units {
-		nm += u.Machines
-	}
-	for _, u := range sub.Units {
-		ns += u.Machines
-	}
-	c.SubPer = min(2, max(1, int(math.Ceil(ns/math.Max(nm, 1e-9)-1e-9))))
-	shape(p, c)
-	// по темпу (не по лентам): пары длинные (шаг 8–12); длиннее глубины зоны — PlaceZoned режет
-	c.ByRate()
-	return c
-}
-
-// ByRate — размер по темпу, не по лентам (cluster.md §2 «Размер»: пары, штучные дорогие
-// продукты — электропечи, модули): от MinUnits до MaxUnits, кластер целиком, запаса в ряду нет.
-func (c *Cluster) ByRate() {
-	c.Count = min(max(c.Need, MinUnits), MaxUnits)
-	c.Room = c.Count
-}
-
-// SmeltOf — кластер плавки продукта product (кирпич из камня…) обычного размера (§2 «Размер»:
-// по лентам, не больше MaxUnits).
-func SmeltOf(p *knowledge.Prototypes, product string, reserve float64) (*Cluster, error) {
-	plan, err := calc.Solve(p, map[string]float64{product: 1}, calc.Options{All: true,
-		Machines: map[string]string{"smelting": "stone-furnace"}})
-	if err != nil {
-		return nil, err
-	}
-	cs, err := Split(p, plan, reserve, nil)
-	if err != nil {
-		return nil, err
-	}
-	for _, c := range cs {
-		if c.Kind == Smelt && c.Product == product {
-			return c, nil
-		}
-	}
-	return nil, fmt.Errorf("cluster: в расчёте нет плавки %s", product)
-}
 
 // Steel — кластер стали из руды (cluster.md §2а «Сталь»): pairs пар печей «пластины → сталь».
 // Потоки — по печам второго уровня (как у всей плавки).

@@ -85,7 +85,7 @@ func upgradePlan(h *act.Hands) error {
 		h.Say("чертёж: +%d делителей между лентами одного предмета на шине", n)
 		plan.Layout = l.List
 		plan.Placed = len(l.List)
-		return writeState(planNowFile(), plan)
+		return writeState(planFile, plan)
 	}
 	return nil
 }
@@ -119,7 +119,7 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 	}
 	names, lists := stateLayouts()
 	for _, base := range names {
-		if base == planFile || base == greenBaseFile || base == blueBaseFile || base == purpleBaseFile || base == yellowBaseFile {
+		if base == planFile {
 			continue
 		}
 		for _, pl := range lists[base] {

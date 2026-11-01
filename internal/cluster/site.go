@@ -547,25 +547,6 @@ func ringOffsets(r int) []world.Tile {
 	return res
 }
 
-// scaleCluster — копия кластера с машинами, потоками и мощностью ×k.
-func scaleCluster(c *Cluster, k float64) *Cluster {
-	p := *c
-	scale := func(fs []Flow) []Flow {
-		var out []Flow
-		for _, f := range fs {
-			out = append(out, Flow{f.Item, f.Rate * k})
-		}
-		return out
-	}
-	p.In, p.Out, p.Internal, p.PowerW = scale(c.In), scale(c.Out), scale(c.Internal), c.PowerW*k
-	p.Units = nil
-	for _, u := range c.Units {
-		u.Machines *= k
-		p.Units = append(p.Units, u)
-	}
-	return &p
-}
-
 // short — короткие имена продуктов для кластеров.
 var short = map[string]string{
 	"automation-science-pack": "red-science",

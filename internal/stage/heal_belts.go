@@ -155,7 +155,7 @@ func healBeltsOnce(ctx context.Context, h *act.Hands) (int, error) {
 // хранение).
 func dropLabBuffers(ctx context.Context, h *act.Hands) error {
 	bufs := map[layout.Placement]bool{}
-	for _, path := range []string{runPath(planNowFile()), runPath(planFile)} {
+	for _, path := range []string{runPath(planFile), runPath(planFile)} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue

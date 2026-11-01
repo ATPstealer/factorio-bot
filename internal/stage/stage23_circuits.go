@@ -21,27 +21,13 @@ func init() {
 	register(Stage{N: 23, Name: "рост и кластер схем", Run: runCircuits, Check: checkCircuits})
 }
 
-// greenAdded — что стадия 4 дописала в план (нет в плане до неё).
+// greenAdded — постройки плана стадий зелёной науки (23–27) и весь план.
 func greenAdded() ([]layout.Placement, *ClusterPlan, error) {
 	plan, err := LoadPlan()
 	if err != nil {
 		return nil, nil, err
 	}
-	base, err := loadPlanFile(runPath(greenBaseFile))
-	if err != nil {
-		return nil, nil, err
-	}
-	was := map[layout.Placement]bool{}
-	for _, pl := range base.Layout {
-		was[pl] = true
-	}
-	var res []layout.Placement
-	for _, pl := range plan.Layout {
-		if !was[pl] {
-			res = append(res, pl)
-		}
-	}
-	return res, plan, nil
+	return stageAdded(plan, 23, 27), plan, nil
 }
 
 // growLayout — рост из плана стадии 4: дописанное в старые кластеры добычи, плавки и

@@ -359,14 +359,6 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 	return fluidPortAt(l, f, c, outV, c.Head, end, L, product, rowTag(product), false, nil, add)
 }
 
-// FluidMake — сборка с жидкостью на входе (stages.md, стадия 55; cluster.md §2а «Сборка»):
-// кластер из Split переводится на шаблон fluidMakeRow; размер — по темпу (ByRate).
-func FluidMake(c *Cluster) *Cluster {
-	c.Cross, c.Pitch, c.Head = fluidMakeCross, 4, 1
-	c.ByRate()
-	return c
-}
-
 // IsFluidMake — сборщик с жидкостью на входе (свой шаблон).
 func (c *Cluster) IsFluidMake(p *knowledge.Prototypes) bool {
 	return c.Kind == Make && strings.HasPrefix(c.machine(), "assembling-machine") && c.fluids(p) > 0
