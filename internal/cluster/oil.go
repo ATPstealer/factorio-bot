@@ -737,6 +737,26 @@ func tankConns(l *layout.Layout, c *Cluster) []layout.Conn {
 	return res
 }
 
+// HoldTankInlets — у каждого свободного соединения склада c — 3 тайла наружу (насос на входе и
+// его вход) под запрет, пока прокладываются ленты: нефтетрассы идут после них, а ленты обступали
+// склад вплотную — насосу на входе негде было встать (17466282). Возвращает снятие запрета.
+func HoldTankInlets(l *layout.Layout, c *Cluster) func() {
+	var held []world.Tile
+	for _, cn := range tankConns(l, c) {
+		for t, k := cn.To, 0; k < 3; t, k = layout.Step(t, cn.Dir), k+1 {
+			if l.Free(t, layout.AnyLand) && !l.Reserved[t] {
+				l.Reserved[t] = true
+				held = append(held, t)
+			}
+		}
+	}
+	return func() {
+		for _, t := range held {
+			delete(l.Reserved, t)
+		}
+	}
+}
+
 // pumpEvery — насос на нефтетрассе через столько тайлов: участок трубы шире 320×320 стоит
 // (default_pipeline_extent), с запасом (cluster.md §2а «Нефть»).
 const pumpEvery = 280

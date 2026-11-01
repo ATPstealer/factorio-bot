@@ -430,7 +430,10 @@ func planTry(h *act.Hands, rough *RoughPlan, own []world.Object, rt *planRetry) 
 	if err := oreShort(base.Clusters, boost); err != nil {
 		return base, l, err
 	}
-	if err := base.ConnectZoned(l, buses); err != nil {
+	release := cluster.HoldTankInlets(l, tank) // место насосам на входе — до трасс
+	err = base.ConnectZoned(l, buses)
+	release()
+	if err != nil {
 		return base, l, err
 	}
 	// нефтетрассы: от каждого месторождения — в склад нефти через насос на входе (соединения
