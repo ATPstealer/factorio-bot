@@ -1475,6 +1475,17 @@ func (h *Hands) reach(ctx context.Context, e bridge.Entity, r float64) error {
 		if ok, _ := within(); ok {
 			return nil
 		}
+		// к самой рамке пути нет (она в закрытом кармане между постройками) — куда угодно в
+		// пределах досягаемости (стадия 50 на 427965634: бойлер в 12 тайлах, к его рамке — через
+		// две трубы между двигателями, а дотянуться можно было, сняв одну)
+		if r-0.5 > 2 {
+			if err = h.WalkNear(ctx, e, r-0.5); err == nil {
+				return nil
+			}
+			if ok, _ := within(); ok {
+				return nil
+			}
+		}
 	}
 	return err
 }

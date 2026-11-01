@@ -313,7 +313,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 				// за кольцом своих построек (трубы вокруг химзаводов) — пролом; внутри
 				// пролома — нет (рекурсия без конца)
 				if !h.breaching {
-					if ok, berr := h.breach(ctx, target); berr != nil {
+					if ok, berr := h.breach(ctx, target, math.Max(1.5, stop)); berr != nil {
 						return berr
 					} else if ok {
 						continue
@@ -1391,8 +1391,9 @@ func breachable(o world.Object) bool {
 
 // breach — пути до target нет, но появится, если поднять одну-три свои постройки рядом с
 // ботом или с целью (кольцо своих труб, карман у станции): поднять, пройти на 2.5 тайла
-// дальше по пути и поставить назад. false — таких нет (цель за водой/утёсами).
-func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
+// дальше по пути и поставить назад. false — таких нет (цель за водой/утёсами). enough — докуда
+// до цели довольно дойти (до досягаемости: иначе проём ищется к самой рамке цели).
+func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (bool, error) {
 	p, err := h.B.Player()
 	if err != nil {
 		return false, err
@@ -1420,7 +1421,7 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 		}
 		return off(objs[i]) < off(objs[j])
 	})
-	b0, _ := h.World.Route(p.Position, target, 1.5, 300000, 6)
+	b0, _ := h.World.Route(p.Position, target, enough, 300000, 6)
 	base := b0.Length()
 	// годится — путь до цели или хотя бы на 20+ тайлов дальше, чем сейчас (до дальней цели
 	// путь целиком может не уложиться в лимит)
@@ -1430,7 +1431,7 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos) (bool, error) {
 		var rec func(i int)
 		rec = func(i int) {
 			if i == len(set) {
-				r, err := h.World.Route(p.Position, target, 1.5, 300000, 6)
+				r, err := h.World.Route(p.Position, target, enough, 300000, 6)
 				route, ok = r, err == nil || r.Length() > base+20
 				return
 			}
