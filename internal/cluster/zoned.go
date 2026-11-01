@@ -782,7 +782,9 @@ func (e *ThroughError) Error() string { return e.Err.Error() }
 func (e *ThroughError) Unwrap() error { return e.Err }
 
 // ThroughTag — тег сквозной ленты item с шины from на шину to.
-func ThroughTag(to, from, item string) string { return LogisticsTag + "/" + to + "/" + from + "/" + item }
+func ThroughTag(to, from, item string) string {
+	return LogisticsTag + "/" + to + "/" + from + "/" + item
+}
 
 func feedThrough(l *layout.Layout, buses []*ZBus) error {
 	for k := 1; k < len(buses); k++ {
