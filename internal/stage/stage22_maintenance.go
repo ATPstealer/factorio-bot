@@ -323,11 +323,16 @@ func cleanBuffers(ctx context.Context, h *act.Hands) error {
 		if _, err := h.Take(ctx, e); err != nil {
 			return fmt.Errorf("буфер в (%.1f, %.1f): %w", o.Pos.X, o.Pos.Y, err)
 		}
-		// нужное — назад
+		// нужное — назад, сколько влезет: пока оно было в руках, инсертер буфера снова наполнил
+		// сундук (267145981, стадия 49: двигателей 1475 из 1500) — остаток у меня, уберётся в
+		// хранение с инвентарём
 		for it, n := range in {
 			if allowed[it] && n > 0 {
 				if err := h.Insert(ctx, e, it, n); err != nil {
-					return fmt.Errorf("буфер в (%.1f, %.1f): вернуть %s: %w", o.Pos.X, o.Pos.Y, it, err)
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					h.Say("буфер в (%.1f, %.1f): %s вернул не всё (%v) — остаток у меня", o.Pos.X, o.Pos.Y, it, err)
 				}
 			}
 		}
