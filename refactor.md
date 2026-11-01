@@ -160,16 +160,16 @@
 | 50 | замена на Т2 | steel-furnace, assembling-machine-2 | — | — | — | — | — | — | — | все печи — на стальные (~82: медь 20, железо 30, сталь 15 пар, кирпич 2), все сборщики-1 — на сборщики-2; ленты — пока как есть, на Т2 потом |
 | 51 | heavy-oil | oil-refinery | 2 | 10 | 6.41 | 2 | — | — | 2 | 2 |
 | 52 | light-oil | chemical-plant | 2 | 30 | 16 | 2 | — | — | 2 | 2 |
-| 53 | lubricant | chemical-plant | 2 | 20 | 0.60 | 1 | — | — | 1 | 1 |
-| 54 | sulfuric-acid | chemical-plant | 3 | 150 | 2.00 | 1 | — | — | 1 | 1 |
-| 55 | battery | chemical-plant | 5 | 1.25 | 0.08 | 1 | — | — | 1 | 1 |
-| 56 | electric-engine-unit | assembling-machine-2 | 5 | 0.38 | 0.04 | 1 | — | — | 1 | 1 |
-| 57 | flying-robot-frame | assembling-machine-2 | 5 | 0.19 | 0.04 | 2 | — | — | 2 | 2 |
-| 58 | low-density-structure | assembling-machine-2 | 6 | 0.30 | 0.12 | 3 | — | — | 3 | 3 |
+| 53 | lubricant | chemical-plant | 2 | 20 | 0.60 | 1 | — | — | 1 | 2 |
+| 54 | sulfuric-acid | chemical-plant | 3 | 150 | 2.00 | 1 | — | — | 1 | 2 |
+| 55 | battery | chemical-plant | 5 | 1.25 | 0.08 | 1 | — | — | 1 | 2 — 0.5/с |
+| 56 | electric-engine-unit | assembling-machine-2 | 5 | 0.38 | 0.04 | 1 | — | — | 1 | 2 — 0.15/с |
+| 57 | flying-robot-frame | assembling-machine-2 | 5 | 0.19 | 0.04 | 2 | — | — | 2 | 3 — 0.11/с |
+| 58 | low-density-structure | assembling-machine-2 | 6 | 0.30 | 0.12 | 3 | — | — | 3 | 5 — 0.25/с (с ракетой нужно ~0.19) |
 | 59 | advanced-circuit | assembling-machine-2 | 5 | 1.04 | 0.74 | 6 | — | — | 6 | 0 (стоят с 39) |
 | 59 | copper-cable | assembling-machine-2 | 5 | 53 | 14 | 5 | 104 | 1 | 5 | 0 |
-| 59 | processing-unit | assembling-machine-2 | 5 | 0.38 | 0.08 | 2 | — | — | 2 | 2 |
-| 60 | utility-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 | 2 |
+| 59 | processing-unit | assembling-machine-2 | 5 | 0.38 | 0.08 | 2 | — | — | 2 | 5 — 0.38/с (с ракетой нужно ~0.15) |
+| 60 | utility-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 | 4 — 0.43/с |
 
 Стадия 50 (решение пользователя): расширять нечего (станция — с 11, нефть — с 34, руда — с
 30); стадия — замена на Т2: все печи на стальные (на жёлтую каменных мало: медь 6.25/с против
