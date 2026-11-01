@@ -191,7 +191,7 @@ func runYellowPlan(ctx context.Context, h *act.Hands) error {
 	}
 	// кластер, к которому ленту не провести, — в другое место в своей зоне (до 6 попыток, как на
 	// стадиях 4–6)
-	fails := map[string]int{} // неудач подвода у кластера
+	fails := map[string]int{}    // неудач подвода у кластера
 	var wide map[world.Tile]bool // тайлы последнего запрета части зоны (откат, если места не стало)
 	var wideArea cluster.Rect
 	for try := 0; ; try++ {
