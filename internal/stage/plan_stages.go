@@ -15,7 +15,8 @@ import (
 // кластерами»): постройка кластера, его логистика и части — стадия кластера (блок добычи с тегом
 // «later» — стадия 30, часть блока лабораторий — стадия своего пакета); лента или труба шины —
 // стадия первого, кто ей пользуется (поставщик или потребитель), лента добытого — стадия блока,
-// чей подвод в неё входит; вода химии — стадия 35, насосы у склада нефти — стадия склада (33),
+// чей подвод в неё входит; вода химии — стадия 35, насос на выходе склада нефти — стадия склада
+// (33), насосы на входе — со своими нефтетрассами (34),
 // труба нефти bus-1 — стадия НПЗ (качалки кладут нефть в склад, не в шину).
 
 // Стадии частей блока лабораторий по пакетам (stages.md, 21, 27, 41, 48, 61).
@@ -168,9 +169,13 @@ func planStages(s *ClusterPlan) stageMap {
 			}
 		}
 	}
-	tank := map[world.Tile]bool{} // у склада нефти (насосы на входе и выходе — его стадия)
+	tank := map[world.Tile]bool{} // у склада нефти (насос на выходе — его стадия)
 	tankStage := 0
+	trunk := map[string]bool{} // теги нефтетрасс: их насосы на входе склада — со своей трассой
 	for _, c := range s.Clusters {
+		if c.IsOil() {
+			trunk[cluster.LogisticsTag+"/"+c.Name] = true
+		}
 		if c.Kind == cluster.Tank {
 			tankStage = c.Stage
 			g := c.Area.Grow(3)
@@ -201,7 +206,9 @@ func planStages(s *ClusterPlan) stageMap {
 	for _, pl := range s.Layout {
 		res[pl] = stageOf(pl, by, itemStage, rowStage, rowItem)
 		switch {
-		case pl.Name == "pump" && tank[world.TileOf(pl.Pos)] && tankStage > 0:
+		// насос на входе — конец трассы: без неё не нужен, а его столбы — с ней (18604156: на
+		// стадии 33 насосы на входе без тока, столбами от сети не дотянуться)
+		case pl.Name == "pump" && tank[world.TileOf(pl.Pos)] && tankStage > 0 && !trunk[pl.Tag]:
 			res[pl] = tankStage
 		case coalStage > 0 && coalPart(pl):
 			res[pl] = coalStage

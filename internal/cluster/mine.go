@@ -382,7 +382,8 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 			if r, ok := b.mineRect(c, z, at); ok {
 				// пятно уже под другим блоком добычи — к следующему (новый блок
 				// железа шёл на стартовое пятно, где стоит iron-ore-1 — 238178543)
-				if slices.ContainsFunc(b.Clusters, func(o *Cluster) bool { return o != c && o.Kind == Mine && o.Area.Overlaps(r) }) {
+				// или под запретом (подвод отсюда до bus-1 не провёлся — stages.md, стадия 2)
+				if slices.ContainsFunc(b.Clusters, func(o *Cluster) bool { return o != c && o.Kind == Mine && o.Area.Overlaps(r) }) || b.avoids(r) {
 					continue
 				}
 				if c.Ore == 0 {

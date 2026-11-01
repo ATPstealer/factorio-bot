@@ -873,6 +873,12 @@ func (b *Base) trunkLegs(l *layout.Layout, field, tank *Cluster, cur layout.Conn
 			}
 		}
 		b.logf("нефтетрасса %s %v → %s %v от (%d,%d), целей %d: %v; рядом %v", field.Name, field.Area, tank.Name, tank.Area, cur.To.X, cur.To.Y, len(goals), err, near)
+		var gs []string // разбор: соединения склада и что вокруг него
+		for _, g := range goals {
+			gs = append(gs, fmt.Sprintf("%v→%v", g.At, g.To))
+		}
+		b.logf("склад %s: соединения %v", tank.Name, gs)
+		b.dumpBetween(l, tank.Area.Min, tank.Area.Max)
 		return fmt.Errorf("нефтетрасса %s → %s: %w", field.Name, tank.Name, err)
 	}
 	legs = append(legs, leg)

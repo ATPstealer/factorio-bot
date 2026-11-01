@@ -977,7 +977,7 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 			if tg := b.feedTargets(l, bus, lns, op); len(tg) > 0 {
 				b.dumpBetween(l, op.T, tg[0].T)
 			}
-			return fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)
+			return &ConnectError{c, fmt.Errorf("добыча %s → %s (%s, выход %d): %w", c.Name, bus.Name, c.Product, i+1, err)}
 		}
 		fedHead(lns, p, !c.Later)
 	}
