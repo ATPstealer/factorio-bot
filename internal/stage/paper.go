@@ -181,6 +181,8 @@ func paperStages(h *act.Hands, to int) error {
 			for _, pl := range paper.list {
 				l.Add(pl)
 			}
+			// участок трубы шире 320 — жидкость не течёт (cluster.md §5; стадия 51 на 427965634)
+			bad = append(bad, l.WideSegments(layout.PipeExtentGame)...)
 			now := map[string]bool{}
 			for _, e := range l.Flow(nil) {
 				now[e] = true
