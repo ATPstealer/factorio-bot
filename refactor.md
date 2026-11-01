@@ -125,8 +125,8 @@
 | 21 | лаборатории | lab | 5 | — | — | — | — | — | — | 10 (2×5), никогда не расширяем |
 | 23 | copper-cable | assembling-machine-1 | 14 | 28 | 14 | 5 | 1 584 | 1 | 5 | 10 — в парах со схемами |
 | 23 | electronic-circuit | assembling-machine-1 | 7 | 7.00 | 3.60 | 3 | 457 | 1 | 3 | 10 пар «провод + схема» |
-| 24 | inserter | assembling-machine-1 | 5 | 5.00 | 0.12 | 1 | 113 | 1 | 1 | 1 |
-| 24 | iron-gear-wheel | assembling-machine-1 | 5 | 15 | 0.46 | 1 | 5 215 | 1 | 2 | 1 (внутри инсертеров) |
+| 24 | inserter | assembling-machine-1 | 5 | 5.00 | 0.12 | 1 | 113 | 1 | 1 | 3 пары «шестерня + инсертер» |
+| 24 | iron-gear-wheel | assembling-machine-1 | 5 | 15 | 0.46 | 1 | 5 215 | 1 | 2 | 3 — в парах с инсертерами |
 | 25 | iron-gear-wheel | assembling-machine-1 | 7 | 22 | 0.46 | 1 | 5 180 | 1 | 2 | 1 (внутри лент) |
 | 25 | transport-belt | assembling-machine-1 | 7 | 14 | 0.12 | 1 | 1 864 | 1 | 1 | 1 |
 | 26 | logistic-science-pack | assembling-machine-1 | 5 | 0.42 | 0.12 | 1 | — | — | 1 | 1 |
