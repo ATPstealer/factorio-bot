@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -99,6 +100,44 @@ func planStages(s *ClusterPlan) stageMap {
 		}
 	}
 	use(0, "water", waterStage)
+	// сквозная лента с шины from на шину to — стадия ленты на to; лента на from — не позже неё
+	// (медь красной науки: сквозная bus-2 → bus-3 — стадия 20, а лента меди bus-2 — только со
+	// схемами, 23 — на бумаге до красной медь не доходила, 267145981); цепочки — сверху вниз
+	busByName := map[string]int{}
+	for _, c := range s.Clusters {
+		if c.Kind == cluster.Bus {
+			n, _ := strconv.Atoi(strings.TrimPrefix(c.Name, "bus-"))
+			busByName[c.Name] = n - 1
+		}
+	}
+	type through struct {
+		to, from int
+		item     string
+	}
+	var throughs []through
+	seen := map[through]bool{}
+	for _, pl := range s.Layout {
+		name, ok := strings.CutPrefix(pl.Tag, cluster.LogisticsTag+"/")
+		if !ok {
+			continue
+		}
+		parts := strings.Split(name, "/")
+		if len(parts) != 3 {
+			continue
+		}
+		to, ok1 := busByName[parts[0]]
+		from, ok2 := busByName[parts[1]]
+		if t := (through{to, from, parts[2]}); ok1 && ok2 && !seen[t] {
+			seen[t] = true
+			throughs = append(throughs, t)
+		}
+	}
+	slices.SortFunc(throughs, func(a, b through) int { return b.to - a.to })
+	for _, t := range throughs {
+		if st, ok := itemStage[busKey{t.to, t.item}]; ok {
+			use(t.from, t.item, st)
+		}
+	}
 	// лента добытого в bus-1 — стадия блока, чей подвод входит в неё (у головы ряда)
 	feederAt := map[world.Tile]int{}
 	for _, pl := range s.Layout {

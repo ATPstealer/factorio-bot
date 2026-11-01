@@ -23,6 +23,8 @@ type blueStage struct {
 	file  string   // раскладка стадии: один раз на карту
 	wait  []string // исследования: изучены (иначе — ждать; до подготовки — Stage.Techs)
 	queue []string // исследования: в очередь в самом начале (на следующие стадии)
+	// place — раскладка стадии не из построек плана своей стадии (замена на второй уровень)
+	place func(h *act.Hands) ([]layout.Placement, error)
 	// before — до раскладки стадии (переделка построенного)
 	before func(ctx context.Context, h *act.Hands) error
 	// built — сразу после стройки, до проверки по факту (запуск: уголь в новые бойлеры)
@@ -155,8 +157,13 @@ var blueOrder = []string{"offshore-pump", "pumpjack", "storage-tank", "oil-refin
 	"burner-inserter", "inserter", "long-handed-inserter", "fast-inserter", "transport-belt", "fast-transport-belt",
 	"underground-belt", "fast-underground-belt", "splitter", "fast-splitter", "small-electric-pole", "medium-electric-pole"}
 
-// layout — постройки плана стадии, один раз на карту.
-func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) { return addedFor(h, s.file, s.n) }
+// layout — постройки плана стадии (или place), один раз на карту.
+func (s blueStage) layout(h *act.Hands) ([]layout.Placement, error) {
+	if s.place != nil {
+		return onceLayout(s.file, func() ([]layout.Placement, error) { return s.place(h) })
+	}
+	return addedFor(h, s.file, s.n)
+}
 
 func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 	if err := queueTechs(ctx, h, s.queue...); err != nil {

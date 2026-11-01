@@ -12,6 +12,7 @@ import (
 
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/input"
+	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/world"
 )
 
@@ -67,7 +68,8 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 			// (железный поверх деревянного — содержимое остаётся, стадия 22)
 			pt := h.Protos.Entities[entity].Type
 			own := o.Own && !wreck && o.Type != "character" && !(beltLike(o.Type) && beltLike(pt)) && !(o.Type == "container" && pt == "container") &&
-				!(pipeLike(o.Type) && pipeLike(pt)) // труба и подземная — одна группа замены (стадия 50 на 427965634)
+				!(pipeLike(o.Type) && pipeLike(pt)) && // труба и подземная — одна группа замены (стадия 50 на 427965634)
+				!TierUp(h.Protos, o.Name, entity)
 			if o.Type != "tree" && !rock && !wreck && !own || seen[o.Pos] {
 				continue
 			}
@@ -126,6 +128,18 @@ func beltLike(typ string) bool {
 // pipeLike — труба или подземная труба: заменяют друг друга на месте (fast_replaceable_group
 // "pipe" в данных игры).
 func pipeLike(typ string) bool { return typ == "pipe" || typ == "pipe-to-ground" }
+
+// TierUp — new ставится поверх old на месте (stages.md, стадия 50): печь поверх печи того же
+// размера, сборщик поверх сборщика (одна группа замены в данных игры: старая — в инвентарь,
+// рецепт и содержимое остаются; химзавод — тоже assembling-machine, но не из их группы).
+func TierUp(p *knowledge.Prototypes, old, new string) bool {
+	o, n := p.Entities[old], p.Entities[new]
+	if old == new || o.Type != n.Type || o.TileWidth != n.TileWidth || o.TileHeight != n.TileHeight {
+		return false
+	}
+	asm := func(s string) bool { return strings.HasPrefix(s, "assembling-machine-") }
+	return o.Type == "furnace" || asm(old) && asm(new)
+}
 
 func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
 	return p.X > b.LeftTop.X-margin && p.X < b.RightBottom.X+margin && p.Y > b.LeftTop.Y-margin && p.Y < b.RightBottom.Y+margin

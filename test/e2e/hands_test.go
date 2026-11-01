@@ -1630,3 +1630,55 @@ func TestPlaceBeltDrag(t *testing.T) {
 	}
 	clean(t, h)
 }
+
+// replaceTier2 — поставить old на свободное место (у сборщика — рецепт recipe), потом up поверх
+// неё (stages.md, стадия 50: новая — на месте старой, рецепт сохраняется, старая — в инвентарь).
+func replaceTier2(t *testing.T, h *act.Hands, old, up, tech, recipe string, size int) {
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Researched, tech) {
+		t.Skipf("%s не изучено", tech)
+	}
+	have(t, h, old, 1)
+	have(t, h, up, 1)
+	ctx := ctxT(t, 4*time.Minute)
+	at := freeArea(t, h, size)
+	e, err := h.Place(ctx, old, at, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recipe != "" {
+		if err := h.SetRecipe(ctx, e, recipe); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p0, _ := h.B.Player()
+	if _, err := h.PlaceDirs(ctx, up, []bridge.Pos{e.Position}, []int{act.North}); err != nil {
+		t.Fatalf("%s поверх %s: %v", up, old, err)
+	}
+	st, err := h.B.GetEntity(up, e.Position)
+	if err != nil || st == nil {
+		t.Fatalf("в (%.1f, %.1f) нет %s: %v", e.Position.X, e.Position.Y, up, err)
+	}
+	if recipe != "" && st.Recipe != recipe {
+		t.Errorf("рецепт %q, ждали %s", st.Recipe, recipe)
+	}
+	if was, _ := h.B.GetEntity(old, e.Position); was != nil {
+		t.Errorf("%s осталась на месте", old)
+	}
+	if p1, _ := h.B.Player(); p1.Inventory[old] != p0.Inventory[old]+1 {
+		t.Errorf("%s в инвентаре: было %d, стало %d — ждали +1", old, p0.Inventory[old], p1.Inventory[old])
+	}
+}
+
+// Сборщик 2 поверх сборщика 1 с рецептом (стадия 50).
+func TestReplaceAssemblerTier2(t *testing.T) {
+	replaceTier2(t, handsT(t), "assembling-machine-1", "assembling-machine-2", "automation-2", "iron-gear-wheel", 3)
+}
+
+// Стальная печь поверх каменной (стадия 50).
+func TestReplaceFurnaceTier2(t *testing.T) {
+	replaceTier2(t, handsT(t), "stone-furnace", "steel-furnace", "advanced-material-processing", "", 2)
+}

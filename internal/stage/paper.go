@@ -23,10 +23,6 @@ var paper *paperBuilt
 type paperBuilt struct {
 	list []layout.Placement
 	at   map[world.Tile]int // тайл → индекс в list
-	// stale — снятые стадиями проектов старые буферы выхода: в игре их вычёркивают и из
-	// раскладок стадий (dropFromLayout), на бумаге файлы те же — чертёж обслуживания их не ждёт
-	// (стадия 49 на бумаге: «чертежа не поставила ни одна стадия» — буферы красных схем и кирпича)
-	stale map[layout.Placement]bool
 }
 
 func (p *paperBuilt) has(pl layout.Placement) bool {
@@ -36,15 +32,15 @@ func (p *paperBuilt) has(pl layout.Placement) bool {
 
 // replaces — new ставится поверх old штатно: делитель и подземка заменяют ленту; труба и
 // подземная труба — друг друга (одна группа замены в данных игры, fast_replaceable_group
-// "pipe": продление трубы шины, отвод на месте подземной пары) — в игре замена на месте,
-// PlaceDirs.
-func replaces(newName, oldName string) bool {
+// "pipe": продление трубы шины, отвод на месте подземной пары); печь и сборщик второго уровня —
+// первого (стадия 50, act.TierUp) — в игре замена на месте, PlaceDirs.
+func replaces(h *act.Hands, newName, oldName string) bool {
 	belt := strings.HasSuffix(oldName, "transport-belt")
 	if belt && (strings.HasSuffix(newName, "splitter") || strings.HasSuffix(newName, "underground-belt")) {
 		return true
 	}
 	pipe := func(n string) bool { return n == "pipe" || n == "pipe-to-ground" }
-	return pipe(newName) && pipe(oldName) && newName != oldName
+	return pipe(newName) && pipe(oldName) && newName != oldName || act.TierUp(h.Protos, oldName, newName)
 }
 
 // add — построить list; занятый другим тайл — наложение (в ответ).
@@ -56,7 +52,7 @@ func (p *paperBuilt) add(h *act.Hands, list []layout.Placement) []string {
 		}
 		var gone []layout.Placement // ленты под делителем/подземкой — заменяются
 		for _, t := range layout.Tiles(h.Protos, pl) {
-			if i, ok := p.at[t]; ok && replaces(pl.Name, p.list[i].Name) {
+			if i, ok := p.at[t]; ok && replaces(h, pl.Name, p.list[i].Name) {
 				gone = append(gone, p.list[i])
 			}
 		}
@@ -115,7 +111,7 @@ func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 || n == 49
 
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.
 func paperStages(h *act.Hands, to int) error {
-	paper = &paperBuilt{at: map[world.Tile]int{}, stale: map[layout.Placement]bool{}}
+	paper = &paperBuilt{at: map[world.Tile]int{}}
 	flowSeen = nil
 	t2 := tier2 // по стадиям на бумаге, после — как было у текущей
 	defer func() { paper, tier2 = nil, t2 }()
@@ -219,14 +215,32 @@ func planCoverage(h *act.Hands, built []layout.Placement, to int) string {
 	}
 	var miss []layout.Placement
 	for _, pl := range stageAdded(plan, 1, to) {
-		if !have[key{pl.Name, int(pl.Pos.X * 2), int(pl.Pos.Y * 2)}] {
+		x, y := int(pl.Pos.X*2), int(pl.Pos.Y*2)
+		if up, ok := tier2Of[pl.Name]; ok && to >= 50 && have[key{up, x, y}] { // заменена на стадии 50
+			continue
+		}
+		if !have[key{pl.Name, x, y}] {
 			miss = append(miss, pl)
 		}
 	}
-	if len(miss) == 0 {
-		return ""
+	if len(miss) > 0 {
+		return "плана нет ни в одной раскладке стадий стройки: " + unbuilt(miss)
 	}
-	return "плана нет ни в одной раскладке стадий стройки: " + unbuilt(miss)
+	// к последней стадии — весь план: постройка без стадии (тег не узнан — сквозные ленты без
+	// предмета в теге, 267145981) не строится никогда
+	if to >= lastYellowStage {
+		st := planStages(plan)
+		var none []layout.Placement
+		for _, pl := range plan.Layout {
+			if st[pl] == 0 {
+				none = append(none, pl)
+			}
+		}
+		if len(none) > 0 {
+			return "у построек плана нет стадии: " + unbuilt(none)
+		}
+	}
+	return ""
 }
 
 // laneToBuffer — лента предмета на шине доходит до своего буфера в конце: инсертер буфера выхода

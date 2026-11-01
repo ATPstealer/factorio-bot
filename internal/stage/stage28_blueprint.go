@@ -114,7 +114,7 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 			continue
 		}
 		for _, pl := range lists[base] {
-			if pl.Name == "" || have[pl] || paper != nil && paper.stale[pl] ||
+			if pl.Name == "" || have[pl] ||
 				pl.Tag == powerTag && (pl.Name == chest || strings.HasSuffix(pl.Name, "inserter")) {
 				continue
 			}
@@ -127,7 +127,7 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 			var under []layout.Placement
 			for _, t := range layout.Tiles(h.Protos, pl) {
 				if q, ok := taken[t]; ok && q != pl {
-					if replaces(pl.Name, q.Name) {
+					if replaces(h, pl.Name, q.Name) {
 						under = append(under, q)
 					} else {
 						clash = true

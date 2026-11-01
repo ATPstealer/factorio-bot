@@ -80,6 +80,9 @@
 - 31.10: `TestUnstuckBetweenEngines` — `electric-energy-distribution-1` (средний столб) и камень
   рядом (бойлеры): нет на `927139741-0`, `859088572-0`, `46082668-0` (упал/пропущен);
   `TestUnstuckFullInventory` — сундуки базы с содержимым и пластины (идёт на картах после 41).
+- 1.11: `TestReplaceFurnaceTier2` — `advanced-material-processing` (стальная печь), сталь и
+  кирпич в инвентаре; `TestReplaceAssemblerTier2` — `automation-2`, сталь и зелёные схемы (карты
+  после 41).
 
 ## Статистика прогонов
 
