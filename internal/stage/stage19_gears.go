@@ -77,11 +77,15 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 	t := world.TileOf(end.Pos)
 	// назад по ленте — до 40 тайлов (у конца бывает тесно: 46082668, стадия 59 — лента
 	// процессоров bus-3 в окружении лент и отводов; ближнее место — то же, что раньше)
+	isLane := func(b *layout.Placement) bool {
+		return b != nil && strings.HasSuffix(b.Name, "transport-belt") && b.Recipe == product
+	}
 	for k := 0; k < 40; k++ {
-		if b := all.At(t); b == nil || !strings.HasSuffix(b.Name, "transport-belt") || b.Recipe != product {
+		b := all.At(t)
+		if !isLane(b) {
 			break
 		}
-		for _, side := range []int{(end.Dir + 4) % 16, (end.Dir + 12) % 16} {
+		for _, side := range []int{(b.Dir + 4) % 16, (b.Dir + 12) % 16} {
 			ins, box := layout.Step(t, side), layout.Step(layout.Step(t, side), side)
 			if !bufferFree(all, future, ins) || !bufferFree(all, future, box) {
 				continue
@@ -92,7 +96,25 @@ func endBuffer(h *act.Hands, all *layout.Layout, plan *ClusterPlan, c *cluster.C
 			all.Add(pc)
 			return []layout.Placement{pi, pc}, nil
 		}
-		t = layout.Step(t, (end.Dir+8)%16) // назад по ленте
+		// назад по ленте — к ленте, что въезжает в t (конец бывает на обходе неровности с
+		// поворотом: прямо назад — мимо ленты, 1330900585 и 46082668, стадии 56 и 59)
+		next := layout.Step(t, (b.Dir+8)%16)
+		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+			n := layout.Step(t, d)
+			if q := all.At(n); isLane(q) && layout.Step(n, q.Dir) == t {
+				next = n
+				break
+			}
+		}
+		// позади — подземная пара (лента ныряет под воду или утёс у конца — 1330900585): через неё
+		// к ленте перед входом
+		if q := all.At(next); q != nil && strings.HasSuffix(q.Name, "underground-belt") {
+			back := (b.Dir + 8) % 16
+			for j := 0; j < 12 && !isLane(all.At(next)); j++ {
+				next = layout.Step(next, back)
+			}
+		}
+		t = next
 	}
 	return nil, fmt.Errorf("у конца ленты %s нет места под буфер выхода %s", product, c.Name)
 }
