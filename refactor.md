@@ -150,11 +150,11 @@
 | 39 | copper-cable | assembling-machine-1 | 5 | 38 | 14 | 5 | 726 | 1 | 5 | 8 — в парах с красными |
 | 40 | chemical-science-pack | assembling-machine-1 | 5 | 0.21 | 0.12 | 2 | — | — | 2 | 3 — 0.19/с (нужно 0.12) |
 | 43 | пар, МВт | boiler | 7 | 70 | 22 | 12 | — | — | 12 | 0 |
-| 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — | — | 1 | 1 |
-| 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | — | — | 1 | 1 |
-| 46 | iron-stick | assembling-machine-2 | 5 | 15 | 0.60 | 1 | 178 | 1 | 1 | 1 |
-| 46 | rail | assembling-machine-2 | 5 | 15 | 1.20 | 1 | — | — | 1 | 1 |
-| 47 | production-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 | 2 |
+| 44 | electric-furnace | assembling-machine-2 | 5 | 0.75 | 0.04 | 1 | — | — | 1 | 3 |
+| 45 | productivity-module | assembling-machine-2 | 5 | 0.25 | 0.04 | 1 | — | — | 1 | 3 |
+| 46 | iron-stick | assembling-machine-2 | 5 | 15 | 0.60 | 1 | 178 | 1 | 1 | 3 — в парах с рельсами |
+| 46 | rail | assembling-machine-2 | 5 | 15 | 1.20 | 1 | — | — | 1 | 3 пары «стержень + рельс» |
+| 47 | production-science-pack | assembling-machine-2 | 5 | 0.54 | 0.12 | 2 | — | — | 2 | 4 — 0.43/с (нужно 0.12) |
 | 50 | crude-oil | pumpjack | 1 | — | 26 | — | — | — | — | по месторождениям |
 | 50 | пар, МВт | boiler | 7 | 83 | 22 | 12 | — | — | 12 | 0 |
 | 51 | heavy-oil | oil-refinery | 2 | 10 | 6.41 | 2 | — | — | 2 | 2 |
