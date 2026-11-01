@@ -104,7 +104,10 @@ func purpleLanes(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Plac
 				res = append(res, pl)
 			}
 		}
-		return res, nil
+		// делители плана в разрывах этих лент — с лентами (отвод фиолетовой на ленте электропечей
+		// иначе строила стадия 47, а лента до неё рвалась: электропечи не доходили до буфера —
+		// 238178543, 260647970, стадия 44 на бумаге)
+		return withSplitters(h, plan, res), nil
 	}
 }
 

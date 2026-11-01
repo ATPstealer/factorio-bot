@@ -120,7 +120,8 @@ func yellowLanes(h *act.Hands) func(*ClusterPlan, *layout.Layout) ([]layout.Plac
 				}
 			}
 		}
-		return res, nil
+		// делители плана в разрывах этих лент — с лентами (как стадия 43)
+		return withSplitters(h, plan, res), nil
 	}
 }
 
