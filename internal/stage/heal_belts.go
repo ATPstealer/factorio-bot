@@ -154,10 +154,20 @@ func healBeltsOnce(ctx context.Context, h *act.Hands) (int, error) {
 // поставить назад: лента входа, забитая одним входом по обеим полосам (подача второго легла
 // позже — голова была поворотом), освобождается, и обе подачи вливаются каждая на свою полосу
 // (стадия 24 на 1114315936: схемы на полосе железа — затор, инсертеры не делались).
+// Подачи к кластеру (ленты, подземки и делители-отводы с шины) — тоже: пока лента входа
+// стоит заново, по ней ничего не течёт, а отводы buildSorted ставит последними — обе подачи
+// оживают, когда их ленты уже стоят (без этого во время перекладки голова снова бывала
+// поворотом — схемы опять на полосе железа, там же).
 func relane(ctx context.Context, h *act.Hands, list []layout.Placement, tag string) error {
+	name := strings.TrimPrefix(tag, "c/")
+	feed := func(t string) bool { // c/logistics/<шина>/<кластер>, c/logistics/<кластер>
+		rest, ok := strings.CutPrefix(t, cluster.LogisticsTag+"/")
+		return ok && (rest == name || strings.HasSuffix(rest, "/"+name))
+	}
 	var belts []layout.Placement
 	for _, pl := range list {
-		if pl.Tag == tag && strings.HasSuffix(pl.Name, "transport-belt") {
+		beltLike := strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") || strings.HasSuffix(pl.Name, "splitter")
+		if beltLike && (pl.Tag == tag || feed(pl.Tag)) {
 			belts = append(belts, pl)
 		}
 	}
@@ -174,11 +184,12 @@ func relane(ctx context.Context, h *act.Hands, list []layout.Placement, tag stri
 	if len(es) == 0 {
 		return nil
 	}
-	h.Say("кластер не делает продукт — ленты внутри (%d) поднимаю и ставлю заново", len(es))
+	h.Say("кластер не делает продукт — ленты внутри и подачи (%d) поднимаю и ставлю заново", len(es))
 	if err := h.PickupAll(ctx, es); err != nil {
 		return err
 	}
-	if err := buildSorted(ctx, h, belts, []string{"transport-belt", "fast-transport-belt"}); err != nil {
+	order := []string{"transport-belt", "fast-transport-belt", "underground-belt", "fast-underground-belt", "splitter", "fast-splitter"}
+	if err := buildSorted(ctx, h, belts, order); err != nil {
 		return err
 	}
 	s := &worker{h: h, useStore: true}
