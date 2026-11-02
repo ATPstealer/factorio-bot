@@ -664,3 +664,29 @@ func TestGatherDenseForest(t *testing.T) {
 		t.Logf("дерева: %d → %d", w0, q.Inventory["wood"])
 	}
 }
+
+// Цель в полутора тайлах за рядом своих сундуков: по прямой — в сундук, нужно обойти ряд (стадия
+// 22 на 1114315936: расширение хранения — встать над рядом хранения, стоя под ним; доводка
+// упиралась в сундук трижды по 9 с — «не дошёл до (143.5, 423.7): стою в (143.58, 425.05)»).
+func TestWalkShortBehindChests(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "wooden-chest", 3)
+	at := freeArea(t, h, 6)
+	x, y := math.Floor(at.X)+0.5, math.Floor(at.Y)+0.5
+	row := []bridge.Pos{{X: x - 1, Y: y}, {X: x, Y: y}, {X: x + 1, Y: y}}
+	ctx := ctxT(t, 3*time.Minute)
+	if _, err := h.PlaceDirs(ctx, "wooden-chest", row, []int{act.North, act.North, act.North}); err != nil {
+		t.Fatal(err)
+	}
+	below := bridge.Pos{X: x + 0.08, Y: y + 0.55} // как в игре: вплотную под средним сундуком
+	if err := h.WalkTo(ctx, below, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	above := bridge.Pos{X: x, Y: y - 1.3}
+	if err := h.WalkTo(ctx, above, 0.3); err != nil {
+		t.Fatalf("за ряд сундуков: %v", err)
+	}
+	if p, _ := h.B.Player(); dist(p.Position, above) > 0.6 {
+		t.Errorf("стою в (%.2f, %.2f), цель (%.2f, %.2f)", p.Position.X, p.Position.Y, above.X, above.Y)
+	}
+}

@@ -405,6 +405,22 @@ func chain(start, goal Cell, came map[Cell]Cell) []Cell {
 	return cells
 }
 
+// Sees — от a до b пройти по прямой: отрезок не задевает занятых ячеек (у старта и у цели —
+// кроме раздутия рамок: персонаж там стоит, цель бывает вплотную к постройке). Доводка к
+// близкой цели идёт по прямой — за сундуком она упиралась в него (стадия 22 на 1114315936).
+func (w *World) Sees(a, b bridge.Pos) bool {
+	n := int(dist(a, b)/0.1) + 1
+	for i := 0; i <= n; i++ {
+		f := float64(i) / float64(n)
+		q := bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f}
+		free, _, core, _ := w.cellState(CellOf(q))
+		if !free && (core || dist(q, a) > 0.5 && dist(q, b) > 0.5) {
+			return false
+		}
+	}
+	return true
+}
+
 // smooth — спрямление: от точки к самой дальней ячейке пути, видной напрямую (отрезок
 // не задевает занятых ячеек, кроме деревьев из cut). Первая точка — сам старт.
 func (w *World) smooth(from bridge.Pos, cells []Cell, cut map[bridge.Pos]Object, nearStart func(Cell) bool) []bridge.Pos {

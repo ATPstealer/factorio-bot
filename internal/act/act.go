@@ -390,11 +390,13 @@ func (h *Hands) followPath(ctx context.Context, target bridge.Pos, stop float64)
 	if err != nil {
 		return err
 	}
-	if dist(p.Position, target) <= stop+brakeDist {
-		return nil
-	}
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return err
+	}
+	// близко — доводка (по прямой); но если прямую закрывает постройка — маршрут (цель за рядом
+	// сундуков: доводка упиралась в сундук — стадия 22 на 1114315936, TestWalkShortBehindChests)
+	if dist(p.Position, target) <= stop+brakeDist && h.World.Sees(p.Position, target) {
+		return nil
 	}
 	tr := time.Now()
 	r, perr := h.World.Route(p.Position, target, stop, 0, treeCost)
