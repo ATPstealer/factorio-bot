@@ -207,9 +207,9 @@ func (s *worker) produced(item string) bool {
 	var bufs []layout.Placement
 	names, lists := stateLayouts()
 	for _, base := range names {
-		for _, pl := range lists[base] {
-			if name, ok := strings.CutPrefix(pl.Tag, "outbuf/"); ok && makes[name] && strings.HasSuffix(pl.Name, "chest") {
-				bufs = append(bufs, pl)
+		for _, b := range outBufs(s.h, lists[base]) {
+			if makes[b.cluster] {
+				bufs = append(bufs, b.chest)
 			}
 		}
 	}
@@ -645,18 +645,18 @@ func (s *worker) remainingRaw(raw string) int {
 	return int(math.Ceil(total-1e-9)) - s.inv(raw)
 }
 
-// fromProducts — готовое item из буферов выхода своих кластеров (раскладки стадий, тег
-// «outbuf/…»; stages.md, инвентарь): сколько не хватает (n) и стопку запаса, не больше, чем
-// влезет; с ближних. true — что-то взято.
+// fromProducts — готовое item из буферов выхода своих кластеров (раскладки стадий, outBufs;
+// stages.md, инвентарь): сколько не хватает (n) и стопку запаса, не больше, чем влезет; с
+// ближних. true — что-то взято.
 func (s *worker) fromProducts(ctx context.Context, item string, n int) (bool, error) {
 	var bufs []layout.Placement
 	seen := map[layout.Placement]bool{}
 	names, lists := stateLayouts()
 	for _, base := range names {
-		for _, pl := range lists[base] {
-			if strings.HasPrefix(pl.Tag, "outbuf/") && strings.HasSuffix(pl.Name, "chest") && !seen[pl] {
-				seen[pl] = true
-				bufs = append(bufs, pl)
+		for _, b := range outBufs(s.h, lists[base]) {
+			if !seen[b.chest] {
+				seen[b.chest] = true
+				bufs = append(bufs, b.chest)
 			}
 		}
 	}
@@ -722,10 +722,8 @@ func (s *worker) fromBuffers(ctx context.Context, plate string, lack int) error 
 		return err
 	}
 	var es []bridge.Entity
-	for _, pl := range list {
-		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "outbuf/") {
-			continue
-		}
+	for _, b := range outBufs(s.h, list) {
+		pl := b.chest
 		if st, err := s.h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Inventories["chest"][plate] > 0 {
 			es = append(es, st.Entity)
 		}

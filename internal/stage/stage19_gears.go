@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -77,6 +76,7 @@ func checkMake(h *act.Hands, product string) error {
 		return err
 	}
 	onBus, inBuf := false, false
+	bufs := outBufChests(h, list)
 	for _, pl := range list {
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
 		if err != nil {
@@ -92,7 +92,7 @@ func checkMake(h *act.Hands, product string) error {
 			return fmt.Errorf("инсертер в (%.1f, %.1f) без фильтра %s", pl.Pos.X, pl.Pos.Y, pl.Recipe)
 		case pl.Recipe == product && pl.Name == "transport-belt" && st.Belt[product] > 0:
 			onBus = true
-		case pl.Name == chest && strings.HasPrefix(pl.Tag, "outbuf/") && st.Inventories["chest"][product] > 0:
+		case bufs[pl].cluster != "" && st.Inventories["chest"][product] > 0:
 			inBuf = true
 		}
 	}

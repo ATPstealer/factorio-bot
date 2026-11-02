@@ -249,8 +249,9 @@ func planCoverage(h *act.Hands, built []layout.Placement, to int) string {
 func laneToBuffer(h *act.Hands, list []layout.Placement) []string {
 	at, pair := beltTiles(list)
 	var res []string
-	for _, pl := range list {
-		if !strings.HasPrefix(pl.Tag, "outbuf/") || !strings.HasSuffix(pl.Name, "inserter") || pl.Recipe == "" {
+	for _, b := range outBufs(h, list) {
+		pl := b.ins
+		if pl.Name == "" { // буфер раскладки до рефакторинга — инсертер не узнан
 			continue
 		}
 		ins := world.TileOf(pl.Pos)

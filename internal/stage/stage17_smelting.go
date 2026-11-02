@@ -3,7 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -59,10 +58,8 @@ func checkSmelting(h *act.Hands) error {
 		return err
 	}
 	got := map[string]int{}
-	for _, pl := range list {
-		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "outbuf/") {
-			continue
-		}
+	for _, b := range outBufs(h, list) {
+		pl := b.chest
 		st, err := h.B.GetEntity(pl.Name, pl.Pos)
 		if err != nil || st == nil {
 			continue

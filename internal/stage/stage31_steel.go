@@ -3,7 +3,6 @@ package stage
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/layout"
@@ -81,10 +80,8 @@ func steelFact(h *act.Hands, list []layout.Placement) error {
 	if !got {
 		return fmt.Errorf("печи стали ещё ничего не получили")
 	}
-	for _, pl := range list {
-		if !strings.HasSuffix(pl.Name, "chest") || !strings.HasPrefix(pl.Tag, "outbuf/") {
-			continue
-		}
+	for _, b := range outBufs(h, list) {
+		pl := b.chest
 		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Inventories["chest"]["steel-plate"] > 0 {
 			return nil
 		}

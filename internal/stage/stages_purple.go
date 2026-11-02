@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/layout"
@@ -26,10 +25,8 @@ var purpleStages = map[int]blueStage{}
 func inBuffer(item string) func(h *act.Hands, list []layout.Placement) error {
 	return func(h *act.Hands, list []layout.Placement) error {
 		n := 0
-		for _, pl := range list {
-			if !strings.HasPrefix(pl.Tag, "outbuf/") || !strings.HasSuffix(pl.Name, "chest") {
-				continue
-			}
+		for _, b := range outBufs(h, list) {
+			pl := b.chest
 			n++
 			if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Inventories["chest"][item] > 0 {
 				return nil

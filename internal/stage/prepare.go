@@ -603,17 +603,15 @@ func prepMaterials(ctx context.Context, h *act.Hands, list []layout.Placement) {
 	}
 }
 
-// prepBuffers — что лежит в буферах выхода (сундуки с тегом outbuf/ в плане кластеров).
+// prepBuffers — что лежит в буферах выхода плана кластеров (outBufs).
 func prepBuffers(h *act.Hands) map[string]int {
 	res := map[string]int{}
 	plan, err := LoadPlan()
 	if err != nil {
 		return res
 	}
-	for _, pl := range plan.Layout {
-		if pl.Name != chest || !strings.HasPrefix(pl.Tag, "outbuf/") {
-			continue
-		}
+	for _, b := range outBufs(h, plan.Layout) {
+		pl := b.chest
 		if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil {
 			for it, n := range st.Inventories["chest"] {
 				res[it] += n
