@@ -365,7 +365,11 @@ func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err
 	e := s.h.Protos.Entities[name]
 	w, hh := max(e.TileWidth, 1), max(e.TileHeight, 1)
 	for _, p := range poles {
-		if pos, ok := s.h.World.FreeSpot(p.Position, w, hh, 3, &near.Position); ok {
+		// место — в зоне питания столба (машина её задевает): рядом, но вне её — без тока
+		// (стадия 33 на 2448886157: временный сборщик двигателей — no_power)
+		r := s.h.Protos.Entities[p.Name].SupplyAreaDistance
+		if pos, ok := s.h.World.FreeSpot(p.Position, w, hh, 3, &near.Position); ok &&
+			math.Abs(pos.X-p.Position.X) < r+float64(w)/2 && math.Abs(pos.Y-p.Position.Y) < r+float64(hh)/2 {
 			return pos, nil, nil
 		}
 	}
