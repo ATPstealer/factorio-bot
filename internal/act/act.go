@@ -328,6 +328,21 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 				return fmt.Errorf("%w до (%.1f, %.1f): пути нет, стою в (%.2f, %.2f)", ErrNotReached, target.X, target.Y, p.Position.X, p.Position.Y)
 			}
 			if err == nil {
+				// маршрут пройден, а до цели по прямой не пройти (инерция пронесла мимо поворота
+				// короткого обхода: отпуск клавиш — на тормозной путь по прямой; ряд сундуков —
+				// TestWalkShortBehindChests на 46082668-0): маршрут заново оттуда, где встал
+				blocked := func() bool {
+					p, perr := h.B.Player()
+					return perr == nil && dist(p.Position, target) > stop && !h.World.Sees(p.Position, target)
+				}
+				if replan < 3 && blocked() {
+					if err := h.waitStill(ctx); err != nil {
+						return err
+					}
+					if blocked() {
+						continue
+					}
+				}
 				break
 			}
 			if errors.Is(err, ErrStuck) && replan >= 2 && !unstuckTried && !h.breaching && h.World != nil {
