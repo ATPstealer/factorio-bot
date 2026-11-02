@@ -238,6 +238,10 @@ func maintain(ctx context.Context, h *act.Hands, list func() ([]layout.Placement
 	if err := healBelts(ctx, h, true); err != nil { // обслуживание — все ленты с чужим до одной
 		return err
 	}
+	// затор ленты входа (первый вход на обеих полосах) — ленты кластера и подачи заново
+	if err := healStarved(ctx, h); err != nil {
+		return err
+	}
 	// хранение — расширить до storageChests (до того, как складывать туда инвентарь)
 	if err := growStorage(ctx, h, s); err != nil {
 		return err

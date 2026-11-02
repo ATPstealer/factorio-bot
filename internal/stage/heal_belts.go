@@ -160,14 +160,10 @@ func healBeltsOnce(ctx context.Context, h *act.Hands) (int, error) {
 // поворотом — схемы опять на полосе железа, там же).
 func relane(ctx context.Context, h *act.Hands, list []layout.Placement, tag string) error {
 	name := strings.TrimPrefix(tag, "c/")
-	feed := func(t string) bool { // c/logistics/<шина>/<кластер>, c/logistics/<кластер>
-		rest, ok := strings.CutPrefix(t, cluster.LogisticsTag+"/")
-		return ok && (rest == name || strings.HasSuffix(rest, "/"+name))
-	}
 	var belts []layout.Placement
 	for _, pl := range list {
 		beltLike := strings.HasSuffix(pl.Name, "transport-belt") || strings.HasSuffix(pl.Name, "underground-belt") || strings.HasSuffix(pl.Name, "splitter")
-		if beltLike && (pl.Tag == tag || feed(pl.Tag)) {
+		if beltLike && (pl.Tag == tag || feedOf(pl.Tag, name)) {
 			belts = append(belts, pl)
 		}
 	}
@@ -198,6 +194,84 @@ func relane(ctx context.Context, h *act.Hands, list []layout.Placement, tag stri
 		return err
 	}
 	return s.store(ctx, p.InventorySize-10)
+}
+
+// feedOf — тег — подача к кластеру name: c/logistics/<шина>/<кластер>, c/logistics/<кластер>.
+func feedOf(tag, name string) bool {
+	rest, ok := strings.CutPrefix(tag, cluster.LogisticsTag+"/")
+	return ok && (rest == name || strings.HasSuffix(rest, "/"+name))
+}
+
+// starvedStatus — машина стоит без сырья.
+var starvedStatus = map[string]bool{"item_ingredient_shortage": true, "no_ingredients": true}
+
+// healStarved — затор ленты входа (stages.md, обслуживание; просьба пользователя): в кластере
+// сборки машина стоит без сырья, а на подачах к нему есть всё, что он берёт лентами, — ленты
+// кластера и подачи заново (relane: голова ленты входа — последней). Сырья нет на самой шине —
+// не затор (подачи пусты), не трогать; кластер ещё не поставлен — мимо. Лаборатории — нет: им
+// законно недостаёт пакетов, которых ещё не делают.
+func healStarved(ctx context.Context, h *act.Hands) error {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil
+	}
+	for _, c := range plan.Clusters {
+		if c.Kind != cluster.Make {
+			continue
+		}
+		tag := cluster.Tag(c.Name)
+		var machines, feeds []layout.Placement
+		for _, pl := range plan.Layout {
+			switch {
+			case pl.Tag == tag && h.Protos.Entities[pl.Name].Type == "assembling-machine":
+				machines = append(machines, pl)
+			case feedOf(pl.Tag, c.Name) && strings.HasSuffix(pl.Name, "transport-belt"):
+				feeds = append(feeds, pl)
+			}
+		}
+		ms, err := entityStates(h, machines)
+		if err != nil {
+			return err
+		}
+		starved, built := 0, 0
+		for _, st := range ms {
+			if st != nil {
+				built++
+				if starvedStatus[st.Status] {
+					starved++
+				}
+			}
+		}
+		if built == 0 || starved == 0 {
+			continue
+		}
+		fs, err := entityStates(h, feeds)
+		if err != nil {
+			return err
+		}
+		on := map[string]int{}
+		for _, st := range fs {
+			if st != nil {
+				for it, n := range st.Belt {
+					on[it] += n
+				}
+			}
+		}
+		all := true
+		for _, in := range c.In {
+			if _, fluid := h.Protos.Fluids[in.Item]; !fluid && on[in.Item] == 0 {
+				all = false // этого сырья нет и на подачах — не затор
+			}
+		}
+		if !all {
+			continue
+		}
+		h.Say("кластер %s: без сырья %d машин из %d, а на подачах всё есть — затор ленты входа", c.Name, starved, built)
+		if err := relane(ctx, h, plan.Layout, tag); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dropLabBuffers — буферов входа у лабораторий нет (cluster.md §6, решение пользователя 28.10):
