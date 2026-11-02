@@ -161,11 +161,13 @@ func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, b
 // базу): нефтетрасса не выходит на остров — подземную трубу там не поставить (208708719,
 // стадия 34 на бумаге: «не дойти (вода)»).
 func (b *Base) landReach(from world.Tile) func(world.Tile) bool {
-	if b.reach == nil {
-		b.reach = landCells(b.W, from, 2500)
+	o := cell{from.X / landStep, from.Y / landStep}
+	if b.reach == nil || b.reachFrom != o {
+		b.reach, b.reachFrom = landCells(b.W, from, 2500), o
 	}
+	d := b.reach
 	return func(t world.Tile) bool {
-		_, ok := b.reach[cell{t.X / landStep, t.Y / landStep}]
+		_, ok := d[cell{t.X / landStep, t.Y / landStep}]
 		return ok
 	}
 }

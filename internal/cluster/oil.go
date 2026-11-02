@@ -47,11 +47,34 @@ func (b *Base) MoreOilWells(zones []Zone, wells int) ([]Zone, []*Cluster, error)
 	grown := func(p world.Patch) Rect {
 		return Rect{world.Tile{X: p.Min.X - 3, Y: p.Min.Y - 3}, world.Tile{X: p.Max.X + 4, Y: p.Max.Y + 4}}
 	}
+	// и до каждой скважины дойти пешком от базы (бот ставит качалку, стоя на суше в 8 тайлах):
+	// месторождение на острове — мимо (954176679, стадия 34 на бумаге: «до pumpjack не дойти»)
+	var mid world.Tile
+	for _, z := range zones {
+		if z.Name == "bus-1" {
+			x, y := z.Rect.Center()
+			mid = world.Tile{X: int(x), Y: int(y)}
+		}
+	}
+	reach := b.landReach(mid)
+	reachable := func(t world.Tile) bool {
+		for dy := -8; dy <= 8; dy += landStep {
+			for dx := -8; dx <= 8; dx += landStep {
+				if reach(world.Tile{X: t.X + dx, Y: t.Y + dy}) {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	usable := func(p world.Patch) bool {
 		for _, c := range b.Clusters {
 			if c.Kind != Bus && !c.IsOil() && c.Area.Overlaps(grown(p)) {
 				return false
 			}
+		}
+		if slices.ContainsFunc(p.Tiles, func(t world.Tile) bool { return !reachable(t) }) {
+			return false
 		}
 		return !slices.ContainsFunc(b.NoOil, grown(p).Overlaps) // трассу не провести — мимо
 	}

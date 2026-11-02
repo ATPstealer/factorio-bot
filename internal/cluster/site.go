@@ -84,8 +84,9 @@ type Base struct {
 	zoneRects []Rect           // зоны (PlaceZoned): кластеры без зоны — вне их
 	bands     []Rect           // полосы этажей от шины под ним до шины над ним (PlaceZoned): кластеры без зоны — вне их
 	busRects  []Rect           // шины (PlaceZoned): подводы с добычи — в обход (fence)
-	reach     map[cell]float64 // заливка по суше от Origin (landReach)
-	floors    map[int][]Rect   // части этажей (PlaceZoned): глубина этажа — предел длины кластера
+	reach     map[cell]float64 // заливка по суше от reachFrom (landReach)
+	reachFrom cell
+	floors    map[int][]Rect // части этажей (PlaceZoned): глубина этажа — предел длины кластера
 
 	g *grid
 }
