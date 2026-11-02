@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
@@ -501,6 +502,16 @@ func planTry(h *act.Hands, rough *RoughPlan, own []world.Object, rt *planRetry) 
 				e += " (" + p.Tag + ")"
 			}
 			drawPlan(h, rough.Zones, base, l, t, 30, image("plan-err"))
+			for _, p := range l.List { // разбор: что вокруг (466518569: лента сквозной оборвана)
+				if q := world.TileOf(p.Pos); abs(q.X-t.X) <= 3 && abs(q.Y-t.Y) <= 3 {
+					h.Log("  рядом: %v %s %s %s %s", q, p.Name, layout.DirName(p.Dir), p.Recipe, p.Tag)
+				}
+			}
+			if o := h.World.ObjectsNear(bridge.Pos{X: x, Y: y}, 4); len(o) > 0 {
+				for _, ob := range o {
+					h.Log("  на карте: %s %v", ob.Name, ob.Pos)
+				}
+			}
 		}
 		return base, l, fmt.Errorf("раскладка: %v", e)
 	}
