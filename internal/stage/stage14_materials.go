@@ -194,7 +194,10 @@ func runMaterials(ctx context.Context, h *act.Hands) error {
 					if err := s.store(ctx, 8); err != nil {
 						return err
 					}
-					if err := s.have(ctx, it, s.inv(it)+lack); err != nil {
+					// have считает и очередь: цель — инвентарь, очередь и недостача (без очереди в
+					// цели — недостача меньше очереди не крафтилась: подземки и делители забрали
+					// готовые ленты, стадия 14 на 1114315936 и 2448886157 — лент не хватило)
+					if err := s.have(ctx, it, s.inv(it)+s.pending(it)+lack); err != nil {
 						return fmt.Errorf("%s: %w", it, err)
 					}
 				}
