@@ -574,6 +574,11 @@ func zLaneBelts(l *layout.Layout, bus *ZBus, ln *ZoneLane, x0, x1 int) []layout.
 func zSidePorts(l *layout.Layout, bus *ZBus, ln *ZoneLane, x0, x1 int) []Port {
 	var res []Port
 	for x := max(x0, bus.Rect.Min.X+1, ln.Start+1); x < min(x1, bus.Rect.Max.X-1); x++ {
+		// лента ряда здесь — на поверхности: над подземкой (утёс в зоне шины) вливаться не во что
+		// (466518569: сквозная камня боком в пролёт подземки bus-2 — лента оборвана)
+		if p := l.At(world.Tile{X: x, Y: ln.Y}); p == nil || !strings.HasSuffix(p.Name, "transport-belt") {
+			continue
+		}
 		for _, s := range []struct{ dy, d int }{{-1, layout.S}, {1, layout.N}} {
 			t := world.Tile{X: x, Y: ln.Y + s.dy}
 			if l.Free(t, layout.AnyLand) {
