@@ -60,6 +60,24 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 			sorted = append(sorted, pl)
 		}
 	}
+	// делители (отводы с шины) — последними, после всех лент стадии: вход кластера течёт, только
+	// когда обе подачи его ленты входа уже стоят — в голове они вливаются боком каждая на свою
+	// полосу; одна подача раньше другой — голова для игры поворот, первый вход занимает обе
+	// полосы, второму места нет (стадия 24 на 1114315936: схемы на полосе железа — затор)
+	var splitters, others []layout.Placement
+	for _, pl := range sorted {
+		if strings.HasSuffix(pl.Name, "splitter") {
+			splitters = append(splitters, pl)
+		} else {
+			others = append(others, pl)
+		}
+	}
+	if len(splitters) > 0 && len(others) > 0 {
+		if err := buildSorted(ctx, h, others, order); err != nil {
+			return err
+		}
+		return buildSorted(ctx, h, splitters, order)
+	}
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
 		ia, ib := slices.Index(order, a.Name), slices.Index(order, b.Name)
 		if ia < 0 {

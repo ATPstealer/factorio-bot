@@ -45,7 +45,7 @@ var isScience = cluster.IsScience
 // runMake — построить завод (машины, ленты, инсертеры, столбы), рецепты сборщиков, фильтры
 // инсертеров буферов; дождаться продукта на шине и в буфере выхода.
 func runMake(ctx context.Context, h *act.Hands, product string) error {
-	list, _, err := makeLayout(h, product)
+	list, c, err := makeLayout(h, product)
 	if err != nil {
 		return err
 	}
@@ -59,13 +59,28 @@ func runMake(ctx context.Context, h *act.Hands, product string) error {
 	if err := configure(ctx, h, list); err != nil {
 		return err
 	}
-	deadline := time.Now().Add(8 * time.Minute)
-	for checkMake(h, product) != nil && time.Now().Before(deadline) {
-		if err := sleepCtx(ctx, 10*time.Second); err != nil {
-			return err
+	wait := func() bool {
+		deadline := time.Now().Add(8 * time.Minute)
+		for time.Now().Before(deadline) {
+			if checkMake(h, product) == nil {
+				return true
+			}
+			if sleepCtx(ctx, 10*time.Second) != nil {
+				return false
+			}
 		}
+		return false
 	}
-	return nil
+	if wait() || ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// продукта нет — лента входа могла забиться одним входом по обеим полосам: ленты внутри
+	// кластера — заново, и ждать ещё раз
+	if err := relane(ctx, h, list, cluster.Tag(c.Name)); err != nil {
+		return err
+	}
+	wait()
+	return ctx.Err()
 }
 
 // checkMake — всё стоит, рецепты и фильтры заданы; продукт — на ленте шины (на любой её ленте

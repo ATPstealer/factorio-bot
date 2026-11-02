@@ -150,6 +150,45 @@ func healBeltsOnce(ctx context.Context, h *act.Hands) (int, error) {
 	return total, s.store(ctx, p.InventorySize-10)
 }
 
+// relane — ленты внутри кластера tag (ряды входа и выхода) поднять (предметы — в инвентарь) и
+// поставить назад: лента входа, забитая одним входом по обеим полосам (подача второго легла
+// позже — голова была поворотом), освобождается, и обе подачи вливаются каждая на свою полосу
+// (стадия 24 на 1114315936: схемы на полосе железа — затор, инсертеры не делались).
+func relane(ctx context.Context, h *act.Hands, list []layout.Placement, tag string) error {
+	var belts []layout.Placement
+	for _, pl := range list {
+		if pl.Tag == tag && strings.HasSuffix(pl.Name, "transport-belt") {
+			belts = append(belts, pl)
+		}
+	}
+	states, err := entityStates(h, belts)
+	if err != nil {
+		return err
+	}
+	var es []bridge.Entity
+	for _, st := range states {
+		if st != nil {
+			es = append(es, st.Entity)
+		}
+	}
+	if len(es) == 0 {
+		return nil
+	}
+	h.Say("кластер не делает продукт — ленты внутри (%d) поднимаю и ставлю заново", len(es))
+	if err := h.PickupAll(ctx, es); err != nil {
+		return err
+	}
+	if err := buildSorted(ctx, h, belts, []string{"transport-belt", "fast-transport-belt"}); err != nil {
+		return err
+	}
+	s := &worker{h: h, useStore: true}
+	p, err := h.B.Player()
+	if err != nil {
+		return err
+	}
+	return s.store(ctx, p.InventorySize-10)
+}
+
 // dropLabBuffers — буферов входа у лабораторий нет (cluster.md §6, решение пользователя 28.10):
 // стоящие (построены по старому плану) — снять: инсертеры, потом сундуки (содержимое — в
 // хранение).
