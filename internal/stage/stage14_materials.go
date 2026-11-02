@@ -252,8 +252,15 @@ func checkMaterials(h *act.Hands) error {
 	if err != nil {
 		return err
 	}
+	w := &worker{h: h}
 	for it, n := range need {
-		if stock[it]+queued[it] < n {
+		// крафт, который идёт сейчас, — ни в очереди, ни в инвентаре (635406131: лент 2970
+		// сделано, а видно 2968 — один крафт в работе): пока предмет в очереди — и он в счёт
+		inFlight := 0
+		if queued[it] > 0 {
+			inFlight = w.perCraft(it)
+		}
+		if stock[it]+queued[it]+inFlight < n {
 			return fmt.Errorf("%s: есть %d (в очереди %d), нужно %d", it, stock[it], queued[it], n)
 		}
 	}
