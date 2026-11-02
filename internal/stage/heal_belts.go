@@ -233,12 +233,28 @@ func healStarved(ctx context.Context, h *act.Hands) error {
 		if err != nil {
 			return err
 		}
+		belt := map[string]bool{} // что кластер берёт лентами
+		for _, in := range c.In {
+			if _, fluid := h.Protos.Fluids[in.Item]; !fluid {
+				belt[in.Item] = true
+			}
+		}
+		// без сырья — и в машине нет того, что идёт лентой (железа схемам); нет только
+		// промежуточного от своей пары (провода — пара 1:1 упирается в его выпуск, статус
+		// мигает) — это не затор
 		starved, built := 0, 0
-		for _, st := range ms {
-			if st != nil {
-				built++
-				if starvedStatus[st.Status] {
+		for i, st := range ms {
+			if st == nil {
+				continue
+			}
+			built++
+			if !starvedStatus[st.Status] {
+				continue
+			}
+			for _, in := range h.Protos.Recipes[machines[i].Recipe].Ingredients {
+				if belt[in.Name] && st.Inventories["crafter_input"][in.Name] == 0 {
 					starved++
+					break
 				}
 			}
 		}
