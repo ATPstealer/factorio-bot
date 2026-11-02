@@ -212,6 +212,16 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 // навёлся (в густом лесу ствол целиком под кроной соседнего дерева) — сначала срубить
 // соседние деревья поблизости, ближние первыми, и ещё раз.
 func (h *Hands) Mine(ctx context.Context, e bridge.Entity, timeout time.Duration) error {
+	// уже добывается выше по цепочке (рубка соседей → путь к ним рубит по дороге эту же
+	// сущность) — не по кругу: как «не навёлся», цепочка разворачивается
+	if h.mining[e.Position] {
+		return fmt.Errorf("%w: %s уже добывается (рубка соседей по кругу)", ErrHover, e.Name)
+	}
+	if h.mining == nil {
+		h.mining = map[bridge.Pos]bool{}
+	}
+	h.mining[e.Position] = true
+	defer delete(h.mining, e.Position)
 	err := h.mineOnce(ctx, e, timeout)
 	if !errors.Is(err, ErrHover) || h.World == nil {
 		return err
@@ -219,7 +229,7 @@ func (h *Hands) Mine(ctx context.Context, e bridge.Entity, timeout time.Duration
 	near := h.World.ObjectsNear(e.Position, 3)
 	sort.Slice(near, func(i, j int) bool { return dist(near[i].Pos, e.Position) < dist(near[j].Pos, e.Position) })
 	for _, o := range near {
-		if o.Type != "tree" || dist(o.Pos, e.Position) < 0.01 {
+		if o.Type != "tree" || dist(o.Pos, e.Position) < 0.01 || h.mining[o.Pos] {
 			continue
 		}
 		t, err := h.B.EntityAt(o.Name, o.Pos)
