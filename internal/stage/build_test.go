@@ -54,7 +54,7 @@ func TestSideJoins(t *testing.T) {
 	list := []layout.Placement{
 		head, belt(5.5, 4.5, layout.N), // голова и лента над ней
 		belt(4.5, 5.5, layout.E), belt(3.5, 5.5, layout.E), // подача слева
-		belt(6.5, 5.5, layout.W), // подача справа
+		belt(6.5, 5.5, layout.W),                            // подача справа
 		belt(10.5, 5.5, layout.N), belt(9.5, 5.5, layout.E), // поворот: подача с одной стороны
 	}
 	got := sideJoins(list)
