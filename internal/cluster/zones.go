@@ -143,7 +143,7 @@ func (b *Base) Zones(lay *Layered) []Zone {
 // тайлов. Возвращает функцию: расстояние до ближайшего тайла прямоугольника и достижим ли он.
 func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, bool) {
 	const step = landStep
-	d := landCells(w, origin, limit)
+	d := landCells(w, origin, limit, false)
 	return func(r Rect) (int, bool) {
 		best, ok := 0.0, false
 		for y := r.Min.Y / step; y <= r.Max.Y/step; y++ {
@@ -163,7 +163,7 @@ func landDist(w *world.World, origin world.Tile, limit int) func(r Rect) (int, b
 func (b *Base) landReach(from world.Tile) func(world.Tile) bool {
 	o := cell{from.X / landStep, from.Y / landStep}
 	if b.reach == nil || b.reachFrom != o {
-		b.reach, b.reachFrom = landCells(b.W, from, 2500), o
+		b.reach, b.reachFrom = landCells(b.W, from, 2500, true), o
 	}
 	d := b.reach
 	return func(t world.Tile) bool {
@@ -176,14 +176,30 @@ func (b *Base) landReach(from world.Tile) func(world.Tile) bool {
 const landStep = 2
 
 // landCells — заливка по суше от origin: ячейка сетки landStep → расстояние в ячейках.
-func landCells(w *world.World, origin world.Tile, limit int) map[cell]float64 {
+// strict — ячейка проходима, только если суша все её тайлы, а по диагонали — если проходимы и
+// обе соседние ячейки (иначе пролив в тайл между отсчётами не виден: заливка «переходила» на
+// остров — 954176679, качалки за проливом).
+func landCells(w *world.World, origin world.Tile, limit int, strict bool) map[cell]float64 {
 	const step = landStep
-	land := func(c cell) bool {
-		switch w.TileAt(world.Tile{X: c.x * step, Y: c.y * step}) {
+	dry := func(t world.Tile) bool {
+		switch w.TileAt(t) {
 		case world.Land, world.Shallow:
 			return true
 		}
 		return false
+	}
+	land := func(c cell) bool {
+		if !strict {
+			return dry(world.Tile{X: c.x * step, Y: c.y * step})
+		}
+		for dy := 0; dy < step; dy++ {
+			for dx := 0; dx < step; dx++ {
+				if !dry(world.Tile{X: c.x*step + dx, Y: c.y*step + dy}) {
+					return false
+				}
+			}
+		}
+		return true
 	}
 	o := cell{origin.X / step, origin.Y / step}
 	// Дейкстра по 8 соседям (диагональ — √2): расстояние близко к настоящему, а не
@@ -205,6 +221,9 @@ func landCells(w *world.World, origin world.Tile, limit int) map[cell]float64 {
 				}
 				n := cell{cur.c.x + dx, cur.c.y + dy}
 				if done[n] || abs(n.x-o.x) > lim || abs(n.y-o.y) > lim || !land(n) {
+					continue
+				}
+				if strict && dx != 0 && dy != 0 && (!land(cell{cur.c.x + dx, cur.c.y}) || !land(cell{cur.c.x, cur.c.y + dy})) {
 					continue
 				}
 				w := 1.0
