@@ -21,8 +21,10 @@ import (
 // IsOil — кластер добычи нефти.
 func (c *Cluster) IsOil() bool { return c.Kind == Mine && c.Product == "crude-oil" }
 
-// OilWells — скважин нефти на игру не меньше (cluster.md §2а «Нефть»: 30 на минимуме — 60/с).
-const OilWells = 30
+// OilWells — скважин нефти в месторождениях плана, где есть (cluster.md §2а «Нефть»: 30 на
+// минимуме — 60/с); OilWellsMin — качалок не меньше (на скважину вплотную к соседней качалка
+// бывает не встаёт; 26 на минимуме — 52/с, с ракетой нужно ~38).
+const OilWells, OilWellsMin = 30, 26
 
 // MoreOilWells — добыча нефти на месторождениях в зонах добычи, ближние к голове bus-1 первыми,
 // каждое целиком (качалка на каждой скважине), пока скважин меньше wells; зон с нефтью мало —
@@ -130,7 +132,7 @@ func (b *Base) MoreOilWells(zones []Zone, wells int) ([]Zone, []*Cluster, error)
 		res = append(res, c)
 		have += c.Count
 	}
-	if have < wells {
+	if have < OilWellsMin { // 30 — где есть; меньше 26 — плана нет (разведать ещё)
 		return zones, res, fmt.Errorf("cluster: скважин нефти %d из %d", have, wells)
 	}
 	return zones, res, nil

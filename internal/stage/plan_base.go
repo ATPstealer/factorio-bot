@@ -431,8 +431,9 @@ func planTry(h *act.Hands, rough *RoughPlan, own []world.Object, rt *planRetry) 
 			jacks++
 		}
 	}
-	if jacks < cluster.OilWells {
-		return base, l, &wellsError{jacks, cluster.OilWells}
+	// 26 и больше — хватает (решение пользователя: 30 — где есть), меньше — ещё месторождение
+	if jacks < cluster.OilWellsMin {
+		return base, l, &wellsError{jacks, cluster.OilWellsMin}
 	}
 	// под бурами — по факту раскладки: меньше цели — ещё месторождений и заново
 	if err := oreShort(base.Clusters, boost); err != nil {
