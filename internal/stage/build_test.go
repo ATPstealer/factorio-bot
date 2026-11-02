@@ -43,3 +43,22 @@ func TestBuildRegions(t *testing.T) {
 		t.Fatalf("подземная пара разорвана: в участке входа %d из 2", ug)
 	}
 }
+
+// Голова ленты входа (stages.md, общее): лента, в которую две подачи вливаются боком с обеих
+// сторон, — последней; лента с подачей с одной стороны (поворот) — нет.
+func TestSideJoins(t *testing.T) {
+	belt := func(x, y float64, dir int) layout.Placement {
+		return layout.Placement{Name: "transport-belt", Pos: bridge.Pos{X: x, Y: y}, Dir: dir}
+	}
+	head := belt(5.5, 5.5, layout.N)
+	list := []layout.Placement{
+		head, belt(5.5, 4.5, layout.N), // голова и лента над ней
+		belt(4.5, 5.5, layout.E), belt(3.5, 5.5, layout.E), // подача слева
+		belt(6.5, 5.5, layout.W), // подача справа
+		belt(10.5, 5.5, layout.N), belt(9.5, 5.5, layout.E), // поворот: подача с одной стороны
+	}
+	got := sideJoins(list)
+	if len(got) != 1 || !got[head] {
+		t.Fatalf("головы: %v, ждали только %v", got, head.Pos)
+	}
+}

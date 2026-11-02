@@ -35,6 +35,29 @@ func tier(name string) string {
 // buildSorted — построить list (уже стоящее пропускается) в порядке order (чего нет в order — в
 // конце), недостающее — из хранения. Сборщики и инсертеры настраиваются сразу, как поставлены
 // (configure): инсертеры — раньше лент, иначе буфер без фильтра набирает чужое.
+// sideJoins — ленты list, в которые другие ленты list вливаются боком с обеих сторон (голова
+// ленты входа кластера: две подачи — каждая на свою полосу).
+func sideJoins(list []layout.Placement) map[layout.Placement]bool {
+	belt := func(pl layout.Placement) bool { return strings.HasSuffix(pl.Name, "transport-belt") }
+	at := map[world.Tile]layout.Placement{}
+	for _, pl := range list {
+		if belt(pl) {
+			at[world.TileOf(pl.Pos)] = pl
+		}
+	}
+	into := func(t world.Tile, side int) bool { // с тайла сбоку side лента смотрит в t
+		q, ok := at[layout.Step(t, side)]
+		return ok && layout.Step(world.TileOf(q.Pos), q.Dir) == t
+	}
+	res := map[layout.Placement]bool{}
+	for t, pl := range at {
+		if into(t, (pl.Dir+4)%16) && into(t, (pl.Dir+12)%16) {
+			res[pl] = true
+		}
+	}
+	return res
+}
+
 func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, order []string) error {
 	sites, err := outpostsLayout(h)
 	if err != nil {
@@ -60,23 +83,43 @@ func buildSorted(ctx context.Context, h *act.Hands, list []layout.Placement, ord
 			sorted = append(sorted, pl)
 		}
 	}
-	// делители (отводы с шины) — последними, после всех лент стадии: вход кластера течёт, только
-	// когда обе подачи его ленты входа уже стоят — в голове они вливаются боком каждая на свою
-	// полосу; одна подача раньше другой — голова для игры поворот, первый вход занимает обе
-	// полосы, второму места нет (стадия 24 на 1114315936: схемы на полосе железа — затор)
-	var splitters, others []layout.Placement
+	// лента, в которую две подачи вливаются боком с двух сторон (голова ленты входа), —
+	// последней, по одной и сразу нужным поворотом; делители (отводы с шины) — перед ней, после
+	// остальных лент (stages.md, решение пользователя): пока стоит одна подача, голова для игры —
+	// поворот, первый вход занимает обе полосы, второму места нет (стадия 24 на 1114315936: схемы
+	// на полосе железа — затор)
+	joins := sideJoins(sorted)
+	var splitters, heads, others []layout.Placement
 	for _, pl := range sorted {
-		if strings.HasSuffix(pl.Name, "splitter") {
+		switch {
+		case joins[pl]:
+			heads = append(heads, pl)
+		case strings.HasSuffix(pl.Name, "splitter"):
 			splitters = append(splitters, pl)
-		} else {
+		default:
 			others = append(others, pl)
 		}
 	}
-	if len(splitters) > 0 && len(others) > 0 {
-		if err := buildSorted(ctx, h, others, order); err != nil {
-			return err
+	groups := 0
+	for _, g := range [][]layout.Placement{others, splitters, heads} {
+		if len(g) > 0 {
+			groups++
 		}
-		return buildSorted(ctx, h, splitters, order)
+	}
+	if groups > 1 || len(heads) > 1 {
+		for _, part := range [][]layout.Placement{others, splitters} {
+			if len(part) > 0 {
+				if err := buildSorted(ctx, h, part, order); err != nil {
+					return err
+				}
+			}
+		}
+		for _, pl := range heads { // по одной: поворот — сразу после постановки
+			if err := buildSorted(ctx, h, []layout.Placement{pl}, order); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	slices.SortStableFunc(sorted, func(a, b layout.Placement) int {
 		ia, ib := slices.Index(order, a.Name), slices.Index(order, b.Name)
