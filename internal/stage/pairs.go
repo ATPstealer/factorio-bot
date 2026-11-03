@@ -87,6 +87,11 @@ func fastOverBasic(ctx context.Context, h *act.Hands, plan *ClusterPlan, n int) 
 	if len(todo) == 0 {
 		return nil
 	}
+	// рецепт ещё не открыт — потом (исследование ставит очередь; «рецепт не открыт» в начале
+	// стадии 28 до fast-inserter)
+	if locked, err := lockedItems(h); err != nil || locked["fast-inserter"] {
+		return err
+	}
 	h.Say("инсертеры пар: %d быстрых поверх обычных", len(todo))
 	return buildSorted(ctx, h, todo, []string{"fast-inserter"})
 }
