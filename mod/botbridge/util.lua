@@ -46,6 +46,18 @@ function util.status_name(s)
   return status_names[s]
 end
 
+local silo_names
+-- silo_status_name — состояние ракетной шахты (defines.rocket_silo_status): "building_rocket",
+-- "rocket_ready", "launch_started" …
+function util.silo_status_name(s)
+  if s == nil then return nil end
+  if not silo_names then
+    silo_names = {}
+    for k, v in pairs(defines.rocket_silo_status) do silo_names[v] = k end
+  end
+  return silo_names[s]
+end
+
 local render_names
 -- render_name — "game" (обычный вид), "chart" / "chart_zoomed_in" (карта / удалённый вид).
 function util.render_name(m)

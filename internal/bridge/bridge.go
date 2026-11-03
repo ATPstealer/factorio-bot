@@ -364,7 +364,13 @@ type EntityState struct {
 	SlotsSize        int                       `json:"slots_size,omitempty"`
 	// Limit — ограничение сундука (красный крест): открытых ячеек; nil — без ограничения
 	Limit *int `json:"limit,omitempty"`
-	I     int  `json:"i,omitempty"` // номер в запросе GetEntities (с 1)
+	// ракетная шахта: частей ракеты, состояние (building_rocket, rocket_ready …), галочка
+	// «запуск по готовности»; груз — Inventories["rocket_silo_rocket"], модули машин —
+	// Inventories["crafter_modules"]
+	RocketParts int    `json:"rocket_parts,omitempty"`
+	SiloStatus  string `json:"silo_status,omitempty"`
+	AutoLaunch  bool   `json:"auto_launch,omitempty"`
+	I           int    `json:"i,omitempty"` // номер в запросе GetEntities (с 1)
 }
 
 // Count — сколько предмета во всех инвентарях сущности.

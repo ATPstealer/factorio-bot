@@ -220,10 +220,15 @@ local function entity_state(p, name, position)
       if bar <= #inv then r.limit = bar - 1 end
     end
   end
-  if e.type == "assembling-machine" or e.type == "furnace" then
+  if e.type == "assembling-machine" or e.type == "furnace" or e.type == "rocket-silo" then
     local rec = e.get_recipe()
     r.recipe = rec and rec.name or nil
     r.crafting_progress = e.crafting_progress
+  end
+  if e.type == "rocket-silo" then -- части ракеты, состояние, галочка «запуск по готовности»
+    r.rocket_parts = e.rocket_parts
+    r.silo_status = util.silo_status_name(e.rocket_silo_status)
+    r.auto_launch = e.send_to_orbit_automatically or nil
   end
   r.network = util.try(function() return e.electric_network_id end)
   if e.type == "inserter" and e.use_filters then -- фильтр «что брать»
@@ -338,6 +343,9 @@ script.on_event(d.on_entity_died, function(e)
 end)
 script.on_event(d.on_resource_depleted, function(e)
   push { type = "resource_depleted", entity = entity_info(e.entity) }
+end)
+script.on_event(d.on_rocket_launched, function(e)
+  push { type = "rocket_launched", entity = entity_info(e.rocket_silo) }
 end)
 script.on_event(d.on_gui_opened, function(e)
   push { type = "gui_opened", gui_type = e.gui_type, entity = entity_info(e.entity) }
