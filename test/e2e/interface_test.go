@@ -229,6 +229,62 @@ func TestStartResearch(t *testing.T) {
 	clean(t, h)
 }
 
+// Исследование первым (стадия 48 на 2448886157: впереди шесть долгих на синей): доступная
+// технология, не текущая, — ResearchFirst делает её текущей: ставит в очередь (полна — снимает
+// последнее) и перетаскивает в начало панели очереди. Чтобы было кого обгонять, текущее — другое
+// (очередь пуста — поставить).
+func TestResearchFirst(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := map[string]bool{}
+	for _, r := range f.Researched {
+		done[r] = true
+	}
+	var names []string
+	for n := range h.Protos.Technologies {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var avail []string
+	for _, n := range names {
+		te := h.Protos.Technologies[n]
+		if done[n] || te.Hidden || !te.Enabled || te.Trigger != nil || len(te.UnitIngredients) == 0 || n == f.Current || slices.Contains(f.Queue, n) {
+			continue
+		}
+		ok := true
+		for _, pre := range te.Prerequisites {
+			ok = ok && done[pre]
+		}
+		if ok {
+			avail = append(avail, n)
+		}
+	}
+	if f.Current == "" {
+		if len(avail) < 2 {
+			t.Skip("нет двух доступных технологий")
+		}
+		if err := h.StartResearch(ctxT(t, time.Minute), avail[0]); err != nil {
+			t.Fatal(err)
+		}
+		avail = avail[1:]
+	}
+	if len(avail) == 0 {
+		t.Skip("нет доступной технологии")
+	}
+	tech := avail[0]
+	if err := h.ResearchFirst(ctxT(t, 2*time.Minute), tech); err != nil {
+		t.Fatal(err)
+	}
+	f2, _ := h.B.Force()
+	if f2.Current != tech {
+		t.Errorf("%s не первым: текущее %q, очередь %v", tech, f2.Current, f2.Queue)
+	}
+	clean(t, h)
+}
+
 // placeNear — поставить item на свободном месте рядом (для окон сущности).
 func placeNear(t *testing.T, h *act.Hands, item string, size int) bridge.Entity {
 	t.Helper()

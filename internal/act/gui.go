@@ -50,6 +50,10 @@ type Layout struct {
 	RecipeChange      point
 	RecipeFirstChange point
 	TechStart         point // кнопка «Start research» карточки выбранной технологии
+	// TechQueue — ячейки панели «Research queue» окна технологий (первая — текущее, шире);
+	// TechDequeue — красный крест «убрать из очереди» под наведённой ячейкой, сдвиг от её центра
+	TechQueue   []point
+	TechDequeue point
 	// окно инсертера (обычного): флажок «Use filters», первая ячейка фильтра, первая
 	// найденная в окне «Set the filter» (после поиска)
 	UseFilters, FilterSlot, FilterFirst point
@@ -107,6 +111,8 @@ var Layout1856 = Layout{
 	RecipeChange:      point{1325, 506},
 	RecipeFirstChange: point{747, 429},
 	TechStart:         point{477, 422},
+	TechQueue:         []point{{51, 90}, {136, 90}, {208, 90}, {280, 90}, {352, 90}, {424, 90}, {496, 90}},
+	TechDequeue:       point{13, 47},
 	UseFilters:        point{953, 556},
 	FilterSlot:        point{1165, 568},
 	FilterFirst:       point{1189, 730},
@@ -1016,29 +1022,9 @@ func (h *Hands) StartResearch(ctx context.Context, tech string) error {
 		}
 	}
 	h.Say("запускаю исследование %s", tech)
-	if err := h.Clean(ctx); err != nil {
-		return err
-	}
-	if err := h.Focus(); err != nil {
-		return err
-	}
-	if err := h.In.Tap("t"); err != nil {
-		return err
-	}
 	defer h.closeTech(ctx)
-	open := false
-	for i := 0; i < 10 && !open; i++ {
-		if err := sleep(ctx, inputLatency); err != nil {
-			return err
-		}
-		var err error
-		if open, err = h.techOpen(); err != nil {
-			return err
-		}
-	}
-	if !open {
-		h.debugShot("tech-open")
-		return fmt.Errorf("act: окно технологий не открылось")
+	if err := h.openTech(ctx); err != nil {
+		return err
 	}
 	// поиск: буквы печатать только при открытом окне (иначе уйдут в игру хоткеями)
 	if err := h.In.Tap("f", "ctrl"); err != nil {
@@ -1080,6 +1066,156 @@ func (h *Hands) StartResearch(ctx context.Context, tech string) error {
 	}
 	h.debugShot("research-" + tech)
 	return fmt.Errorf("act: исследование %s не запустилось", tech)
+}
+
+// openTech — открыть окно технологий (T); открылось — по пикселям (мод его не видит).
+func (h *Hands) openTech(ctx context.Context) error {
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.Focus(); err != nil {
+		return err
+	}
+	if err := h.In.Tap("t"); err != nil {
+		return err
+	}
+	for i := 0; i < 10; i++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if open, err := h.techOpen(); err != nil || open {
+			return err
+		}
+	}
+	h.debugShot("tech-open")
+	return fmt.Errorf("act: окно технологий не открылось")
+}
+
+// researchSlots — очередь исследований по ячейкам панели: текущее — первым.
+func researchSlots(f bridge.Force) []string {
+	if f.Current != "" && !slices.Contains(f.Queue, f.Current) {
+		return append([]string{f.Current}, f.Queue...)
+	}
+	return f.Queue
+}
+
+// ResearchFirst — tech — текущим исследованием (stages.md «Исследование на новом пакете —
+// первым»): нет в очереди — в очередь (полна — снять последнее), затем перетащить его ячейку в
+// начало панели «Research queue». Предпосылки tech должны быть изучены: вперёд них игра его не
+// пустит. Подтверждение — текущее исследование из мода.
+func (h *Hands) ResearchFirst(ctx context.Context, tech string) error {
+	f, err := h.B.Force()
+	if err != nil {
+		return err
+	}
+	if f.Current == tech {
+		return nil
+	}
+	if slots := researchSlots(f); !slices.Contains(slots, tech) {
+		if len(slots) >= researchQueueMax {
+			if err := h.dequeue(ctx, slots); err != nil {
+				return err
+			}
+		}
+		if err := h.StartResearch(ctx, tech); err != nil {
+			return err
+		}
+		if f, err = h.B.Force(); err != nil {
+			return err
+		}
+	}
+	i := slices.Index(researchSlots(f), tech)
+	if i == 0 {
+		return nil
+	}
+	if i < 0 || i >= len(h.Layout.TechQueue) {
+		return fmt.Errorf("act: %s нет в очереди исследований (%v)", tech, researchSlots(f))
+	}
+	h.Say("исследование %s — первым в очереди", tech)
+	defer h.closeTech(ctx)
+	if err := h.openTech(ctx); err != nil {
+		return err
+	}
+	// перетащить: зажать на ячейке, провести к первой, отпустить (по шагам — игра видит ход)
+	from, to := h.Layout.TechQueue[i], h.Layout.TechQueue[0]
+	if err := h.at(from); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 300*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.In.ButtonDown(input.Left); err != nil {
+		return err
+	}
+	const steps = 5
+	for k := 1; k <= steps; k++ {
+		if err := sleep(ctx, 100*time.Millisecond); err != nil {
+			h.In.ButtonUp(input.Left)
+			return err
+		}
+		if err := h.at(point{from.X + (to.X-from.X)*k/steps, from.Y + (to.Y-from.Y)*k/steps}); err != nil {
+			h.In.ButtonUp(input.Left)
+			return err
+		}
+	}
+	if err := sleep(ctx, 300*time.Millisecond); err != nil {
+		h.In.ButtonUp(input.Left)
+		return err
+	}
+	if err := h.In.ButtonUp(input.Left); err != nil {
+		return err
+	}
+	for k := 0; k < 10; k++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if f, err := h.B.Force(); err != nil || f.Current == tech {
+			return err
+		}
+	}
+	h.debugShot("research-first-" + tech)
+	return fmt.Errorf("act: %s не встало первым в очереди исследований", tech)
+}
+
+// dequeue — снять из очереди последнее (slots — ячейки панели): навести на ячейку, под ней —
+// красный крест. Подтверждение — его нет в очереди (мод).
+func (h *Hands) dequeue(ctx context.Context, slots []string) error {
+	i := len(slots) - 1
+	if i <= 0 || i >= len(h.Layout.TechQueue) {
+		return fmt.Errorf("act: снять из очереди исследований нечего (%v)", slots)
+	}
+	last := slots[i]
+	h.Say("очередь исследований полна — снимаю %s (вернётся при доставке очереди)", last)
+	defer h.closeTech(ctx)
+	if err := h.openTech(ctx); err != nil {
+		return err
+	}
+	c := h.Layout.TechQueue[i]
+	if err := h.at(c); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 400*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.at(point{c.X + h.Layout.TechDequeue.X, c.Y + h.Layout.TechDequeue.Y}); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 200*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	for k := 0; k < 10; k++ {
+		if err := sleep(ctx, inputLatency); err != nil {
+			return err
+		}
+		if f, err := h.B.Force(); err != nil || !slices.Contains(researchSlots(f), last) {
+			return err
+		}
+	}
+	h.debugShot("dequeue-" + last)
+	return fmt.Errorf("act: %s не снялось из очереди исследований", last)
 }
 
 // closeTech — закрыть окно технологий Esc (лишний Esc откроет меню — guard закроет).

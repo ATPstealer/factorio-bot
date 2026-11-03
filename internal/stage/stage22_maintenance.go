@@ -118,6 +118,27 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 			return slices.ContainsFunc(h.Protos.Technologies[t].UnitIngredients, func(in knowledge.Amount) bool { return slices.Contains(first, in.Name) })
 		}
 		techs = append(slices.DeleteFunc(slices.Clone(techs), func(t string) bool { return !on(t) }), techs...)
+		// текущее — на first (stages.md «Исследование на новом пакете — первым»): новое игра
+		// ставит в конец очереди, а впереди бывают долгие на прошлых пакетах (стадия 48 на
+		// 2448886157: шесть на синей, больше часа)
+		f, err := h.B.Force()
+		if err != nil {
+			return err
+		}
+		if !on(f.Current) {
+			for _, t := range techs {
+				if !on(t) || slices.ContainsFunc(h.Protos.Technologies[t].Prerequisites, func(p string) bool { return !slices.Contains(f.Researched, p) }) {
+					continue
+				}
+				if err := h.ResearchFirst(ctx, t); err != nil {
+					if ctx.Err() != nil {
+						return err
+					}
+					h.Log("исследование %s первым не встало: %v", t, err)
+				}
+				break
+			}
+		}
 	}
 	for _, t := range techs {
 		f, err := h.B.Force()
