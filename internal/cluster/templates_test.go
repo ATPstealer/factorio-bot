@@ -17,13 +17,13 @@ func TestBuildTemplates(t *testing.T) {
 	p := pt(t)
 	// длина ряда, тайлов (refactor.md: этажи по самому длинному столбцу)
 	wantLen := map[string]int{
-		"transport-belt":     57, // 7 пар по 8 + голова
-		"inserter":           25, // 3 пары
-		"electronic-circuit": 81, // 10 пар
-		"copper-plate":       62, // 20 печей по 3 + голова + перекладка
-		"steel-plate":        46, // 15 пар печей по 3 + голова
-		"engine-unit":        50, // 4 тройки по 12 + голова с сундуком труб
-		"lab":                12, // 2 ряда по 4 + голова (лента C и её инсертеры)
+		"transport-belt":     57,  // 7 пар по 8 + голова
+		"inserter":           25,  // 3 пары
+		"electronic-circuit": 105, // 13 пар
+		"copper-plate":       62,  // 20 печей по 3 + голова + перекладка
+		"steel-plate":        46,  // 15 пар печей по 3 + голова
+		"engine-unit":        50,  // 4 тройки по 12 + голова с сундуком труб
+		"lab":                12,  // 2 ряда по 4 + голова (лента C и её инсертеры)
 	}
 	for i, b := range Builds {
 		if b.Kind == Mine || b.Kind == Tank || b.Kind == Storage {

@@ -47,6 +47,7 @@ var Builds = []Build{
 	{Stage: 17, Kind: Mine, Product: "iron-ore", Ore: 500_000},
 	{Stage: 17, Kind: Mine, Product: "copper-ore", Ore: 500_000},
 	{Stage: 17, Kind: Smelt, Product: "copper-plate", Recipe: "copper-plate", N: 20},
+	{Stage: 17, Kind: Smelt, Product: "copper-plate", Recipe: "copper-plate", N: 20},
 	{Stage: 17, Kind: Smelt, Product: "iron-plate", Recipe: "iron-plate", N: 20},
 	{Stage: 17, Kind: Smelt, Product: "iron-plate", Recipe: "iron-plate", N: 10},
 	{Stage: 20, Kind: Make, Product: "automation-science-pack", Recipe: "automation-science-pack", Subs: []string{"iron-gear-wheel"}, N: 2},
