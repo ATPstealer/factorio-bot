@@ -1027,7 +1027,16 @@ func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
 		rows++
 	}
 	if len(outs) > rows {
-		return fmt.Errorf("cluster: %s: выходов добычи %d, рядов %d", bus.Name, len(outs), rows)
+		// рядов меньше, чем выходов: лишние — без своей ленты, боком в подвод того же ресурса
+		// (feedMine; cluster.md §2а «Добыча»: свободной головы нет — боком в подвод до головы)
+		var shared []mineOut
+		outs, shared = shareLanes(outs, rows)
+		for _, o := range shared {
+			b.logf("добыча %s: рядов bus-1 %d — выход (%d,%d) боком в подвод %s", o.c.Name, rows, o.p.T.X, o.p.T.Y, o.c.Product)
+		}
+		if len(outs) > rows {
+			return fmt.Errorf("cluster: %s: выходов добычи %d, рядов %d", bus.Name, len(outs), rows)
+		}
 	}
 	want := make([]int, len(outs))
 	for i, o := range outs {
@@ -1061,6 +1070,49 @@ func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
 		b.feedLane[o.p.T] = y
 	}
 	return nil
+}
+
+// shareLanes — выходы outs без лишних сверх rows: у ресурса, у которого выходов больше всех (не
+// меньше двух), — выход блока с меньшим числом буров; порядок остальных — как был. Убранные —
+// вторым списком.
+func shareLanes(outs []mineOut, rows int) (keep, shared []mineOut) {
+	keep = slices.Clone(outs)
+	for len(keep) > rows {
+		count := map[string]int{}
+		for _, o := range keep {
+			count[o.c.Product]++
+		}
+		drop := -1
+		for i, o := range keep {
+			n := count[o.c.Product]
+			if n < 2 {
+				continue
+			}
+			if drop < 0 {
+				drop = i
+				continue
+			}
+			d := keep[drop]
+			if n > count[d.c.Product] || n == count[d.c.Product] && o.c.drills() < d.c.drills() {
+				drop = i
+			}
+		}
+		if drop < 0 {
+			break
+		}
+		shared = append(shared, keep[drop])
+		keep = slices.Delete(keep, drop, drop+1)
+	}
+	return keep, shared
+}
+
+// drills — буров в блоке добычи.
+func (c *Cluster) drills() float64 {
+	n := 0.0
+	for _, u := range c.Units {
+		n += u.Machines
+	}
+	return n
 }
 
 // LaterTag — тег построек, дописанных в стоящий кластер на потом (буры до 2M в блоке первой
