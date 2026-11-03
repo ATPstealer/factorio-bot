@@ -68,7 +68,7 @@ var Builds = []Build{
 	{Stage: 37, Kind: Make, Product: "plastic-bar", Recipe: "plastic-bar", N: 3},
 	{Stage: 37, Kind: Make, Product: "sulfur", Recipe: "sulfur", N: 3},
 	{Stage: 38, Kind: Make, Product: "engine-unit", Recipe: "engine-unit", Subs: []string{"pipe", "iron-gear-wheel"}, N: 4, SubChest: "pipe"},
-	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 8,
+	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 12,
 		Inputs: []string{"copper-plate", "plastic-bar", "electronic-circuit"}},
 	{Stage: 40, Kind: Make, Product: "chemical-science-pack", Recipe: "chemical-science-pack", N: 3,
 		Inputs: []string{"engine-unit", "advanced-circuit", "sulfur"}},
