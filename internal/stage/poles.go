@@ -175,16 +175,16 @@ func connectPower(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allo
 			}
 		}
 	} else {
-		p, err := h.B.Player()
-		if err != nil {
+		// все свои столбы — из модели карты: «1000 ближайших к персонажу» теряли дальние
+		// (стадия 41 на 635406131: столбов 1755, персонаж у дальнего буфера — столбы блока
+		// лабораторий не в сети, «от сети не дотянуться»)
+		if _, err := h.World.Sync(h.B, false); err != nil {
 			return nil, err
 		}
-		built, err := h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &p.Position, Limit: 1000})
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range built {
-			net = append(net, e.Position)
+		for _, o := range h.World.Objects() {
+			if o.Own && o.Type == "electric-pole" {
+				net = append(net, o.Pos)
+			}
 		}
 	}
 	return connectNet(h, plan, list, allow, net)
