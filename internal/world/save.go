@@ -43,6 +43,7 @@ func (w *World) Load(path string) error {
 		return err
 	}
 	w.Chunks = chunks
+	w.changed(nil)
 	return nil
 }
 

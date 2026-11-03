@@ -44,6 +44,7 @@ func (w *World) Sync(b *bridge.Bridge, full bool) (int, error) {
 	for c := range w.Chunks {
 		if !open[c] {
 			delete(w.Chunks, c)
+			w.changed(nil)
 		}
 	}
 

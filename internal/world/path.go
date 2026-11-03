@@ -144,10 +144,10 @@ func (w *World) Without(o Object, fn func()) {
 	}
 	saved := c.Objects
 	c.Objects = append(append([]Object(nil), saved[:idx]...), saved[idx+1:]...)
-	c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+	w.changed(c)
 	defer func() {
 		c.Objects = saved
-		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+		w.changed(c)
 	}()
 	fn()
 }
@@ -736,7 +736,7 @@ func (w *World) Put(objs []Object) {
 	for _, o := range objs {
 		if c := w.Chunks[ChunkOf(TileOf(o.Pos))]; c != nil {
 			c.Objects = append(c.Objects, o)
-			c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+			w.changed(c)
 		}
 	}
 }
@@ -767,12 +767,12 @@ func (w *World) Hide(objs []Object) (restore func()) {
 			}
 		}
 		c.Objects = keep
-		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+		w.changed(c)
 	}
 	return func() {
 		for _, u := range undo {
 			u.c.Objects = u.objs
-			u.c.blocked, u.c.hard, u.c.solid, u.c.cells = nil, nil, nil, nil
+			w.changed(u.c)
 		}
 	}
 }
@@ -787,7 +787,7 @@ func (w *World) Keep() (restore func()) {
 	return func() {
 		for c, objs := range saved {
 			c.Objects = objs
-			c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+			w.changed(c)
 		}
 	}
 }

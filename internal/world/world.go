@@ -81,6 +81,25 @@ type World struct {
 	// Squeeze — маршрут через запас у рамок (не через сами рамки): обычного пути нет,
 	// а персонаж зашёл сюда через узкую щель
 	Squeeze bool
+	// build — Buildable по тайлам (buildOK, buildClear, buildNo): поиск пути ленты спрашивает
+	// каждый тайл по многу раз (план всей базы — 40 % времени); сброс — changed
+	build map[Tile]uint8
+}
+
+// Значения кэша Buildable.
+const (
+	buildOK = iota + 1
+	buildClear
+	buildNo
+)
+
+// changed — объекты чанка c поменялись (c == nil — чанки целиком): рамки и кэш Buildable —
+// заново.
+func (w *World) changed(c *Chunk) {
+	if c != nil {
+		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
+	}
+	w.build = nil
 }
 
 func New(protos *knowledge.Prototypes) *World {
@@ -108,6 +127,7 @@ func (w *World) Apply(scans []bridge.ChunkScan) {
 		}
 		w.Chunks[cp] = c
 	}
+	w.changed(nil)
 }
 
 func (w *World) chunk(t Tile) *Chunk { return w.Chunks[ChunkOf(t)] }
@@ -477,6 +497,25 @@ func ringChunks(r int) []bridge.ChunkPos {
 // Buildable — можно ли строить на тайле: открытая суша, без неубираемых объектов.
 // clear — на тайле есть деревья/камни/обломки, их надо убрать перед стройкой.
 func (w *World) Buildable(t Tile) (ok, clear bool) {
+	if v, had := w.build[t]; had {
+		return v != buildNo, v == buildClear
+	}
+	ok, clear = w.buildable(t)
+	if w.build == nil {
+		w.build = map[Tile]uint8{}
+	}
+	switch {
+	case !ok:
+		w.build[t] = buildNo
+	case clear:
+		w.build[t] = buildClear
+	default:
+		w.build[t] = buildOK
+	}
+	return ok, clear
+}
+
+func (w *World) buildable(t Tile) (ok, clear bool) {
 	if w.TileAt(t) != Land {
 		return false, false
 	}
