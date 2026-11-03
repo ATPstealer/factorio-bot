@@ -45,7 +45,7 @@ func init() {
 		// пары «стержни → рельсы»; камень — сквозной лентой bus-1 → bus-2
 		{n: 46, name: "рельсы", file: "state-rails.json", wait: []string{"railway"}, fact: inBuffer("rail")},
 		{n: 47, name: "фиолетовая наука", file: "state-purple-science.json",
-			wait: []string{purplePack}, fact: working("assembling-machine-2")},
+			wait: []string{purplePack}, fact: working("assembling-machine-1", "assembling-machine-2")}, // до стадии 50 — первый уровень
 		// часть блока лабораторий под фиолетовую, отвод фиолетовой (cluster.md §2а «Лаборатории»);
 		// исследования — и на фиолетовой, первыми (как стадия 41 — на синей)
 		{n: 48, name: "фиолетовая в лаборатории", file: "state-labs-purple.json", fact: labsOn(purplePack),

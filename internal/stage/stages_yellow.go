@@ -54,7 +54,7 @@ func init() {
 		{n: 59, name: "процессоры", file: "state-processing-units.json",
 			wait: []string{"processing-unit"}, fact: inBuffer("processing-unit")},
 		{n: 60, name: "жёлтая наука", file: "state-yellow-science.json",
-			wait: []string{yellowPack}, fact: working("assembling-machine-2")},
+			wait: []string{yellowPack}, fact: working("assembling-machine-1", "assembling-machine-2")},
 		// часть блока лабораторий под жёлтую (cluster.md §2а «Лаборатории»); исследования — и на
 		// жёлтой, первыми (как стадии 41 и 48)
 		{n: 61, name: "жёлтая в лаборатории", file: "state-labs-yellow.json", fact: labsOn(yellowPack),
