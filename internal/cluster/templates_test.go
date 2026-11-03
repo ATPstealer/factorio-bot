@@ -15,15 +15,17 @@ import (
 // НПЗ — нет), у двигателей ещё сундук труб; у станции — буфер угля (cluster.md §6).
 func TestBuildTemplates(t *testing.T) {
 	p := pt(t)
-	// длина ряда, тайлов (refactor.md: этажи по самому длинному столбцу)
+	// длина ряда, тайлов (refactor.md: этажи по самому длинному столбцу); продукт/N — у продукта
+	// с кластерами разного размера
 	wantLen := map[string]int{
-		"transport-belt":     57,  // 7 пар по 8 + голова
-		"inserter":           25,  // 3 пары
-		"electronic-circuit": 105, // 13 пар
-		"copper-plate":       62,  // 20 печей по 3 + голова + перекладка
-		"steel-plate":        46,  // 15 пар печей по 3 + голова
-		"engine-unit":        50,  // 4 тройки по 12 + голова с сундуком труб
-		"lab":                12,  // 2 ряда по 4 + голова (лента C и её инсертеры)
+		"transport-belt":       57, // 7 пар по 8 + голова
+		"inserter":             25, // 3 пары
+		"electronic-circuit/7": 57, // 7 пар
+		"electronic-circuit/6": 49, // 6 пар
+		"copper-plate":         62, // 20 печей по 3 + голова + перекладка
+		"steel-plate":          46, // 15 пар печей по 3 + голова
+		"engine-unit":          50, // 4 тройки по 12 + голова с сундуком труб
+		"lab":                  12, // 2 ряда по 4 + голова (лента C и её инсертеры)
 	}
 	for i, b := range Builds {
 		if b.Kind == Mine || b.Kind == Tank || b.Kind == Storage {
@@ -44,7 +46,11 @@ func TestBuildTemplates(t *testing.T) {
 				t.Errorf("%s: %s", c.Name, e)
 			}
 		}
-		if w, ok := wantLen[c.Product]; ok && L != w {
+		w, ok := wantLen[fmt.Sprintf("%s/%d", c.Product, b.N)]
+		if !ok {
+			w, ok = wantLen[c.Product]
+		}
+		if ok && L != w {
 			t.Errorf("%s: длина ряда %d, ждали %d", c.Name, L, w)
 		}
 		pitchLen := c.Head + c.Count*c.Pitch
