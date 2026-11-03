@@ -551,6 +551,8 @@ func planAudit(h *act.Hands, list []layout.Placement) ([]planDiff, error) {
 			res = append(res, planDiff{pl, nil, "нет"})
 		case directed(pl.Name) && st.Direction != nil && *st.Direction != pl.Dir:
 			res = append(res, planDiff{pl, st, fmt.Sprintf("направление %d, в плане %d", *st.Direction, pl.Dir)})
+		case machineTurned(h, pl, st):
+			res = append(res, planDiff{pl, st, fmt.Sprintf("машина: направление %d, в плане %d", *st.Direction, pl.Dir)})
 		// подземка не тем концом (вход на месте выхода): направление то же, лента оборвана
 		// (стадия 43 на 427965634: выход поставлен позже входа в другом участке, без разворота)
 		case strings.HasSuffix(pl.Name, "underground-belt") && pl.Recipe != "" && st.UGType != "" && st.UGType != pl.Recipe:
@@ -630,6 +632,14 @@ func planFix(ctx context.Context, h *act.Hands, s *worker, list []layout.Placeme
 			}
 		case directed(d.pl.Name):
 			err = h.Rotate(ctx, d.st.Entity, d.pl.Dir)
+		case strings.HasPrefix(d.why, "машина: направление"):
+			// повернуть можно с рецептом (жидкостным) — сначала рецепт
+			if d.st.Recipe != d.pl.Recipe {
+				err = h.SetRecipe(ctx, d.st.Entity, d.pl.Recipe)
+			}
+			if err == nil {
+				err = h.Rotate(ctx, d.st.Entity, d.pl.Dir)
+			}
 		case h.Protos.Entities[d.pl.Name].Type == "assembling-machine" && d.pl.Recipe != "":
 			// любой машине с рецептом — и НПЗ, химзаводу (НПЗ, поставленный позже других, остался
 			// без рецепта: сверка видела, но не задавала — стадия 36 на 1114315936)

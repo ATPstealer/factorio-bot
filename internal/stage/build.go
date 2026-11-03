@@ -275,6 +275,25 @@ func recipeMachine(name string) bool {
 	return strings.HasPrefix(name, "assembling-machine") || name == "oil-refinery" || name == "chemical-plant"
 }
 
+// fluidRecipe — у рецепта есть жидкость (на входе или выходе): у машины с ним важно направление —
+// трубные соединения с одной стороны (сборщики процессоров встали на север, труба кислоты —
+// слева: «нет жидкости», стадия 59 на 2448886157).
+func fluidRecipe(h *act.Hands, recipe string) bool {
+	r := h.Protos.Recipes[recipe]
+	for _, a := range append(slices.Clone(r.Ingredients), r.Products...) {
+		if h.Protos.IsFluid(a.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+// machineTurned — машина с жидкостью в рецепте плана стоит не тем направлением.
+func machineTurned(h *act.Hands, pl layout.Placement, st *bridge.EntityState) bool {
+	return recipeMachine(pl.Name) && pl.Recipe != "" && fluidRecipe(h, pl.Recipe) && st.Direction != nil &&
+		!h.SameDir(pl.Name, *st.Direction, pl.Dir)
+}
+
 // filterInserter — инсертер с фильтром (у твердотопливного фильтров нет).
 func filterInserter(name string) bool {
 	return strings.HasSuffix(name, "inserter") && name != "burner-inserter"
@@ -310,6 +329,10 @@ func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error
 		case recipeMachine(pl.Name):
 			if st.Recipe != pl.Recipe && !locked[pl.Recipe] {
 				err = h.SetRecipe(ctx, st.Entity, pl.Recipe)
+			}
+			// с жидкостью в рецепте — и направление по плану: повернуть можно, когда рецепт задан
+			if err == nil && !locked[pl.Recipe] && machineTurned(h, pl, st) {
+				err = h.Rotate(ctx, st.Entity, pl.Dir)
 			}
 		case !slices.Contains(st.Filters, pl.Recipe):
 			if locked[item] {
