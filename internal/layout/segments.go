@@ -87,7 +87,7 @@ func (l *Layout) pipeNet() *pipeNet {
 		}
 		d := (pl.Dir + 8) % 16
 		cur := world.TileOf(pl.Pos)
-		for k := 1; k <= e.MaxUndergroundDistance+1; k++ {
+		for k := 1; k <= e.MaxUndergroundDistance; k++ {
 			cur = Step(cur, d)
 			if j, ok := at[cur]; ok && l.List[j].Name == pl.Name && l.List[j].Dir == d {
 				if i < j {

@@ -158,7 +158,9 @@ func (f *flow) pipes() {
 		if e := f.p.Entities[pl.Name]; e.Type == "pipe-to-ground" {
 			d := (pl.Dir + 8) % 16
 			cur := world.TileOf(pl.Pos)
-			for k := 1; k <= e.MaxUndergroundDistance+1; k++ {
+			// концы — не дальше дальности прототипа (на тайл дальше игра не соединяет: стадия 59
+			// на 1114315936)
+			for k := 1; k <= e.MaxUndergroundDistance; k++ {
 				cur = Step(cur, d)
 				if j, ok := f.at[cur]; ok {
 					if n := f.l.List[j]; n.Name == pl.Name && n.Dir == d {

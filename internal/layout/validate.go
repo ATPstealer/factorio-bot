@@ -117,7 +117,7 @@ func (l *Layout) Validate() []string {
 			d := (pl.Dir + 8) % 16
 			ok := false
 			cur := t
-			for k := 1; k <= e.MaxUndergroundDistance+1; k++ {
+			for k := 1; k <= e.MaxUndergroundDistance; k++ { // дальше игра не соединяет
 				cur = Step(cur, d)
 				if n := l.At(cur); n != nil && n.Name == pl.Name && n.Dir == d {
 					ok = true
@@ -125,7 +125,7 @@ func (l *Layout) Validate() []string {
 				}
 			}
 			if !ok {
-				add("подземная труба %v %s: нет пары", t, DirName(pl.Dir))
+				add("подземная труба %v %s: нет пары в пределах %d", t, DirName(pl.Dir), e.MaxUndergroundDistance)
 			}
 		case e.Type == "inserter":
 			pick, drop := InserterEnds(l.P, pl)

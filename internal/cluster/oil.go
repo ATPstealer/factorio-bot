@@ -341,15 +341,17 @@ func pipeAlong(l *layout.Layout, x0, x1, y int, tag string) error {
 			return fmt.Errorf("cluster: труба %s: не обойти (%d, %d)", tag, x, y)
 		}
 		// выход — где за ним ещё тайл свободен (там следующий вход подземки, если дальше снова
-		// занято): «лента, просвет в тайл, лента…» у головы bus-1 — подводы с добычи, 260647970
+		// занято): «лента, просвет в тайл, лента…» у головы bus-1 — подводы с добычи, 260647970.
+		// Вход — на прошлом тайле (x-1): выход не дальше x-1+maxUG (на тайл дальше игра пару не
+		// соединяет — кислота не шла, стадия 59 на 1114315936)
 		out := -1
-		for k := 1; k <= maxUG && x+k <= x1+maxUG; k++ {
+		for k := 1; k < maxUG && x+k <= x1+maxUG; k++ {
 			if t := (world.Tile{X: x + k, Y: y}); ok(t) && (x+k >= x1 || ok(world.Tile{X: x + k + 1, Y: y})) {
 				out = x + k
 				break
 			}
 		}
-		for k := 1; out < 0 && k <= maxUG && x+k <= x1+maxUG; k++ {
+		for k := 1; out < 0 && k < maxUG && x+k <= x1+maxUG; k++ {
 			if ok(world.Tile{X: x + k, Y: y}) {
 				out = x + k
 			}

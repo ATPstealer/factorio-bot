@@ -317,6 +317,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("чужое с лент не убралось: %v", err)
 		}
+		// подземная пара труб длиннее дальности — обходом (stages.md, общее)
+		if err := fixLongPipes(ctx, h, n); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("длинные подземные пары труб не обошлись: %v", err)
+		}
 		// инсертер пары по плану — быстрый поверх обычного (stages.md, общее)
 		if err := fastPairs(ctx, h, n); err != nil {
 			if ctx.Err() != nil {
