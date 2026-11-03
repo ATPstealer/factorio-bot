@@ -284,7 +284,8 @@ func filterInserter(name string) bool {
 // (Recipe). Фильтр на ещё не открытый предмет — заглушка filterHold, настоящий ставит стадия,
 // которая предмет вводит; рецепт ещё не открыт — пропустить (waitOpen, потом configure ещё
 // раз). Раньше — только сборщик 1 и обычный инсертер: сборщики 2, НПЗ, химзаводы, длинные и
-// быстрые инсертеры синих стадий оставались без настройки (решение пользователя 26.10).
+// быстрые инсертеры синих стадий оставались без настройки (решение пользователя 26.10). Потом —
+// ограничение буферов выхода list (limitBuffers).
 func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error {
 	locked, err := lockedItems(h)
 	if err != nil {
@@ -322,7 +323,8 @@ func configure(ctx context.Context, h *act.Hands, list []layout.Placement) error
 			return err
 		}
 	}
-	return nil
+	// ограничение буферов выхода — там же, сразу (stages.md «Фильтры и рецепты — сразу»)
+	return limitBuffers(ctx, h, list)
 }
 
 // openWait — сколько ждать исследования рецепта (зелёная наука: в очереди с обслуживания).

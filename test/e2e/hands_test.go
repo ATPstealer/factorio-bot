@@ -1104,6 +1104,35 @@ func TestTakeItemFromChest(t *testing.T) {
 	}
 }
 
+// Ограничение сундука (буфер выхода, cluster.md §6а; стадия 47 на 1114315936: пустой буфер забирал
+// весь выход кластера красных схем): железный сундук — 1 ячейка, потом 3 (смена ограничения);
+// подтверждение — ограничение из мода, окно закрыто.
+func TestLimitChest(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "iron-chest", 1)
+	spot := freeArea(t, h, 2)
+	ch, err := h.Place(ctx, "iron-chest", spot, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{1, 3} {
+		if err := h.LimitChest(ctx, ch, n); err != nil {
+			t.Fatal(err)
+		}
+		st, err := h.B.GetEntity(ch.Name, ch.Position)
+		if err != nil || st == nil {
+			t.Fatalf("сундук: %v", err)
+		}
+		if st.Limit == nil || *st.Limit != n {
+			t.Errorf("ограничение %v, ждали %d", st.Limit, n)
+		}
+	}
+	if p, _ := h.B.Player(); p.OpenedGUI != "" && p.OpenedGUI != "none" {
+		t.Errorf("окно не закрыто: %q", p.OpenedGUI)
+	}
+}
+
 // Добыча руками при полном инвентаре (стадия 14 на 1028292478: «инвентарь полон: coal не
 // поднять» — сбор падал): полон — освободить место (OnFull) и добывать дальше. Инвентарь должен
 // быть полон с начала — карту готовит пользователь (на картах -0 его нет): не полон — пропуск.

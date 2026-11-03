@@ -215,6 +215,9 @@ local function entity_state(p, name, position)
       end
       if #s > 0 then r.slots = s end
       r.slots_size = #inv
+      -- ограничение (красный крест окна сундука): открытых ячеек; без ограничения — нет поля
+      local bar = inv.get_bar()
+      if bar <= #inv then r.limit = bar - 1 end
     end
   end
   if e.type == "assembling-machine" or e.type == "furnace" then

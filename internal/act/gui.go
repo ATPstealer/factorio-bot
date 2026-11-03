@@ -1570,6 +1570,90 @@ func (h *Hands) TakeItem(ctx context.Context, e bridge.Entity, item string, n in
 	return nil
 }
 
+// LimitChest — ограничить сундук e: открытых ячеек — slots, весь сундук и больше — без
+// ограничения (cluster.md §6а, буфер выхода): окно сундука, красный крест сразу за последней
+// ячейкой, потом ячейка номер slots (с 0) — с неё закрыто. Крест при стоящем ограничении его
+// снимает (смена 1 → 3 ячеек снимала, и только: TestLimitChest) — тогда крест ещё раз.
+// Подтверждение — ограничение из мода.
+func (h *Hands) LimitChest(ctx context.Context, e bridge.Entity, slots int) error {
+	st, err := h.B.GetEntity(e.Name, e.Position)
+	if err != nil {
+		return err
+	}
+	if st == nil {
+		return fmt.Errorf("act: %s пропал", e.Name)
+	}
+	if slots < 0 {
+		return fmt.Errorf("act: ограничение %s в %d ячеек", e.Name, slots)
+	}
+	open := func(st *bridge.EntityState) int { // открытых ячеек
+		if st.Limit == nil {
+			return st.SlotsSize
+		}
+		return *st.Limit
+	}
+	slots = min(slots, st.SlotsSize)
+	if open(st) == slots {
+		return nil
+	}
+	h.Say("ограничиваю %s в (%.1f, %.1f): %d ячеек из %d", e.Name, e.Position.X, e.Position.Y, slots, st.SlotsSize)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	if err := h.openEntity(ctx, e, "chest-open"); err != nil {
+		return err
+	}
+	L := h.winLayout()
+	slot := func(i int) point {
+		return point{L.ChestSlot1.X + (i%L.Cols)*L.SlotStep, L.ChestSlot1.Y + (i/L.Cols)*L.SlotStep}
+	}
+	// clicks — клики по точкам, потом ждать, пока открытых ячеек — want
+	clicks := func(want int, pts ...point) error {
+		for _, p := range pts {
+			if err := h.at(p); err != nil {
+				return err
+			}
+			if err := sleep(ctx, 200*time.Millisecond); err != nil {
+				return err
+			}
+			if err := h.In.Click(input.Left); err != nil {
+				return err
+			}
+		}
+		for k := 0; k < 10; k++ {
+			if err := sleep(ctx, inputLatency); err != nil {
+				return err
+			}
+			st, err := h.B.GetEntity(e.Name, e.Position)
+			if err != nil {
+				return err
+			}
+			if st != nil && open(st) == want {
+				return nil
+			}
+		}
+		h.debugShot("chest-limit")
+		return fmt.Errorf("act: у %s не %d открытых ячеек", e.Name, want)
+	}
+	cross := slot(st.SlotsSize)
+	if st.Limit != nil { // стоит — снять
+		if err := clicks(st.SlotsSize, cross); err != nil {
+			return err
+		}
+	}
+	if slots == st.SlotsSize {
+		return nil
+	}
+	return clicks(slots, cross, slot(slots))
+}
+
 // FlushPipeline — слить всю сеть труб, к которой подключена цистерна e (в ней чужая жидкость,
 // решение пользователя 28.10: кнопка в окне): окно цистерны, нижняя красная кнопка-корзина
 // («Pipeline contents»; верхняя — содержимое самой цистерны). Подтверждение — в цистерне больше

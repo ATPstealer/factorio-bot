@@ -317,6 +317,15 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("чужое с лент не убралось: %v", err)
 		}
+		// буферы выхода — с ограничением (stages.md, общее)
+		if plan, err := LoadPlan(); err == nil {
+			if err := limitBuffers(ctx, h, plan.Layout); err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
+				h.Say("буферы выхода не ограничились: %v", err)
+			}
+		}
 		// буферов входа у лабораторий нет (cluster.md §6): стоящие — снять
 		if err := dropLabBuffers(ctx, h); err != nil {
 			if ctx.Err() != nil {

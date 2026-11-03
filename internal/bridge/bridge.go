@@ -362,7 +362,9 @@ type EntityState struct {
 	Fluids           map[string]float64        `json:"fluids,omitempty"`      // жидкости в ящиках
 	Slots            List[Slot]                `json:"slots,omitempty"`       // ячейки сундука (с 1)
 	SlotsSize        int                       `json:"slots_size,omitempty"`
-	I                int                       `json:"i,omitempty"` // номер в запросе GetEntities (с 1)
+	// Limit — ограничение сундука (красный крест): открытых ячеек; nil — без ограничения
+	Limit *int `json:"limit,omitempty"`
+	I     int  `json:"i,omitempty"` // номер в запросе GetEntities (с 1)
 }
 
 // Count — сколько предмета во всех инвентарях сущности.
