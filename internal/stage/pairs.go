@@ -27,6 +27,44 @@ func fastPairs(ctx context.Context, h *act.Hands, n int) error {
 			return err
 		}
 	}
+	return fastOverBasic(ctx, h, plan, n)
+}
+
+// fastCircuits — у кластера зелёных схем все инсертеры — быстрые (stages.md, стадия 28): в плане
+// и на карте — поверх обычных.
+func fastCircuits(ctx context.Context, h *act.Hands) error {
+	plan, err := LoadPlan()
+	if err != nil {
+		return err
+	}
+	tags := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Make && c.Product == "electronic-circuit" {
+			tags[cluster.Tag(c.Name)] = true
+		}
+	}
+	k := 0
+	for i, pl := range plan.Layout {
+		if pl.Name == "inserter" && tags[pl.Tag] {
+			plan.Layout[i].Name = "fast-inserter"
+			k++
+		}
+	}
+	if k > 0 {
+		h.Say("план: %d инсертеров кластера зелёных схем — быстрые", k)
+		if err := writeState(planFile, plan); err != nil {
+			return err
+		}
+	}
+	if err := waitResearch(ctx, h, "fast-inserter"); err != nil {
+		return err
+	}
+	return fastOverBasic(ctx, h, plan, 28)
+}
+
+// fastOverBasic — быстрые инсертеры плана прошлых стадий (до n), на месте которых стоит обычный, —
+// поверх (замена на месте).
+func fastOverBasic(ctx context.Context, h *act.Hands, plan *ClusterPlan, n int) error {
 	st := planStages(plan)
 	var want, old []layout.Placement
 	for _, pl := range plan.Layout {
