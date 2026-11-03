@@ -7,6 +7,7 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // fixLongPipes — подземные пары труб плана длиннее дальности (игра их не соединяет; план
@@ -25,11 +26,33 @@ func fixLongPipes(ctx context.Context, h *act.Hands, n int) error {
 	for _, pl := range plan.Layout {
 		l.Add(pl)
 	}
-	if len(cluster.LongPipes(l)) == 0 {
+	pairs := cluster.LongPipes(l)
+	if len(pairs) == 0 {
 		return nil
 	}
 	st := planStages(plan)
-	removed, added, err := cluster.FixLongPipes(l)
+	// стоящие концы пар — не помеха обходу (их снимут): без них в модели карты («начало закрыто»
+	// на 1114315936 — конец стоял, а без игры обход находился)
+	var hide []world.Object
+	for _, pr := range pairs {
+		for _, t := range pr {
+			for _, o := range h.World.ObjectsNear(t.Center(), 0.5) {
+				if o.Own && o.Name == "pipe-to-ground" && world.TileOf(o.Pos) == t {
+					hide = append(hide, o)
+				}
+			}
+		}
+	}
+	var removed, added []layout.Placement
+	var run func(i int)
+	run = func(i int) {
+		if i == len(hide) {
+			removed, added, err = cluster.FixLongPipes(l)
+			return
+		}
+		h.World.Without(hide[i], func() { run(i + 1) })
+	}
+	run(0)
 	if len(removed) > 0 {
 		h.Say("план: %d подземных пар труб длиннее дальности — обход (%d построек)", len(removed)/2, len(added))
 		plan.Layout, plan.Placed = l.List, len(l.List)
