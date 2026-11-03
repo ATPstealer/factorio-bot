@@ -58,6 +58,8 @@ const usage = `bot — бот Factorio: действует только мышь
   worlddump             открытая карта в run/worlds/<сид>.gob (стадия 2 сохраняет сама)
   rough ФАЙЛ.gob [ДО [ОТ]] разметка зон (стадия 2) и планы до стадии ДО без игры по сохранённой карте; ОТ > 2 —
                         с состояния прошлых стадий в BOT_RUN (из снимка); сид — из BOT_RUN/map.json
+  estimate ФАЙЛ.gob     прикидка стадии 1 без игры (от точки старта: BOT_RUN/state-squares.json);
+                        код 1 — база не встаёт
   empty N               код 0 — стадия N пустая (резерв): прогон только копирует снимок
   pickup X Y            подобрать свою постройку в точке (X, Y)
   map [-r R] [-s S] [-o FILE]
@@ -156,6 +158,21 @@ func main() {
 		h := &act.Hands{Protos: pr, World: w, Log: log.Printf}
 		check(stage.RoughOffline(h, from, to))
 		log.Printf("зоны размечены")
+		return
+	case "estimate":
+		// прикидка стадии 1 без игры по карте из run/worlds/<сид>.gob; код 1 — база не встаёт
+		if len(args) < 2 {
+			log.Fatal("bot estimate ФАЙЛ.gob")
+		}
+		pr, _ := knowledgeFor("127.0.0.1:1", "")
+		w := world.New(pr)
+		check(w.Load(args[1]))
+		h := &act.Hands{Protos: pr, World: w, Log: log.Printf}
+		c, ok := stage.EstimateOffline(h)
+		if !ok {
+			log.Fatal("прикидка: база не встаёт")
+		}
+		log.Printf("прикидка: база встаёт, центр (%d, %d)", c.X, c.Y)
 		return
 	case "flow":
 		// проверка течения по плану без игры (layout.Flow): bot flow КАРТА.gob ПЛАН.json [X Y]

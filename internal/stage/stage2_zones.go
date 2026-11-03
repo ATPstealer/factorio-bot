@@ -173,10 +173,14 @@ func saveWorld(h *act.Hands) {
 }
 
 // RoughOffline — план всей базы без игры по сохранённой карте (h.World загружен, h.B нет): одна
-// попытка разметки в открытом, без дооткрытий и переходов в другие квадраты; from > 2 — без
-// плана, стадии from…to по состоянию в BOT_RUN.
+// попытка разметки в открытом (в квадрате стадии 1, если он есть в state-squares.json), без
+// дооткрытий и переходов в другие квадраты; from > 2 — без плана, стадии from…to по состоянию
+// в BOT_RUN.
 func RoughOffline(h *act.Hands, from, to int) error {
 	roughRegion, roughCliffs, roughOffline = nil, false, true
+	if st, err := loadSquares(); err == nil && st.Found != nil {
+		roughRegion = st.Found // как в игре: центр базы — в квадрате, где её нашла стадия 1
+	}
 	clear(planSplit)
 	if from <= 2 {
 		if err := roughOnce(h); err != nil {
@@ -207,6 +211,20 @@ func RoughOffline(h *act.Hands, from, to int) error {
 		h.Log("стадии 10–%d на бумаге — без нарушений", to)
 	}
 	return nil
+}
+
+// EstimateOffline — прикидка стадии 1 без игры по сохранённой карте (h.World загружен, h.B нет):
+// от точки старта (центр кругов разведки — state-squares.json в BOT_RUN, иначе (0, 0)), как
+// прикидка в фоне при разведке; центр базы, встала ли.
+func EstimateOffline(h *act.Hands) (world.Tile, bool) {
+	roughRegion, roughCliffs, roughOffline = nil, false, true
+	start := world.Tile{}
+	if st, err := loadSquares(); err == nil {
+		start = st.Center
+	}
+	roughOrigin = &start
+	defer func() { roughOrigin = nil }()
+	return roughEstimate(h)
 }
 
 // roughOffline — разметка без игры (RoughOffline): база не встала — картинка помех.
