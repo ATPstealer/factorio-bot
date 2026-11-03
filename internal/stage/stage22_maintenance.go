@@ -609,7 +609,9 @@ func planFix(ctx context.Context, h *act.Hands, s *worker, list []layout.Placeme
 			}
 		case directed(d.pl.Name):
 			err = h.Rotate(ctx, d.st.Entity, d.pl.Dir)
-		case strings.HasPrefix(d.pl.Name, "assembling-machine"):
+		case h.Protos.Entities[d.pl.Name].Type == "assembling-machine" && d.pl.Recipe != "":
+			// любой машине с рецептом — и НПЗ, химзаводу (НПЗ, поставленный позже других, остался
+			// без рецепта: сверка видела, но не задавала — стадия 36 на 1114315936)
 			err = h.SetRecipe(ctx, d.st.Entity, d.pl.Recipe)
 		}
 		if err != nil {
