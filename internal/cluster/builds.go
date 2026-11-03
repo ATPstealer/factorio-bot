@@ -51,7 +51,7 @@ var Builds = []Build{
 	{Stage: 17, Kind: Smelt, Product: "iron-plate", Recipe: "iron-plate", N: 10},
 	{Stage: 20, Kind: Make, Product: "automation-science-pack", Recipe: "automation-science-pack", Subs: []string{"iron-gear-wheel"}, N: 2},
 	{Stage: 21, Kind: Lab, Product: "lab", N: 10},
-	{Stage: 23, Kind: Make, Product: "electronic-circuit", Recipe: "electronic-circuit", Subs: []string{"copper-cable"}, N: 10},
+	{Stage: 23, Kind: Make, Product: "electronic-circuit", Recipe: "electronic-circuit", Subs: []string{"copper-cable"}, N: 13},
 	{Stage: 24, Kind: Make, Product: "inserter", Recipe: "inserter", Subs: []string{"iron-gear-wheel"}, N: 3},
 	{Stage: 25, Kind: Make, Product: "transport-belt", Recipe: "transport-belt", Subs: []string{"iron-gear-wheel"}, N: 7},
 	{Stage: 26, Kind: Make, Product: "logistic-science-pack", Recipe: "logistic-science-pack", N: 2},
