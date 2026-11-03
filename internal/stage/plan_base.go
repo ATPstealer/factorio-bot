@@ -47,6 +47,22 @@ func mineNeed() map[string]float64 {
 	return need
 }
 
+// planSplit — какая по счёту разбивка строки таблицы на два кластера (cluster.Build.Splits) у
+// продукта: на этаже не хватило места — следующая (planBase).
+var planSplit = map[string]int{}
+
+// nextSplit — у строки таблицы продукта p с разбивкой — следующая разбивка; false — их больше нет
+// (или разбивки нет).
+func nextSplit(p string) bool {
+	for _, b := range cluster.Builds {
+		if b.Product == p && planSplit[p]+1 < len(b.Splits()) {
+			planSplit[p]++
+			return true
+		}
+	}
+	return false
+}
+
 // planClusters — кластеры плана по таблице, кроме добычи: поставщики раньше потребителей
 // (PlaceZoned ставит слева направо, потребитель — правее поставщиков, и для жидкостей: zones.md),
 // при равенстве — по стадиям; смазка — раньше крекинга тяжёлого (stages.md, стадия 52: выше по
@@ -54,8 +70,13 @@ func mineNeed() map[string]float64 {
 func planClusters(pr *knowledge.Prototypes) []*cluster.Cluster {
 	var cs []*cluster.Cluster
 	for _, b := range cluster.Builds {
-		if b.Kind != cluster.Mine {
-			cs = append(cs, b.Cluster(pr))
+		if b.Kind == cluster.Mine {
+			continue
+		}
+		// больше 20 сборщиков в ряду — двумя кластерами, разбивка — planSplit (cluster.md «Сборка»)
+		splits := b.Splits()
+		for _, part := range splits[min(planSplit[b.Product], len(splits)-1)] {
+			cs = append(cs, part.Cluster(pr))
 		}
 	}
 	rank := func(c *cluster.Cluster) float64 {
@@ -233,6 +254,20 @@ func planBase(h *act.Hands) error {
 		}
 		if ce := (*cluster.ConnectError)(nil); errors.As(err, &ce) && try >= planTries-1 && ce.Consumer.Zone != nil {
 			tight = ce.Consumer
+		}
+		// кластер из разбивки на два (cluster.md «Сборка») — сначала следующая разбивка, зоны заново
+		if tight != nil && nextSplit(tight.Product) {
+			h.Say("%v — %s: следующая разбивка на два кластера, зоны заново", err, tight.Product)
+			if err := roughOnce(h); err != nil {
+				return err
+			}
+			if rough, err = LoadRough(); err != nil {
+				return err
+			}
+			clear(avoid)
+			maps.Copy(avoid, mineAvoid)
+			try = -1
+			continue
 		}
 		if tight != nil && respared < spareTries {
 			if f := cluster.FloorOf(tight); f > 0 {

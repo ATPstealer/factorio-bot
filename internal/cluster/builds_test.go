@@ -203,3 +203,32 @@ func sortedKeys(m map[string]float64) []string {
 	slices.Sort(ks)
 	return ks
 }
+
+// Разбивки на два кластера (cluster.md «Сборка»): от MaxN + остаток, уменьшая больший, до ровной;
+// не больше MaxN — одна.
+func TestSplits(t *testing.T) {
+	sizes := func(b Build) [][]int {
+		var res [][]int
+		for _, s := range b.Splits() {
+			var n []int
+			for _, part := range s {
+				n = append(n, part.N)
+			}
+			res = append(res, n)
+		}
+		return res
+	}
+	for _, c := range []struct {
+		n, max int
+		want   [][]int
+	}{
+		{13, 10, [][]int{{10, 3}, {9, 4}, {8, 5}, {7, 6}}},
+		{12, 10, [][]int{{10, 2}, {9, 3}, {8, 4}, {7, 5}, {6, 6}}},
+		{5, 10, [][]int{{5}}},
+		{5, 0, [][]int{{5}}},
+	} {
+		if got := sizes(Build{N: c.n, MaxN: c.max}); !slices.EqualFunc(got, c.want, slices.Equal) {
+			t.Errorf("N %d, MaxN %d: %v, ждал %v", c.n, c.max, got, c.want)
+		}
+	}
+}

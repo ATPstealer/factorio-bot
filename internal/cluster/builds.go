@@ -22,6 +22,9 @@ type Build struct {
 	// N — основных машин (у пар — пар; у станции — бойлеров, у склада — цистерн, у нефти — скважин
 	// не меньше: месторождения целиком)
 	N int
+	// MaxN — основных в одном кластере не больше (cluster.md «Сборка»: не больше 20 сборщиков в
+	// ряду); N больше — двумя кластерами, разбивку выбирает план (Splits); 0 — без предела
+	MaxN int
 	// Ore — добыча: руды под бурами (cluster.md §2а «Добыча»)
 	Ore int
 	// ToPower — добыча угля станции: своя лента к станции, мимо шины
@@ -32,6 +35,21 @@ type Build struct {
 	// входа по полосам, третий — лента C за лентой выхода, четвёртый — её вторая полоса; nil — как
 	// есть
 	Inputs []string
+}
+
+// Splits — разбивки строки на два кластера по порядку (cluster.md «Сборка»): от MaxN + остаток,
+// уменьшая больший, до ровной; N не больше MaxN — одна, без разбивки.
+func (b Build) Splits() [][]Build {
+	if b.MaxN <= 0 || b.N <= b.MaxN {
+		return [][]Build{{b}}
+	}
+	var res [][]Build
+	for n1 := b.MaxN; n1 >= b.N-n1; n1-- {
+		a, c := b, b
+		a.N, c.N = n1, b.N-n1
+		res = append(res, []Build{a, c})
+	}
+	return res
 }
 
 // Tier2From — стадия замены печей и сборщиков на второй уровень (stages.md, стадия 50): до неё на
@@ -52,8 +70,7 @@ var Builds = []Build{
 	{Stage: 17, Kind: Smelt, Product: "iron-plate", Recipe: "iron-plate", N: 10},
 	{Stage: 20, Kind: Make, Product: "automation-science-pack", Recipe: "automation-science-pack", Subs: []string{"iron-gear-wheel"}, N: 2},
 	{Stage: 21, Kind: Lab, Product: "lab", N: 10},
-	{Stage: 23, Kind: Make, Product: "electronic-circuit", Recipe: "electronic-circuit", Subs: []string{"copper-cable"}, N: 7},
-	{Stage: 23, Kind: Make, Product: "electronic-circuit", Recipe: "electronic-circuit", Subs: []string{"copper-cable"}, N: 6},
+	{Stage: 23, Kind: Make, Product: "electronic-circuit", Recipe: "electronic-circuit", Subs: []string{"copper-cable"}, N: 13, MaxN: 10},
 	{Stage: 24, Kind: Make, Product: "inserter", Recipe: "inserter", Subs: []string{"iron-gear-wheel"}, N: 3},
 	{Stage: 25, Kind: Make, Product: "transport-belt", Recipe: "transport-belt", Subs: []string{"iron-gear-wheel"}, N: 7},
 	{Stage: 26, Kind: Make, Product: "logistic-science-pack", Recipe: "logistic-science-pack", N: 2},
@@ -70,7 +87,7 @@ var Builds = []Build{
 	{Stage: 37, Kind: Make, Product: "plastic-bar", Recipe: "plastic-bar", N: 3},
 	{Stage: 37, Kind: Make, Product: "sulfur", Recipe: "sulfur", N: 3},
 	{Stage: 38, Kind: Make, Product: "engine-unit", Recipe: "engine-unit", Subs: []string{"pipe", "iron-gear-wheel"}, N: 4, SubChest: "pipe"},
-	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 12,
+	{Stage: 39, Kind: Make, Product: "advanced-circuit", Recipe: "advanced-circuit", Subs: []string{"copper-cable"}, N: 12, MaxN: 10,
 		Inputs: []string{"copper-plate", "plastic-bar", "electronic-circuit"}},
 	{Stage: 40, Kind: Make, Product: "chemical-science-pack", Recipe: "chemical-science-pack", N: 3,
 		Inputs: []string{"engine-unit", "advanced-circuit", "sulfur"}},

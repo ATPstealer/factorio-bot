@@ -67,6 +67,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	saveWorld(h)
 	opened, holes := 0, 0 // дооткрытий у базы и дыр внутри неё (stages.md, стадия 2)
 	roughRegion, roughCliffs = nil, false
+	clear(planSplit) // разбивки кластеров — с первой (cluster.md «Сборка»)
 	if st, err := loadSquares(); err == nil && st.Found != nil {
 		roughRegion = st.Found // стадия 1 нашла место в этом квадрате — центр базы в нём (stages.md)
 	}
@@ -176,6 +177,7 @@ func saveWorld(h *act.Hands) {
 // плана, стадии from…to по состоянию в BOT_RUN.
 func RoughOffline(h *act.Hands, from, to int) error {
 	roughRegion, roughCliffs, roughOffline = nil, false, true
+	clear(planSplit)
 	if from <= 2 {
 		if err := roughOnce(h); err != nil {
 			return err

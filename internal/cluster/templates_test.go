@@ -18,16 +18,20 @@ func TestBuildTemplates(t *testing.T) {
 	// длина ряда, тайлов (refactor.md: этажи по самому длинному столбцу); продукт/N — у продукта
 	// с кластерами разного размера
 	wantLen := map[string]int{
-		"transport-belt":       57, // 7 пар по 8 + голова
-		"inserter":             25, // 3 пары
-		"electronic-circuit/7": 57, // 7 пар
-		"electronic-circuit/6": 49, // 6 пар
-		"copper-plate":         62, // 20 печей по 3 + голова + перекладка
-		"steel-plate":          46, // 15 пар печей по 3 + голова
-		"engine-unit":          50, // 4 тройки по 12 + голова с сундуком труб
-		"lab":                  12, // 2 ряда по 4 + голова (лента C и её инсертеры)
+		"transport-belt":        57, // 7 пар по 8 + голова
+		"inserter":              25, // 3 пары
+		"electronic-circuit/10": 81, // 10 пар (первая разбивка 13 пар — 10 + 3)
+		"electronic-circuit/3":  25, // 3 пары
+		"copper-plate":          62, // 20 печей по 3 + голова + перекладка
+		"steel-plate":           46, // 15 пар печей по 3 + голова
+		"engine-unit":           50, // 4 тройки по 12 + голова с сундуком труб
+		"lab":                   12, // 2 ряда по 4 + голова (лента C и её инсертеры)
 	}
-	for i, b := range Builds {
+	var parts []Build // больше 20 сборщиков в ряду — первая разбивка на два (cluster.md «Сборка»)
+	for _, b := range Builds {
+		parts = append(parts, b.Splits()[0]...)
+	}
+	for i, b := range parts {
 		if b.Kind == Mine || b.Kind == Tank || b.Kind == Storage {
 			continue
 		}
