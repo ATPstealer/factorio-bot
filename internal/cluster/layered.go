@@ -72,6 +72,9 @@ func floorOf(c *Cluster) int {
 				if c.Product == "battery" {
 					return 2 // батареи — снабжение (stages.md, стадия 55): химия из пластин и кислоты, выход — на bus-3 к рамам
 				}
+				if c.Product == rocketFuel {
+					return 2 // ракетное топливо — снабжение (stages.md, стадия 64): выход — на bus-3 к шахте
+				}
 				return 1
 			}
 		}
