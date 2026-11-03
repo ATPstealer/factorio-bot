@@ -113,8 +113,7 @@ func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 || n == 49
 func paperStages(h *act.Hands, to int) error {
 	paper = &paperBuilt{at: map[world.Tile]int{}}
 	flowSeen = nil
-	t2 := tier2 // по стадиям на бумаге, после — как было у текущей
-	defer func() { paper, tier2 = nil, t2 }()
+	defer func() { paper = nil }()
 	var outposts []layout.Placement
 	for _, n := range List() {
 		if n < 10 || n > to {
@@ -128,7 +127,6 @@ func paperStages(h *act.Hands, to int) error {
 		if n >= 22 {
 			layout.Chest, chest = ironChest, ironChest
 		}
-		tier2 = n >= tier2From
 		switch n {
 		case 15: // разбор точек
 			paper.remove(h, outposts)
@@ -320,10 +318,10 @@ func refreshLayouts(h *act.Hands, to int) error {
 		}
 	}
 	h.World.Hide(own)
-	stage, need, lc, c, t2 := curStage, needCache, layout.Chest, chest, tier2
+	stage, need, lc, c := curStage, needCache, layout.Chest, chest
 	freshLayouts = true
 	defer func() {
-		curStage, needCache, layout.Chest, chest, tier2 = stage, need, lc, c, t2
+		curStage, needCache, layout.Chest, chest = stage, need, lc, c
 		freshLayouts = false
 	}()
 	h.Say("обновляю чертёж: раскладки стадий 10–%d заново текущим кодом", to)

@@ -75,15 +75,14 @@ func (b *Base) laneStart(bus *ZBus, k int, it string) int {
 }
 
 // Tier2 — постройки второго уровня на место первых (размеры те же — замена по имени в
-// раскладке): печи и сборщики — стадия 50, ленты, инсертеры, столбы, сундуки — стадия 62
-// (cluster.md §7; длинные инсертеры второго уровня не имеют).
+// раскладке; cluster.md §7): инсертеры — стадия FastFrom, печи и сборщики — Tier2From, ленты —
+// стадия 68; длинные инсертеры второго уровня не имеют; столбы и сундуки — только первого уровня
+// (решение пользователя).
 var Tier2 = map[string]string{
 	"transport-belt":       "fast-transport-belt",
 	"underground-belt":     "fast-underground-belt",
 	"splitter":             "fast-splitter",
 	"inserter":             "fast-inserter",
-	"small-electric-pole":  "medium-electric-pole",
-	"iron-chest":           "steel-chest",
 	"stone-furnace":        "steel-furnace",
 	"assembling-machine-1": "assembling-machine-2",
 }

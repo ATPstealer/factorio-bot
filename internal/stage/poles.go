@@ -106,7 +106,7 @@ func corridorPoles(h *act.Hands, plan *ClusterPlan, extra []layout.Placement, st
 			for st := cur; st.d >= 0; st = prev[st] {
 				pl, ok := planPole[st.t]
 				if !ok {
-					pl = layout.Placement{Name: tier(pole), Pos: st.t.Center(), Tag: "poles"}
+					pl = layout.Placement{Name: pole, Pos: st.t.Center(), Tag: "poles"} // столбы — только малые (решение пользователя)
 				}
 				res = append(res, pl)
 			}

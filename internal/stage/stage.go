@@ -243,7 +243,6 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
 		layout.Chest, chest = ironChest, ironChest
 	}
-	tier2 = n >= tier2From // своё стадии (буферы, столбы) — второго уровня (stages.md, стадия 42)
 	// нужное текущей стадии — по её плану (inventory.go)
 	curStage, needCache.items = n, nil
 	// добыча упёрлась в полный инвентарь (стадия 23 на 859088572) — в хранение ненужное; не
