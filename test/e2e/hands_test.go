@@ -1745,6 +1745,38 @@ func TestReplaceAssemblerTier2(t *testing.T) {
 	replaceTier2(t, handsT(t), "assembling-machine-1", "assembling-machine-2", "automation-2", "iron-gear-wheel", 3)
 }
 
+// Быстрый инсертер поверх обычного (инсертер пары по плану — быстрый, stages.md, общее; стадия 60
+// на 2448886157): на месте — быстрый тем же направлением, обычный — в инвентаре. Быстрый — первым
+// (его рецепт съедает обычный).
+func TestReplaceInserterFast(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "fast-inserter", 1)
+	have(t, h, "inserter", 1)
+	ctx := ctxT(t, 4*time.Minute)
+	at := freeArea(t, h, 1)
+	e, err := h.Place(ctx, "inserter", at, act.East)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	if _, err := h.PlaceDirs(ctx, "fast-inserter", []bridge.Pos{e.Position}, []int{act.East}); err != nil {
+		t.Fatalf("fast-inserter поверх inserter: %v", err)
+	}
+	st, err := h.B.GetEntity("fast-inserter", e.Position)
+	if err != nil || st == nil {
+		t.Fatalf("в (%.1f, %.1f) нет fast-inserter: %v", e.Position.X, e.Position.Y, err)
+	}
+	if st.Direction == nil || *st.Direction != act.East {
+		t.Errorf("направление %v, ждали %d", st.Direction, act.East)
+	}
+	if was, _ := h.B.GetEntity("inserter", e.Position); was != nil {
+		t.Errorf("inserter остался на месте")
+	}
+	if p1, _ := h.B.Player(); p1.Inventory["inserter"] != p0.Inventory["inserter"]+1 {
+		t.Errorf("inserter в инвентаре: было %d, стало %d — ждали +1", p0.Inventory["inserter"], p1.Inventory["inserter"])
+	}
+}
+
 // Стальная печь поверх каменной (стадия 50).
 func TestReplaceFurnaceTier2(t *testing.T) {
 	replaceTier2(t, handsT(t), "stone-furnace", "steel-furnace", "advanced-material-processing", "", 2)

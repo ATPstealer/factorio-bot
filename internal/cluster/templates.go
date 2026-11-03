@@ -655,15 +655,17 @@ func pair(l *layout.Layout, f frame, c *Cluster, u, belts int, mach, ins, tag st
 			return err
 		}
 	}
-	direct := func(at, from int) error { // инсертер в среднем ряду сборщиков: из Sub в Main
+	// инсертер в среднем ряду сборщиков: из Sub в Main; быстрый, если обычному не хватает
+	direct := func(at, from int, sub string) error {
 		a := f.tile(at, mv+1)
-		return add(layout.Placement{Name: ins, Pos: a.Center(), Dir: layout.InserterDir(l.P, ins, a, f.tile(from, mv+1)), Tag: tag})
+		name := PairInserter(l.P, ins, mach, c.Main, sub)
+		return add(layout.Placement{Name: name, Pos: a.Center(), Dir: layout.InserterDir(l.P, name, a, f.tile(from, mv+1)), Tag: tag})
 	}
-	if err := direct(u+3, u+2); err != nil {
+	if err := direct(u+3, u+2, recs[0]); err != nil {
 		return err
 	}
 	if c.SubPer > 1 {
-		if err := direct(u+7, u+8); err != nil {
+		if err := direct(u+7, u+8, recs[2]); err != nil {
 			return err
 		}
 	}

@@ -317,6 +317,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("чужое с лент не убралось: %v", err)
 		}
+		// инсертер пары по плану — быстрый поверх обычного (stages.md, общее)
+		if err := fastPairs(ctx, h, n); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("инсертеры пар не заменились: %v", err)
+		}
 		// буферы выхода — с ограничением (stages.md, общее)
 		if plan, err := LoadPlan(); err == nil {
 			if err := limitBuffers(ctx, h, plan.Layout); err != nil {

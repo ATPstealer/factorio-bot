@@ -113,6 +113,10 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 	if err != nil {
 		return err
 	}
+	// бонус захвата инсертеров — первыми (stages.md, общее): дёшевы, а без них пары стоят
+	if f, err := h.B.Force(); err == nil {
+		techs = withBonus(f.Researched, techs)
+	}
 	if len(first) > 0 {
 		on := func(t string) bool {
 			return slices.ContainsFunc(h.Protos.Technologies[t].UnitIngredients, func(in knowledge.Amount) bool { return slices.Contains(first, in.Name) })
