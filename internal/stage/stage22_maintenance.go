@@ -495,10 +495,11 @@ func (d planDiff) String() string {
 }
 
 // directed — у постройки важно направление (ленты, подземки, делители, инсертеры — любого
-// уровня).
+// уровня; насос — качает в одну сторону: на выходе склада стоял на вход — 1114315936).
 func directed(name string) bool {
 	return strings.HasSuffix(name, "transport-belt") || strings.HasSuffix(name, "underground-belt") ||
-		strings.HasSuffix(name, "splitter") || name == "inserter" || name == "fast-inserter" || name == "burner-inserter"
+		strings.HasSuffix(name, "splitter") || name == "inserter" || name == "fast-inserter" || name == "burner-inserter" ||
+		name == "pump"
 }
 
 // planAudit — сверка всего плана с построенным: стоит ли, направление, рецепт сборщика, фильтр

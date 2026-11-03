@@ -1207,6 +1207,32 @@ func inletPump(l *layout.Layout, g layout.Conn, tag string) (layout.Placement, l
 	return layout.Placement{}, layout.Conn{}, false
 }
 
+// outletPump — насос на выходе склада у его соединения g (поток — от цистерны: склад нефти
+// отдаёт в трубу нефти шины; насос на входе там качал из трубы в склад — нефть до НПЗ не шла,
+// стадия 36 на 1114315936). Возвращает насос и его выходное соединение.
+func outletPump(l *layout.Layout, g layout.Conn, tag string) (layout.Placement, layout.Conn, bool) {
+	d := g.Dir // поток — от цистерны
+	for _, t := range []world.Tile{g.To, layout.Step(g.To, g.Dir)} {
+		pl := layout.Placement{Name: "pump", Pos: layout.CenterAt(l.P, "pump", d, t), Dir: d, Tag: tag}
+		if !l.CanPlace(pl, layout.AnyLand) || slices.ContainsFunc(layout.Tiles(l.P, pl), func(t world.Tile) bool { return l.Solid[t] }) {
+			continue
+		}
+		var out layout.Conn
+		fits := false
+		for _, c := range layout.Connections(l.P, pl) {
+			if c.Flow == "output" {
+				out = c
+			} else if c.At == g.To && c.To == g.At {
+				fits = true
+			}
+		}
+		if fits && l.Free(out.To, layout.AnyLand) && !l.Solid[out.To] && !fluidNear(l, out.To, tag) {
+			return pl, out, true
+		}
+	}
+	return layout.Placement{}, layout.Conn{}, false
+}
+
 // pumpNear — насос у тайла p, вход — с дальней от to стороны, выход — к to (вдоль главной оси),
 // на свободной суше; входное и выходное соединения — на свободные тайлы.
 func pumpNear(l *layout.Layout, p, to world.Tile, tag string) (layout.Placement, layout.Conn, layout.Conn, bool) {

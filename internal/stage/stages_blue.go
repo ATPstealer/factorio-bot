@@ -227,6 +227,24 @@ func (s blueStage) check(h *act.Hands) error {
 	return nil
 }
 
+// tanksThenOil — до НПЗ: склад нефти — как в плане (направление насоса на выходе: был на вход и
+// качал из трубы в склад — нефть до НПЗ не шла, стадия 36 на 1114315936; план исправлен, стоящий
+// насос — развернуть), потом oilReady.
+func tanksThenOil(ctx context.Context, h *act.Hands) error {
+	tanks, err := blueStages[33].layout(h)
+	if err != nil {
+		return err
+	}
+	sites, err := outpostsLayout(h)
+	if err != nil {
+		return err
+	}
+	if err := planFix(ctx, h, &worker{h: h, sites: sites, useStore: true}, tanks); err != nil {
+		return err
+	}
+	return oilReady(ctx, h)
+}
+
 func init() {
 	for _, s := range []blueStage{
 		{n: 32, name: "быстрые инсертеры и ленты", file: "state-fast.json", wait: []string{"logistics-2", "fast-inserter"},
@@ -237,7 +255,7 @@ func init() {
 			fact: inTanks("crude-oil")},
 		{n: 35, name: "вода для химии", file: "state-water.json", fact: holds("water", "pipe", "pipe-to-ground")},
 		{n: 36, name: "НПЗ", file: "state-refinery.json", wait: []string{"oil-processing"},
-			queue: []string{"plastics", "sulfur-processing"}, before: oilReady, fact: working("oil-refinery")},
+			queue: []string{"plastics", "sulfur-processing"}, before: tanksThenOil, fact: working("oil-refinery")},
 		{n: 37, name: "пластик и сера", file: "state-chem.json", wait: []string{"plastics", "sulfur-processing"},
 			queue: []string{"advanced-circuit", "engine"}, fact: working("chemical-plant")},
 		{n: 38, name: "двигатели", file: "state-engines.json", wait: []string{"engine", "automation-2"},

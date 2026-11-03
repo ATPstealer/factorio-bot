@@ -52,3 +52,37 @@ func TestInletPumps(t *testing.T) {
 		t.Errorf("повтор: убрано %d (%v)", len(again), err)
 	}
 }
+
+// Склад нефти — к трубе нефти шины через насос на выходе (стадия 36 на 1114315936: насос стоял
+// на вход — качал из трубы в склад, до НПЗ нефть не шла): поток насоса — от цистерны.
+func TestTankJoinPumpOutlet(t *testing.T) {
+	p := pt(t)
+	l := layout.New(p, nil)
+	tank := &Cluster{Name: "oil-tank-1", Kind: Tank, Product: "crude-oil", Area: Rect{world.Tile{X: 0, Y: 0}, world.Tile{X: 6, Y: 6}}}
+	for i, c := range [][2]float64{{1.5, 1.5}, {4.5, 1.5}, {1.5, 4.5}, {4.5, 4.5}} {
+		l.Add(layout.Placement{Name: "storage-tank", Pos: world.Tile{X: int(c[0]), Y: int(c[1])}.Center(), Dir: 4 * (i % 2), Tag: Tag(tank.Name)})
+	}
+	tag := "c/bus-1/crude-oil"
+	for x := -10; x <= 16; x++ {
+		l.Add(layout.Placement{Name: "pipe", Pos: world.Tile{X: x, Y: -12}.Center(), Tag: tag})
+	}
+	if err := TankJoinPump(l, tank, tag); err != nil {
+		t.Fatal(err)
+	}
+	pumps := 0
+	for _, pl := range l.List {
+		if pl.Name != "pump" {
+			continue
+		}
+		pumps++
+		for _, c := range layout.Connections(p, pl) {
+			inTank := c.To.X >= 0 && c.To.X < 6 && c.To.Y >= 0 && c.To.Y < 6
+			if c.Flow == "output" && inTank {
+				t.Errorf("насос %v качает в склад, а не из него", pl.Pos)
+			}
+		}
+	}
+	if pumps != 1 {
+		t.Fatalf("насосов %d, ждали 1", pumps)
+	}
+}

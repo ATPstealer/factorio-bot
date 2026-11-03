@@ -653,19 +653,19 @@ func surfaceNear(l *layout.Layout, tag string, x0 int) {
 // тайлах вдоль её ряда.
 const surfaceR = 24
 
-// TankJoinPump — блок цистерн tank — к трубе шины tag через насос на входе (stages.md, стадия
-// 51: склад наполняется, пока в трубе есть давление, и не отдаёт назад); насос не встаёт — без
-// него (TankJoin). Столб у насоса — polesAlong.
+// TankJoinPump — склад нефти tank — к трубе нефти шины tag через насос на выходе (stages.md,
+// стадия 33: склад отдаёт в трубу, назад не берёт; цистерны участок не делят); насос не встаёт —
+// без него (TankJoin). Столб у насоса — polesAlong.
 func TankJoinPump(l *layout.Layout, tank *Cluster, tag string) error {
 	own := Tag(tank.Name)
 	for _, cn := range tankConns(l, tank) {
-		pump, in, ok := inletPump(l, cn, own)
+		pump, out, ok := outletPump(l, cn, own)
 		if !ok {
 			continue
 		}
 		mark := l.Mark()
 		l.Add(pump)
-		if _, err := l.JoinPipe(in, tag); err != nil {
+		if _, err := l.JoinPipe(out, tag); err != nil {
 			l.Rollback(mark)
 			continue
 		}
