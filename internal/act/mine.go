@@ -56,11 +56,11 @@ func (h *Hands) mineHeld(ctx context.Context, e bridge.Entity, done func(bridge.
 				}
 				return dist(p.Position, closestOnBox(p.Position, *b))
 			}
-			if reach() > mineReachGame {
+			if reach() > reachOf(e) {
 				if err := h.WalkToMine(ctx, e); err != nil && !errors.Is(err, ErrNotReached) && !errors.Is(err, ErrStuck) {
 					return err
 				}
-				if d := reach(); d > mineReachGame {
+				if d := reach(); d > reachOf(e) {
 					return fmt.Errorf("%w до %s (%.1f, %.1f): %.1f тайла", ErrNotReached, e.Name, e.Position.X, e.Position.Y, d)
 				}
 			}

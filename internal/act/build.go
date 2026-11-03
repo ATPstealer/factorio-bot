@@ -177,18 +177,27 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
 	if h.World != nil {
 		// сначала — не у ленты и с запасом вокруг (коридор в тайл между рядами лент шины: доводка
-		// с инерцией роняла на ленту — «не сойти с ленты», стадия 22 на 1028292478), дальше —
-		// до досягаемости; нет такого — любое, где можно стоять
+		// с инерцией роняла на ленту — «не сойти с ленты», стадия 22 на 1028292478), дальше — до
+		// досягаемости (до 6 тайлов не нашлось — встал в щель между рядами, стадия 56 на
+		// 2448886157); потом — с запасом, хоть и у ленты; нет такого — любое, где можно стоять
 		best := math.Inf(1)
-		for _, strict := range []bool{true, false} {
-			for _, r := range []float64{1.5, 2.5, 4, 6} {
-				if !strict && r > 4 {
+		levels := []struct {
+			ok   func(bridge.Pos) bool
+			maxR float64
+		}{
+			{func(q bridge.Pos) bool { return !h.nearBelt(q) && h.World.Roomy(q) }, 8},
+			{h.World.Roomy, 6},
+			{func(bridge.Pos) bool { return true }, 4},
+		}
+		for _, lv := range levels {
+			for _, r := range []float64{1.5, 2.5, 4, 6, 7.5} {
+				if r > lv.maxR {
 					break
 				}
 				for k := 0; k < 16; k++ {
 					a := float64(k) * math.Pi / 8
 					q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
-					if inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || strict && (h.nearBelt(q) || !h.World.Roomy(q)) {
+					if dist(q, c) > reach-0.5 || inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || !lv.ok(q) {
 						continue
 					}
 					if d := dist(p.Position, q); d < best {
@@ -1206,6 +1215,24 @@ var builtTypes = []string{"transport-belt", "underground-belt", "splitter", "ins
 // mineReachGame — с какого расстояния до рамки коллизии добываем, не подходя (игра — 2.7).
 const mineReachGame = 2.4
 
+// pickupReach — с какого расстояния до рамки коллизии поднимаем свою постройку (игра — reach 10,
+// как ставить; 2.7 — только ресурсы): подбор подходил вплотную и вставал в щель между лентами
+// шины (стадия 49 на 1114315936, TestPickupFromReach).
+const pickupReach = 8.0
+
+// reachOf — досягаемость добычи e: руда, деревья, камни, обломки, рыба, предмет на земле —
+// вплотную (mineReachGame), свои постройки — pickupReach.
+func reachOf(e bridge.Entity) float64 {
+	if strings.HasPrefix(e.Name, "crash-site-") {
+		return mineReachGame
+	}
+	switch e.Type {
+	case "resource", "tree", "simple-entity", "simple-entity-with-owner", "fish", "item-entity":
+		return mineReachGame
+	}
+	return pickupReach
+}
+
 // PickupAll подбирает свои постройки: ближайшую досягаемую — не сходя с места и не
 // отпуская ПКМ между соседними; если досягаемых нет — встаёт туда, откуда достаёт
 // больше всего оставшихся.
@@ -1252,7 +1279,7 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 			continue // уже нет
 		}
 		t0 := time.Now()
-		if bestD > mineReachGame {
+		if bestD > reachOf(e) {
 			release()
 			if err := h.WalkTo(ctx, h.bestStand(e, left, reach), 0.5); err != nil {
 				if err := h.reachMine(ctx, e); err != nil {
@@ -1295,12 +1322,18 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 // bestStand — точка у цели e (тайл в досягаемости добычи), откуда достаётся больше всего
 // оставшихся others; при равенстве — ближе к цели. Только проходимые тайлы модели.
 func (h *Hands) bestStand(e bridge.Entity, others []bridge.Entity, reach func(bridge.Pos, bridge.Entity) float64) bridge.Pos {
-	// сначала — где можно стоять (не на ленте: несёт — «не сойти с ленты», подбор подземки в
-	// проходе между рядами лент, TestPlaceUndergroundInBeltCorridor на 1028292478-0); нет — любой
-	// проходимый
+	// сначала — с запасом вокруг и в стороне от лент (щель в тайл между лентами шины ходьба
+	// проскакивает — стадия 49 на 1114315936); потом — где можно стоять (не на ленте: несёт —
+	// «не сойти с ленты», подбор подземки в проходе между рядами лент,
+	// TestPlaceUndergroundInBeltCorridor на 1028292478-0); нет — любой проходимый
 	if h.World != nil {
-		if pos, ok := h.standAt(e, others, reach, func(t world.Tile) bool { return h.World.Standable(t.Center()) }); ok {
-			return pos
+		for _, ok := range []func(world.Tile) bool{
+			func(t world.Tile) bool { return h.World.Roomy(t.Center()) && !h.nearBelt(t.Center()) },
+			func(t world.Tile) bool { return h.World.Standable(t.Center()) },
+		} {
+			if pos, found := h.standAt(e, others, reach, ok); found {
+				return pos
+			}
 		}
 	}
 	pos, _ := h.standAt(e, others, reach, func(t world.Tile) bool { return h.World == nil || h.World.Walkable(t) })
@@ -1311,20 +1344,21 @@ func (h *Hands) bestStand(e bridge.Entity, others []bridge.Entity, reach func(br
 func (h *Hands) standAt(e bridge.Entity, others []bridge.Entity, reach func(bridge.Pos, bridge.Entity) float64, ok func(world.Tile) bool) (bridge.Pos, bool) {
 	c := world.TileOf(e.Position)
 	best, bestN, bestD := e.Position, -1, math.Inf(1)
-	for dy := -4; dy <= 4; dy++ {
-		for dx := -4; dx <= 4; dx++ {
+	w := min(int(reachOf(e))+1, 6) // окно поиска — по досягаемости
+	for dy := -w; dy <= w; dy++ {
+		for dx := -w; dx <= w; dx++ {
 			t := world.Tile{X: c.X + dx, Y: c.Y + dy}
 			if !ok(t) {
 				continue
 			}
 			pos := t.Center()
 			d := reach(pos, e)
-			if d > mineReachGame-0.3 {
+			if d > reachOf(e)-0.3 {
 				continue
 			}
 			n := 0
 			for _, o := range others {
-				if reach(pos, o) <= mineReachGame-0.3 {
+				if reach(pos, o) <= reachOf(o)-0.3 {
 					n++
 				}
 			}
@@ -1514,7 +1548,7 @@ func (h *Hands) reachMine(ctx context.Context, e bridge.Entity) error {
 		if err != nil {
 			return false, err
 		}
-		return dist(p.Position, closestOnBox(p.Position, *h.collisionBox(e))) <= mineReachGame, nil
+		return dist(p.Position, closestOnBox(p.Position, *h.collisionBox(e))) <= reachOf(e), nil
 	}
 	if ok, err := within(); err != nil || ok {
 		return err

@@ -970,6 +970,44 @@ func TestPickupAllKeepsOthers(t *testing.T) {
 	clean(t, h)
 }
 
+// Свою постройку игра поднимает с досягаемости (10), не вплотную (2.7 — только ресурсы): подбор
+// подходил вплотную и вставал в щель между лентами шины — «не дошёл» (стадия 49 на 1114315936,
+// перекладка подачи через шину). Сундук в 6 тайлах — поднят без шага.
+func TestPickupFromReach(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 3*time.Minute)
+	have(t, h, "iron-chest", 1)
+	spot := freeArea(t, h, 2)
+	ch, err := h.Place(ctx, "iron-chest", spot, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stand *bridge.Pos
+	for _, d := range []bridge.Pos{{X: 6}, {X: -6}, {Y: 6}, {Y: -6}} {
+		q := bridge.Pos{X: ch.Position.X + d.X, Y: ch.Position.Y + d.Y}
+		if h.World.Roomy(q) {
+			stand = &q
+			break
+		}
+	}
+	if stand == nil {
+		t.Skip("нет места стоять в 6 тайлах от сундука")
+	}
+	if err := h.WalkTo(ctx, *stand, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	if err := h.Pickup(ctx, ch); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := h.B.GetEntity(ch.Name, ch.Position); st != nil {
+		t.Errorf("сундук не поднят")
+	}
+	if p1, _ := h.B.Player(); math.Hypot(p1.Position.X-p0.Position.X, p1.Position.Y-p0.Position.Y) > 1 {
+		t.Errorf("подходил: (%.1f, %.1f) → (%.1f, %.1f)", p0.Position.X, p0.Position.Y, p1.Position.X, p1.Position.Y)
+	}
+}
+
 // TestPickupUndergroundKeepsNeighbors — подбор входа подземки рядом с параллельной лентой: лента
 // рядом, лента перед входом и выход — на месте.
 func TestPickupUndergroundKeepsNeighbors(t *testing.T) {

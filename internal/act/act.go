@@ -1434,7 +1434,7 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 		b := world.RotateBox(h.Protos.Entities[o.Name].CollisionBox, o.Direction)
 		dx := math.Max(0, math.Max(o.Pos.X+b.LeftTop.X-p.Position.X, p.Position.X-(o.Pos.X+b.RightBottom.X)))
 		dy := math.Max(0, math.Max(o.Pos.Y+b.LeftTop.Y-p.Position.Y, p.Position.Y-(o.Pos.Y+b.RightBottom.Y)))
-		return math.Hypot(dx, dy) <= mineReachGame
+		return math.Hypot(dx, dy) <= pickupReach // свои постройки
 	}
 	sort.SliceStable(objs, func(i, j int) bool {
 		if hi, hj := here(objs[i]), here(objs[j]); hi != hj {
