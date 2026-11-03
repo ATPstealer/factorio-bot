@@ -548,6 +548,9 @@ func (s *worker) waitInv(ctx context.Context, item string, n int, limit time.Dur
 		if err := s.store(ctx, craftFree, item); err != nil && !errors.Is(err, errNoStorage) {
 			return err
 		}
+		if err := scienceCut(ctx, s.h); err != nil { // в ожидании — наука на ракету (stages.md, общее)
+			return err
+		}
 		deadline = deadline.Add(time.Since(t0)) // пока носил — крафт шёл, но лимит не тратить
 		if time.Now().After(deadline) {
 			return fmt.Errorf("крафт %s не закончился (есть %d, ждали %d)", item, s.inv(item), n)

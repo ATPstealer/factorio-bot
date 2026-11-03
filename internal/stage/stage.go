@@ -330,6 +330,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("второй уровень поверх стоящих не встал: %v", err)
 		}
+		// наука на ракету — отключить подачу пакетов, которых хватает (stages.md, общее; с 62)
+		if err := scienceCut(ctx, h); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("отключение науки на ракету не встало: %v", err)
+		}
 		// буферы выхода — с ограничением (stages.md, общее)
 		if plan, err := LoadPlan(); err == nil {
 			if err := limitBuffers(ctx, h, plan.Layout); err != nil {

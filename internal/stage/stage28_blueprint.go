@@ -151,6 +151,10 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 			}
 		}
 	}
+	// снятое отключением науки на ракету — не чертёж (science_off.go)
+	if off := loadScienceOff(); len(off.Removed) > 0 {
+		res = slices.DeleteFunc(res, off.has)
+	}
 	return res, nil
 }
 

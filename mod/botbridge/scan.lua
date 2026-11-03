@@ -105,9 +105,13 @@ return function(methods)
   -- Исследования своей силы.
   function methods.get_force()
     local f = util.bot_player().force
-    local researched = {}
+    local researched, saved = {}, {}
     for name, t in pairs(f.technologies) do
-      if t.researched then researched[#researched + 1] = name end
+      if t.researched then
+        researched[#researched + 1] = name
+      elseif (t.saved_progress or 0) > 0 then
+        saved[name] = t.saved_progress -- начатые и отложенные (доля)
+      end
     end
     table.sort(researched)
     local queue = {}
@@ -126,6 +130,7 @@ return function(methods)
       researched = researched,
       current = f.current_research and f.current_research.name or nil,
       progress = f.research_progress,
+      saved = util.nonempty(saved),
       queue = queue,
       recipes = recipes,
     }

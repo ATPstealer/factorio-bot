@@ -134,6 +134,9 @@ func waitResearch(ctx context.Context, h *act.Hands, techs ...string) error {
 			h.Say("жду исследований: %v", miss)
 			said = true
 		}
+		if err := scienceCut(ctx, h); err != nil { // в ожидании — наука на ракету (stages.md, общее)
+			return err
+		}
 		if err := sleepCtx(ctx, 10*time.Second); err != nil {
 			return err
 		}

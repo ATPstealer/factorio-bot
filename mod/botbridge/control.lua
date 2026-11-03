@@ -288,6 +288,24 @@ function methods.get_entities(a)
   return res
 end
 
+-- belt_items — сколько каждого предмета на своих лентах (ленты, подземки, делители; обе полосы),
+-- по сгенерированной карте: {имя = количество}.
+function methods.belt_items()
+  local p = bot_player()
+  local res = {}
+  local belts = p.surface.find_entities_filtered { type = { "transport-belt", "underground-belt", "splitter" }, force = p.force }
+  for _, e in pairs(belts) do
+    if visible(p, e.position) then
+      for i = 1, e.get_max_transport_line_index() do
+        for _, it in pairs(e.get_transport_line(i).get_contents()) do
+          res[it.name] = (res[it.name] or 0) + it.count
+        end
+      end
+    end
+  end
+  return util.nonempty(res)
+end
+
 -- Есть ли сущность с таким именем ровно в этой точке.
 function methods.entity_at(a)
   local p = bot_player()

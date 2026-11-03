@@ -327,8 +327,10 @@ type Force struct {
 	Researched List[string] `json:"researched"`
 	Current    string       `json:"current"`
 	Progress   float64      `json:"progress"`
-	Queue      List[string] `json:"queue"`
-	Recipes    List[string] `json:"recipes"`
+	// Saved — начатые и отложенные исследования: доля сделанного (текущее — в Progress)
+	Saved   map[string]float64 `json:"saved,omitempty"`
+	Queue   List[string]       `json:"queue"`
+	Recipes List[string]       `json:"recipes"`
 	// произведено предметов за игру (статистика производства)
 	Produced map[string]float64 `json:"produced,omitempty"`
 }
@@ -336,6 +338,12 @@ type Force struct {
 func (b *Bridge) Force() (Force, error) {
 	var f Force
 	return f, b.Call("get_force", nil, &f)
+}
+
+// BeltItems — сколько каждого предмета на своих лентах (ленты, подземки, делители).
+func (b *Bridge) BeltItems() (map[string]int, error) {
+	var m map[string]int
+	return m, b.Call("belt_items", nil, &m)
 }
 
 // DumpPrototypes — справочник kind (recipes, items, entities, technologies, fluids) в out.

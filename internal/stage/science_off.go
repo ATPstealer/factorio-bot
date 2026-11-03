@@ -1,0 +1,162 @@
+package stage
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"slices"
+	"time"
+
+	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/cluster"
+	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
+)
+
+// Наука на ракету — отключить подачу (stages.md, общее; со стадии 62): пакета на лентах хватает
+// на то, что осталось исследовать до ракеты, — у кластеров этого пакета на каждом входе снять
+// одну ленту — первую после делителя отвода на шине. Снятые — в state-science-off.json: чертёж
+// (blueprint) их не возвращает. Проверка — в начале стадии и в ожиданиях (исследование, проверка
+// по факту, крафт), не чаще раза в scienceEvery; пока не отключены все пакеты.
+
+const (
+	scienceOffFrom = 62
+	scienceOffFile = "state-science-off.json"
+	scienceEvery   = 10 * time.Minute
+)
+
+// sciencePacks — пакеты до ракеты.
+var sciencePacks = []string{redPack, greenPack, bluePack, purplePack, yellowPack}
+
+// scienceOff — отключённые пакеты и снятые постройки.
+type scienceOff struct {
+	Packs   []string           `json:"packs"`
+	Removed []layout.Placement `json:"removed"`
+}
+
+// scienceAt — когда проверяли в последний раз (процесс бота — одна стадия: в начале — всегда).
+var scienceAt time.Time
+
+func loadScienceOff() *scienceOff {
+	var s scienceOff
+	if data, err := os.ReadFile(runPath(scienceOffFile)); err == nil {
+		json.Unmarshal(data, &s)
+	}
+	return &s
+}
+
+// has — снята ли pl отключением науки (по имени и месту).
+func (s *scienceOff) has(pl layout.Placement) bool {
+	return slices.ContainsFunc(s.Removed, func(q layout.Placement) bool { return q.Name == pl.Name && q.Pos == pl.Pos })
+}
+
+// packsLeft — сколько каждого пакета ещё нужно на исследования до ракеты: у каждого неизученного
+// на пути к rocket-silo — стоимость × (1 − доля сделанного).
+func packsLeft(h *act.Hands, f bridge.Force) (map[string]float64, error) {
+	done := map[string]bool{}
+	for _, t := range f.Researched {
+		done[t] = true
+	}
+	path, err := h.Protos.TechPath([]string{"rocket-silo"}, done)
+	if err != nil {
+		return nil, err
+	}
+	left := map[string]float64{}
+	for _, t := range path {
+		tech := h.Protos.Technologies[t]
+		part := f.Saved[t]
+		if f.Current == t {
+			part = f.Progress
+		}
+		for _, in := range tech.UnitIngredients {
+			left[in.Name] += tech.UnitCount * in.Amount * (1 - part)
+		}
+	}
+	return left, nil
+}
+
+// scienceTaps — у кластеров пакета pack первые постройки после делителей отвода с шины (по одной
+// на отвод): лента или подземка с тегом подвода кластера на выходе делителя.
+func scienceTaps(h *act.Hands, plan *ClusterPlan, pack string) []layout.Placement {
+	var res []layout.Placement
+	for _, c := range plan.Clusters {
+		if c.Kind != cluster.Make || c.Product != pack {
+			continue
+		}
+		tag := cluster.LogisticsTag + "/" + c.Name
+		at := map[world.Tile]layout.Placement{}
+		var splitters []layout.Placement
+		for _, pl := range plan.Layout {
+			switch {
+			case pl.Tag != tag:
+			case pl.Name == "splitter" || pl.Name == "fast-splitter":
+				splitters = append(splitters, pl)
+			default:
+				for _, t := range layout.Tiles(h.Protos, pl) {
+					at[t] = pl
+				}
+			}
+		}
+		for _, sp := range splitters {
+			for _, t := range layout.Tiles(h.Protos, sp) {
+				if q, ok := at[layout.Step(t, sp.Dir)]; ok {
+					res = append(res, q)
+					break
+				}
+			}
+		}
+	}
+	return res
+}
+
+// scienceCut — отключить подачу пакетов, которых на лентах уже хватает до ракеты (раз в
+// scienceEvery, со стадии scienceOffFrom; на бумаге — нет).
+func scienceCut(ctx context.Context, h *act.Hands) error {
+	if curStage < scienceOffFrom || paper != nil || h.B == nil || time.Since(scienceAt) < scienceEvery {
+		return nil
+	}
+	scienceAt = time.Now()
+	off := loadScienceOff()
+	if len(off.Packs) == len(sciencePacks) {
+		return nil
+	}
+	f, err := h.B.Force()
+	if err != nil {
+		return err
+	}
+	left, err := packsLeft(h, f)
+	if err != nil {
+		return err
+	}
+	belts, err := h.B.BeltItems()
+	if err != nil {
+		return err
+	}
+	plan, err := LoadPlan()
+	if err != nil {
+		return err
+	}
+	for _, pack := range sciencePacks {
+		if slices.Contains(off.Packs, pack) || float64(belts[pack]) < left[pack] {
+			continue
+		}
+		taps := scienceTaps(h, plan, pack)
+		h.Say("наука на ракету: %s на лентах %d, нужно ещё %.0f — снимаю подачу (%d лент)", pack, belts[pack], left[pack], len(taps))
+		var es []bridge.Entity
+		for _, pl := range taps {
+			if e, err := h.B.EntityAt(pl.Name, pl.Pos); err == nil && e != nil {
+				es = append(es, *e)
+			}
+		}
+		if err := h.PickupAll(ctx, es); err != nil {
+			return err
+		}
+		off.Packs = append(off.Packs, pack)
+		off.Removed = append(off.Removed, taps...)
+		if err := writeState(scienceOffFile, off); err != nil {
+			return err
+		}
+	}
+	return nil
+}
