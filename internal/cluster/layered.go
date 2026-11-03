@@ -78,6 +78,9 @@ func floorOf(c *Cluster) int {
 		if strings.HasSuffix(c.Product, "-science-pack") || c.Product == "rocket-part" {
 			return 3
 		}
+		if c.Product == "concrete" {
+			return 1 // бетон — переработка: руда и вода с bus-1, кирпич с bus-2 (zones.md)
+		}
 		return 2
 	}
 	return 0

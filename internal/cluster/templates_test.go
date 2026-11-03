@@ -111,8 +111,12 @@ func TestBuildTemplates(t *testing.T) {
 		if c.Kind == Smelt && !c.IsSteel() { // печи рецепт выбирают сами — по числу печей
 			recipes[b.Recipe] = countName(l, BuildMachine(p, b.Recipe, b.Stage >= Tier2From))
 		}
-		if recipes[b.Recipe] != b.N {
-			t.Errorf("%s: машин %s — %d, ждали %d", c.Name, b.Recipe, recipes[b.Recipe], b.N)
+		want := b.N
+		if c.SubMid { // тройка с промежуточным посередине — два основных
+			want = 2 * b.N
+		}
+		if recipes[b.Recipe] != want {
+			t.Errorf("%s: машин %s — %d, ждали %d", c.Name, b.Recipe, recipes[b.Recipe], want)
 		}
 		for _, s := range b.Subs {
 			if recipes[s] != b.N {
@@ -121,7 +125,7 @@ func TestBuildTemplates(t *testing.T) {
 		}
 		_, fluid := p.Fluids[c.Product]
 		wantChests := 1
-		if IsScience(c.Product) || fluid {
+		if IsScience(c.Product) || fluid || c.IsSilo() { // у шахты выхода нет
 			wantChests = 0
 		}
 		if b.SubChest != "" {

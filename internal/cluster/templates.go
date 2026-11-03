@@ -264,6 +264,18 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			return err
 		}
 	case Make, Supply:
+		if c.IsSilo() {
+			if err := siloBlock(l, f, c, tag, add, belt, row, deadEnd, sideIn); err != nil {
+				return err
+			}
+			break
+		}
+		if c.SubMid {
+			if err := rocketFuelRow(l, f, c, L, tag, add, row); err != nil {
+				return err
+			}
+			break
+		}
 		if c.IsRefineryAdv() {
 			if err := refineryAdvRow(l, f, c, L, tag, add); err != nil {
 				return err

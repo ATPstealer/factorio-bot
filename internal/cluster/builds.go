@@ -121,6 +121,12 @@ var Builds = []Build{
 		Inputs: []string{"electronic-circuit", "advanced-circuit", "sulfuric-acid"}},
 	{Stage: 60, Kind: Make, Product: "utility-science-pack", Recipe: "utility-science-pack", N: 4,
 		Inputs: []string{"flying-robot-frame", "low-density-structure", "processing-unit"}},
+	// ракета (stages.md, стадии 63–68): бетон — только в буфер (шахта — крафт руками), ракетное
+	// топливо — тройками (N — троек), шахта — 9×9 с подачами с bus-3
+	{Stage: 63, Kind: Make, Product: "concrete", Recipe: "concrete", N: 2, Inputs: []string{"iron-ore", "stone-brick"}},
+	{Stage: 64, Kind: Make, Product: rocketFuel, Recipe: rocketFuel, N: 2},
+	{Stage: 66, Kind: Make, Product: rocketPart, Recipe: rocketPart, N: 1,
+		Inputs: []string{"processing-unit", "low-density-structure", rocketFuel}},
 }
 
 // BuildMachine — машина рецепта кластера: печь или сборщик второго уровня, если t2 (после стадии
@@ -152,9 +158,13 @@ func (b Build) Capacity(p *knowledge.Prototypes, t2 bool) map[string]float64 {
 	if b.Recipe == "" {
 		return nil
 	}
-	rate := func(recipe string) float64 { // крафтов/с у b.N машин
+	rate := func(recipe string) float64 { // крафтов/с у b.N машин (тройка ракетного топлива — 2 основных)
 		r := p.Recipes[recipe]
-		return float64(b.N) * p.Entities[BuildMachine(p, recipe, t2)].CraftingSpeed / r.Energy
+		n := float64(b.N)
+		if recipe == rocketFuel {
+			n *= 2
+		}
+		return n * p.Entities[BuildMachine(p, recipe, t2)].CraftingSpeed / r.Energy
 	}
 	main := p.Recipes[b.Recipe]
 	crafts := rate(b.Recipe)
@@ -254,6 +264,10 @@ func (b Build) cluster(p *knowledge.Prototypes) *Cluster {
 		return c
 	case b.Product == "steel-plate":
 		return Steel(p, b.N)
+	case b.Recipe == rocketFuel:
+		return RocketFuel(p, b.N)
+	case b.Recipe == rocketPart:
+		return Silo(p)
 	}
 	// плавка и сборка: основной рецепт и промежуточные пар (тройки) — по одному на основной
 	t2 := b.Stage >= Tier2From

@@ -58,6 +58,9 @@ type Cluster struct {
 	Sub    string `json:"sub,omitempty"`
 	Sub2   string `json:"sub2,omitempty"`
 	SubPer int    `json:"sub_per,omitempty"`
+	// SubMid — тройка с промежуточным посередине: один Sub кормит два Main (ракетное топливо,
+	// rocket.go)
+	SubMid bool `json:"sub_mid,omitempty"`
 	// SubChest — промежуточное (рецепт Sub) ещё и в сундук бота: из первого сборщика Sub
 	// инсертер в сундук в голове ряда (трубы двигателей — stages.md, стадия 38)
 	SubChest string  `json:"sub_chest,omitempty"`
