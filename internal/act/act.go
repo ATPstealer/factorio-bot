@@ -1204,6 +1204,7 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 		pos  bridge.Pos
 		dir  int
 		in   map[string]int // что лежало внутри — вернуть
+		set  setup          // рецепт, фильтр — вернуть
 	}
 	var back []lifted
 	// свои постройки — ближние первыми, круг шире, пока не откроется выход (на пятне руды
@@ -1236,7 +1237,7 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 			if e.Direction != nil {
 				d = *e.Direction
 			}
-			in := h.contents(e)
+			in, set := h.contents(e), h.setupOf(e)
 			err := h.Pickup(ctx, e)
 			if errors.Is(err, ErrFull) && e.Type != "container" {
 				// инвентарь полон, а до хранения из кармана не дойти (стадия 46 на 267145981:
@@ -1253,7 +1254,7 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 				}
 				return err
 			}
-			back = append(back, lifted{item, e.Position, d, in})
+			back = append(back, lifted{item, e.Position, d, in, set})
 			if _, err := h.World.Sync(h.B, false); err != nil {
 				return err
 			}
@@ -1313,7 +1314,7 @@ func (h *Hands) unstuck(ctx context.Context, force int) error {
 		if err != nil {
 			return err
 		}
-		if err := h.refill(ctx, es, back[i].in); err != nil {
+		if err := h.restore(ctx, es, back[i].set, back[i].in); err != nil {
 			return err
 		}
 	}
@@ -1337,6 +1338,45 @@ func (h *Hands) contents(e bridge.Entity) map[string]int {
 		}
 	}
 	return res
+}
+
+// setup — настройка постройки e, что теряется при подборе: рецепт сборщика, фильтр инсертера.
+type setup struct{ recipe, filter string }
+
+// setupOf — setup стоящей постройки e (до подбора).
+func (h *Hands) setupOf(e bridge.Entity) setup {
+	st, err := h.B.GetEntity(e.Name, e.Position)
+	if err != nil || st == nil {
+		return setup{}
+	}
+	var s setup
+	if h.Protos.Entities[e.Name].Type == "assembling-machine" { // у печи рецепт — сам по сырью
+		s.recipe = st.Recipe
+	}
+	if len(st.Filters) > 0 {
+		s.filter = st.Filters[0]
+	}
+	return s
+}
+
+// restore — поставленной назад постройке (первая из es) вернуть настройку и то, что в ней лежало:
+// сборщик без рецепта сырья не берёт (поднят из кольца и поставлен назад — «положено
+// advanced-circuit ×0 из 2», стадия 59 на 2448886157).
+func (h *Hands) restore(ctx context.Context, es []bridge.Entity, s setup, in map[string]int) error {
+	if len(es) == 0 || es[0].Name == "" {
+		return nil
+	}
+	if s.recipe != "" {
+		if err := h.SetRecipe(ctx, es[0], s.recipe); err != nil {
+			return err
+		}
+	}
+	if s.filter != "" {
+		if err := h.SetFilter(ctx, es[0], s.filter); err != nil {
+			return err
+		}
+	}
+	return h.refill(ctx, es, in)
 }
 
 // refill — положить в поставленную назад постройку (первая из es) то, что в ней лежало.
@@ -1492,13 +1532,14 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 	h.breaching = true // ходьба к поднимаемому, проход и возврат — без новых проломов
 	defer func() { h.breaching = false }()
 	ins := make([]map[string]int, len(set))
+	sets := make([]setup, len(set))
 	for i, o := range set {
 		e, err := h.B.EntityAt(o.Name, o.Pos)
 		if err != nil || e == nil {
 			return false, err
 		}
 		h.Say("путь закрыт своими постройками — поднимаю %s, пройду и поставлю назад", o.Name)
-		ins[i] = h.contents(*e)
+		ins[i], sets[i] = h.contents(*e), h.setupOf(*e)
 		if err := h.Pickup(ctx, *e); err != nil {
 			return false, err
 		}
@@ -1545,7 +1586,7 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 		if err != nil {
 			return false, err
 		}
-		if err := h.refill(ctx, es, ins[i]); err != nil {
+		if err := h.restore(ctx, es, sets[i], ins[i]); err != nil {
 			return false, err
 		}
 	}

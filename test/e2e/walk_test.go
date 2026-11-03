@@ -442,6 +442,63 @@ func TestUnstuckKeepsContents(t *testing.T) {
 	}
 }
 
+// Выход из ловушки не теряет рецепт сборщика (стадия 59 на 2448886157: сборщик поднят из кольца,
+// поставлен назад без рецепта — «вернуть advanced-circuit: положено ×0 из 2»): кольцо — сборщик
+// с рецептом шестерни и пластинами внутри (восточная сторона) и 5 сундуков; после выхода сборщик
+// на месте — с рецептом и пластинами.
+func TestUnstuckKeepsRecipe(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 6*time.Minute)
+	have(t, h, "wooden-chest", 5)
+	have(t, h, "assembling-machine-1", 1)
+	have(t, h, "iron-plate", 10)
+	c := freeArea(t, h, 2*(8+2)+1)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	am, err := h.Place(ctx, "assembling-machine-1", world.Tile{X: ct.X + 2, Y: ct.Y}.Center(), act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetRecipe(ctx, am, "iron-gear-wheel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Insert(ctx, am, "iron-plate", 10); err != nil {
+		t.Fatal(err)
+	}
+	var ring []bridge.Pos
+	for _, d := range [][2]int{{-1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1}} {
+		ring = append(ring, world.Tile{X: ct.X + d[0], Y: ct.Y + d[1]}.Center())
+	}
+	if _, err := h.PlaceAll(ctx, "wooden-chest", ring, act.North); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); !h.World.Enclosed(p.Position) {
+		t.Fatalf("кольцо не замкнуто: персонаж в (%.2f, %.2f)", p.Position.X, p.Position.Y)
+	}
+	if err := h.WalkTo(ctx, bridge.Pos{X: ct.Center().X - 8, Y: ct.Center().Y}, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	st, err := h.B.GetEntity(am.Name, am.Position)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st == nil {
+		t.Fatalf("сборщика в (%.1f, %.1f) нет", am.Position.X, am.Position.Y)
+	}
+	if st.Recipe != "iron-gear-wheel" {
+		t.Errorf("рецепт %q, ждали iron-gear-wheel", st.Recipe)
+	}
+	if n := st.Count("iron-plate"); n != 10 {
+		t.Errorf("пластин в сборщике %d, ждали 10", n)
+	}
+}
+
 // Путь A* в обход ближайшего к игроку водоёма (не меньше 100 тайлов, открыт целиком): точки по разные
 // стороны воды, путь с поворотами, дойти по нему.
 func TestPathAroundLake(t *testing.T) {
