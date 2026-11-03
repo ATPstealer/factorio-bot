@@ -108,7 +108,7 @@ func (p *paperBuilt) remove(h *act.Hands, list []layout.Placement) {
 var flowSeen map[string]bool
 
 // isMaintenance — стадия обслуживания (чертёж: что ещё не стоит).
-func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 || n == 49 }
+func isMaintenance(n int) bool { return n == 22 || n == 28 || n == 42 || n == 49 || n == 62 }
 
 // paperStages — стадии стройки 10…to на бумаге; первая с ошибкой — ошибка.
 func paperStages(h *act.Hands, to int) error {

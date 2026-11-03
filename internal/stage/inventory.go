@@ -49,6 +49,9 @@ func neededItems(h *act.Hands) map[string]bool {
 		}
 	}
 	count := map[string]int{}
+	for _, it := range stageCrafts[curStage] { // крафт руками без постройки (шахта, спутник)
+		add(it, 0)
+	}
 	if curStage > 0 {
 		if list, err := planOf(h, curStage); err == nil {
 			// только то, что ещё не стоит: поставленное — не «нужное» (решение пользователя 26.10)

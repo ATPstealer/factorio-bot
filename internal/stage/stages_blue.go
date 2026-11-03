@@ -23,6 +23,7 @@ type blueStage struct {
 	file  string   // раскладка стадии: один раз на карту
 	wait  []string // исследования: изучены (иначе — ждать; до подготовки — Stage.Techs)
 	queue []string // исследования: в очередь в самом начале (на следующие стадии)
+	order []string // порядок стройки по видам (нет — blueOrder)
 	// place — раскладка стадии не из построек плана своей стадии (замена на второй уровень)
 	place func(h *act.Hands) ([]layout.Placement, error)
 	// before — до раскладки стадии (переделка построенного)
@@ -182,7 +183,11 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	h.Say("%s: %d построек плана", s.name, len(list))
-	if err := buildSorted(ctx, h, list, blueOrder); err != nil {
+	order := blueOrder
+	if s.order != nil {
+		order = s.order
+	}
+	if err := buildSorted(ctx, h, list, order); err != nil {
 		return err
 	}
 	// стоящее не так (подземка не тем концом, направление, рецепт, фильтр) — исправить сейчас,
