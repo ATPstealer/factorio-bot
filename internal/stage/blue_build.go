@@ -75,6 +75,7 @@ func waitResearch(ctx context.Context, h *act.Hands, techs ...string) error {
 		return err
 	}
 	said := false
+	tried := map[string]bool{} // уже ставили первым: снова — не каждые 10 с
 	for {
 		f, err := h.B.Force()
 		if err != nil {
@@ -92,8 +93,34 @@ func waitResearch(ctx context.Context, h *act.Hands, techs ...string) error {
 		if len(miss) == 0 {
 			return nil
 		}
-		// не встало в очередь (была полна — stages.md, общее: исследования в начале каждой
-		// стадии) — доставить, как только там место
+		// текущее — не нужное и не его предпосылка: нужное — первым (stages.md, общее:
+		// исследования в начале каждой стадии; стадия 51 на 2448886157 — текущее на фиолетовой,
+		// а фиолетовой нет); первое в пути — то, чьи предпосылки изучены
+		done := map[string]bool{}
+		for _, t := range f.Researched {
+			done[t] = true
+		}
+		path, err := h.Protos.TechPath(miss, done)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(path, f.Current) {
+			for _, t := range path {
+				tech := h.Protos.Technologies[t]
+				if tried[t] || tech.Trigger != nil || slices.ContainsFunc(tech.Prerequisites, func(p string) bool { return !done[p] }) {
+					continue
+				}
+				tried[t] = true
+				if err := h.ResearchFirst(ctx, t); err != nil {
+					if ctx.Err() != nil {
+						return err
+					}
+					h.Log("исследование %s первым не встало: %v", t, err)
+				}
+				break
+			}
+		}
+		// не встало в очередь (была полна) — доставить, как только там место
 		busy := len(f.Queue)
 		if f.Current != "" && !slices.Contains(f.Queue, f.Current) {
 			busy++
