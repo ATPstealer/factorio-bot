@@ -653,7 +653,10 @@ func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (brid
 			for k := 0; k < 8; k++ {
 				a := float64(k) * math.Pi / 4
 				q := bridge.Pos{X: c.X + r*math.Cos(a), Y: c.Y + r*math.Sin(a)}
-				if !h.World.Standable(q) || h.nearBelt(q) {
+				// и с запасом вокруг: щель в тайл между бурами у ленты блока добычи — дойти туда
+				// только по ленте, инерция скатывает обратно на неё («не сойти с ленты», стадия 30
+				// на 635406131); таких нет — стоянка у ближнего места (standWithin)
+				if !h.World.Standable(q) || h.nearBelt(q) || !h.World.Roomy(q) {
 					continue
 				}
 				n, blocked := 0, false
