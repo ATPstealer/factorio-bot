@@ -12,6 +12,7 @@ import (
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
@@ -171,6 +172,10 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 
 func runMaintenance(ctx context.Context, h *act.Hands) error {
 	if err := refreshLayouts(h, 21); err != nil {
+		return err
+	}
+	// инсертеры — быстрые (stages.md, стадия 22): до сверки — обычные на их местах не лишнее
+	if err := tierStage(ctx, h, cluster.FastFrom, "fast-inserter"); err != nil {
 		return err
 	}
 	return maintain(ctx, h, func() ([]layout.Placement, error) { return blueprint(h, planBefore(22)) }, true)
@@ -679,7 +684,12 @@ func renameChests() error {
 
 // checkMaintenance — нет своих деревянных сундуков; каждое нужное исследование изучено или в
 // очереди; построенное — по чертежу, лишнего нет.
-func checkMaintenance(h *act.Hands) error { return checkDrawing(h, planBefore(22)) }
+func checkMaintenance(h *act.Hands) error {
+	if err := noBaseTier(h, cluster.FastFrom, "inserter"); err != nil {
+		return err
+	}
+	return checkDrawing(h, planBefore(22))
+}
 
 // checkKept — проверка обслуживания со сверкой по list (стадия 28 — чертёж: одна сверка, не две).
 func checkKept(h *act.Hands, list []layout.Placement) error {

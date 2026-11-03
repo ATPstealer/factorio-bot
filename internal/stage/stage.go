@@ -323,12 +323,12 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("длинные подземные пары труб не обошлись: %v", err)
 		}
-		// инсертер пары по плану — быстрый поверх обычного (stages.md, общее)
-		if err := fastPairs(ctx, h, n); err != nil {
+		// план — уровнями стадий, стоящее ниже уровня плана — поверх (stages.md, общее)
+		if err := tiersAt(ctx, h, n); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
-			h.Say("инсертеры пар не заменились: %v", err)
+			h.Say("второй уровень поверх стоящих не встал: %v", err)
 		}
 		// буферы выхода — с ограничением (stages.md, общее)
 		if plan, err := LoadPlan(); err == nil {

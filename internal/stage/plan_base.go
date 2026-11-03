@@ -570,7 +570,9 @@ func planTry(h *act.Hands, rough *RoughPlan, own []world.Object, rt *planRetry) 
 			drawAround(h, rough.Zones, base, l, c, image("plan-"+c.Name))
 		}
 	}
-	return base, l, writeState(planFile, ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()})
+	plan := ClusterPlan{Clusters: all, Placed: len(l.List), Layout: l.List, Image: planImage()}
+	planTiers(&plan, 0) // постройки — уровнем своей стадии (инсертеры с 22 — быстрые)
+	return base, l, writeState(planFile, plan)
 }
 
 // laterMines — добыча стадии 30 (Later: в плане сразу, строится на стадии 30): железо, медь, уголь

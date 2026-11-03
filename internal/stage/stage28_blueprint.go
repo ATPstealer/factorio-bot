@@ -27,19 +27,14 @@ func init() {
 const maxExtras = 60
 
 // firstTechs28 — в самом начале стадии 28 — в очередь исследований по порядку (stages.md,
-// решение пользователя): быстрый инсертер (кластеру зелёных схем), сборщик 2, быстрые ленты,
-// следующий научный пакет.
-var firstTechs28 = []string{"fast-inserter", "automation-2", "logistics-2", "chemical-science-pack"}
+// решение пользователя): сборщик 2, быстрые ленты, следующий научный пакет.
+var firstTechs28 = []string{"automation-2", "logistics-2", "chemical-science-pack"}
 
 func runBlueprint(ctx context.Context, h *act.Hands) error {
 	if err := queueTechs(ctx, h, firstTechs28...); err != nil {
 		return err
 	}
 	if err := upgradePlan(h); err != nil {
-		return err
-	}
-	// инсертеры кластера зелёных схем — быстрые (до сверки: обычные на их местах — не лишнее)
-	if err := fastCircuits(ctx, h); err != nil {
 		return err
 	}
 	if err := refreshLayouts(h, 27); err != nil {

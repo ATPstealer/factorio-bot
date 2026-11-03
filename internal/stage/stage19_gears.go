@@ -16,7 +16,7 @@ import (
 // Общая часть сборки с шины — makeLayout/runMake/checkMake.
 
 func init() {
-	for _, n := range []int{19, 29, 43} {
+	for _, n := range []int{19, 29, 43, 50} { // 50 — замена на второй уровень: на стадии 42
 		register(Stage{N: n, Name: "пропуск", Empty: true,
 			Run:   func(context.Context, *act.Hands) error { return nil },
 			Check: func(*act.Hands) error { return nil }})

@@ -140,8 +140,9 @@ func buildNeeds(p *knowledge.Prototypes, byStage map[int]map[string]float64, buf
 var bufLimitCache = map[string]map[string]int{}
 
 // bufLimits — ограничение буферов выхода по продукту (cluster.md §6а): ячеек — сколько продукта
-// нужно на стройку одной стадии плана (максимум по стадиям 11–61; стадия 50 — замена на второй
-// уровень, старая машина возвращается), не меньше одной; нет в списке — без ограничения.
+// нужно на стройку одной стадии плана (максимум по стадиям 11–68; замены на второй уровень —
+// стадиями их порогов, старая постройка возвращается; спутник — как постройка стадии 67), не
+// меньше одной; нет в списке — без ограничения.
 func bufLimits(h *act.Hands) (map[string]int, error) {
 	key := runPath(planFile)
 	if res, ok := bufLimitCache[key]; ok {
@@ -167,20 +168,27 @@ func bufLimits(h *act.Hands) (map[string]int, error) {
 	}
 	for _, pl := range plan.Layout {
 		n := st[pl]
-		if n < 11 || n > lastYellowStage {
+		if n < 11 || n > lastStage {
 			continue
 		}
-		if it := h.Protos.ItemFor(pl.Name); it != "" {
+		// своей стадией — тем уровнем, каким ставится; стоит до порога — замена на пороге
+		base := baseTier(pl.Name)
+		name := base
+		if from := tierFrom(base); from > 0 && n >= from {
+			name = cluster.Tier2[base]
+		}
+		if it := h.Protos.ItemFor(name); it != "" {
 			add(n, it, 1)
 		}
-		if up := tier2Of[pl.Name]; up != "" && n < 50 {
-			for _, in := range h.Protos.Recipes[up].Ingredients {
-				if in.Name != pl.Name {
-					add(50, in.Name, in.Mean())
+		if from := tierFrom(base); from > 0 && n < from {
+			for _, in := range h.Protos.Recipes[cluster.Tier2[base]].Ingredients {
+				if in.Name != base {
+					add(from, in.Name, in.Mean())
 				}
 			}
 		}
 	}
+	add(satelliteStage, "satellite", 1) // спутник — руками из буферов (stages.md, стадия 67)
 	need := buildNeeds(h.Protos, byStage, buf)
 	res := map[string]int{}
 	for it := range buf {

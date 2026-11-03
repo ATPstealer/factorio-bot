@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 )
@@ -214,10 +215,8 @@ func planCoverage(h *act.Hands, built []layout.Placement, to int) string {
 	var miss []layout.Placement
 	for _, pl := range stageAdded(plan, 1, to) {
 		x, y := int(pl.Pos.X*2), int(pl.Pos.Y*2)
-		if up, ok := tier2Of[pl.Name]; ok && to >= 50 && have[key{up, x, y}] { // заменена на стадии 50
-			continue
-		}
-		if !have[key{pl.Name, x, y}] {
+		// стоит тем же или другим уровнем (замена на стадиях 22 и 42 — поверх, на месте)
+		if !have[key{pl.Name, x, y}] && !have[key{baseTier(pl.Name), x, y}] && !have[key{cluster.Tier2[pl.Name], x, y}] {
 			miss = append(miss, pl)
 		}
 	}
