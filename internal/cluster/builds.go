@@ -94,7 +94,7 @@ var Builds = []Build{
 		Inputs: []string{"steel-plate", "electronic-circuit", "electric-engine-unit", "battery"}},
 	{Stage: 58, Kind: Make, Product: "low-density-structure", Recipe: "low-density-structure", N: 5,
 		Inputs: []string{"copper-plate", "plastic-bar", "steel-plate"}},
-	{Stage: 59, Kind: Make, Product: "processing-unit", Recipe: "processing-unit", N: 5,
+	{Stage: 59, Kind: Make, Product: "processing-unit", Recipe: "processing-unit", N: 6,
 		Inputs: []string{"electronic-circuit", "advanced-circuit", "sulfuric-acid"}},
 	{Stage: 60, Kind: Make, Product: "utility-science-pack", Recipe: "utility-science-pack", N: 4,
 		Inputs: []string{"flying-robot-frame", "low-density-structure", "processing-unit"}},
