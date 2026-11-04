@@ -363,10 +363,10 @@ func (b *Base) oreIn(r Rect, it string) int {
 // placeMines — блоки добычи cs: у каждого — ближнее к head пятно его ресурса в зонах добычи
 // (zones — по близости к head), пятна рядом делят место поровну, потом разметка.
 func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
-	var spots []*mineSpot
-	for _, c := range cs {
-		found := false
-		at, zs := head, zones // уголь станции — ближе к станции (Near — зона энергии)
+	// зоны для блока c по порядку и точка, к которой ближе: уголь станции — ближе к станции
+	// (Near — зона энергии)
+	zonesFor := func(c *Cluster) (world.Tile, []Zone) {
+		at, zs := head, zones
 		if c.Near != nil {
 			at, zs = *c.Near, slices.Clone(zones)
 			sort.SliceStable(zs, func(i, j int) bool {
@@ -375,6 +375,12 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 				return math.Hypot(xi-float64(at.X), yi-float64(at.Y)) < math.Hypot(xj-float64(at.X), yj-float64(at.Y))
 			})
 		}
+		return at, zs
+	}
+	var spots []*mineSpot
+	for _, c := range cs {
+		found := false
+		at, zs := zonesFor(c)
 		for _, z := range zs {
 			if z.Resources[c.Product] == 0 {
 				continue
@@ -402,8 +408,30 @@ func (b *Base) placeMines(cs []*Cluster, zones []Zone, head world.Tile) error {
 	shareMines(spots)
 	b.logf("добыча: после дележа %v", spotsString(spots))
 	for _, s := range spots {
-		if !b.placeMine(s) {
-			b.logf("добыча: %s на %v не встал", s.c.Product, s.r)
+		if b.placeMine(s) {
+			continue
+		}
+		// после дележа места не осталось (у пятна соседний блок другого ресурса — полоса в 2 тайла,
+		// 1330900585) — на другом пятне того же ресурса (stages.md, стадия 2: блок — на любом
+		// другом пятне)
+		b.logf("добыча: %s на %v не встал — другое пятно", s.c.Product, s.r)
+		at, zs := zonesFor(s.c)
+		placed := false
+		for _, z := range zs {
+			if z.Rect == s.z.Rect || z.Resources[s.c.Product] == 0 {
+				continue
+			}
+			r, ok := b.mineRect(s.c, z, at)
+			if !ok || b.avoids(r) || slices.ContainsFunc(b.Clusters, func(o *Cluster) bool { return o != s.c && o.Kind == Mine && o.Area.Overlaps(r) }) {
+				continue
+			}
+			if b.placeMine(&mineSpot{s.c, z, r, at}) {
+				b.logf("добыча: %s — на %v", s.c.Name, s.c.Area)
+				placed = true
+				break
+			}
+		}
+		if !placed {
 			return mineError(s.c)
 		}
 	}
