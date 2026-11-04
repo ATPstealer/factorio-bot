@@ -89,6 +89,46 @@ func (l *Layout) JoinPipe(from Conn, tag string) ([]Placement, error) {
 // routePipe — A* от from.To до любого тайла goals (значение — куда должен смотреть выход
 // подземки, пришедшей на этот тайл: на постройку/трубу). own — тайлы, которых можно касаться.
 func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Tile]bool, tag string) ([]Placement, error) {
+	// путь бывает проходит тайл дважды (came переписан более дешёвым путём уже после проверки
+	// used у потомков: подземный выход и труба на одном тайле, 567690334) — как у лент
+	// (RouteBelt): тайлы повтора запретить и заново
+	var banned []world.Tile
+	defer func() {
+		for _, t := range banned {
+			delete(l.Reserved, t)
+		}
+	}()
+	for try := 0; try < 6; try++ {
+		res, err := l.routePipeOnce(from, goals, own, tag)
+		if err != nil {
+			return nil, err
+		}
+		seen := map[world.Tile]bool{}
+		var dup []world.Tile
+		for _, p := range res {
+			t := world.TileOf(p.Pos)
+			if seen[t] {
+				dup = append(dup, t)
+			}
+			seen[t] = true
+		}
+		if len(dup) == 0 {
+			for _, p := range res {
+				l.Add(p)
+			}
+			return res, nil
+		}
+		for _, t := range dup {
+			if _, goal := goals[t]; t != from.To && !goal && !l.Reserved[t] {
+				l.Reserved[t] = true
+				banned = append(banned, t)
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: путь проходит тайл дважды", ErrNoPipe)
+}
+
+func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[world.Tile]bool, tag string) ([]Placement, error) {
 	const pipe, ptg = "pipe", "pipe-to-ground"
 	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
 	start := from.To
@@ -235,9 +275,6 @@ func (l *Layout) routePipe(from Conn, goals map[world.Tile]int, own map[world.Ti
 	}
 	if !startUG {
 		res = append(res, Placement{Name: pipe, Pos: start.Center(), Tag: tag})
-	}
-	for _, p := range res {
-		l.Add(p)
 	}
 	return res, nil
 }
