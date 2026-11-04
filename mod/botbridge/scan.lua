@@ -131,6 +131,7 @@ return function(methods)
       current = f.current_research and f.current_research.name or nil,
       progress = f.research_progress,
       saved = util.nonempty(saved),
+      rockets_launched = f.rockets_launched,
       queue = queue,
       recipes = recipes,
     }

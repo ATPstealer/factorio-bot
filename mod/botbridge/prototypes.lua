@@ -39,6 +39,8 @@ function dump.recipes()
       main_product = r.main_product and r.main_product.name or nil,
       enabled = r.enabled,
       hidden = r.hidden,
+      -- модули продуктивности в машину с этим рецептом можно
+      productivity = r.allowed_effects and r.allowed_effects.productivity or nil,
       -- порядок в окне крафта: вкладка (group) → строка подгруппы (subgroup) → order
       group = r.group.name, group_order = r.group.order,
       subgroup = r.subgroup.name, subgroup_order = r.subgroup.order,

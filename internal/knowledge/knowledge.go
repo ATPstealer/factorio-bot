@@ -46,6 +46,8 @@ type Recipe struct {
 	MainProduct string       `json:"main_product,omitempty"`
 	Enabled     bool         `json:"enabled"` // доступен с начала игры
 	Hidden      bool         `json:"hidden"`
+	// Productivity — модули продуктивности в машину с этим рецептом можно
+	Productivity bool `json:"productivity,omitempty"`
 	// порядок в окне крафта
 	Group         string `json:"group"`
 	GroupOrder    string `json:"group_order"`

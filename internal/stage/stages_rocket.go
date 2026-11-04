@@ -45,7 +45,6 @@ func init() {
 	}
 	register(Stage{N: 65, Name: "ракетная шахта — крафт", Run: runSiloCraft, Check: checkSiloCraft})
 	register(Stage{N: satelliteStage, Name: "спутник", Run: runSatellite, Check: checkSatellite})
-	register(Stage{N: 68, Name: "запуск", Run: runLaunch, Check: checkLaunch})
 }
 
 // Стадия 62 — как 49: чертёж (постройки плана стадий до 62) — обновить текущим кодом, сверка,
@@ -149,13 +148,4 @@ func runSatellite(ctx context.Context, h *act.Hands) error {
 
 func checkSatellite(*act.Hands) error {
 	return fmt.Errorf("груз шахты и автозапуск: %w", errNoMechanics)
-}
-
-// Стадия 68 — ждать запуска; модули продуктивности и быстрые ленты по ходу — механики ещё нет.
-func runLaunch(context.Context, *act.Hands) error {
-	return fmt.Errorf("запуск, модули, быстрые ленты: %w", errNoMechanics)
-}
-
-func checkLaunch(*act.Hands) error {
-	return fmt.Errorf("событие запуска: %w", errNoMechanics)
 }

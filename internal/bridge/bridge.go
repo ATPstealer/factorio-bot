@@ -328,9 +328,10 @@ type Force struct {
 	Current    string       `json:"current"`
 	Progress   float64      `json:"progress"`
 	// Saved — начатые и отложенные исследования: доля сделанного (текущее — в Progress)
-	Saved   map[string]float64 `json:"saved,omitempty"`
-	Queue   List[string]       `json:"queue"`
-	Recipes List[string]       `json:"recipes"`
+	Saved           map[string]float64 `json:"saved,omitempty"`
+	RocketsLaunched int                `json:"rockets_launched,omitempty"`
+	Queue           List[string]       `json:"queue"`
+	Recipes         List[string]       `json:"recipes"`
 	// произведено предметов за игру (статистика производства)
 	Produced map[string]float64 `json:"produced,omitempty"`
 }
