@@ -3,7 +3,9 @@ package stage
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
+	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
@@ -11,8 +13,9 @@ import (
 )
 
 // Второй уровень по стадиям (stages.md, стадии 22 и 42; cluster.md §7): инсертеры — быстрые с
-// cluster.FastFrom, печи и сборщики — второго уровня с cluster.Tier2From. План держит каждую
-// постройку тем уровнем, каким она стоит к стадии; ленты — первого уровня (их замена — стадия 68),
+// cluster.FastFrom, печи и сборщики — второго уровня с cluster.Tier2From, ленты рядов шин, которым
+// жёлтой мало (cluster.md §5), — тоже с cluster.Tier2From. План держит каждую постройку тем
+// уровнем, каким она стоит к стадии; остальные ленты — первого уровня (их замена — стадия 68),
 // столбы и сундуки — только первого.
 
 // bonusTechs — бонус захвата инсертеров (stages.md, общее): обычный и быстрый носят по 2; в
@@ -33,7 +36,8 @@ func withBonus(researched, techs []string) []string {
 	return append(res, techs...)
 }
 
-// tierFrom — с какой стадии постройка name первого уровня — второго; 0 — не меняется.
+// tierFrom — с какой стадии постройка name первого уровня — второго; 0 — не меняется (ленты — по
+// рядам: upFrom).
 func tierFrom(name string) int {
 	switch name {
 	case "inserter":
@@ -44,15 +48,72 @@ func tierFrom(name string) int {
 	return 0
 }
 
+// upFrom — с какой стадии постройка pl плана первого уровня — второго; 0 — не меняется. Лента,
+// подземка, делитель — с cluster.Tier2From только в ряду шины, которому жёлтой мало (fast —
+// fastRows), остальные — стадия 68.
+func upFrom(pl layout.Placement, fast bool) int {
+	base := baseTier(pl.Name)
+	if fastTier[base] != "" {
+		if fast {
+			return cluster.Tier2From
+		}
+		return 0
+	}
+	return tierFrom(base)
+}
+
 // baseTier — постройка первого уровня, которую заменяет name (fast-inserter → inserter); name —
-// если она не замена по стадиям.
+// если она не замена.
 func baseTier(name string) string {
 	for b, up := range cluster.Tier2 {
-		if up == name && tierFrom(b) > 0 {
+		if up == name {
 			return b
 		}
 	}
 	return name
+}
+
+// fastRows — номера в plan.Layout лент, подземок и делителей рядов шин, которым жёлтой мало
+// (cluster.FastLanes, cluster.md §5): лента и подземка — с тегом шины в ряду её ленты, делитель —
+// любой, что стоит в ряду (подвод, отвод, балансировка), в пределах ленты.
+func fastRows(plan *ClusterPlan) map[int]bool {
+	fast := cluster.FastLanes(plan.Clusters)
+	type row struct {
+		tag string
+		y   int
+	}
+	span := map[row][2]float64{} // ряд → центры лент от и до по X
+	for _, pl := range plan.Layout {
+		if baseTier(pl.Name) != "transport-belt" || !fast[strings.TrimPrefix(pl.Tag, "c/")][pl.Recipe] {
+			continue
+		}
+		r := row{pl.Tag, int(math.Floor(pl.Pos.Y))}
+		s, ok := span[r]
+		if !ok {
+			s = [2]float64{pl.Pos.X, pl.Pos.X}
+		}
+		span[r] = [2]float64{min(s[0], pl.Pos.X), max(s[1], pl.Pos.X)}
+	}
+	res := map[int]bool{}
+	for i, pl := range plan.Layout {
+		base := baseTier(pl.Name)
+		if fastTier[base] == "" {
+			continue
+		}
+		for r, s := range span {
+			if pl.Pos.X < s[0]-1.5 || pl.Pos.X > s[1]+1.5 {
+				continue
+			}
+			if base == "splitter" {
+				if pl.Dir == layout.E && (int(math.Floor(pl.Pos.Y-0.5)) == r.y || int(math.Floor(pl.Pos.Y+0.5)) == r.y) {
+					res[i] = true
+				}
+			} else if pl.Tag == r.tag && int(math.Floor(pl.Pos.Y)) == r.y {
+				res[i] = true
+			}
+		}
+	}
+	return res
 }
 
 // planTiers — уровни построек плана: постройка стадии st — второго уровня, если st или done
@@ -60,10 +121,11 @@ func baseTier(name string) string {
 // переименовано.
 func planTiers(plan *ClusterPlan, done int) int {
 	st := planStages(plan)
+	fast := fastRows(plan)
 	k := 0
 	for i, pl := range plan.Layout {
 		base := baseTier(pl.Name)
-		from := tierFrom(base)
+		from := upFrom(pl, fast[i])
 		if from == 0 {
 			continue
 		}
@@ -112,7 +174,8 @@ func upgradeBuilt(ctx context.Context, h *act.Hands, plan *ClusterPlan, n int) e
 		return nil
 	}
 	h.Say("второй уровень поверх стоящих: %v", names)
-	return buildSorted(ctx, h, todo, []string{"steel-furnace", "assembling-machine-2", "fast-inserter"})
+	return buildSorted(ctx, h, todo, []string{"steel-furnace", "assembling-machine-2", "fast-inserter",
+		"fast-transport-belt", "fast-underground-belt", "fast-splitter"})
 }
 
 // tiersAt — план к стадии n по уровням (сохранённые планы — до правила) и стоящее ниже уровня

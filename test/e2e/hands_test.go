@@ -1781,3 +1781,84 @@ func TestReplaceInserterFast(t *testing.T) {
 func TestReplaceFurnaceTier2(t *testing.T) {
 	replaceTier2(t, handsT(t), "stone-furnace", "steel-furnace", "advanced-material-processing", "", 2)
 }
+
+// Быстрые ленты поверх жёлтых (stages.md: стадия 42 — ряды шины, которым жёлтой мало, стадия 68 —
+// все): ряд на восток — лента, пара подземок, лента, делитель, лента; быстрые — теми же вызовами,
+// что стройка (ленты, подземки, делитель): на местах — быстрые на восток, подземки — вход и выход
+// как были и в паре, жёлтых нет, жёлтые — в инвентаре.
+func TestReplaceBeltFast(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Researched, "logistics-2") {
+		t.Skip("logistics-2 не изучено")
+	}
+	// быстрые — первыми (их рецепты съедают жёлтые)
+	have(t, h, "fast-transport-belt", 3)
+	have(t, h, "fast-underground-belt", 2)
+	have(t, h, "fast-splitter", 1)
+	have(t, h, "transport-belt", 3)
+	have(t, h, "underground-belt", 2)
+	have(t, h, "splitter", 1)
+	ctx := ctxT(t, 6*time.Minute)
+	c := freeArea(t, h, 10)
+	x, y := math.Floor(c.X)-3.5, math.Floor(c.Y)+0.5
+	belts := []bridge.Pos{{X: x, Y: y}, {X: x + 4, Y: y}, {X: x + 6, Y: y}}
+	ugs := []bridge.Pos{{X: x + 1, Y: y}, {X: x + 3, Y: y}} // вход, выход
+	sp := bridge.Pos{X: x + 5, Y: y + 0.5}                  // делитель на восток: ряды y и y+1
+	east := func(n int) []int {
+		d := make([]int, n)
+		for i := range d {
+			d[i] = layout.E
+		}
+		return d
+	}
+	place := func(tier string) {
+		t.Helper()
+		for _, s := range []struct {
+			name string
+			pos  []bridge.Pos
+		}{{"transport-belt", belts}, {"underground-belt", ugs}, {"splitter", []bridge.Pos{sp}}} {
+			if _, err := h.PlaceDirs(ctx, tier+s.name, s.pos, east(len(s.pos))); err != nil {
+				t.Fatalf("%s: %v", tier+s.name, err)
+			}
+		}
+	}
+	place("")
+	p0, _ := h.B.Player()
+	place("fast-")
+	east1 := func(name string, p bridge.Pos) *bridge.EntityState {
+		t.Helper()
+		st, err := h.B.GetEntity(name, p)
+		if err != nil || st == nil {
+			t.Errorf("в (%.1f, %.1f) нет %s (%v)", p.X, p.Y, name, err)
+			return nil
+		}
+		if st.Direction == nil || *st.Direction != layout.E {
+			t.Errorf("%s в (%.1f, %.1f): направление %v, ждали восток", name, p.X, p.Y, st.Direction)
+		}
+		if was, _ := h.B.GetEntity(strings.TrimPrefix(name, "fast-"), p); was != nil {
+			t.Errorf("в (%.1f, %.1f) осталась %s", p.X, p.Y, was.Name)
+		}
+		return st
+	}
+	for _, p := range belts {
+		east1("fast-transport-belt", p)
+	}
+	for i, p := range ugs {
+		if st := east1("fast-underground-belt", p); st != nil && (st.UGType != []string{"input", "output"}[i] || !st.UGPaired) {
+			t.Errorf("подземка %d в (%.1f, %.1f): %s, в паре %v — ждали %s в паре", i+1, p.X, p.Y, st.UGType, st.UGPaired,
+				[]string{"input", "output"}[i])
+		}
+	}
+	east1("fast-splitter", sp)
+	p1, _ := h.B.Player()
+	for name, n := range map[string]int{"transport-belt": 3, "underground-belt": 2, "splitter": 1} {
+		if p1.Inventory[name] != p0.Inventory[name]+n {
+			t.Errorf("%s в инвентаре: было %d, стало %d — ждали +%d", name, p0.Inventory[name], p1.Inventory[name], n)
+		}
+	}
+	clean(t, h)
+}

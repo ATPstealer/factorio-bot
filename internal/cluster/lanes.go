@@ -86,3 +86,41 @@ var Tier2 = map[string]string{
 	"stone-furnace":        "steel-furnace",
 	"assembling-machine-1": "assembling-machine-2",
 }
+
+// yellowRate — жёлтая лента, шт/с.
+const yellowRate = 15.0
+
+// FastLanes — ленты шин выше bus-1, которым жёлтой мало (cluster.md §5): шина → предметы, у
+// которых выпуск поставщиков с этажа под шиной (на втором уровне машин) больше 15/с; ряд такой
+// ленты — быстрыми со второго уровня.
+func FastLanes(cs []*Cluster) map[string]map[string]bool {
+	rate := map[string]map[string]float64{}
+	for _, c := range cs {
+		f := floorOf(c)
+		op, ok := outPort(c)
+		if f == 0 || !ok {
+			continue
+		}
+		bus := fmt.Sprintf("bus-%d", f+1)
+		if rate[bus] == nil {
+			rate[bus] = map[string]float64{}
+		}
+		for _, o := range c.Out {
+			if o.Item == op.Item {
+				rate[bus][o.Item] += o.Rate
+			}
+		}
+	}
+	res := map[string]map[string]bool{}
+	for bus, items := range rate {
+		for it, r := range items {
+			if r > yellowRate+1e-9 {
+				if res[bus] == nil {
+					res[bus] = map[string]bool{}
+				}
+				res[bus][it] = true
+			}
+		}
+	}
+	return res
+}

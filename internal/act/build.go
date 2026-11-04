@@ -440,6 +440,21 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		for _, i := range here {
 			moved := false
 			pos, dir := positions[i], dirs[i]
+			if h.Protos.Entities[it.PlaceResult].Type == "underground-belt" {
+				// подземка поверх подземки: игра заменяет и её пару (быстрая поверх жёлтой — оба
+				// конца, из руки уходит 2; TestReplaceBeltFast) — этот конец уже стоит в паре по
+				// ходу: поставлено, руку — проверить заново
+				if st, err := h.B.GetEntity(it.PlaceResult, pos); err != nil {
+					return built, err
+				} else if st != nil && st.UGPaired && st.Direction != nil && *st.Direction == dir {
+					built[i], held = st.Entity, false
+					left = removeInt(left, i)
+					if h.World != nil {
+						h.World.Put([]world.Object{{Name: st.Name, Type: "underground-belt", Pos: st.Position, Own: true, Direction: dir}})
+					}
+					continue
+				}
+			}
 			// выход подземки (позади — свой непарный вход туда же): игра сама делает поставленную
 			// выходом и спаривает, а выход встаёт против руки — рука наоборот от хода (hand.go); не
 			// вышло — см. ugExit ниже

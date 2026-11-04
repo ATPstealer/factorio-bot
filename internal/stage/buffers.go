@@ -166,22 +166,27 @@ func bufLimits(h *act.Hands) (map[string]int, error) {
 		}
 		byStage[n][item] += k
 	}
-	for _, pl := range plan.Layout {
+	fast := fastRows(plan)
+	for i, pl := range plan.Layout {
 		n := st[pl]
 		if n < 11 || n > lastStage {
 			continue
 		}
-		// своей стадией — тем уровнем, каким ставится; стоит до порога — замена на пороге
+		// своей стадией — тем уровнем, каким ставится; стоит до порога — замена на пороге: из
+		// буфера (быстрые ленты), нет буфера — крафт из старой
 		base := baseTier(pl.Name)
+		from := upFrom(pl, fast[i])
 		name := base
-		if from := tierFrom(base); from > 0 && n >= from {
+		if from > 0 && n >= from {
 			name = cluster.Tier2[base]
 		}
 		if it := h.Protos.ItemFor(name); it != "" {
 			add(n, it, 1)
 		}
-		if from := tierFrom(base); from > 0 && n < from {
-			for _, in := range h.Protos.Recipes[cluster.Tier2[base]].Ingredients {
+		if up := cluster.Tier2[base]; from > 0 && n < from && buf[h.Protos.ItemFor(up)] {
+			add(from, h.Protos.ItemFor(up), 1)
+		} else if from > 0 && n < from {
+			for _, in := range h.Protos.Recipes[up].Ingredients {
 				if in.Name != base {
 					add(from, in.Name, in.Mean())
 				}
