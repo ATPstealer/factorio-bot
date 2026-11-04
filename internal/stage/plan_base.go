@@ -31,7 +31,7 @@ const planTries = 10
 var floorSpare [4]int
 
 const (
-	spareStep  = 20
+	spareStep  = 40
 	spareTries = 3
 )
 
