@@ -87,8 +87,8 @@ var Tier2 = map[string]string{
 	"assembling-machine-1": "assembling-machine-2",
 }
 
-// yellowRate — жёлтая лента, шт/с.
-const yellowRate = 15.0
+// YellowRate — жёлтая лента, шт/с.
+const YellowRate = 15.0
 
 // FastLanes — ленты шин выше bus-1, которым жёлтой мало (cluster.md §5): шина → предметы, у
 // которых выпуск поставщиков с этажа под шиной (на втором уровне машин) больше 15/с; ряд такой
@@ -114,7 +114,7 @@ func FastLanes(cs []*Cluster) map[string]map[string]bool {
 	res := map[string]map[string]bool{}
 	for bus, items := range rate {
 		for it, r := range items {
-			if r > yellowRate+1e-9 {
+			if r > YellowRate+1e-9 {
 				if res[bus] == nil {
 					res[bus] = map[string]bool{}
 				}

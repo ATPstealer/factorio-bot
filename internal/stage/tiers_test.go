@@ -8,6 +8,7 @@ import (
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Уровни построек плана по стадиям (stages.md, стадии 22 и 42): в новом плане — по стадии
@@ -96,6 +97,55 @@ func TestPlanTiersFastRows(t *testing.T) {
 	want := []string{"fast-transport-belt", "fast-underground-belt", "transport-belt", "fast-underground-belt",
 		"fast-splitter", "fast-transport-belt", "transport-belt", "splitter"}
 	if got := names(); !slices.Equal(got, want) {
+		t.Errorf("после 42: %v, ждал %v", got, want)
+	}
+}
+
+// Выход добычи больше 15/с (cluster.md §5): блок меди 18/с с одним выходом — лента сбора, подвод с
+// подземкой и ряд bus-1 — быстрые после 42, лента ряда буров — как есть; блок угля 10/с — как есть.
+func TestPlanTiersFastMine(t *testing.T) {
+	const drill = "electric-mining-drill"
+	mine := func(name, item string, rate float64, port world.Tile) *cluster.Cluster {
+		return &cluster.Cluster{Name: name, Kind: cluster.Mine, Product: item, Units: []cluster.Unit{{Machine: drill}},
+			Out: []cluster.Flow{{Item: item, Rate: rate}}, Ports: []cluster.Port{{T: port, Dir: layout.N, Item: item}}}
+	}
+	pl := func(name, tag, recipe string, x, y int, dir int) layout.Placement {
+		return layout.Placement{Name: name, Pos: world.Tile{X: x, Y: y}.Center(), Dir: dir, Recipe: recipe, Tag: tag}
+	}
+	feed := cluster.LogisticsTag + "/bus-1/copper-ore-1"
+	plan := &ClusterPlan{
+		Clusters: []*cluster.Cluster{mine("copper-ore-1", "copper-ore", 18, world.Tile{X: 5, Y: -1}),
+			mine("coal-1", "coal", 10, world.Tile{X: 25, Y: -1})},
+		Layout: []layout.Placement{
+			// блок меди: сбор по x = 5 к выходу (5, −1), ряд y = 3 к сбору, буры над и под рядом
+			pl("transport-belt", "c/copper-ore-1", "", 5, 3, layout.N),
+			pl("transport-belt", "c/copper-ore-1", "", 5, 0, layout.N),
+			pl("transport-belt", "c/copper-ore-1", "", 6, 3, layout.W),
+			{Name: drill, Pos: bridge.Pos{X: 7.5, Y: 1.5}, Dir: layout.S, Tag: "c/copper-ore-1"},
+			{Name: drill, Pos: bridge.Pos{X: 7.5, Y: 5.5}, Dir: layout.N, Tag: "c/copper-ore-1"},
+			// подвод: вверх, вправо, подземкой — в голову ряда bus-1
+			pl("transport-belt", feed, "", 5, -1, layout.N),
+			pl("transport-belt", feed, "", 5, -2, layout.E),
+			pl("underground-belt", feed, "input", 6, -2, layout.E),
+			pl("underground-belt", feed, "output", 8, -2, layout.E),
+			pl("transport-belt", feed, "", 9, -2, layout.E),
+			pl("transport-belt", "c/bus-1", "copper-ore", 10, -2, layout.E),
+			pl("transport-belt", "c/bus-1", "copper-ore", 11, -2, layout.E),
+			// блок угля: сбор и подвод в свой ряд
+			pl("transport-belt", "c/coal-1", "", 25, 0, layout.N),
+			{Name: drill, Pos: bridge.Pos{X: 26.5, Y: 1.5}, Dir: layout.S, Tag: "c/coal-1"},
+			pl("transport-belt", cluster.LogisticsTag+"/bus-1/coal-1", "", 25, -1, layout.E),
+			pl("transport-belt", "c/bus-1", "coal", 26, -1, layout.E),
+		},
+	}
+	planTiers(plan, cluster.Tier2From)
+	var got []string
+	for _, p := range plan.Layout {
+		got = append(got, p.Name)
+	}
+	f, y := "fast-transport-belt", "transport-belt"
+	want := []string{f, f, y, drill, drill, f, f, "fast-underground-belt", "fast-underground-belt", f, f, f, y, drill, y, y}
+	if !slices.Equal(got, want) {
 		t.Errorf("после 42: %v, ждал %v", got, want)
 	}
 }
