@@ -975,10 +975,10 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err != nil {
 		return err
 	}
-	if n*5 >= held(p0, item)*4 || n >= 4*h.stack(item) {
-		// положить всё или почти всё (≥ 80%) или много (≥ 4 пачек; лишняя пачка не беда) —
-		// Ctrl+клик: кладётся максимум возможного одним действием; удержание Z кладёт по
-		// одному — 200 угля ≈ 2 минуты
+	if n >= held(p0, item) || n >= 4*h.stack(item) {
+		// положить всё или много (≥ 4 пачек; лишняя пачка не беда) — Ctrl+клик: кладётся максимум
+		// возможного одним действием; удержание Z кладёт по одному — 200 угля ≈ 2 минуты. Почти
+		// всё — не Ctrl: он кладёт и лишнее (10 пластин из 11 — легло 11, e2e TestUnstuckKeepsRecipe)
 		got, err := h.InsertAll(ctx, e, item)
 		if err != nil {
 			return err
