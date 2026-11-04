@@ -96,8 +96,15 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 		}
 		return v
 	}
+	// стоимость тайла — одна на поиск (раскладка за поиск не меняется), а спрашивают её на каждом
+	// шаге и у каждой подземки: запомнить (−1 — нельзя)
+	costMemo := map[world.Tile]float64{}
 	cost := func(t world.Tile) (float64, bool) {
+		if c, ok := costMemo[t]; ok {
+			return c, c >= 0
+		}
 		if !l.Free(t, AnyLand) || t != from && into(t) {
+			costMemo[t] = -1
 			return 0, false
 		}
 		c := 1.0 + l.Costly[t]
@@ -108,6 +115,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 			// убираемое (деревья, камни, обломки) — как свободное: убрать и класть ровно
 			// (правило пользователя), а не обходить змейкой
 		}
+		costMemo[t] = c
 		return c, true
 	}
 	// дальний маршрут (лента с нефти на базу — сотни тайлов через лес): взвешенная оценка —
