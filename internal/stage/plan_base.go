@@ -27,7 +27,7 @@ import (
 const planTries = 10
 
 // floorSpare — этажам зон шире ещё на столько процентов (план всей базы не встал: на этаже не
-// хватило места — этаж шире на spareStep и зоны заново, до spareTries раз).
+// хватило места — этаж шире на spareStep и зоны заново, до spareTries раз на каждый этаж).
 var floorSpare [4]int
 
 const (
@@ -219,6 +219,7 @@ func planBase(h *act.Hands) error {
 	short, shortWells := 0, 0
 	fails := map[string]int{}          // неудач подвода у кластера
 	respared := 0                      // сколько раз этажи шире и зоны заново
+	var spared [4]int                  // сколько раз шире — по этажам
 	mineAvoid := map[world.Tile]bool{} // места блоков добычи, чей подвод не провёлся: и при зонах заново
 	for try := 0; ; try++ {
 		base, l, err := planTry(h, rough, own, rt)
@@ -269,8 +270,9 @@ func planBase(h *act.Hands) error {
 			try = -1
 			continue
 		}
-		if tight != nil && respared < spareTries {
-			if f := cluster.FloorOf(tight); f > 0 {
+		if tight != nil {
+			if f := cluster.FloorOf(tight); f > 0 && spared[f] < spareTries {
+				spared[f]++
 				respared++
 				floorSpare[f] += spareStep
 				h.Say("%v — этаж %d шире на %d%%, зоны заново", err, f, floorSpare[f])
