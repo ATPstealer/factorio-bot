@@ -963,7 +963,14 @@ func (b *Base) feedMine(l *layout.Layout, buses []*ZBus, c *Cluster, skip *Port)
 		}
 		var p Port
 		err := layout.ErrNoRoute
-		for _, q := range b.feedTargets(l, bus, lns, op) {
+		targets := b.feedTargets(l, bus, lns, op)
+		if _, own := b.feedLane[op.T]; !own && len(targets) > sharedTries {
+			// выход без своей ленты (рядов bus-1 меньше, чем выходов, — shareLanes): ближние входы
+			// боком; каждый неудачный поиск от дальнего блока — до 1.5M состояний (635406131: 40
+			// входов — 10 мин на попытку плана)
+			targets = targets[:sharedTries]
+		}
+		for _, q := range targets {
 			g := guardHeads(l, bus, q.T)
 			_, err = l.RouteBelt(op.T, op.Dir, q.T, q.Dir, LogisticsTag+"/"+bus.Name+"/"+c.Name)
 			unfence(l, g)
@@ -1071,6 +1078,9 @@ func (b *Base) orderedMineLanes(l *layout.Layout, buses []*ZBus) error {
 	}
 	return nil
 }
+
+// sharedTries — сколько входов пробовать у выхода добычи без своей ленты (feedMine).
+const sharedTries = 8
 
 // shareLanes — выходы outs без лишних сверх rows: у ресурса, у которого выходов больше всех (не
 // меньше двух), — выход блока с меньшим числом буров; порядок остальных — как был. Убранные —
