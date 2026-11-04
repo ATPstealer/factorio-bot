@@ -357,6 +357,9 @@ func (b *Base) MineZones(cs []*Cluster, need map[string]float64) []Zone {
 			}
 		}
 	}
+	if need != nil {
+		rs = append(rs, b.KeepOil...) // нефть под прошлой разметкой базы — зонами (stages.md, стадия 2)
+	}
 	ore := func(r Rect) int {
 		n := 0
 		for _, o := range g.ore {

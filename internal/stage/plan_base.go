@@ -189,6 +189,25 @@ func (e *wellsError) Error() string {
 	return fmt.Sprintf("нефть: качалок встало %d из %d", e.got, e.want)
 }
 
+// roughKeepOil — месторождения нефти, которые разметка берёт зонами добычи сразу (база их
+// обходит): прошлая разметка легла на них, качалок не хватило (planBase).
+var roughKeepOil []cluster.Rect
+
+// oilUnderBase — месторождения нефти под зонами базы (не добычи).
+func oilUnderBase(h *act.Hands, zones []cluster.Zone) []cluster.Rect {
+	var res []cluster.Rect
+	for _, p := range h.World.Patches() {
+		if p.Name != "crude-oil" {
+			continue
+		}
+		r := cluster.Rect{Min: p.Min, Max: world.Tile{X: p.Max.X + 1, Y: p.Max.Y + 1}}
+		if slices.ContainsFunc(zones, func(z cluster.Zone) bool { return z.Kind != cluster.ZoneMine && z.Rect.Overlaps(r) }) {
+			res = append(res, r)
+		}
+	}
+	return res
+}
+
 // planRetry — что неудачная попытка плана меняет для следующей (planBase → planTry).
 type planRetry struct {
 	avoid map[world.Tile]bool // сюда кластерам не вставать (лента не провелась)
@@ -238,6 +257,24 @@ func planBase(h *act.Hands) error {
 			rt.wells += we.want - we.got
 			h.Say("%v — беру ещё месторождение (скважин не меньше %d)", err, rt.wells)
 			continue
+		}
+		// месторождения нефти под зонами базы — зонами добычи и зоны заново, один раз (stages.md,
+		// стадия 2; 436722908: bus-3 легла на три месторождения, качалок — 25 из 26)
+		if errors.As(err, &we) && len(roughKeepOil) == 0 {
+			if roughKeepOil = oilUnderBase(h, rough.Zones); len(roughKeepOil) > 0 {
+				h.Say("%v — месторождения нефти под базой (%d) — зонами добычи, зоны заново", err, len(roughKeepOil))
+				if err := roughOnce(h); err != nil {
+					return err
+				}
+				if rough, err = LoadRough(); err != nil {
+					return err
+				}
+				clear(avoid)
+				maps.Copy(avoid, mineAvoid)
+				shortWells, rt.wells = 0, cluster.OilWells
+				try = -1
+				continue
+			}
 		}
 		var se *shortError
 		if errors.As(err, &se) && short < 3 {

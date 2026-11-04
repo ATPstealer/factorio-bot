@@ -79,6 +79,9 @@ type Base struct {
 
 	// NoMine — где зон добычи не выбирать (MineZones): место базы прошлой разметки
 	NoMine []Rect
+	// KeepOil — месторождения нефти — зонами добычи сразу (MineZones), база их обходит: прошлая
+	// разметка легла на них, качалок не хватило (stages.md, стадия 2)
+	KeepOil []Rect
 
 	mineZones []Zone           // прикидка: зоны добычи (MineZones)
 	zoneRects []Rect           // зоны (PlaceZoned): кластеры без зоны — вне их
