@@ -1282,7 +1282,10 @@ func polesAlong(l *layout.Layout, leg []layout.Placement, tag string) {
 	var pts []world.Tile // тайлы трассы по порядку, с промежутками подземок
 	for i := len(leg) - 1; i >= 0; i-- {
 		t := world.TileOf(leg[i].Pos)
-		if len(pts) > 0 {
+		// промежуток — только по прямой (подземка); скачок вбок — другой кусок трубы: по
+		// диагонали «промежуток» уходил за конец — цепочка столбов через озеро, ничего не
+		// питающая (стадия 34 на 1098794301: «от сети не дотянуться»)
+		if len(pts) > 0 && (t.X == pts[len(pts)-1].X || t.Y == pts[len(pts)-1].Y) {
 			last := pts[len(pts)-1]
 			for k := 1; k < abs(t.X-last.X)+abs(t.Y-last.Y); k++ {
 				pts = append(pts, world.Tile{X: last.X + sign(t.X-last.X)*k, Y: last.Y + sign(t.Y-last.Y)*k})

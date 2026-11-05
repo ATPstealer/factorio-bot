@@ -86,3 +86,35 @@ func TestTankJoinPumpOutlet(t *testing.T) {
 		t.Fatalf("насосов %d, ждали 1", pumps)
 	}
 }
+
+// Столбы вдоль трубы из двух кусков не на одной прямой (стадия 34 на 1098794301): вдоль каждого
+// куска, вплотную к трубе; скачок между кусками — не по диагонали (раньше «промежуток» шёл
+// диагональю за конец — цепочка через озеро, ничего не питающая).
+func TestPolesAlongJump(t *testing.T) {
+	l := layout.New(pt(t), nil)
+	tag := LogisticsTag + "/oil-1"
+	var leg []layout.Placement
+	for x := 0; x < 20; x++ { // кусок 1: y = 0
+		leg = append(leg, layout.Placement{Name: "pipe", Pos: world.Tile{X: x, Y: 0}.Center(), Tag: tag})
+	}
+	for x := 40; x < 60; x++ { // кусок 2: y = 30, вбок от первого
+		leg = append(leg, layout.Placement{Name: "pipe", Pos: world.Tile{X: x, Y: 30}.Center(), Tag: tag})
+	}
+	for _, pl := range leg {
+		l.Add(pl)
+	}
+	polesAlong(l, leg, tag)
+	poles := 0
+	for _, pl := range l.List {
+		if pl.Name != "small-electric-pole" {
+			continue
+		}
+		poles++
+		if t0 := world.TileOf(pl.Pos); t0.Y < -1 || t0.Y > 1 && t0.Y < 29 || t0.Y > 31 {
+			t.Errorf("столб %v — не у трубы", pl.Pos)
+		}
+	}
+	if poles < 6 {
+		t.Errorf("столбов %d, ждали вдоль обоих кусков (не меньше 6)", poles)
+	}
+}

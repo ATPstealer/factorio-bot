@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/cluster"
@@ -57,7 +58,66 @@ func loadPlanFile(path string) (*ClusterPlan, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
+	s.Layout = dropStrayPoles(s.Layout)
 	return &s, nil
+}
+
+// dropStrayPoles — без столбов трасс нефти, рядом с которыми нет их трубы (сохранённые планы — до
+// правки cluster.polesAlong: диагональная цепочка через озеро, стадия 34 на 1098794301). Столб
+// трассы стоит вплотную к тайлу трубы, насоса или промежутка подземной пары своего тега.
+func dropStrayPoles(list []layout.Placement) []layout.Placement {
+	oil := func(tag string) bool { return strings.HasPrefix(tag, cluster.LogisticsTag+"/oil-") }
+	type key struct {
+		tag string
+		t   world.Tile
+	}
+	route := map[key]bool{}
+	at := map[world.Tile]layout.Placement{}
+	for _, pl := range list {
+		if oil(pl.Tag) && !strings.HasSuffix(pl.Name, "electric-pole") {
+			t := world.TileOf(pl.Pos)
+			route[key{pl.Tag, t}] = true
+			at[t] = pl
+			if pl.Name == "pump" { // 1×2: второй тайл — по ходу
+				route[key{pl.Tag, layout.Step(t, pl.Dir)}] = true
+				route[key{pl.Tag, layout.Step(t, (pl.Dir+8)%16)}] = true
+			}
+		}
+	}
+	for _, pl := range list { // промежутки подземных пар
+		if !oil(pl.Tag) || pl.Name != "pipe-to-ground" {
+			continue
+		}
+		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+			var gap []world.Tile
+			for k, cur := 1, world.TileOf(pl.Pos); k <= 11; k++ {
+				cur = layout.Step(cur, d)
+				if p, ok := at[cur]; ok {
+					if p.Name == "pipe-to-ground" && p.Tag == pl.Tag {
+						for _, g := range gap {
+							route[key{pl.Tag, g}] = true
+						}
+					}
+					break
+				}
+				gap = append(gap, cur)
+			}
+		}
+	}
+	res := list[:0:0]
+	for _, pl := range list {
+		if oil(pl.Tag) && strings.HasSuffix(pl.Name, "electric-pole") {
+			t, ok := world.TileOf(pl.Pos), false
+			for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+				ok = ok || route[key{pl.Tag, layout.Step(t, d)}]
+			}
+			if !ok {
+				continue
+			}
+		}
+		res = append(res, pl)
+	}
+	return res
 }
 
 // planImage — картинка плана: run/stages/plan-<сид>.png.
