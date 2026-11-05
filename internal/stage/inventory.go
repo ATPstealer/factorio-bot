@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 
@@ -12,7 +13,8 @@ import (
 )
 
 // Инвентарь — постоянно в порядке (stages.md, «Общее для всех стадий»): нужное текущей стадии —
-// её раскладка и предметы на её крафт; свободно меньше четверти — ненужное в хранение, пока не
+// её раскладка и предметы на её крафт, сколько уйдёт; свободно меньше четверти — ненужное (и
+// излишек нужного) в хранение, пока не
 // станет свободна половина (store); пластины — только когда полон, а выложить больше нечего
 // (сверх plateKeep). Набрать нужное — worker.go.
 
@@ -25,32 +27,41 @@ const freeBefore = 10
 // needCache — нужное текущей стадии (план не меняется по ходу стадии).
 var needCache struct {
 	stage int
-	items map[string]bool
-	slots int // сколько ячеек займут постройки плана
+	items map[string]int
 }
 
-// neededItems — что нужно текущей стадии: постройки её плана и всё на их ручной крафт (по дереву
-// рецептов); без плана стройки (стадия 14 — материалы) — ничего: готовые постройки — в хранение.
-func neededItems(h *act.Hands) map[string]bool {
+// neededItems — что нужно текущей стадии и сколько: постройки её плана и всё на их ручной крафт
+// — по дереву рецептов, с запасом в стопку (решение пользователя: дерево и камень с вырубки сверх
+// этого — ненужное, хоть из них и делаются столбы и печи); без плана стройки (стадия 14 —
+// материалы) — ничего: готовые постройки — в хранение.
+func neededItems(h *act.Hands) map[string]int {
 	if needCache.items != nil && needCache.stage == curStage {
 		return needCache.items
 	}
-	res := map[string]bool{}
-	var add func(item string, depth int)
-	add = func(item string, depth int) {
-		if item == "" || res[item] && depth > 0 || depth > 6 {
+	res := map[string]float64{}
+	var add func(item string, k float64, depth int)
+	add = func(item string, k float64, depth int) {
+		if item == "" || k <= 0 || depth > 6 {
 			return
 		}
-		res[item] = true
-		if r, ok := h.Protos.Recipes[item]; ok {
-			for _, in := range r.Ingredients {
-				add(in.Name, depth+1)
+		res[item] += k
+		r, ok := h.Protos.Recipes[item]
+		if !ok {
+			return
+		}
+		out := 1.0
+		for _, pr := range r.Products {
+			if pr.Name == item && pr.Mean() > 0 {
+				out = pr.Mean()
 			}
+		}
+		for _, in := range r.Ingredients {
+			add(in.Name, k*in.Mean()/out, depth+1)
 		}
 	}
 	count := map[string]int{}
 	for _, it := range stageCrafts[curStage] { // крафт руками без постройки (шахта, спутник)
-		add(it, 0)
+		count[it]++
 	}
 	if curStage > 0 {
 		if list, err := planOf(h, curStage); err == nil {
@@ -59,22 +70,19 @@ func neededItems(h *act.Hands) map[string]bool {
 				list = left
 			}
 			for _, pl := range list {
-				it := h.Protos.ItemFor(pl.Name)
-				add(it, 0)
-				count[it]++
+				count[h.Protos.ItemFor(pl.Name)]++
 			}
 		}
 	}
-	slots := 0
 	for it, n := range count {
-		st := h.Protos.Items[it].StackSize
-		if st <= 0 {
-			st = 50
-		}
-		slots += (n + st - 1) / st
+		add(it, float64(n), 0)
 	}
-	needCache.stage, needCache.items, needCache.slots = curStage, res, slots
-	return res
+	items := map[string]int{}
+	for it, k := range res {
+		items[it] = int(math.Ceil(k-1e-9)) + max(h.Protos.Items[it].StackSize, 1)
+	}
+	needCache.stage, needCache.items = curStage, items
+	return items
 }
 
 // tidy — у хранения (берёт оттуда): то же правило, что всегда (store: свободно меньше
@@ -132,20 +140,30 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 	for _, it := range need {
 		keep[it] = true
 	}
+	// нужное стадии — сколько уйдёт (с запасом в стопку): сверх — ненужное (дерево и камень с
+	// вырубки носились полинвентаря: из них столбы и печи); s.any — полон посреди дела: нужное
+	// тоже можно
+	want := map[string]int{}
 	if !s.any {
-		for it := range neededItems(s.h) {
-			keep[it] = true
+		want = neededItems(s.h)
+	}
+	stack := func(it string) int { return max(s.h.Protos.Items[it].StackSize, 1) }
+	extra := func(it string) int { // сколько выложить
+		if w, ok := want[it]; ok {
+			return max(p.Inventory[it]-w, 0)
 		}
+		return p.Inventory[it]
 	}
 	var order []string
 	for it := range p.Inventory {
-		if !neverStore[it] && !keep[it] {
+		// нужное — излишек не меньше стопки (ячейка), иначе ходка ради горсти
+		if !neverStore[it] && !keep[it] && extra(it) > 0 && (want[it] == 0 || extra(it) >= stack(it)) {
 			order = append(order, it)
 		}
 	}
 	// неходовое — раньше; при равной — что больше места занимает
 	slots := func(it string) int {
-		return (p.Inventory[it] + max(s.h.Protos.Items[it].StackSize, 1) - 1) / max(s.h.Protos.Items[it].StackSize, 1)
+		return (extra(it) + stack(it) - 1) / stack(it)
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		if ri, rj := storeRank(order[i]), storeRank(order[j]); ri != rj {
@@ -216,9 +234,14 @@ func (s *worker) store(ctx context.Context, free int, need ...string) error {
 				return err
 			}
 		}
-		// пластины — все в сундук и plateKeep обратно (положить «всё» — Ctrl, часть — нет)
-		if spare[it] && last >= 0 {
-			if err := s.h.TakeItem(ctx, chests[last], it, plateKeep); err != nil {
+		// пластины и нужное стадии — все в сундук и своё обратно (положить «всё» — Ctrl, часть —
+		// нет): пластин — plateKeep, нужного — сколько уйдёт
+		back := want[it]
+		if spare[it] {
+			back = plateKeep
+		}
+		if back > 0 && last >= 0 {
+			if err := s.h.TakeItem(ctx, chests[last], it, back); err != nil {
 				return err
 			}
 			if p, err = s.h.B.Player(); err != nil {
