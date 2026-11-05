@@ -70,7 +70,11 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 			own := o.Own && !wreck && o.Type != "character" && !(beltLike(o.Type) && beltLike(pt)) && !(o.Type == "container" && pt == "container") &&
 				!(pipeLike(o.Type) && pipeLike(pt)) && // труба и подземная — одна группа замены (стадия 50 на 427965634)
 				!TierUp(h.Protos, o.Name, entity)
-			if o.Type != "tree" && !rock && !wreck && !own || seen[o.Pos] {
+			// подземка другого уровня: поверх встаёт, только если игра заменит и пару (в руке
+			// хватает на обе); один конец уже быстрый — «Underground belt is in the way» (стадия 42
+			// на 1098794301) — снять и поставить новую: в пару она встанет сама
+			ugTier := o.Own && o.Type == "underground-belt" && pt == "underground-belt" && o.Name != entity
+			if o.Type != "tree" && !rock && !wreck && !own && !ugTier || seen[o.Pos] {
 				continue
 			}
 			b := h.World.CollisionBox(o)
@@ -90,6 +94,13 @@ func (h *Hands) clearSpots(ctx context.Context, entity string, fps []bridge.Box)
 				// сбитый клик: стадия 29 на 427965634) — поднять и поставить как надо; точно на
 				// месте — не трогать (поставлено)
 				h.Say("%s стоит не так — поднимаю", o.Name)
+				if err := h.Pickup(ctx, *e); err != nil {
+					return err
+				}
+				continue
+			}
+			if ugTier {
+				h.Say("%s — другого уровня, снимаю под %s", o.Name, entity)
 				if err := h.Pickup(ctx, *e); err != nil {
 					return err
 				}
