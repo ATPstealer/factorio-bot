@@ -1622,8 +1622,8 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 	var cs []cand
 	// сетка — по четверти тайла от угла тайла: середина щели между рядами лент — в ней
 	x0, y0 := math.Floor(from.X), math.Floor(from.Y)
-	for dy := -6.0; dy <= 6; dy += 0.25 {
-		for dx := -6.0; dx <= 6; dx += 0.25 {
+	for dy := -4.0; dy <= 4; dy += 0.25 {
+		for dx := -4.0; dx <= 4; dx += 0.25 {
 			q := bridge.Pos{X: x0 + dx, Y: y0 + dy}
 			if h.World.Standable(q) {
 				d := dist(from, q)
