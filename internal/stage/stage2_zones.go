@@ -100,7 +100,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 			in, ok := roughUnknown(h, roughMarginTiles)
 			if !ok || opened >= roughReopen {
 				saveWorld(h) // карта, по которой размечено (после дооткрытий и переходов)
-				return planBase(h)
+				return planBase(ctx, h)
 			}
 			opened++
 			h.Say("у базы неоткрытая земля — иду открыть и размечу зоны заново (%d из %d)", opened, roughReopen)
@@ -186,7 +186,7 @@ func RoughOffline(h *act.Hands, from, to int) error {
 		if err := roughOnce(h); err != nil {
 			return err
 		}
-		if err := planBase(h); err != nil {
+		if err := planBase(context.Background(), h); err != nil {
 			return err
 		}
 	}

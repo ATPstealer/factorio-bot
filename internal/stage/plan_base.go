@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -219,7 +220,9 @@ type planRetry struct {
 
 // planBase — план всей базы в зонах стадии 2; кластер, к которому ленту не провести, — в другое
 // место в своей зоне (до planTries раз); руды под бурами меньше цели — ещё месторождений (до 3 раз).
-func planBase(h *act.Hands) error {
+// Лимит стадии (ctx) — между попытками: расчёт сам его не видит (стадия 2 на 1281713811 шла за
+// лимитом, пока не сняли).
+func planBase(ctx context.Context, h *act.Hands) error {
 	rough, err := LoadRough()
 	if err != nil {
 		return err
@@ -241,6 +244,9 @@ func planBase(h *act.Hands) error {
 	var spared [4]int                  // сколько раз шире — по этажам
 	mineAvoid := map[world.Tile]bool{} // места блоков добычи, чей подвод не провёлся: и при зонах заново
 	for try := 0; ; try++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("план: попытка %d: %w", try+1, err)
+		}
 		base, l, err := planTry(h, rough, own, rt)
 		if err == nil {
 			return nil
