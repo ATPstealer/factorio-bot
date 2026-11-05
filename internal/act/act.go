@@ -1643,7 +1643,7 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 				}
 				// по прямой не пройти (подземка, делитель, столб по дороге) — ходьба упрётся, лента
 				// унесёт (стадия 49 на 1098794301, дважды: «не сойти с ленты» у шины)
-				if !h.World.ClearSegment(from, q) {
+				if !h.World.NoObstacle(from, q) {
 					d += 20
 				}
 				cs = append(cs, cand{q, d})
