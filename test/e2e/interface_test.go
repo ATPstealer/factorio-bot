@@ -387,6 +387,26 @@ func TestSetFilterOnEmpty(t *testing.T) {
 	clean(t, h)
 }
 
+// Фильтр серы у длинного инсертера при инвентаре в 9 рядов (стадия 37 на 366255770: окно выбора
+// фильтра — у ячейки фильтра, с окном инсертера выше на полряда, а клик по первой найденной — по
+// месту для 8 рядов: все 5 заходов мимо, «фильтр sulfur не встал»).
+func TestSetFilterSulfurLong(t *testing.T) {
+	h := handsT(t)
+	if p, err := h.B.Player(); err != nil || p.InventorySize < 90 {
+		t.Skipf("инвентарь %d ячеек — нужен в 9 рядов (toolbelt)", p.InventorySize)
+	}
+	have(t, h, "long-handed-inserter", 1)
+	e := placeNear(t, h, "long-handed-inserter", 1)
+	ctx := ctxT(t, 2*time.Minute)
+	if err := h.SetFilter(ctx, e, "sulfur"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || len(st.Filters) == 0 || st.Filters[0] != "sulfur" {
+		t.Errorf("фильтр в игре: %+v (%v)", st, err)
+	}
+	clean(t, h)
+}
+
 // Рецепт со словом поиска «inserter» (стадия 32 на 859088572: набранное слово с кареткой
 // доставало до полосы, по которой ищется поле поиска, — поле не находилось, клик на ряд ниже;
 // при трёх вкладках совпадало случайно, при четырёх — мимо): инсертер и длинный инсертер.

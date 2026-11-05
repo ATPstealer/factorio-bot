@@ -74,7 +74,8 @@ const invRows = 8
 // winLayout — раскладка под нынешний инвентарь: после `toolbelt` в нём 90 ячеек (9 рядов), окна
 // с инвентарём персонажа (E, сундук, инсертер, сборщик) выше на ряд и, центрированные, сдвинуты
 // вверх на полряда (решение пользователя: уметь и так и так). Окна без инвентаря (технологии,
-// выбор рецепта и фильтра) — как были.
+// выбор рецепта) — как были; выбор фильтра — у ячейки фильтра инсертера: с ней (стадия 37 на
+// 366255770: клик по первой найденной — на границе её и второй строки, «фильтр sulfur не встал»).
 func (h *Hands) winLayout() Layout {
 	L := h.Layout
 	p, err := h.B.Player()
@@ -86,7 +87,7 @@ func (h *Hands) winLayout() Layout {
 	if dy == 0 {
 		return L
 	}
-	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.RecipeChange} {
+	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.FilterFirst, &L.RecipeChange} {
 		pt.Y += dy
 	}
 	return L
@@ -1336,7 +1337,7 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 		if err := sleep(ctx, 400*time.Millisecond); err != nil {
 			return err
 		}
-		f := h.Layout.FilterFirst
+		f := h.winLayout().FilterFirst
 		if err := click(point{f.X + k*h.Layout.SlotStep, f.Y}, 300*time.Millisecond); err != nil {
 			return err
 		}
