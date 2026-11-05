@@ -563,6 +563,9 @@ func (w *World) OnBelt(p bridge.Pos) bool {
 	return false
 }
 
+// ClearSegment — clearSegment снаружи (сход с ленты: по прямой, не в подземку).
+func (w *World) ClearSegment(a, b bridge.Pos) bool { return w.clearSegment(a, b) }
+
 // clearSegment — персонаж пройдёт по отрезку a→b: ни одна точка не в рамке объекта
 // (раздутой на полуширину персонажа) и не на воде. Точная проверка, без сетки.
 func (w *World) clearSegment(a, b bridge.Pos) bool {

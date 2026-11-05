@@ -1622,8 +1622,8 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 	var cs []cand
 	// сетка — по четверти тайла от угла тайла: середина щели между рядами лент — в ней
 	x0, y0 := math.Floor(from.X), math.Floor(from.Y)
-	for dy := -4.0; dy <= 4; dy += 0.25 {
-		for dx := -4.0; dx <= 4; dx += 0.25 {
+	for dy := -6.0; dy <= 6; dy += 0.25 {
+		for dx := -6.0; dx <= 6; dx += 0.25 {
 			q := bridge.Pos{X: x0 + dx, Y: y0 + dy}
 			if h.World.Standable(q) {
 				d := dist(from, q)
@@ -1640,6 +1640,11 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 				// её середину, иначе инерция доносит до соседнего ряда (стадия 17 на 46082668)
 				if c := h.beltClearance(q); c < 1.5 {
 					d += (1.5 - c) * 6
+				}
+				// по прямой не пройти (подземка, делитель, столб по дороге) — ходьба упрётся, лента
+				// унесёт (стадия 49 на 1098794301, дважды: «не сойти с ленты» у шины)
+				if !h.World.ClearSegment(from, q) {
+					d += 20
 				}
 				cs = append(cs, cand{q, d})
 			}

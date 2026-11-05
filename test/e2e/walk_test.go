@@ -7,6 +7,7 @@ import (
 	"errors"
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 	"math"
 	"testing"
@@ -386,6 +387,65 @@ func TestStandBetweenBelts(t *testing.T) {
 	}
 	if d := math.Hypot(p1.Position.X-target.X, p1.Position.Y-target.Y); d > 1 {
 		t.Errorf("стою в %.2f от цели", d)
+	}
+}
+
+// Сойти с ленты шины, когда по обе стороны — подземки (стадия 49 на 1098794301, дважды: «не
+// сойти с ленты» — бот шёл прямо к ближней свободной точке, упирался в подземку, лента уносила):
+// персонаж на паре лент на восток, над и под ней — ряды подземок с проходом только в одном
+// месте; цель — к югу за подземками: дошёл, не на ленте.
+func TestStepOffBeltAmongUndergrounds(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 4*time.Minute)
+	have(t, h, "transport-belt", 40)
+	have(t, h, "underground-belt", 24)
+	c := freeArea(t, h, 20)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	var belts, north, south []bridge.Pos
+	for dx := -6; dx <= 9; dx++ {
+		belts = append(belts, world.Tile{X: ct.X + dx, Y: ct.Y}.Center(), world.Tile{X: ct.X + dx, Y: ct.Y + 1}.Center())
+	}
+	for dx := -3; dx <= 8; dx++ {
+		if dx == 5 { // проход — в одном месте
+			continue
+		}
+		north = append(north, world.Tile{X: ct.X + dx, Y: ct.Y - 1}.Center())
+		south = append(south, world.Tile{X: ct.X + dx, Y: ct.Y + 2}.Center())
+	}
+	dirs := func(n, d int) []int {
+		r := make([]int, n)
+		for i := range r {
+			r[i] = d
+		}
+		return r
+	}
+	// подземки — сначала (ставятся вокруг персонажа), ленты — под ним
+	if _, err := h.PlaceDirs(ctx, "underground-belt", north, dirs(len(north), layout.S)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceDirs(ctx, "underground-belt", south, dirs(len(south), layout.N)); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.WalkTo(ctx, world.Tile{X: ct.X, Y: ct.Y}.Center(), 0.2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PlaceAll(ctx, "transport-belt", belts, act.East); err != nil {
+		t.Fatal(err)
+	}
+	if q, _ := h.B.Player(); !h.World.TouchesBelt(q.Position) {
+		t.Skipf("персонаж не на ленте (%.1f, %.1f) — случая нет", q.Position.X, q.Position.Y)
+	}
+	target := world.Tile{X: ct.X, Y: ct.Y + 6}.Center()
+	if err := h.WalkTo(ctx, target, 0.5); err != nil {
+		t.Fatalf("к (%.1f, %.1f) с ленты: %v", target.X, target.Y, err)
+	}
+	q, _ := h.B.Player()
+	if h.World.TouchesBelt(q.Position) {
+		t.Errorf("персонаж на ленте: (%.2f, %.2f)", q.Position.X, q.Position.Y)
 	}
 }
 
