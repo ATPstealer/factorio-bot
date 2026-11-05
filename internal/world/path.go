@@ -563,28 +563,6 @@ func (w *World) OnBelt(p bridge.Pos) bool {
 	return false
 }
 
-// NoObstacle — по отрезку a→b персонаж ни во что не упрётся (суша, рамки объектов кроме лент —
-// по ленте можно и вдоль): сход с ленты — по прямой, не в подземку и не в столб.
-func (w *World) NoObstacle(a, b bridge.Pos) bool {
-	objs := w.ObjectsNear(a, dist(a, b)+4)
-	n := int(dist(a, b)/0.05) + 1
-	for i := 0; i <= n; i++ {
-		f := float64(i) / float64(n)
-		p := bridge.Pos{X: a.X + (b.X-a.X)*f, Y: a.Y + (b.Y-a.Y)*f}
-		switch w.TileAt(TileOf(p)) {
-		case Land, Shallow:
-		default:
-			return false
-		}
-		for _, o := range objs {
-			if !noCollision[o.Type] && o.Type != "transport-belt" && o.Type != "character" && w.CollisionBox(o).Contains(p, charHalf) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 // clearSegment — персонаж пройдёт по отрезку a→b: ни одна точка не в рамке объекта
 // (раздутой на полуширину персонажа) и не на воде. Точная проверка, без сетки.
 func (w *World) clearSegment(a, b bridge.Pos) bool {
