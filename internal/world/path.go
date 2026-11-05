@@ -577,7 +577,7 @@ func (w *World) NoObstacle(a, b bridge.Pos) bool {
 			return false
 		}
 		for _, o := range objs {
-			if !noCollision[o.Type] && o.Type != "transport-belt" && w.CollisionBox(o).Contains(p, charHalf) {
+			if !noCollision[o.Type] && o.Type != "transport-belt" && o.Type != "character" && w.CollisionBox(o).Contains(p, charHalf) {
 				return false
 			}
 		}
