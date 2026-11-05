@@ -170,3 +170,28 @@ func TestUgOrder(t *testing.T) {
 		}
 	}
 }
+
+// Замена на месте — только вверх (стадия 42 на 366255770: каменная печь поверх стальной —
+// обслуживание ставило каменные назад): стальная поверх каменной, сборщик 2 поверх 1, быстрый
+// инсертер поверх обычного — да; наоборот — нет.
+func TestTierUpOnlyUp(t *testing.T) {
+	p, err := knowledge.Load("../knowledge/testdata/prototypes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		old, new string
+		want     bool
+	}{
+		{"stone-furnace", "steel-furnace", true},
+		{"steel-furnace", "stone-furnace", false},
+		{"assembling-machine-1", "assembling-machine-2", true},
+		{"assembling-machine-2", "assembling-machine-1", false},
+		{"inserter", "fast-inserter", true},
+		{"fast-inserter", "inserter", false},
+	} {
+		if got := TierUp(p, c.old, c.new); got != c.want {
+			t.Errorf("TierUp(%s → %s) = %v, ждали %v", c.old, c.new, got, c.want)
+		}
+	}
+}

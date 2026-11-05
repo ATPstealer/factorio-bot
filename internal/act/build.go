@@ -144,13 +144,17 @@ func pipeLike(typ string) bool { return typ == "pipe" || typ == "pipe-to-ground"
 // размера, сборщик поверх сборщика (одна группа замены в данных игры: старая — в инвентарь,
 // рецепт и содержимое остаются; химзавод — тоже assembling-machine, но не из их группы); быстрый
 // инсертер поверх обычного (инсертер пары по плану — быстрый, stages.md, общее).
+// Только вверх: машина — быстрее старой (каменная поверх стальной — нет: чертёж стадии 42 на
+// 366255770 брал из раскладки прошлой стадии каменную печь вместо стальной плана — обслуживание
+// ставило каменные назад).
 func TierUp(p *knowledge.Prototypes, old, new string) bool {
 	o, n := p.Entities[old], p.Entities[new]
 	if old == new || o.Type != n.Type || o.TileWidth != n.TileWidth || o.TileHeight != n.TileHeight {
 		return false
 	}
 	asm := func(s string) bool { return strings.HasPrefix(s, "assembling-machine-") }
-	return o.Type == "furnace" || asm(old) && asm(new) || old == "inserter" && new == "fast-inserter"
+	return (o.Type == "furnace" || asm(old) && asm(new)) && n.CraftingSpeed > o.CraftingSpeed ||
+		old == "inserter" && new == "fast-inserter"
 }
 
 func inBox(p bridge.Pos, b bridge.Box, margin float64) bool {
