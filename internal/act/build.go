@@ -1024,6 +1024,29 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err := h.reach(ctx, e, buildReach); err != nil {
 		return err
 	}
+	// положено — убыль в инвентаре и скрафченное за это время: очередь крафта того же предмета
+	// пополняет инвентарь (стадия 34 на 1098794301: «положено 6 из 22», а в сборщике — 57,
+	// e2e TestInsertManyIntoAssembler); снимок инвентаря — заново, после подхода (за ходьбой
+	// очередь доложила)
+	if p0, err = h.B.Player(); err != nil {
+		return err
+	}
+	_, seq, err := h.B.PollEvents(1 << 30)
+	if err != nil {
+		return err
+	}
+	crafted := 0
+	put := func(q bridge.Player) int {
+		if evs, s, err := h.B.PollEvents(seq); err == nil {
+			for _, ev := range evs {
+				if ev.Type == "crafted_item" && ev.Item == item {
+					crafted += ev.Count
+				}
+			}
+			seq = s
+		}
+		return held(p0, item) - held(q, item) + crafted
+	}
 	if err := h.Pick(ctx, item); err != nil {
 		return err
 	}
@@ -1039,7 +1062,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 			return err
 		}
 		_, _ = h.waitFor(ctx, time.Duration(n)*150*time.Millisecond+2*time.Second, func(q bridge.Player) bool {
-			return held(p0, item)-held(q, item) >= n-6
+			return put(q) >= n-6
 		})
 		h.In.KeyUp("z")
 		// повтор Z доходит и после отпускания — остаток считать, когда счёт перестал меняться
@@ -1053,14 +1076,14 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 			if err != nil {
 				break
 			}
-			if c := held(q, item); c == last {
+			if c := put(q); c == last {
 				break
 			} else {
 				last = c
 			}
 		}
 		if last >= 0 {
-			left = n - (held(p0, item) - last)
+			left = n - last
 		}
 	}
 	// одно нажатие Z (удержание Input.Hold) — ровно один предмет
@@ -1072,7 +1095,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 			return err
 		}
 	}
-	_, werr := h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
+	_, werr := h.waitFor(ctx, 2*time.Second, func(p bridge.Player) bool { return put(p) >= n })
 	// нажатие могло потеряться — доложить недостающее (до 3 заходов, курсор — заново: в игре
 	// терялись и повторные нажатия — 794457638)
 	for try := 0; try < 3 && werr != nil; try++ {
@@ -1080,7 +1103,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 		if err != nil {
 			break
 		}
-		if lack := n - (held(p0, item) - held(p, item)); lack > 0 && held(p, item) > 0 {
+		if lack := n - put(p); lack > 0 && held(p, item) > 0 {
 			if p.Cursor == nil || p.Cursor.Name != item {
 				if err := h.Pick(ctx, item); err != nil {
 					return err
@@ -1107,7 +1130,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 					return err
 				}
 			}
-			_, werr = h.waitFor(ctx, 3*time.Second, func(p bridge.Player) bool { return held(p0, item)-held(p, item) >= n })
+			_, werr = h.waitFor(ctx, 3*time.Second, func(p bridge.Player) bool { return put(p) >= n })
 		} else {
 			break
 		}
@@ -1119,7 +1142,7 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err := h.ClearCursor(ctx); err != nil {
 		return err
 	}
-	if got := held(p0, item) - held(p1, item); got < n { // перебор после удержания Z — не беда
+	if got := put(p1); got < n { // перебор после удержания Z — не беда
 		return fmt.Errorf("act: в %s положено %s ×%d из %d (полон?)", e.Name, item, got, n)
 	}
 	return nil

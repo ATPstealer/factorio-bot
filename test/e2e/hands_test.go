@@ -1782,6 +1782,88 @@ func TestReplaceFurnaceTier2(t *testing.T) {
 	replaceTier2(t, handsT(t), "stone-furnace", "steel-furnace", "advanced-material-processing", "", 2)
 }
 
+// Временный сборщик двигателей на 11 штук (стадия 34 на 1098794301): сборщик в сети, рецепт,
+// сталь ×11 (вся), шестерни (все), трубы ×22 — в руке их больше и ещё крафтятся (очередь на всю
+// стадию): «легло 6 из 22, полон?», а в сборщике — 57. Трубы — не меньше 22 и не все в сборщике.
+func TestInsertManyIntoAssembler(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "engine-unit") {
+		t.Skip("двигатели не открыты (engine)")
+	}
+	machine := "assembling-machine-1"
+	if slices.Contains(f.Recipes, "assembling-machine-2") {
+		machine = "assembling-machine-2"
+	}
+	if p, _ := h.B.Player(); p.Inventory["steel-plate"] < 11 {
+		t.Skip("стали меньше 11 — тесты не плавят")
+	}
+	have(t, h, machine, 1)
+	have(t, h, "iron-gear-wheel", 11)
+	have(t, h, "pipe", 40) // больше, чем кладём: не «всё»
+	ctx := ctxT(t, 5*time.Minute)
+	// место в зоне питания стоящего столба (как временный сборщик стадии)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	poles, err := h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 200, Position: &p.Position, Limit: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var at bridge.Pos
+	found := false
+	for _, q := range poles {
+		r := h.Protos.Entities[q.Name].SupplyAreaDistance
+		if pos, ok := h.World.FreeSpot(q.Position, 3, 3, 3, &p.Position); ok && math.Abs(pos.X-q.Position.X) < r+1.5 && math.Abs(pos.Y-q.Position.Y) < r+1.5 {
+			at, found = pos, true
+			break
+		}
+	}
+	if !found {
+		t.Skip("нет места у столба сети")
+	}
+	e, err := h.Place(ctx, machine, at, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetRecipe(ctx, e, "engine-unit"); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := h.B.Player()
+	if err := h.Insert(ctx, e, "steel-plate", min(11, q.Inventory["steel-plate"])); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.InsertAll(ctx, e, "iron-gear-wheel"); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := h.B.Player(); p.Inventory["iron-plate"] < 60 {
+		t.Skip("железа меньше 60 — на крафт труб во время вставки")
+	}
+	if err := h.Craft(ctx, "pipe", 60); err != nil { // очередь: трубы прибывают, пока кладём
+		t.Fatal(err)
+	}
+	if err := h.Insert(ctx, e, "pipe", 22); err != nil {
+		t.Fatalf("трубы ×22 в %s: %v", machine, err)
+	}
+	st, err := h.B.GetEntity(e.Name, e.Position)
+	if err != nil || st == nil {
+		t.Fatalf("нет %s: %v", machine, err)
+	}
+	got := 0
+	for _, inv := range st.Inventories {
+		got += inv["pipe"]
+	}
+	// сделанные двигатели (по 2 трубы) — тоже из положенного
+	got += 2 * (st.Inventories["crafter_output"]["engine-unit"] + st.Inventories["assembling_machine_output"]["engine-unit"])
+	if got < 22 || got > 40 {
+		t.Errorf("труб в сборщике (с ушедшими в двигатели) %d, ждали 22–40", got)
+	}
+}
+
 // Быстрые ленты поверх жёлтых (stages.md: стадия 42 — ряды шины, которым жёлтой мало, стадия 68 —
 // все): ряд на восток — лента, пара подземок, лента, делитель, лента; быстрые — теми же вызовами,
 // что стройка (ленты, подземки, делитель): на местах — быстрые на восток, подземки — вход и выход
