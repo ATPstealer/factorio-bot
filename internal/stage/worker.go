@@ -271,6 +271,11 @@ func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
 		}
 		pe = &e
 	}
+	// сборщик и ингредиенты — заново перед делом: выкладка в хранение при тесном инвентаре (в
+	// have следующего) уносит и их (стадия 33 на 3462254828: «нет предмета: assembling-machine-2»)
+	if err := s.have(ctx, mitem, 1); err != nil {
+		return err
+	}
 	e, err := s.h.Place(ctx, mitem, pos, layout.N)
 	if err != nil {
 		return err
@@ -279,6 +284,9 @@ func (s *worker) machineCraft(ctx context.Context, item string, n int) error {
 		return err
 	}
 	for _, in := range rec.Ingredients {
+		if err := s.have(ctx, in.Name, need[in.Name]); err != nil {
+			return err
+		}
 		if err := s.h.Insert(ctx, e, in.Name, need[in.Name]); err != nil {
 			return err
 		}
