@@ -101,6 +101,32 @@ func TestPlanTiersFastRows(t *testing.T) {
 	}
 }
 
+// Делитель отвода потребителя стадии 55 в ряду, которому жёлтой мало, — жёлтый до 42 (ставится
+// раньше своей стадии, с лентой ряда: стадия 14 на 366255770 — «рецепт fast-splitter не
+// открыт»), быстрый — после 42.
+func TestPlanTiersFastRowsLater(t *testing.T) {
+	smelt := func(name string) *cluster.Cluster {
+		return &cluster.Cluster{Name: name, Kind: cluster.Smelt, Product: "copper-plate", Stage: 17,
+			Out: []cluster.Flow{{Item: "copper-plate", Rate: 12.5}}, Ports: []cluster.Port{{Item: "copper-plate"}}}
+	}
+	plan := &ClusterPlan{
+		Clusters: []*cluster.Cluster{smelt("copper-1"), smelt("copper-2"), {Name: "battery-1", Kind: cluster.Make, Stage: 55}},
+		Layout: []layout.Placement{
+			{Name: "transport-belt", Pos: bridge.Pos{X: 0.5, Y: 10.5}, Dir: layout.E, Recipe: "copper-plate", Tag: "c/bus-2"},
+			{Name: "splitter", Pos: bridge.Pos{X: 1.5, Y: 10}, Dir: layout.E, Tag: "c/logistics/battery-1"},
+			{Name: "transport-belt", Pos: bridge.Pos{X: 2.5, Y: 10.5}, Dir: layout.E, Recipe: "copper-plate", Tag: "c/bus-2"},
+		},
+	}
+	planTiers(plan, 0)
+	if got := plan.Layout[1].Name; got != "splitter" {
+		t.Errorf("до 42: делитель %s, ждал splitter", got)
+	}
+	planTiers(plan, cluster.Tier2From)
+	if got := plan.Layout[1].Name; got != "fast-splitter" {
+		t.Errorf("после 42: делитель %s, ждал fast-splitter", got)
+	}
+}
+
 // Выход добычи больше 15/с (cluster.md §5): блок меди 18/с с одним выходом — лента сбора, подвод с
 // подземкой и ряд bus-1 — быстрые после 42, лента ряда буров — как есть; блок угля 10/с — как есть.
 func TestPlanTiersFastMine(t *testing.T) {

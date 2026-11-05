@@ -261,7 +261,10 @@ func planTiers(plan *ClusterPlan, done int) int {
 			continue
 		}
 		name := base
-		if st[pl] >= from || done >= from {
+		// ряды, которым жёлтой мало, — по пройденной стадии, не по своей: делитель отвода
+		// будущего потребителя ставится раньше, с лентой ряда (withSplitters; стадия 14 на
+		// 366255770 — «рецепт fast-splitter не открыт»)
+		if done >= from || st[pl] >= from && !fast[i] {
 			name = cluster.Tier2[base]
 		}
 		if name != pl.Name {
@@ -277,9 +280,10 @@ func planTiers(plan *ClusterPlan, done int) int {
 // уровня не открыт — потом.
 func upgradeBuilt(ctx context.Context, h *act.Hands, plan *ClusterPlan, n int) error {
 	st := planStages(plan)
+	fast := fastRows(plan) // ряды — и с будущими делителями, поставленными раньше своей стадии
 	var want, old []layout.Placement
-	for _, pl := range plan.Layout {
-		if base := baseTier(pl.Name); base != pl.Name && st[pl] > 0 && st[pl] < n {
+	for i, pl := range plan.Layout {
+		if base := baseTier(pl.Name); base != pl.Name && (st[pl] > 0 && st[pl] < n || fast[i]) {
 			o := pl
 			o.Name = base
 			want, old = append(want, pl), append(old, o)
@@ -355,9 +359,10 @@ func noBaseTier(h *act.Hands, n int, names ...string) error {
 		return err
 	}
 	st := planStages(plan)
+	fast := fastRows(plan)
 	var old []layout.Placement
-	for _, pl := range plan.Layout {
-		if base := baseTier(pl.Name); base != pl.Name && slices.Contains(names, base) && st[pl] > 0 && st[pl] <= n {
+	for i, pl := range plan.Layout {
+		if base := baseTier(pl.Name); base != pl.Name && slices.Contains(names, base) && (st[pl] > 0 && st[pl] <= n || fast[i]) {
 			o := pl
 			o.Name = base
 			old = append(old, o)
