@@ -110,6 +110,43 @@ func scienceTaps(h *act.Hands, plan *ClusterPlan, pack string) []layout.Placemen
 	return res
 }
 
+// lightCrackFrom — со стадии ракеты крекинг лёгкой нефти — без рецепта.
+const lightCrackFrom = 63
+
+// stopLightCracking — химзаводы крекинга лёгкой нефти — без рецепта (stages.md, общее; решение
+// пользователя, временно до сток газа в плане): лёгкая уходила в газ, газ полон — НПЗ стояли,
+// ракетному топливу не было лёгкой (1098794301, 3462254828). Поднять и поставить на место —
+// поставленный стоит без рецепта.
+func stopLightCracking(ctx context.Context, h *act.Hands, n int) error {
+	if n < lightCrackFrom || paper != nil || h.B == nil {
+		return nil
+	}
+	plan, err := LoadPlan()
+	if err != nil {
+		return err
+	}
+	for _, pl := range plan.Layout {
+		if pl.Recipe != "light-oil-cracking" {
+			continue
+		}
+		st, err := h.B.GetEntity(pl.Name, pl.Pos)
+		if err != nil {
+			return err
+		}
+		if st == nil || st.Recipe != "light-oil-cracking" {
+			continue
+		}
+		h.Say("крекинг лёгкой нефти в (%.1f, %.1f) — без рецепта: поднимаю и ставлю на место", pl.Pos.X, pl.Pos.Y)
+		if err := h.Pickup(ctx, st.Entity); err != nil {
+			return err
+		}
+		if _, err := h.Place(ctx, h.Protos.ItemFor(pl.Name), pl.Pos, pl.Dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // scienceCut — отключить подачу пакетов, которых на лентах уже хватает до ракеты (раз в
 // scienceEvery, со стадии scienceOffFrom; на бумаге — нет).
 func scienceCut(ctx context.Context, h *act.Hands) error {

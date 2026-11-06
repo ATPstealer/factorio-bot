@@ -337,6 +337,13 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 			}
 			h.Say("отключение науки на ракету не встало: %v", err)
 		}
+		// крекинг лёгкой нефти — без рецепта (stages.md, общее; с 63, временно)
+		if err := stopLightCracking(ctx, h, n); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("крекинг лёгкой нефти не снялся: %v", err)
+		}
 		// буферы выхода — с ограничением (stages.md, общее)
 		if plan, err := LoadPlan(); err == nil {
 			if err := limitBuffers(ctx, h, plan.Layout); err != nil {
