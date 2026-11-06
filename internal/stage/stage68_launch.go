@@ -55,9 +55,27 @@ func runLaunch(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	h.Say("жду запуска ракеты")
+	var readySince time.Time
 	for {
 		if ok, err := launched(h); err != nil || ok {
 			return err
+		}
+		// готова, а автозапуск не сработал (1098794301: спутник в грузе, галочка стоит —
+		// rocket_ready, не летит) — дольше минуты: кнопка «Launch» в окне шахты
+		if silo, err := siloEntity(h); err == nil && silo.SiloStatus == "rocket_ready" {
+			if readySince.IsZero() {
+				readySince = time.Now()
+			} else if time.Since(readySince) > time.Minute {
+				if err := h.SiloLaunch(ctx, silo.Entity); err != nil {
+					if ctx.Err() != nil {
+						return err
+					}
+					h.Say("запуск кнопкой не вышел: %v", err)
+				}
+				readySince = time.Time{}
+			}
+		} else {
+			readySince = time.Time{}
 		}
 		if err := sleepCtx(ctx, launchPoll); err != nil {
 			return err

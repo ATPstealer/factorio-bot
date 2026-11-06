@@ -57,8 +57,9 @@ type Layout struct {
 	// окно инсертера (обычного): флажок «Use filters», первая ячейка фильтра, первая
 	// найденная в окне «Set the filter» (после поиска)
 	UseFilters, FilterSlot, FilterFirst point
-	// окно ракетной шахты: галочка «Send to orbit automatically» (запуск по готовности)
-	SiloAuto point
+	// окно ракетной шахты: галочка «Send to orbit automatically» (запуск по готовности), кнопка
+	// «Launch»
+	SiloAuto, SiloLaunch point
 	// AltButton — кнопка ALT на панели быстрого доступа: оранжевая — Alt-режим включён
 	AltButton point
 	AltOn     color.RGBA
@@ -89,7 +90,7 @@ func (h *Hands) winLayout() Layout {
 	if dy == 0 {
 		return L
 	}
-	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.FilterFirst, &L.RecipeChange, &L.SiloAuto} {
+	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.FilterFirst, &L.RecipeChange, &L.SiloAuto, &L.SiloLaunch} {
 		pt.Y += dy
 	}
 	return L
@@ -120,6 +121,7 @@ var Layout1856 = Layout{
 	FilterSlot:        point{1165, 568},
 	FilterFirst:       point{1189, 730},
 	SiloAuto:          point{1058, 762}, // при инвентаре в 9 рядов — 742 (снято на 1098794301-66)
+	SiloLaunch:        point{1291, 762}, // там же
 	AltButton:         point{1160, 948},
 	AltOn:             color.RGBA{229, 181, 96, 255},
 	Panels:            []rect{{0, 915, 192, 101}, {668, 918, 540, 98}, {1600, 0, 256, 592}},
@@ -1424,6 +1426,54 @@ func (h *Hands) SiloAutoLaunch(ctx context.Context, e bridge.Entity) error {
 		if time.Now().After(deadline) {
 			h.debugShot("silo-auto")
 			return fmt.Errorf("act: галочка автозапуска у %s не встала", e.Name)
+		}
+		if err := sleep(ctx, 100*time.Millisecond); err != nil {
+			return err
+		}
+	}
+}
+
+// SiloLaunch — кнопка «Launch» в окне шахты e: ракета готова, а автозапуск не сработал (1098794301:
+// спутник в грузе, галочка стоит — rocket_ready, не летит); подтверждение — мод (статус шахты ушёл
+// с rocket_ready).
+func (h *Hands) SiloLaunch(ctx context.Context, e bridge.Entity) error {
+	ready := func() (bool, error) {
+		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err != nil || st == nil {
+			return false, err
+		}
+		return st.SiloStatus == "rocket_ready", nil
+	}
+	h.Say("запуск ракеты кнопкой у %s", e.Name)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	if err := h.openEntity(ctx, e, "silo-open"); err != nil {
+		return err
+	}
+	if err := h.at(h.winLayout().SiloLaunch); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 100*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		if ok, err := ready(); err != nil || !ok {
+			return err
+		}
+		if time.Now().After(deadline) {
+			h.debugShot("silo-launch")
+			return fmt.Errorf("act: ракета у %s не стартовала", e.Name)
 		}
 		if err := sleep(ctx, 100*time.Millisecond); err != nil {
 			return err
