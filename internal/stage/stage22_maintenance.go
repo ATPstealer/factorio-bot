@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -155,7 +156,7 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 			busy++
 		}
 		if busy >= 7 {
-			return nil
+			break
 		}
 		if f.Current == t || slices.Contains(f.Queue, t) || !techReady(h, f, t) {
 			continue
@@ -166,6 +167,101 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 			}
 			h.Log("обслуживание: %s в очередь не встало: %v", t, err)
 		}
+	}
+	return keepLabsBusy(ctx, h, techs)
+}
+
+// keepLabsBusy — лаборатории не стоят (stages.md, общее): текущему исследованию не хватает пакета
+// (лаборатории ждут его) — первым доступное на тех пакетах, что в лабораториях есть: нужное для
+// ракеты (по порядку techs), нет — самое дешёвое (стадия 53 на 366255770: ждали фиолетовую,
+// наука копилась, газ встал — НПЗ стояли, смазки не было).
+func keepLabsBusy(ctx context.Context, h *act.Hands, techs []string) error {
+	f, err := h.B.Force()
+	if err != nil || f.Current == "" {
+		return err
+	}
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil // плана ещё нет
+	}
+	var labs []layout.Placement
+	for _, pl := range plan.Layout {
+		if pl.Name == "lab" {
+			labs = append(labs, pl)
+		}
+	}
+	states, err := entityStates(h, labs)
+	if err != nil {
+		return err
+	}
+	have, standing, waiting := map[string]int{}, 0, 0
+	for _, st := range states {
+		if st == nil {
+			continue
+		}
+		standing++
+		if st.Status == "missing_science_packs" {
+			waiting++
+		}
+		for _, inv := range st.Inventories {
+			for it, n := range inv {
+				if cluster.IsScience(it) {
+					have[it] += n
+				}
+			}
+		}
+	}
+	on := func(t string) bool {
+		for _, in := range h.Protos.Technologies[t].UnitIngredients {
+			if have[in.Name] == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	if standing == 0 || 2*waiting < standing || on(f.Current) {
+		return nil
+	}
+	ready := func(t string) bool {
+		tc, ok := h.Protos.Technologies[t]
+		if !ok || !tc.Enabled || tc.Hidden || tc.UnitCountFormula != "" || len(tc.UnitIngredients) == 0 ||
+			slices.Contains(f.Researched, t) || t == f.Current || !on(t) {
+			return false
+		}
+		for _, p := range tc.Prerequisites {
+			if !slices.Contains(f.Researched, p) {
+				return false
+			}
+		}
+		return true
+	}
+	pick := ""
+	for _, t := range techs {
+		if ready(t) {
+			pick = t
+			break
+		}
+	}
+	if pick == "" {
+		cost := func(t string) float64 {
+			tc := h.Protos.Technologies[t]
+			return tc.UnitCount * tc.UnitTime
+		}
+		for _, t := range slices.Sorted(maps.Keys(h.Protos.Technologies)) {
+			if ready(t) && (pick == "" || cost(t) < cost(pick)) {
+				pick = t
+			}
+		}
+	}
+	if pick == "" {
+		return nil
+	}
+	h.Say("лаборатории ждут пакет для %s (%d из %d) — первым %s", f.Current, waiting, standing, pick)
+	if err := h.ResearchFirst(ctx, pick); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		h.Log("исследование %s первым не встало: %v", pick, err)
 	}
 	return nil
 }
