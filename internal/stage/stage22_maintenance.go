@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
@@ -171,6 +172,26 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 	return keepLabsBusy(ctx, h, techs)
 }
 
+// labsAt — когда в ожидании последний раз смотрели лаборатории (waitHooks).
+var labsAt time.Time
+
+// waitHooks — что делать, пока стадия ждёт (подтверждения по факту, исследования, крафта):
+// наука на ракету (scienceCut) и лаборатории не стоят — раз в 2 мин (keepLabsBusy).
+func waitHooks(ctx context.Context, h *act.Hands) error {
+	if err := scienceCut(ctx, h); err != nil {
+		return err
+	}
+	if paper != nil || h.B == nil || curStage < 13 || time.Since(labsAt) < 2*time.Minute {
+		return nil
+	}
+	labsAt = time.Now()
+	techs, err := rocketTechs(h)
+	if err != nil {
+		return err
+	}
+	return keepLabsBusy(ctx, h, techs)
+}
+
 // keepLabsBusy — лаборатории не стоят (stages.md, общее): текущему исследованию не хватает пакета
 // (лаборатории ждут его) — первым доступное на тех пакетах, что в лабораториях есть: нужное для
 // ракеты (по порядку techs), нет — самое дешёвое (стадия 53 на 366255770: ждали фиолетовую,
@@ -237,20 +258,22 @@ func keepLabsBusy(ctx context.Context, h *act.Hands, techs []string) error {
 		}
 		return true
 	}
+	// на больше пакетах — лучше: синюю тратят лаборатории — идут красные схемы, пластик, сера, газ
+	// (gun-turret на одной красной кончался за секунды, затор стоял)
+	packs := func(t string) int { return len(h.Protos.Technologies[t].UnitIngredients) }
+	cost := func(t string) float64 {
+		tc := h.Protos.Technologies[t]
+		return tc.UnitCount * tc.UnitTime
+	}
 	pick := ""
 	for _, t := range techs {
-		if ready(t) {
+		if ready(t) && (pick == "" || packs(t) > packs(pick)) {
 			pick = t
-			break
 		}
 	}
 	if pick == "" {
-		cost := func(t string) float64 {
-			tc := h.Protos.Technologies[t]
-			return tc.UnitCount * tc.UnitTime
-		}
 		for _, t := range slices.Sorted(maps.Keys(h.Protos.Technologies)) {
-			if ready(t) && (pick == "" || cost(t) < cost(pick)) {
+			if ready(t) && (pick == "" || packs(t) > packs(pick) || packs(t) == packs(pick) && cost(t) < cost(pick)) {
 				pick = t
 			}
 		}

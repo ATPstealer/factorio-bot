@@ -53,7 +53,7 @@ func waitFact(ctx context.Context, h *act.Hands, list []layout.Placement, fact f
 			return err
 		}
 		t0 := time.Now()
-		if err := scienceCut(ctx, h); err != nil { // в ожидании — наука на ракету (stages.md, общее)
+		if err := waitHooks(ctx, h); err != nil { // в ожидании — наука на ракету, лаборатории (stages.md, общее)
 			return err
 		}
 		deadline = deadline.Add(time.Since(t0))
