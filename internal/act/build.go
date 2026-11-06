@@ -1362,6 +1362,14 @@ func (h *Hands) PickupAll(ctx context.Context, es []bridge.Entity) error {
 			}
 			err = h.mineHeld(ctx, e, nil, &held)
 		}
+		if errors.Is(err, ErrHover) {
+			// навести не вышло, а цели уже нет (стадия 49 на 3462254828: лента пропала, пока бот
+			// подходил — «не удалось навести курсор») — поднято
+			if st, gerr := h.B.GetEntity(e.Name, e.Position); gerr == nil && st == nil {
+				h.Log("подбор: %s в (%.1f, %.1f) уже нет", e.Name, e.Position.X, e.Position.Y)
+				continue
+			}
+		}
 		if err != nil {
 			return err
 		}
