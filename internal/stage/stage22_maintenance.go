@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -265,24 +266,35 @@ func keepLabsBusy(ctx context.Context, h *act.Hands, techs []string) error {
 		tc := h.Protos.Technologies[t]
 		return tc.UnitCount * tc.UnitTime
 	}
-	pick := ""
+	// кандидаты по порядку: нужные для ракеты (на больше пакетах — раньше), потом прочие (на
+	// больше пакетах, дешевле — раньше); не встало (поиск в окне технологий не нашёл —
+	// worker-robots-speed-1 на 366255770) — следующий, до 3
+	var cands []string
 	for _, t := range techs {
-		if ready(t) && (pick == "" || packs(t) > packs(pick)) {
-			pick = t
+		if ready(t) {
+			cands = append(cands, t)
 		}
 	}
-	if pick == "" {
-		for _, t := range slices.Sorted(maps.Keys(h.Protos.Technologies)) {
-			if ready(t) && (pick == "" || packs(t) > packs(pick) || packs(t) == packs(pick) && cost(t) < cost(pick)) {
-				pick = t
-			}
+	slices.SortStableFunc(cands, func(a, b string) int { return packs(b) - packs(a) })
+	var rest []string
+	for _, t := range slices.Sorted(maps.Keys(h.Protos.Technologies)) {
+		if ready(t) && !slices.Contains(cands, t) {
+			rest = append(rest, t)
 		}
 	}
-	if pick == "" {
-		return nil
-	}
-	h.Say("лаборатории ждут пакет для %s (%d из %d) — первым %s", f.Current, waiting, standing, pick)
-	if err := h.ResearchFirst(ctx, pick); err != nil {
+	slices.SortStableFunc(rest, func(a, b string) int {
+		if packs(a) != packs(b) {
+			return packs(b) - packs(a)
+		}
+		return cmp.Compare(cost(a), cost(b))
+	})
+	cands = append(cands, rest...)
+	for _, pick := range cands[:min(len(cands), 3)] {
+		h.Say("лаборатории ждут пакет для %s (%d из %d) — первым %s", f.Current, waiting, standing, pick)
+		err := h.ResearchFirst(ctx, pick)
+		if err == nil {
+			return nil
+		}
 		if ctx.Err() != nil {
 			return err
 		}
