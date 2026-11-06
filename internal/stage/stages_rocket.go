@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
@@ -198,11 +199,16 @@ func placePad(ctx context.Context, h *act.Hands, silo bridge.Entity) error {
 			taken[t] = true
 		}
 	}
-	size := 8 + 2 // площадка и проход вокруг
+	// площадка 8×8 и проход вокруг; ставится по сетке 2×2 (build_grid_size = 2: центр — на чётных
+	// координатах, клик в (173, -211) ставил в (174, -210) — 1098794301): место на тайл шире, центр
+	// — чётный из двух
+	size := 8 + 2 + 1
 	spot, ok := h.World.FreeSpotWhere(silo.Position, size, size, padRadius, nil, func(t world.Tile) bool { return !taken[t] })
 	if !ok {
 		return fmt.Errorf("площадка: нет свободного места %d×%d в %d тайлах от шахты", size, size, padRadius)
 	}
+	even := func(v float64) float64 { return 2 * math.Floor(v/2) } // v — x.5: чётный из v±0.5
+	spot = bridge.Pos{X: even(spot.X + 0.5), Y: even(spot.Y + 0.5)}
 	sites, err := outpostsLayout(h)
 	if err != nil {
 		return err
