@@ -8,6 +8,7 @@ import (
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
+	"factorio-bot/internal/world"
 )
 
 // Стадии 62–68 (stages.md): обслуживание после жёлтой, бетон, ракетное топливо, шахта, спутник,
@@ -155,11 +156,74 @@ func siloEntity(h *act.Hands) (*bridge.EntityState, error) {
 	return nil, errors.New("шахты нет в плане")
 }
 
-// Стадия 67 — спутник: крафт руками из буферов; в груз шахты (Ctrl+клик) и галочка «запуск по
-// готовности» в окне шахты.
+// landingPad — посадочная площадка: без неё ракета со спутником не летит (итог запуска — 1000
+// космических пакетов — игре некуда опустить; 1098794301: rocket_ready, галочка стоит — ждёт).
+const landingPad = "cargo-landing-pad"
+
+// padRadius — площадка — не дальше от шахты.
+const padRadius = 40
+
+// padEntity — стоящая площадка (одна на поверхность) у шахты.
+func padEntity(h *act.Hands, silo bridge.Entity) (*bridge.Entity, error) {
+	es, err := h.B.FindNearest(bridge.FindArgs{Name: landingPad, Radius: 4 * padRadius, Position: &silo.Position, Limit: 1})
+	if err != nil || len(es) == 0 {
+		return nil, err
+	}
+	return &es[0], nil
+}
+
+// placePad — площадка: крафт руками из буферов, постановка рядом с шахтой на свободное место не
+// из плана, с тайлом прохода вокруг.
+func placePad(ctx context.Context, h *act.Hands, silo bridge.Entity) error {
+	if e, err := padEntity(h, silo); err != nil || e != nil {
+		return err
+	}
+	if n, err := carried(h, landingPad); err != nil {
+		return err
+	} else if n == 0 {
+		if err := craftFromBuffers(ctx, h, landingPad); err != nil {
+			return err
+		}
+	}
+	plan, err := LoadPlan()
+	if err != nil {
+		return err
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		return err
+	}
+	taken := map[world.Tile]bool{}
+	for _, pl := range plan.Layout {
+		for _, t := range layout.Tiles(h.Protos, pl) {
+			taken[t] = true
+		}
+	}
+	size := 8 + 2 // площадка и проход вокруг
+	spot, ok := h.World.FreeSpotWhere(silo.Position, size, size, padRadius, nil, func(t world.Tile) bool { return !taken[t] })
+	if !ok {
+		return fmt.Errorf("площадка: нет свободного места %d×%d в %d тайлах от шахты", size, size, padRadius)
+	}
+	sites, err := outpostsLayout(h)
+	if err != nil {
+		return err
+	}
+	s := &worker{h: h, sites: sites, useStore: true}
+	if err := s.have(ctx, landingPad, 1); err != nil { // в хранении — в руки
+		return err
+	}
+	h.Say("посадочная площадка — в (%.1f, %.1f)", spot.X, spot.Y)
+	_, err = h.Place(ctx, landingPad, spot, 0)
+	return err
+}
+
+// Стадия 67 — спутник: площадка; спутник — крафт руками из буферов; в груз шахты (Ctrl+клик) и
+// галочка «запуск по готовности» в окне шахты.
 func runSatellite(ctx context.Context, h *act.Hands) error {
 	silo, err := siloEntity(h)
 	if err != nil {
+		return err
+	}
+	if err := placePad(ctx, h, silo.Entity); err != nil {
 		return err
 	}
 	if silo.Inventories["rocket_silo_rocket"]["satellite"] == 0 {
@@ -186,11 +250,16 @@ func runSatellite(ctx context.Context, h *act.Hands) error {
 	return h.SiloAutoLaunch(ctx, silo.Entity)
 }
 
-// checkSatellite — спутник в грузе шахты, галочка автозапуска стоит (мод).
+// checkSatellite — площадка стоит, спутник в грузе шахты, галочка автозапуска стоит (мод).
 func checkSatellite(h *act.Hands) error {
 	silo, err := siloEntity(h)
 	if err != nil {
 		return err
+	}
+	if e, err := padEntity(h, silo.Entity); err != nil {
+		return err
+	} else if e == nil {
+		return errors.New("посадочной площадки нет")
 	}
 	if silo.Inventories["rocket_silo_rocket"]["satellite"] == 0 {
 		return errors.New("спутника в грузе шахты нет")
