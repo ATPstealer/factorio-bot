@@ -225,6 +225,11 @@ func placePad(ctx context.Context, h *act.Hands, silo bridge.Entity) error {
 // Стадия 67 — спутник: площадка; спутник — крафт руками из буферов; в груз шахты (Ctrl+клик) и
 // галочка «запуск по готовности» в окне шахты.
 func runSatellite(ctx context.Context, h *act.Hands) error {
+	// ракета уже улетела — второй спутник не нужен (1098794301: площадка встала — ракета улетела
+	// со спутником, стадия пошла крафтить новый)
+	if ok, err := launched(h); err != nil || ok {
+		return err
+	}
 	silo, err := siloEntity(h)
 	if err != nil {
 		return err
@@ -258,6 +263,9 @@ func runSatellite(ctx context.Context, h *act.Hands) error {
 
 // checkSatellite — площадка стоит, спутник в грузе шахты, галочка автозапуска стоит (мод).
 func checkSatellite(h *act.Hands) error {
+	if ok, err := launched(h); err != nil || ok {
+		return err
+	}
 	silo, err := siloEntity(h)
 	if err != nil {
 		return err
