@@ -211,9 +211,11 @@ func keepLabsBusy(ctx context.Context, h *act.Hands, techs []string) error {
 			}
 		}
 	}
+	// пакета вдоволь — не меньше одного на лабораторию (6 фиолетовых на 10 лабораторий — 6 ждут:
+	// 366255770)
 	on := func(t string) bool {
 		for _, in := range h.Protos.Technologies[t].UnitIngredients {
-			if have[in.Name] == 0 {
+			if have[in.Name] < standing {
 				return false
 			}
 		}
