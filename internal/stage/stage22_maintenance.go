@@ -198,6 +198,11 @@ func waitHooks(ctx context.Context, h *act.Hands) error {
 // ракеты (по порядку techs), нет — самое дешёвое (стадия 53 на 366255770: ждали фиолетовую,
 // наука копилась, газ встал — НПЗ стояли, смазки не было).
 func keepLabsBusy(ctx context.Context, h *act.Hands, techs []string) error {
+	// с отключения науки на ракету — нет: пакеты только на ракету (заполнители съели синюю,
+	// отложенную на rocket-silo, — 3462254828)
+	if curStage >= scienceOffFrom {
+		return nil
+	}
 	f, err := h.B.Force()
 	if err != nil || f.Current == "" {
 		return err

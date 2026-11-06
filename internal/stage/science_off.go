@@ -118,9 +118,6 @@ func scienceCut(ctx context.Context, h *act.Hands) error {
 	}
 	scienceAt = time.Now()
 	off := loadScienceOff()
-	if len(off.Packs) == len(sciencePacks) {
-		return nil
-	}
 	f, err := h.B.Force()
 	if err != nil {
 		return err
@@ -136,6 +133,45 @@ func scienceCut(ctx context.Context, h *act.Hands) error {
 	plan, err := LoadPlan()
 	if err != nil {
 		return err
+	}
+	// отключённого стало меньше нужного (на лентах и в лабораториях) — подачу вернуть: снятое — на
+	// место (3462254828: синюю сняли при 718 на лентах, заполнители «лаборатории не стоят» её
+	// съели — rocket-silo встал на 50%)
+	inLabs := map[string]int{}
+	var labs []layout.Placement
+	for _, pl := range plan.Layout {
+		if pl.Name == "lab" {
+			labs = append(labs, pl)
+		}
+	}
+	if states, err := entityStates(h, labs); err == nil {
+		for _, st := range states {
+			if st != nil {
+				for _, inv := range st.Inventories {
+					for it, n := range inv {
+						inLabs[it] += n
+					}
+				}
+			}
+		}
+	}
+	for _, pack := range slices.Clone(off.Packs) {
+		if float64(belts[pack]+inLabs[pack]) >= left[pack] {
+			continue
+		}
+		taps := scienceTaps(h, plan, pack)
+		h.Say("наука на ракету: %s на лентах и в лабораториях %d, нужно ещё %.0f — возвращаю подачу (%d лент)",
+			pack, belts[pack]+inLabs[pack], left[pack], len(taps))
+		if err := buildSorted(ctx, h, taps, nil); err != nil {
+			return err
+		}
+		off.Packs = slices.DeleteFunc(off.Packs, func(p string) bool { return p == pack })
+		off.Removed = slices.DeleteFunc(off.Removed, func(q layout.Placement) bool {
+			return slices.ContainsFunc(taps, func(t layout.Placement) bool { return t.Name == q.Name && t.Pos == q.Pos })
+		})
+		if err := writeState(scienceOffFile, off); err != nil {
+			return err
+		}
 	}
 	for _, pack := range sciencePacks {
 		if slices.Contains(off.Packs, pack) || float64(belts[pack]) < left[pack] {
