@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
 	"factorio-bot/internal/layout"
 )
 
@@ -133,19 +134,69 @@ func carried(h *act.Hands, item string) (int, error) {
 // errNoMechanics — нужного действия или сенсора ещё нет (plan.md, часть Г).
 var errNoMechanics = errors.New("нет механики (plan.md, часть Г)")
 
-// Стадия 67 — спутник: крафт руками из буферов; положить в груз шахты и галочка «запуск по
-// готовности» — механики ещё нет.
+// siloEntity — стоящая ракетная шахта плана.
+func siloEntity(h *act.Hands) (*bridge.EntityState, error) {
+	plan, err := LoadPlan()
+	if err != nil {
+		return nil, err
+	}
+	for _, pl := range plan.Layout {
+		if pl.Name == "rocket-silo" {
+			st, err := h.B.GetEntity(pl.Name, pl.Pos)
+			if err != nil {
+				return nil, err
+			}
+			if st == nil {
+				return nil, fmt.Errorf("шахта в (%.1f, %.1f) не стоит", pl.Pos.X, pl.Pos.Y)
+			}
+			return st, nil
+		}
+	}
+	return nil, errors.New("шахты нет в плане")
+}
+
+// Стадия 67 — спутник: крафт руками из буферов; в груз шахты (Ctrl+клик) и галочка «запуск по
+// готовности» в окне шахты.
 func runSatellite(ctx context.Context, h *act.Hands) error {
-	if n, err := carried(h, "satellite"); err != nil {
+	silo, err := siloEntity(h)
+	if err != nil {
 		return err
-	} else if n == 0 {
-		if err := craftFromBuffers(ctx, h, "satellite"); err != nil {
+	}
+	if silo.Inventories["rocket_silo_rocket"]["satellite"] == 0 {
+		sites, err := outpostsLayout(h)
+		if err != nil {
+			return err
+		}
+		if n, err := carried(h, "satellite"); err != nil {
+			return err
+		} else if n == 0 {
+			if err := craftFromBuffers(ctx, h, "satellite"); err != nil {
+				return err
+			}
+		}
+		s := &worker{h: h, sites: sites, useStore: true}
+		if err := s.have(ctx, "satellite", 1); err != nil { // в хранении — в руки
+			return err
+		}
+		h.Say("спутник — в груз шахты")
+		if err := h.SiloCargo(ctx, silo.Entity, "satellite"); err != nil {
 			return err
 		}
 	}
-	return fmt.Errorf("спутник в шахту и автозапуск: %w", errNoMechanics)
+	return h.SiloAutoLaunch(ctx, silo.Entity)
 }
 
-func checkSatellite(*act.Hands) error {
-	return fmt.Errorf("груз шахты и автозапуск: %w", errNoMechanics)
+// checkSatellite — спутник в грузе шахты, галочка автозапуска стоит (мод).
+func checkSatellite(h *act.Hands) error {
+	silo, err := siloEntity(h)
+	if err != nil {
+		return err
+	}
+	if silo.Inventories["rocket_silo_rocket"]["satellite"] == 0 {
+		return errors.New("спутника в грузе шахты нет")
+	}
+	if !silo.AutoLaunch {
+		return errors.New("галочка автозапуска не стоит")
+	}
+	return nil
 }

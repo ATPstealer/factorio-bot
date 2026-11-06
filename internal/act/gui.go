@@ -57,6 +57,8 @@ type Layout struct {
 	// окно инсертера (обычного): флажок «Use filters», первая ячейка фильтра, первая
 	// найденная в окне «Set the filter» (после поиска)
 	UseFilters, FilterSlot, FilterFirst point
+	// окно ракетной шахты: галочка «Send to orbit automatically» (запуск по готовности)
+	SiloAuto point
 	// AltButton — кнопка ALT на панели быстрого доступа: оранжевая — Alt-режим включён
 	AltButton point
 	AltOn     color.RGBA
@@ -87,7 +89,7 @@ func (h *Hands) winLayout() Layout {
 	if dy == 0 {
 		return L
 	}
-	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.FilterFirst, &L.RecipeChange} {
+	for _, pt := range []*point{&L.InvSlot1, &L.CraftSlot1, &L.ChestSlot1, &L.UseFilters, &L.FilterSlot, &L.FilterFirst, &L.RecipeChange, &L.SiloAuto} {
 		pt.Y += dy
 	}
 	return L
@@ -117,6 +119,7 @@ var Layout1856 = Layout{
 	UseFilters:        point{953, 556},
 	FilterSlot:        point{1165, 568},
 	FilterFirst:       point{1189, 730},
+	SiloAuto:          point{1058, 762}, // при инвентаре в 9 рядов — 742 (снято на 1098794301-66)
 	AltButton:         point{1160, 948},
 	AltOn:             color.RGBA{229, 181, 96, 255},
 	Panels:            []rect{{0, 915, 192, 101}, {668, 918, 540, 98}, {1600, 0, 256, 592}},
@@ -1351,6 +1354,81 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 	}
 	h.debugShot("filter")
 	return fmt.Errorf("act: фильтр %s у %s не встал (%v)", item, e.Name, st.Filters)
+}
+
+// SiloCargo — item (спутник) в груз ракеты шахты e (stages.md, стадия 67): Ctrl+клик по шахте с
+// предметом в руке; подтверждение — мод (инвентарь rocket_silo_rocket). Медь ячейка груза не
+// берёт (фильтр), спутник — проверить в игре (1098794301-66: спутника не было).
+func (h *Hands) SiloCargo(ctx context.Context, e bridge.Entity, item string) error {
+	cargo := func() (int, error) {
+		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err != nil || st == nil {
+			return 0, err
+		}
+		return st.Inventories["rocket_silo_rocket"][item], nil
+	}
+	if n, err := cargo(); err != nil || n > 0 {
+		return err
+	}
+	if _, err := h.InsertAll(ctx, e, item); err != nil {
+		return err
+	}
+	if n, err := cargo(); err != nil || n > 0 {
+		return err
+	}
+	h.debugShot("silo-cargo")
+	return fmt.Errorf("act: %s не лёг в груз %s", item, e.Name)
+}
+
+// SiloAutoLaunch — галочка «Send to orbit automatically» в окне шахты e (stages.md, стадия 67:
+// ракета улетит сама, как будут 100 частей); стоит — не трогать (клик снимает); подтверждение —
+// мод (auto_launch).
+func (h *Hands) SiloAutoLaunch(ctx context.Context, e bridge.Entity) error {
+	on := func() (bool, error) {
+		st, err := h.B.GetEntity(e.Name, e.Position)
+		if err != nil || st == nil {
+			return false, err
+		}
+		return st.AutoLaunch, nil
+	}
+	if ok, err := on(); err != nil || ok {
+		return err
+	}
+	h.Say("автозапуск у %s", e.Name)
+	if err := h.Clean(ctx); err != nil {
+		return err
+	}
+	if err := h.reach(ctx, e, buildReach); err != nil {
+		return err
+	}
+	if err := h.waitStill(ctx); err != nil {
+		return err
+	}
+	defer h.CloseGUI(ctx)
+	if err := h.openEntity(ctx, e, "silo-open"); err != nil {
+		return err
+	}
+	if err := h.at(h.winLayout().SiloAuto); err != nil {
+		return err
+	}
+	if err := sleep(ctx, 100*time.Millisecond); err != nil {
+		return err
+	}
+	if err := h.In.Click(input.Left); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(2 * time.Second); ; {
+		if ok, err := on(); err != nil || ok {
+			return err
+		}
+		if time.Now().After(deadline) {
+			h.debugShot("silo-auto")
+			return fmt.Errorf("act: галочка автозапуска у %s не встала", e.Name)
+		}
+		if err := sleep(ctx, 100*time.Millisecond); err != nil {
+			return err
+		}
+	}
 }
 
 func (h *Hands) SetRecipe(ctx context.Context, e bridge.Entity, recipe string) error {
