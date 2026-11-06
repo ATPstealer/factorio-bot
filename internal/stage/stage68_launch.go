@@ -44,8 +44,14 @@ func runLaunch(ctx context.Context, h *act.Hands) error {
 		if ok, err := launched(h); err != nil || ok {
 			return err
 		}
+		// пока ждём — по делу, а не критерий: не вышло — сказать и ждать дальше (стадия 68 на
+		// 1098794301: «не сойти с ленты» на быстрых лентах ронял стадию — игра стояла, ракета
+		// не собиралась)
 		if err := step(ctx, h); err != nil {
-			return err
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("пока ждём запуска — не вышло: %v", err)
 		}
 	}
 	h.Say("жду запуска ракеты")
