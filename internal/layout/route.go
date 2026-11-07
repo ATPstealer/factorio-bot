@@ -134,9 +134,14 @@ func (q *rqueue) pop() rnode {
 	return top
 }
 
-func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int, tag string) ([]Placement, error) {
+func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int, tag string) (res []Placement, err error) {
 	belt, ug := "transport-belt", "underground-belt"
 	maxUG := l.P.Entities[ug].MaxUndergroundDistance
+	if l.SearchCap > 0 && l.Searched >= l.SearchCap {
+		return nil, ErrNoRoute // предел перебора на дело исчерпан
+	}
+	var nodes []rinfo
+	defer func() { l.Searched += len(nodes) }()
 	// стоимость тайла — одна на поиск (раскладка за поиск не меняется), а спрашивают её на каждом
 	// шаге и у каждой подземки: запомнить (−1 — нельзя)
 	costMemo := map[uint64]float64{}
@@ -177,7 +182,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 		return nil, ErrNoRoute // цель занята
 	}
 	open := &rqueue{}
-	nodes := []rinfo{{s: start, from: -1}}
+	nodes = []rinfo{{s: start, from: -1}}
 	index := map[uint64]int32{stateKey(start): 0}
 	// relax — путь в ns дешевле известного: запомнить и в открытый список
 	relax := func(ns rstate, g, f float64, from int32, ug, dir int) {

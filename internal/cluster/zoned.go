@@ -864,6 +864,10 @@ func ThroughTag(to, from, item string) string {
 	return LogisticsTag + "/" + to + "/" + from + "/" + item
 }
 
+// throughSearch — предел перебора поисков ленты на одну сквозную (состояний; не по времени:
+// план не зависит от загрузки машины).
+const throughSearch = 15_000_000
+
 func feedThrough(l *layout.Layout, buses []*ZBus) error {
 	for k := 1; k < len(buses); k++ {
 		for i := range buses[k].Lanes {
@@ -891,6 +895,10 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			to := append([]Port{{T: world.Tile{X: ln.Start - 1, Y: ln.Y}, Dir: layout.E, Item: ln.Item, In: true}}, side...)
 			err := layout.ErrNoRoute
 			unguard := laneGuard(l, buses, low, ln) // вдоль шин не идти (поперёк — подземкой)
+			// перебор — не больше throughSearch состояний поиска на ленту: дальше — не провелась
+			// (этаж шире и зоны заново — planBase), а не час поисков от каждого места делителя к
+			// каждому порту (1873819092)
+			l.SearchCap = l.Searched + throughSearch
 			for _, p := range to {
 				// тег — с предметом: стадия сквозной — стадия её предмета (stages.md: ленты шин — вместе
 				// с кластерами)
@@ -900,6 +908,7 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 				}
 			}
 			unguard()
+			l.SearchCap = 0
 			if err != nil {
 				return &ThroughError{Item: ln.Item, Bus: k, Err: fmt.Errorf("сквозная %s → %s (%s): %w", buses[k-1].Name, buses[k].Name, ln.Item, err)}
 			}

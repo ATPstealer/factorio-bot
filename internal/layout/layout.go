@@ -20,7 +20,11 @@ type Layout struct {
 	// делителем и откат — заново по десяткам тысяч размещений на каждое место делителя)
 	indexed        int
 	overlap, stale bool
-	Clear          map[world.Tile]bool
+	// Searched — сколько состояний перебрали поиски лент (RouteBelt); SearchCap > 0 — дальше
+	// этого поиски не идут (ErrNoRoute сразу): предел перебора на дело (сквозная лента — 31 порт
+	// по 40 мест делителя, каждый поиск — до предела состояний: час на 1873819092)
+	Searched, SearchCap int
+	Clear               map[world.Tile]bool
 	// Reserved — тайлы, где строить нельзя (запас под будущее, проходы)
 	Reserved map[world.Tile]bool
 	// Costly — штраф за тайл в маршруте ленты (RouteBelt): боковые ряды лент шин — пройти

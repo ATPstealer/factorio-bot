@@ -349,25 +349,32 @@ func planBase(ctx context.Context, h *act.Hands) error {
 			try = -1
 			continue
 		}
+		// сквозная лента не провелась (между шинами у головы тесно) — этаж, через который она идёт,
+		// шире (1873819092: сквозная на bus-3 — план сдавался)
+		spareF := 0
 		if tight != nil {
-			if f := cluster.FloorOf(tight); f > 0 && spared[f] < spareTries {
-				spared[f]++
-				respared++
-				floorSpare[f] += spareStep
-				h.Say("%v — этаж %d шире на %d%%, зоны заново", err, f, floorSpare[f])
-				if err := roughOnce(h); err != nil {
-					return err
-				}
-				if rough, err = LoadRough(); err != nil {
-					return err
-				}
-				// попытки переложить — заново: зоны другие; места добычи с непроведённым подводом —
-				// под запретом и дальше (пятно то же: 238178543 — камень трижды по 4 минуты)
-				clear(avoid)
-				maps.Copy(avoid, mineAvoid)
-				try = -1
-				continue
+			spareF = cluster.FloorOf(tight)
+		}
+		if te := (*cluster.ThroughError)(nil); errors.As(err, &te) {
+			spareF = te.Bus
+		}
+		if f := spareF; f > 0 && f < len(spared) && spared[f] < spareTries {
+			spared[f]++
+			respared++
+			floorSpare[f] += spareStep
+			h.Say("%v — этаж %d шире на %d%%, зоны заново", err, f, floorSpare[f])
+			if err := roughOnce(h); err != nil {
+				return err
 			}
+			if rough, err = LoadRough(); err != nil {
+				return err
+			}
+			// попытки переложить — заново: зоны другие; места добычи с непроведённым подводом —
+			// под запретом и дальше (пятно то же: 238178543 — камень трижды по 4 минуты)
+			clear(avoid)
+			maps.Copy(avoid, mineAvoid)
+			try = -1
+			continue
 		}
 		// блоку добычи нет пятна в его зоне — месторождение мимо, зоны заново: разметка возьмёт
 		// другое (1098794301: железо справа от базы, подвод к голове bus-1 не провести, место под
