@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -369,9 +367,8 @@ func prepCheck(ctx context.Context, h *act.Hands, n int, list []layout.Placement
 		prepMaterials(ctx, h, list)
 		prepTime(ctx, h, list)
 	}
-	if !PlanOnly { // только планы подряд: следующие стадии сами идут следом
-		prepForward(h, n)
-	}
+	// раскладки следующих стадий на бумаге — не здесь: стадия 2 проверяет все стадии до ракеты
+	// (решение пользователя: «вперёд на бумаге» перед 11, 21, … шло ~30 мин без строк в журнале)
 	if len(hard) > 0 {
 		if len(hard) > 5 {
 			hard = append(hard[:5], fmt.Sprintf("… ещё %d", len(hard)-5))
@@ -669,61 +666,5 @@ func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement) {
 	estimate.Store(int64(est)) // лимит стадии — с запасом от оценки (Do), сразу
 	if lim := est * 3 / 2; Limit > 0 && lim > Limit {
 		h.Say("лимит стадии — %v (полторы оценки %v)", lim.Round(time.Minute), est.Round(time.Minute))
-	}
-}
-
-// forward — на сколько стадий вперёд прикидывать планы перед стадией n: обычно на одну, перед
-// 11, 21, 31, … — на 10 (дальние — долго, а сети и построек, на которые они опираются, ещё нет).
-func forward(n int) int {
-	if n >= 11 && n%10 == 1 {
-		return 10
-	}
-	return 1
-}
-
-// prepForward — планы следующих стадий (forward) «на бумаге» (по нынешней карте и плану):
-// ошибка плана дальше — видна сразу. Файлы состояния, созданные при этом, удаляются (стадия
-// построит свой план, когда до неё дойдёт).
-func prepForward(h *act.Hands, n int) {
-	before := map[string]bool{}
-	files, _ := filepath.Glob(runPath("state*.json"))
-	for _, f := range files {
-		before[f] = true
-	}
-	defer func() {
-		files, _ := filepath.Glob(runPath("state*.json"))
-		for _, f := range files {
-			if !before[f] {
-				os.Remove(f)
-			}
-		}
-	}()
-	if _, err := LoadPlan(); err != nil {
-		return // плана кластеров ещё нет (стадии до 5) — дальше не заглянуть
-	}
-	for _, m := range List() {
-		if m <= n || m > n+forward(n) {
-			continue
-		}
-		if _, err := planOf(h, m); err != nil {
-			h.Say("проверка: план стадии %d не строится: %v", m, err)
-		}
-	}
-	// раз в десять стадий — весь план в раскладках стадий 10–41 (решение пользователя 28.10): что
-	// не строит ни одна стадия — видно до того, как без него встанет цепочка
-	if forward(n) == 10 {
-		var all []layout.Placement
-		for _, m := range List() {
-			s, _ := Get(m)
-			if m < 10 || s.Plan || s.Empty {
-				continue
-			}
-			if list, err := planOf(h, m); err == nil {
-				all = append(all, list...)
-			}
-		}
-		if miss := planCoverage(h, all, lastStage); miss != "" {
-			h.Say("проверка: %s", miss)
-		}
 	}
 }
