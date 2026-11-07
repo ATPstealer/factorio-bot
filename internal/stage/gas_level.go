@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/cluster"
 	"factorio-bot/internal/layout"
 )
 
-// Газ по уровню в цистернах (stages.md, общее; со стадии gasFrom — как встали цистерны газа у
-// НПЗ‑2 и лёгкой у крекинга тяжёлого): газ, которому некуда деться, останавливает НПЗ‑2 — а с
+// Газ по уровню в цистернах (stages.md, общее; со стадии gasFrom — как встали цистерны газа с
+// НПЗ‑2 и лёгкой с крекингом тяжёлого, блоками у конца труб шины — cluster.FluidTanks): газ, которому некуда деться, останавливает НПЗ‑2 — а с
 // ним лёгкую, тяжёлое и смазку (затор на 53 у 366255770: наука стоит; тупик ракеты на 68 у
 // 3462254828: шахта ждёт топливо, процессоры и ЛПС не тратятся). Раз в gasEvery (в начале
 // стадии и в ожиданиях) — по одному НПЗ простой переработки за проверку: газ полон, а лёгкая нет
@@ -84,12 +84,17 @@ func gasDecide(gas, light float64, on, off int) gasStep {
 	return gasKeep
 }
 
-// fluidTanks — цистерны плана жидкости fluid у кластеров (тег — …/<жидкость>; склад нефти — без
-// жидкости в теге).
-func fluidTanks(list []layout.Placement, fluid string) []layout.Placement {
+// fluidTanks — цистерны плана жидкости fluid: блоки цистерн (cluster.Tank) с этой жидкостью.
+func fluidTanks(plan *ClusterPlan, fluid string) []layout.Placement {
+	tags := map[string]bool{}
+	for _, c := range plan.Clusters {
+		if c.Kind == cluster.Tank && c.Product == fluid {
+			tags[cluster.Tag(c.Name)] = true
+		}
+	}
 	var res []layout.Placement
-	for _, pl := range list {
-		if pl.Name == "storage-tank" && strings.HasSuffix(pl.Tag, "/"+fluid) {
+	for _, pl := range plan.Layout {
+		if pl.Name == "storage-tank" && tags[pl.Tag] {
 			res = append(res, pl)
 		}
 	}
@@ -130,11 +135,11 @@ func gasLevel(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return nil
 	}
-	gas, gasTank, ok, err := tankLevel(h, fluidTanks(plan.Layout, gasFluid), gasFluid)
+	gas, gasTank, ok, err := tankLevel(h, fluidTanks(plan, gasFluid), gasFluid)
 	if err != nil || !ok {
 		return err
 	}
-	light, _, ok, err := tankLevel(h, fluidTanks(plan.Layout, lightFluid), lightFluid)
+	light, _, ok, err := tankLevel(h, fluidTanks(plan, lightFluid), lightFluid)
 	if err != nil || !ok {
 		return err
 	}

@@ -336,6 +336,36 @@ func (b *Base) Place(c *Cluster) error {
 	return nil
 }
 
+// PlaceNear — кластер вне зон у первой из точек near, где место не дальше reach от неё; такого
+// нет — у той, где ближе всего.
+func (b *Base) PlaceNear(c *Cluster, near []world.Tile, reach float64) error {
+	if b.grid().w == 0 {
+		return fmt.Errorf("cluster: карта пуста")
+	}
+	c.Zone = nil
+	var best *cand
+	var at world.Tile
+	for _, t := range near {
+		c.Near = &t
+		cd := b.find(c)
+		if cd == nil {
+			continue
+		}
+		if best == nil || cd.d < best.d {
+			best, at = cd, t
+		}
+		if cd.d <= reach {
+			best, at = cd, t
+			break
+		}
+	}
+	if best == nil {
+		return &NoSiteError{c, fmt.Errorf("cluster: нет места под %s (%d×%d в %d тайлах)", c.Name, c.Cross, c.Len(), b.MaxR)}
+	}
+	c.Near = &at
+	return b.Place(c)
+}
+
 // border — коридор вокруг кластера: внутри зоны — бордюр ZoneBorder, иначе Corridor.
 func (b *Base) border(c *Cluster) int {
 	if c.Kind == Mine {

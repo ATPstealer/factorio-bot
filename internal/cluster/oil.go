@@ -186,6 +186,64 @@ func Tanks(fluid string, cols, rows int, near world.Tile) *Cluster {
 	return c
 }
 
+// TankFluid — цистерны какой жидкости ставятся с кластером рецепта (cluster.md «Нефть»): газа — с
+// НПЗ‑2, лёгкой — с крекингом тяжёлого (его продукт).
+var TankFluid = map[string]string{"advanced-oil-processing": "petroleum-gas", "heavy-oil-cracking": "light-oil"}
+
+// tankReach — цистерны газа и лёгкой: место дальше стольких тайлов от конца трубы — там тесно,
+// к началу трубы.
+const tankReach = 30
+
+// FluidTanks — цистерны газа и лёгкой (cluster.md «Нефть»): блоком вне зон у конца трубы своей
+// жидкости на шине buses (за дальним её потребителем или поставщиком), там тесно — у начала
+// трубы (левый край шины); по 4 (2×2 шахматкой), не влезает — по 2. Стадия — кластера, с которым
+// ставятся (его рецепт — TankFluid). Цистерны не в кластерах: кластеры с ними росли, этажи
+// ложились иначе (1098794301).
+func (b *Base) FluidTanks(buses []*ZBus) ([]*Cluster, error) {
+	var res []*Cluster
+	done := map[string]bool{}
+	for _, c := range slices.Clone(b.Clusters) {
+		if len(c.Units) == 0 {
+			continue
+		}
+		fl := TankFluid[c.Units[0].Recipe]
+		if fl == "" || done[fl] {
+			continue
+		}
+		done[fl] = true
+		k, ok := FluidBus[fl]
+		if !ok || k >= len(buses) {
+			return res, fmt.Errorf("cluster: цистерны %s — нет шины под трубу", fl)
+		}
+		bus := buses[k]
+		end := bus.Rect.Min.X
+		for _, o := range b.Clusters {
+			if o.Kind == Mine {
+				continue
+			}
+			if slices.ContainsFunc(append(slices.Clone(o.In), o.Out...), func(f Flow) bool { return f.Item == fl }) {
+				end = max(end, o.Area.Max.X)
+			}
+		}
+		end = min(end, bus.Rect.Max.X-1)
+		_, y := bus.Rect.Center()
+		near := []world.Tile{{X: end, Y: int(y)}, {X: bus.Rect.Min.X, Y: int(y)}}
+		var err error
+		for _, rows := range []int{2, 1} {
+			t := Tanks(fl, 2, rows, near[0])
+			t.Name, t.Stage = fl+"-tank-1", c.Stage
+			if err = b.PlaceNear(t, near, tankReach); err == nil {
+				res = append(res, t)
+				break
+			}
+		}
+		if err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
 // Refinery — НПЗ (cluster.md §2а «Нефть»): простая переработка (нефть → газ), n заводов в столбец
 // этажа переработки: труба нефти с одной стороны, газа — с другой.
 func Refinery(p *knowledge.Prototypes, n int) *Cluster {

@@ -176,7 +176,7 @@ func planStages(s *ClusterPlan) stageMap {
 		if c.IsOil() {
 			trunk[cluster.LogisticsTag+"/"+c.Name] = true
 		}
-		if c.Kind == cluster.Tank {
+		if c.Kind == cluster.Tank && c.Product == "crude-oil" {
 			tankStage = c.Stage
 			g := c.Area.Grow(3)
 			for y := g.Min.Y; y < g.Max.Y; y++ {

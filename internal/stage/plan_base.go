@@ -536,6 +536,10 @@ func planTry(h *act.Hands, rough *RoughPlan, own []world.Object, rt *planRetry) 
 	if _, _, err := base.PlaceZoned([]*cluster.Cluster{tank}, rough.Zones); err != nil {
 		return base, nil, err
 	}
+	// цистерны газа и лёгкой — вне зон у конца трубы своей жидкости на шине (cluster.md «Нефть»)
+	if _, err := base.FluidTanks(buses); err != nil {
+		return base, nil, err
+	}
 	l, err := base.Layout()
 	if err != nil {
 		return base, l, err
