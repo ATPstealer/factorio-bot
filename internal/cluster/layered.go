@@ -443,39 +443,60 @@ func (b *Base) fitLayered(zw, colw []int, depths []int, widths []int, width int)
 	var gotF [nBus + 1]int // сколько ширины набрал этаж в этом месте (индекс nBus — верхняя шина)
 	topGot, topAt := 0, world.Tile{}
 	failF, failWhy, topF, topWhy := 0, "", 0, "" // на каком этаже и почему место отвергнуто
-	free := func(r Rect) bool {
-		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
-			return false
+	// зоне нельзя на тайле: кластеры (ring) ближе ZoneBorder или край карты, неоткрытое, выбранные
+	// зоны добычи ближе ZoneBorder, неровности (база с утёсами: в зоне утёсы можно, вода — нет —
+	// zones.md); шине (zones.md) — вместо неровностей ряды неровностей длиннее busGap (подземка не
+	// перепрыгнет, обход по зазорам к стадии 5 занят): такой шине не место (решение пользователя;
+	// 3% площади пропускали утёс поперёк bus-3 — 859088572). Прямоугольник свободен — ни одного
+	// такого тайла и весь на карте: то же, что каждое правило по прямоугольнику с запасом, но
+	// один запрос на столбец вместо пяти (поиск этажей — полминуты на разметку)
+	zoneBad, busBad := make([]bool, g.w*g.h), make([]bool, g.w*g.h)
+	for y := 0; y < g.h; y++ {
+		for x := 0; x < g.w; x++ {
+			t := world.Tile{X: g.x0 + x, Y: g.y0 + y}
+			cell := Rect{t, world.Tile{X: t.X + 1, Y: t.Y + 1}}
+			bad := false
+			if n, out := g.count(g.ring, cell.Grow(ZoneBorder)); n > 0 || out > 0 {
+				bad = true
+			} else if n, _ := g.count(g.unknown, cell); n > 0 {
+				bad = true
+			} else if n, _ := g.count(mines, cell.Grow(ZoneBorder)); n > 0 {
+				bad = true
+			}
+			zb, bb := bad, bad
+			if !bad {
+				rough := g.thick
+				if b.CliffZones {
+					rough = g.thickWet
+				}
+				n, _ := g.count(rough, cell)
+				zb = n > 0
+				n, _ = g.count(g.rowThick, cell)
+				bb = n > 0
+			}
+			zoneBad[y*g.w+x], busBad[y*g.w+x] = zb, bb
 		}
-		if n, _ := g.count(g.unknown, r); n > 0 {
-			return false
-		}
-		if n, _ := g.count(mines, r.Grow(ZoneBorder)); n > 0 {
-			return false
-		}
-		if b.CliffZones { // база с утёсами: в зоне утёсы можно, вода — нет (zones.md)
-			n, _ := g.count(g.thickWet, r)
-			return n == 0
-		}
-		n, _ := g.count(g.thick, r)
-		return n == 0
 	}
-	// шине (zones.md): вдоль рядов неровностей не длиннее busGap — подземка перепрыгнет
+	zoneS, busS := prefix(zoneBad, g.w, g.h), prefix(busBad, g.w, g.h)
+	// пустой прямоугольник — тайлов нет, а запас вокруг — есть: по правилам напрямую
+	empty := func(r Rect) bool {
+		n, out := g.count(g.ring, r.Grow(ZoneBorder))
+		m, _ := g.count(mines, r.Grow(ZoneBorder))
+		return n == 0 && out == 0 && m == 0
+	}
+	free := func(r Rect) bool {
+		if r.W() <= 0 || r.H() <= 0 {
+			return empty(r)
+		}
+		n, out := g.count(zoneS, r)
+		return n == 0 && out == 0
+	}
 	freeBus := func(r Rect) bool {
-		if n, out := g.count(g.ring, r.Grow(ZoneBorder)); n > 0 || out > 0 {
-			return false
+		if r.W() <= 0 || r.H() <= 0 {
+			return empty(r)
 		}
-		if n, _ := g.count(g.unknown, r); n > 0 {
-			return false
-		}
-		if n, _ := g.count(mines, r.Grow(ZoneBorder)); n > 0 {
-			return false
-		}
-		// неровность длиннее busGap вдоль ряда — ленте не обойти (подземка не перепрыгнет, обход по
-		// зазорам к стадии 5 занят): такой шине не место (решение пользователя; 3% площади
-		// пропускали утёс поперёк bus-3 — 859088572)
-		n, _ := g.count(g.rowThick, r)
-		return n == 0
+		n, out := g.count(busS, r)
+		return n == 0 && out == 0
 	}
 	// части этажа f между шинами (от top до bottom): свободные полосы на всю глубину в [lo, hi)
 	// — слева направо, пока в сумме не наберётся zw[f]; nil — не набралось
