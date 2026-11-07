@@ -211,7 +211,7 @@ var Limit time.Duration
 var estimate atomic.Int64
 
 // Do — выполнить стадию и проверить критерии.
-func Do(ctx context.Context, h *act.Hands, n int) error {
+func Do(ctx context.Context, h *act.Hands, n int) (err error) {
 	s, err := Get(n)
 	if err != nil {
 		return err
@@ -235,6 +235,20 @@ func Do(ctx context.Context, h *act.Hands, n int) error {
 				case <-ctx.Done():
 					return
 				case <-time.After(min(left, time.Minute)):
+				}
+			}
+		}()
+	}
+	// ракета улетела посреди дела (watchLaunch) — дело прервано, итог — проверка стадии
+	if n >= launchFrom && paper == nil && h.B != nil {
+		var stopWork context.CancelCauseFunc
+		ctx, stopWork = context.WithCancelCause(ctx)
+		defer stopWork(nil)
+		go watchLaunch(ctx, h, stopWork)
+		defer func() {
+			if err != nil && errors.Is(context.Cause(ctx), errLaunched) {
+				if err = s.Check(h); err == nil {
+					h.Say("стадия %d выполнена: ракета улетела", n)
 				}
 			}
 		}()

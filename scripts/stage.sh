@@ -2,8 +2,9 @@
 # Стадии на картах: со снимка <сид>-(N-1) выполнить стадию N, при успехе — снимок <сид>-N.
 #   scripts/stage.sh N СИД…    — стадия N; карт несколько — параллельно, по экземпляру на карту
 #                                (1, 2, …; scripts/inst.sh), каждый в своём окне, запуск через
-#                                8 с; после — экземпляры остановлены (кроме выполненной стадии
-#                                68: ракета улетела — игра остаётся, просьба пользователя)
+#                                8 с; после — экземпляры остановлены (кроме тех, где ракета
+#                                улетела: игра остаётся с экраном победы, просьба пользователя;
+#                                снимок — из автосейва без остановки, следующие стадии — копия)
 #   scripts/stage.sh N-M СИД…  — стадии N…M по очереди: следующая — когда все карты закончили
 #                                прошлую; не выполнена хоть на одной — стоп (чинить, потом
 #                                продолжить с неё же: scripts/stage.sh K-M …)
@@ -67,7 +68,7 @@ if [[ ${PAR:-1} != 0 && $# -gt 1 ]]; then
     (
       sleep $((8 * (k - 1))) # экземпляры — не разом: загрузка игры тяжёлая
       INST=$k PAR=0 "$0" "$n" "$seed" > /dev/null
-      [[ $n == 68 && -f run/stages/ok-$n-$seed ]] || INST=$k scripts/stop.sh > /dev/null 2>&1
+      [[ -f run/stages/rocket-$seed ]] || INST=$k scripts/stop.sh > /dev/null 2>&1
     ) &
   done
   wait
@@ -78,9 +79,39 @@ fi
 source scripts/inst.sh
 limit=${LIMIT:-$([[ $n == 1 ]] && echo 1080 || echo 150)}
 code=0
+# ракета улетает со стадии 67 (галочка автозапуска; площадка встала — сразу, 1098794301)
+launch_from=67
+# rocket_up СИД — на экземпляре идёт игра этой карты, и ракета уже улетела (RCON, только чтение)
+rocket_up() {
+  grep -q "\"seed\": $1," "$R/map.json" 2> /dev/null && timeout 60 bin/bot force 2> /dev/null | grep -q '"rockets_launched"'
+}
+# snap_after СИД — снимок <сид>-N после выполненной стадии: обычно — save (сервер сохраняет и
+# перезапускается); ракета улетела — игру не трогать (на экране победа, просьба пользователя):
+# из первого автосейва после стадии (раз в 10 мин), отметка run/stages/rocket-<сид> — экземпляр
+# не останавливать
+snap_after() {
+  if ((n < launch_from)) || ! rocket_up "$1"; then
+    timeout 300 scripts/snapshot.sh save "$1-$n" "сид $1: после стадии $n"
+    return
+  fi
+  touch "run/stages/rocket-$1"
+  local t0 auto i
+  t0=$(date +%s)
+  for ((i = 0; i < 80; i++)); do # до ~13 мин
+    auto=$(ls -t "$R"/server/saves/_autosave*.zip 2> /dev/null | head -1)
+    if [[ -n $auto ]] && (($(stat -c %Y "$auto") > t0)); then
+      sleep 30 # автосейв дописывается
+      scripts/snapshot.sh grab "$1-$n" "сид $1: после стадии $n (ракета улетела)"
+      return
+    fi
+    sleep 10
+  done
+  echo "снимок $1-$n: автосейва после стадии нет" >&2
+  return 1
+}
 for seed in "$@"; do
   log=run/stages/s$n-$seed.log
-  rm -f "run/stages/ok-$n-$seed"
+  rm -f "run/stages/ok-$n-$seed" "run/stages/rocket-$seed"
   echo "== стадия $n, $seed $(date +%T)" | tee -a run/stages/summary.txt
   # пустая стадия (резерв) — игру не запускать: снимок прошлой стадии под её номером
   if bin/bot empty "$n" 2> /dev/null; then
@@ -95,6 +126,17 @@ for seed in "$@"; do
       code=1
       echo "   нет снимка $seed-$((n - 1))" | tee -a run/stages/summary.txt
     fi
+    continue
+  fi
+  # ракета улетела на прошлой стадии — игру не трогать (экран победы): стадия выполнена без бота,
+  # снимок — копия прошлого
+  if ((n >= launch_from)) && rocket_up "$seed" && [[ -d $(snapdir "$seed-$((n - 1))") ]]; then
+    rm -rf "run/snapshots/$seed-$n"
+    cp -r "$(snapdir "$seed-$((n - 1))")" "run/snapshots/$seed-$n"
+    echo "сид $seed: после стадии $n (ракета уже улетела — копия $seed-$((n - 1)))" > "run/snapshots/$seed-$n/NOTE.txt"
+    echo "ракета уже улетела: игра не тронута, снимок $seed-$((n - 1)) скопирован" > "$log"
+    touch "run/stages/ok-$n-$seed" "run/stages/rocket-$seed"
+    echo "   выполнена: ракета уже улетела (снимок — копия $seed-$((n - 1)))" | tee -a run/stages/summary.txt
     continue
   fi
   if [[ ${CONT:-0} == 1 ]]; then
@@ -122,7 +164,7 @@ for seed in "$@"; do
   # лимит стадии — у бота (жирной стадии он сам даёт полторы оценки); timeout — страховка от
   # зависания: сутки, но не меньше лимита
   if timeout $(( (limit > 1440 ? limit : 1440) * 60 + 300 )) bin/bot -t "${limit}m" stage "$n" >> "$log" 2>&1; then
-    if timeout 300 scripts/snapshot.sh save "$seed-$n" "сид $seed: после стадии $n" > /dev/null 2>> "$log"; then
+    if snap_after "$seed" > /dev/null 2>> "$log"; then
       touch "run/stages/ok-$n-$seed"
       echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
     else
@@ -137,6 +179,6 @@ for seed in "$@"; do
     echo "   НЕ выполнена: $(tail -1 "$log" | cut -c17-200)" | tee -a run/stages/summary.txt
   fi
 done
-# экземпляр после прогона не оставлять; ракета улетела (стадия 68 выполнена) — игра остаётся
-[[ $n == 68 && $code == 0 ]] || scripts/stop.sh > /dev/null 2>&1
+# экземпляр после прогона не оставлять; ракета улетела — игра остаётся (экран победы)
+[[ -f run/stages/rocket-$seed ]] || scripts/stop.sh > /dev/null 2>&1
 exit $code

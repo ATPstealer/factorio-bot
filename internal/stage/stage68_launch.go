@@ -39,6 +39,51 @@ func launched(h *act.Hands) (bool, error) {
 	return f.RocketsLaunched > 0, err
 }
 
+// launchFrom — с этой стадии ракета может улететь сама посреди дела: галочка автозапуска стоит
+// со стадии 67, площадка встала — ракета улетела сразу (1098794301).
+const launchFrom = 67
+
+// launchWatch — как часто смотреть события мода: не улетела ли ракета.
+const launchWatch = 2 * time.Second
+
+// errLaunched — причина отмены дела стадии: ракета улетела.
+var errLaunched = errors.New("ракета улетела")
+
+// watchLaunch — ракета улетела (событие мода или счёт запусков) — отменить дело стадии (stop):
+// больше ни одного нажатия — на экране победа (просьба пользователя: увидеть её; клик или Esc
+// бота её закрыли бы).
+func watchLaunch(ctx context.Context, h *act.Hands, stop context.CancelCauseFunc) {
+	if ok, err := launched(h); err == nil && ok {
+		h.Say("ракета уже улетела — ничего не нажимаю")
+		stop(errLaunched)
+		return
+	}
+	_, seq, err := h.B.PollEvents(1 << 30)
+	if err != nil {
+		h.Log("запуск ракеты не отслеживается: %v", err)
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(launchWatch):
+		}
+		evs, next, err := h.B.PollEvents(seq)
+		if err != nil {
+			continue
+		}
+		seq = next
+		for _, ev := range evs {
+			if ev.Type == "rocket_launched" {
+				h.Say("ракета улетела — больше ничего не нажимаю")
+				stop(errLaunched)
+				return
+			}
+		}
+	}
+}
+
 func runLaunch(ctx context.Context, h *act.Hands) error {
 	for _, step := range []func(context.Context, *act.Hands) error{fillModules, fastBelts} {
 		if ok, err := launched(h); err != nil || ok {
