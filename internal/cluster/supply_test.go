@@ -1,0 +1,64 @@
+package cluster
+
+import (
+	"testing"
+
+	"factorio-bot/internal/world"
+)
+
+// Поставщики по выпуску при расстановке (zones.md): потребитель — правее стольких поставщиков
+// слева направо, сколько покрывают его вход; больше всего выпуска — правее всех; жидкости — правее
+// самого правого.
+func TestSupplyMinX(t *testing.T) {
+	small := &Cluster{Name: "adv-circuit-2", Area: Rect{Min: world.Tile{X: 133}, Max: world.Tile{X: 142}},
+		Out: []Flow{{"advanced-circuit", 0.25}}}
+	big := &Cluster{Name: "adv-circuit-1", Area: Rect{Min: world.Tile{X: 177}, Max: world.Tile{X: 186}},
+		Out: []Flow{{"advanced-circuit", 1.25}}}
+	for _, c := range []struct {
+		need  float64
+		fluid bool
+		want  int
+	}{
+		{0.2, false, 133},  // малому хватает малого
+		{0.75, false, 177}, // модулям — и большой (366255770)
+		{2.25, false, 177}, // электропечам больше всего выпуска — правее всех
+		{0.1, true, 177},   // жидкость — правее самого правого
+	} {
+		x, ok := supplyMinX([]*Cluster{big, small}, Flow{"advanced-circuit", c.need}, c.fluid)
+		if !ok || x != c.want {
+			t.Errorf("вход %.2f (жидкость %v): %d, ждали %d", c.need, c.fluid, x, c.want)
+		}
+	}
+	if _, ok := supplyMinX(nil, Flow{"advanced-circuit", 1}, false); ok {
+		t.Errorf("без поставщиков — есть место")
+	}
+}
+
+// Отвод с ленты шины (zones.md): ниже по течению стольких подводов слева направо, сколько
+// покрывают вход потребителя или всё, что входит в ленту; подвод без меры (добыча, сквозная) —
+// хватает его одного.
+func TestLaneCover(t *testing.T) {
+	ln := &ZoneLane{Item: "advanced-circuit"}
+	ln.feed(184, true, 1.25)
+	ln.feed(140, true, 0.25)
+	for _, c := range []struct {
+		need float64
+		want int
+	}{{0.2, 140}, {0.75, 184}, {2.25, 184}} {
+		if x := ln.cover(c.need); x != c.want {
+			t.Errorf("вход %.2f: отвод ниже %d, ждали %d", c.need, x, c.want)
+		}
+	}
+	if ln.From != 140 {
+		t.Errorf("самый ранний подвод %d, ждали 140", ln.From)
+	}
+	head := &ZoneLane{Item: "iron-ore"}
+	head.feed(10, true, feedAny)
+	head.feed(90, true, 3)
+	if x := head.cover(20); x != 10 {
+		t.Errorf("подвод в голову без меры: отвод ниже %d, ждали 10", x)
+	}
+	if x := (&ZoneLane{From: 55}).cover(1); x != 55 {
+		t.Errorf("подводов не знаем: %d, ждали самый ранний 55", x)
+	}
+}

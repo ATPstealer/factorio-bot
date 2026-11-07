@@ -35,17 +35,65 @@ type ZoneLane struct {
 	From  int    `json:"from,omitempty"` // X самого раннего подвода: отводы — только ниже по течению
 	Start int    `json:"start"`          // X начала ленты (голова; у неровности у головы — за ней)
 	Taps  int    `json:"taps,omitempty"` // отводов с ленты: из двух лент предмета — с менее занятой
+	// Feeds — подводы в ленту: где и сколько (отвод потребителю — ниже по течению стольких,
+	// сколько покрывают его вход: zones.md, поставщики по выпуску)
+	Feeds []LaneFeed `json:"feeds,omitempty"`
 }
 
-// feed — подвод в ленту у x: запомнить самый ранний; now — подвод от блока, который строится
-// сейчас (не Later): потребители берут с таких лент, пока будущих блоков нет (1028292478,
-// стадия 17: плавка тянула с ленты, которую кормит только добыча стадии 30, — печи пустые).
-func (ln *ZoneLane) feed(x int, now bool) {
+// LaneFeed — подвод в ленту шины: X и выпуск (добыча в голову, сквозная — feedAny).
+type LaneFeed struct {
+	X    int     `json:"x"`
+	Rate float64 `json:"rate"`
+}
+
+// feedAny — выпуск подвода без меры (добыча в голову, сквозная лента): его одного хватает всем.
+const feedAny = 1e9
+
+// feed — подвод в ленту у x с выпуском rate: запомнить самый ранний; now — подвод от блока,
+// который строится сейчас (не Later): потребители берут с таких лент, пока будущих блоков нет
+// (1028292478, стадия 17: плавка тянула с ленты, которую кормит только добыча стадии 30, — печи
+// пустые).
+func (ln *ZoneLane) feed(x int, now bool, rate float64) {
 	if !ln.Fed || x < ln.From {
 		ln.From = x
 	}
 	ln.Fed = true
 	ln.Now = ln.Now || now
+	ln.Feeds = append(ln.Feeds, LaneFeed{x, rate})
+}
+
+// cover — X подвода, ниже по течению которого на ленте не меньше need или всё, что на неё входит:
+// подводы слева направо нарастающим итогом (zones.md, поставщики по выпуску; 366255770 —
+// электропечам с малого куска красных схем доставалось 0.25 из 1.5). Подводов не знаем — самый
+// ранний.
+func (ln *ZoneLane) cover(need float64) int {
+	if len(ln.Feeds) == 0 {
+		return ln.From
+	}
+	fs := slices.Clone(ln.Feeds)
+	slices.SortStableFunc(fs, func(a, b LaneFeed) int { return a.X - b.X })
+	total := 0.0
+	for _, f := range fs {
+		total += f.Rate
+	}
+	want, got := min(need, total), 0.0
+	for _, f := range fs {
+		if got += f.Rate; got >= want-1e-9 {
+			return f.X
+		}
+	}
+	return fs[len(fs)-1].X
+}
+
+// flowRate — сколько предмета item в потоках fs.
+func flowRate(fs []Flow, item string) float64 {
+	r := 0.0
+	for _, f := range fs {
+		if f.Item == item {
+			r += f.Rate
+		}
+	}
+	return r
 }
 
 func (zb *ZBus) lane(item string) *ZoneLane {
@@ -100,6 +148,32 @@ func floorOfZone(z Zone) int {
 		return 3
 	}
 	return 0
+}
+
+// supplyMinX — левее какого места не вставать потребителю входа in (zones.md: поставщики по
+// выпуску): жидкости — самого правого поставщика; предмета — поставщиков слева направо, пока их
+// выпуск не покроет вход (нужда больше всего выпуска — правее всех). sup — поставщики (на месте).
+func supplyMinX(sup []*Cluster, in Flow, fluid bool) (int, bool) {
+	if len(sup) == 0 {
+		return 0, false
+	}
+	sup = slices.Clone(sup)
+	slices.SortStableFunc(sup, func(a, b *Cluster) int { return a.Area.Min.X - b.Area.Min.X })
+	if fluid {
+		return sup[len(sup)-1].Area.Min.X, true
+	}
+	got := 0.0
+	for _, p := range sup {
+		for _, o := range p.Out {
+			if o.Item == in.Item {
+				got += o.Rate
+			}
+		}
+		if got >= in.Rate-1e-9 {
+			return p.Area.Min.X, true
+		}
+	}
+	return sup[len(sup)-1].Area.Min.X, true
 }
 
 // PlaceZoned — места кластерам cs внутри зон zones: добыча — в зонах добычи своего ресурса
@@ -205,18 +279,14 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 				// жидкость — тоже (решение пользователя): все её поставщики левее потребителей, тогда
 				// она течёт по ходу шины и насосы смотрят по ходу; поставщик — на любом этаже не выше
 				_, fluid := b.P.Fluids[in.Item]
-				first := math.MaxInt // самый левый поставщик предмета (жидкости — самый правый)
+				var sup []*Cluster
 				for _, p := range b.Clusters {
-					if f2 := floorOf(p); f2 > 0 && (f2 < f || f2 == f && (c.TakesAbove() || fluid)) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
-						if fluid && first != math.MaxInt {
-							first = max(first, p.Area.Min.X)
-						} else {
-							first = min(first, p.Area.Min.X)
-						}
+					if f2 := floorOf(p); f2 > 0 && p.Area.Max.X > p.Area.Min.X && (f2 < f || f2 == f && (c.TakesAbove() || fluid)) && slices.ContainsFunc(p.Out, func(o Flow) bool { return o.Item == in.Item }) {
+						sup = append(sup, p)
 					}
 				}
-				if first != math.MaxInt && (c.MinX == nil || first > *c.MinX) {
-					c.MinX = &first
+				if x, ok := supplyMinX(sup, in, fluid); ok && (c.MinX == nil || x > *c.MinX) {
+					c.MinX = &x
 				}
 			}
 			// части этажа слева направо — первая, где есть место; ряд — поперёк шин
@@ -754,8 +824,9 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 	tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
 	// в ленту — делителем (cluster.md §5: боком всё ложилось на одну полосу, делитель полосы
 	// сохраняет); не встал — боком
+	rate := flowRate(c.Out, op.Item)
 	if t, err := SplitJoin(l, zLaneBelts(l, bus, ln, x0, x1), op, tag, 40); err == nil {
-		ln.feed(t.X, !c.Later)
+		ln.feed(t.X, !c.Later, rate)
 		return nil
 	}
 	to := zSidePorts(l, bus, ln, x0, x1)
@@ -770,7 +841,7 @@ func (b *Base) feedOut(l *layout.Layout, buses []*ZBus, c *Cluster, g *portGuard
 		b.dumpBetween(l, op.T, world.Tile{X: op.T.X, Y: ln.Y}) // разбор: где закрыто
 		return &ConnectError{c, fmt.Errorf("%s → %s (%s), целей %d на x %d…%d: %w", c.Name, bus.Name, op.Item, len(to), x0, x1, err)}
 	}
-	ln.feed(p.T.X, !c.Later)
+	ln.feed(p.T.X, !c.Later, rate)
 	return nil
 }
 
@@ -822,7 +893,7 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 				// тег — с предметом: стадия сквозной — стадия её предмета (stages.md: ленты шин — вместе
 				// с кластерами)
 				if err = SplitTap(l, line, p, ThroughTag(buses[k].Name, buses[k-1].Name, ln.Item), 40); err == nil {
-					ln.feed(p.T.X, low.Now) // сквозная течёт, когда течёт нижняя
+					ln.feed(p.T.X, low.Now, feedAny) // сквозная течёт, когда течёт нижняя
 					break
 				}
 			}
@@ -855,9 +926,11 @@ func (b *Base) feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *po
 			lns = slices.DeleteFunc(lns, func(ln *ZoneLane) bool { return !ln.Now })
 		}
 		sort.SliceStable(lns, func(i, j int) bool { return lns[i].Taps < lns[j].Taps })
+		need := flowRate(c.In, p.Item)
 		for _, ln := range lns {
-			// только ниже подвода: выше по течению предмета на ленте нет
-			x0 := max(c.Area.Min.X-40, ln.From+1)
+			// только ниже подвода: выше по течению предмета на ленте нет; подводов несколько —
+			// ниже стольких, сколько покрывают вход (zones.md, поставщики по выпуску)
+			x0 := max(c.Area.Min.X-40, ln.cover(need)+1)
 			if line := zLaneBelts(l, buses[k], ln, x0, max(c.Area.Max.X+40, x0+60)); len(line) > 0 {
 				lines, used = append(lines, line), append(used, ln)
 			}
@@ -1292,7 +1365,7 @@ func guardHeads(l *layout.Layout, bus *ZBus, at world.Tile) []world.Tile {
 func fedHead(lns []*ZoneLane, p Port, now bool) {
 	for _, ln := range lns {
 		if ln.head().T == p.T {
-			ln.feed(p.T.X, now)
+			ln.feed(p.T.X, now, feedAny)
 		}
 	}
 }
