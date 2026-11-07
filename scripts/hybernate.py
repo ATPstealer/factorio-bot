@@ -7,7 +7,7 @@
                                  список — run/hybernate/state.json
     scripts/hybernate.py off   — вернуть сохранения на экземпляры и продолжить каждую карту с её
                                  стадии: CONT=1 INST=N PAR=0 scripts/stage.sh K-M <сид>
-                                 (журнал — run/run-<сид>.out, как у прогона)
+                                 (журнал — run/out/run-<сид>.out, как у прогона)
     scripts/hybernate.py show  — что записано
 
 Контекст (что делалось, задачи, вопросы) пишет агент в run/hybernate/hybernate.md (скил).
@@ -167,8 +167,8 @@ def off():
             print(f"экземпляр {n} занят — {r['seed']} не продолжаю")
             continue
         restore_inst(n)
-        cmd = (f"CONT=1 INST={n} PAR=0 scripts/stage.sh {r['stage']}-{r['end']} {r['seed']} "
-               f">> run/run-{r['seed']}.out 2>&1; echo \"код $?\" >> run/run-{r['seed']}.out; "
+        cmd = (f"mkdir -p run/out; CONT=1 INST={n} PAR=0 scripts/stage.sh {r['stage']}-{r['end']} {r['seed']} "
+               f">> run/out/run-{r['seed']}.out 2>&1; echo \"код $?\" >> run/out/run-{r['seed']}.out; "
                f"INST={n} timeout 150 scripts/stop.sh > /dev/null 2>&1")
         subprocess.Popen(["setsid", "nohup", "bash", "-c", cmd], cwd=ROOT,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

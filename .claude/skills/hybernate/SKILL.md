@@ -34,7 +34,7 @@ description: Спячка работы — «hybernate on»: остановит�
 2. Проверить, что экземпляры свободны (`scripts/report.py`, `ps -C factorio,bot`); занятые —
    не трогать, сказать.
 3. `scripts/hybernate.py off` — сохранения обратно на экземпляры, каждая карта — дальше со
-   своей стадии (`CONT=1 INST=N PAR=0 scripts/stage.sh K-M <сид>`, журнал — `run/run-<сид>.out`);
+   своей стадии (`CONT=1 INST=N PAR=0 scripts/stage.sh K-M <сид>`, журнал — `run/out/run-<сид>.out`);
    `state.json` переименовывается в `state-<время>.json`.
 4. Монитор итогов стадий — снова (как в скиле `stage-runs`).
 5. Открытые дела из `hybernate.md` — перенести в работу (что нужно надолго — в `questions.md`),
