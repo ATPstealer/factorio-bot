@@ -1005,7 +1005,23 @@ func (h *Hands) Insert(ctx context.Context, e bridge.Entity, item string, n int)
 	if err != nil {
 		return err
 	}
-	if n >= held(p0, item) || n >= 4*h.stack(item) {
+	// в руках меньше нужного, а предмет ещё крафтится (очередь) — сначала дождаться: иначе «всё» —
+	// Ctrl+клик кладёт то, что есть, остальное приезжает позже (e2e TestInsertManyIntoAssembler:
+	// трубы 21 из 22 — 40 ещё крафтились)
+	if held(p0, item) < n && queued(p0, item) > 0 {
+		h.Say("жду крафт %s: при себе %d, нужно %d", item, held(p0, item), n)
+		if p0, err = h.waitFor(ctx, 2*time.Minute, func(p bridge.Player) bool {
+			return held(p, item) >= n || queued(p, item) == 0
+		}); err != nil && ctx.Err() != nil {
+			return err
+		}
+		if p0, err = h.B.Player(); err != nil {
+			return err
+		}
+	}
+	// «всё» Ctrl+кликом — только когда предмет не крафтится: счёт по убыли теряет докрафченное
+	// за вставку (21 из 22 на 1039746529-0); крафтится — нажатиями Z со счётом крафта
+	if n >= held(p0, item) && queued(p0, item) == 0 || n >= 4*h.stack(item) {
 		// положить всё или много (≥ 4 пачек; лишняя пачка не беда) — Ctrl+клик: кладётся максимум
 		// возможного одним действием; удержание Z кладёт по одному — 200 угля ≈ 2 минуты. Почти
 		// всё — не Ctrl: он кладёт и лишнее (10 пластин из 11 — легло 11, e2e TestUnstuckKeepsRecipe)
