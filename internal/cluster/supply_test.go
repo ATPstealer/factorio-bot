@@ -66,3 +66,22 @@ func TestLaneCover(t *testing.T) {
 		t.Errorf("подводов не знаем: %d, ждали самый ранний 55", x)
 	}
 }
+
+// Сквозная — с ленты нижней шины, куда есть подвод (как у потребителей): первая годится — она;
+// первая пустая — с той, куда подаёт блок, что строится сейчас.
+func TestThroughSource(t *testing.T) {
+	bus := &ZBus{Lanes: []ZoneLane{{Item: "stone", Y: 1}, {Item: "stone", Y: 2, Fed: true}, {Item: "stone", Y: 3, Fed: true, Now: true}, {Item: "coal", Y: 4}}}
+	if ln := throughSource(bus, "stone"); ln == nil || ln.Y != 3 {
+		t.Errorf("первая пустая: %+v, ждали ленту 3 (подвод сейчас)", ln)
+	}
+	bus.Lanes[0].Fed, bus.Lanes[0].Now = true, true
+	if ln := throughSource(bus, "stone"); ln == nil || ln.Y != 1 {
+		t.Errorf("первая с подводом: %+v, ждали её", ln)
+	}
+	if ln := throughSource(bus, "coal"); ln == nil || ln.Y != 4 {
+		t.Errorf("подвода нет ни в одну: %+v, ждали первую", ln)
+	}
+	if throughSource(bus, "iron-plate") != nil {
+		t.Errorf("лент предмета нет — нашлась")
+	}
+}

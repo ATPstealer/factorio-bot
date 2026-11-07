@@ -864,6 +864,26 @@ func ThroughTag(to, from, item string) string {
 	return LogisticsTag + "/" + to + "/" + from + "/" + item
 }
 
+// throughSource — с какой ленты предмета нижней шины сквозная: как у потребителей — с ленты, куда
+// есть подвод, сначала от блоков, что строятся сейчас (первая годится — она, иначе с менее
+// занятой); подвода нет ни в одну — первая (1873819092: камня на bus-1 четыре пары, подводы — в
+// три, сквозная на bus-2 — с пустой, rail-1 без камня).
+func throughSource(bus *ZBus, item string) *ZoneLane {
+	all := bus.lanes(item)
+	if len(all) == 0 {
+		return nil
+	}
+	lns := slices.DeleteFunc(slices.Clone(all), func(ln *ZoneLane) bool { return !ln.Fed })
+	if slices.ContainsFunc(lns, func(ln *ZoneLane) bool { return ln.Now }) {
+		lns = slices.DeleteFunc(lns, func(ln *ZoneLane) bool { return !ln.Now })
+	}
+	if len(lns) == 0 || slices.Contains(lns, all[0]) {
+		return all[0] // первая годится — она (как раньше)
+	}
+	sort.SliceStable(lns, func(i, j int) bool { return lns[i].Taps < lns[j].Taps })
+	return lns[0]
+}
+
 // throughSearch — предел перебора поисков ленты на одну сквозную (состояний; не по времени:
 // план не зависит от загрузки машины).
 const throughSearch = 15_000_000
@@ -875,7 +895,7 @@ func feedThrough(l *layout.Layout, buses []*ZBus) error {
 			if ln.Fed {
 				continue
 			}
-			low := buses[k-1].lane(ln.Item)
+			low := throughSource(buses[k-1], ln.Item)
 			if low == nil {
 				continue
 			}
