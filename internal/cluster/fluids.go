@@ -182,13 +182,67 @@ func RefineryAdv(p *knowledge.Prototypes, n int) *Cluster {
 // Ряды НПЗ‑2 поперёк столбца (refineryAdvRow): 0 — труба второй жидкости входа, 1 — выходы её
 // подземных пар, 2 — пусто, 3 — труба первой жидкости входа (соединения), 4–8 — НПЗ, 9 —
 // соединения выходов (входы подземных пар), 10 — пусто, 11, 13, 15 — трубы трёх продуктов
-// (через пустой ряд: соседние трубы соединяются, cluster.md §5).
+// (через пустой ряд: соседние трубы соединяются, cluster.md §5), 16–19 — цистерны газа
+// (hangTanks).
 const (
-	refAdvCross = 16
+	refAdvCross = 16 + tankRows
 	refAdvIn2V  = 0
 	refAdvInV   = 3
 	refAdvOutV  = 9
 )
+
+// Цистерны под крайним рядом трубы (cluster.md «Нефть»: цистерны газа и лёгкой): tankRows рядов
+// поперёк — три ряда цистерн и пустой; вдоль трубы — от tanksMin до tanksMax штук.
+const (
+	tankRows = 4
+	tanksMin = 2
+	tanksMax = 4
+	tank     = "storage-tank"
+)
+
+// tankFluid — цистерны какой жидкости висят на кластере рецепта: газа — у НПЗ‑2, лёгкой — у
+// крекинга тяжёлого (его продукт).
+var tankFluid = map[string]string{"advanced-oil-processing": "petroleum-gas", "heavy-oil-cracking": "light-oil"}
+
+// hangTanks — цистерны под трубой ряда v (крайний ряд кластера): ряды v+1…v+3 — цистерны, v+4 —
+// пусто (соединения цистерн не касаются чужих труб); вдоль трубы — с u0 до u1 (не включая), по
+// tanksMax, не меньше tanksMin. Соединение каждой — в трубу ряда v, остальные — не выше её.
+func hangTanks(l *layout.Layout, f frame, c *Cluster, v, u0, u1 int, tag string, add func(layout.Placement) error) error {
+	n := 0
+	for u := u0; u+3 <= u1 && n < tanksMax; u += 3 {
+		var m layout.Placement
+		found := false
+		for _, d := range []int{layout.N, layout.E, layout.S, layout.W} {
+			m = f.at(l, tank, u, v+1, d, tag)
+			into, above := false, false
+			for _, cn := range layout.Connections(l.P, m) {
+				_, cv, ok := f.coord(cn.To, u1+3, v+tankRows)
+				switch {
+				case !ok:
+				case cv == v:
+					into = true
+				case cv < v:
+					above = true
+				}
+			}
+			if into && !above {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("cluster %s: цистерне нет поворота к трубе ряда %d", c.Name, v)
+		}
+		if err := add(m); err != nil {
+			return err
+		}
+		n++
+	}
+	if n < tanksMin {
+		return fmt.Errorf("cluster %s: цистерн влезает %d из %d (вдоль трубы %d тайлов)", c.Name, n, tanksMin, u1-u0)
+	}
+	return nil
+}
 
 // refAdvOutRows — ряды труб продуктов НПЗ‑2 по порядку продуктов рецепта.
 var refAdvOutRows = []int{11, 13, 15}
@@ -255,7 +309,13 @@ func refineryAdvRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, ad
 			return err
 		}
 	}
-	return nil
+	// цистерны — под крайним рядом продуктов (газ), вдоль заводов: там труба есть при любой
+	// стороне порта
+	last := len(refAdvOutRows) - 1
+	if fluidsOut[last] != tankFluid[recipe] {
+		return fmt.Errorf("cluster %s: крайний ряд — %s, а цистерны — %s", c.Name, fluidsOut[last], tankFluid[recipe])
+	}
+	return hangTanks(l, f, c, refAdvOutRows[last], c.Head, end, rowTag(fluidsOut[last]), add)
 }
 
 // ChemFluid — химия с выходом жидкостью (stages.md, стадии 52–54): n химзаводов рецепта recipe
@@ -265,6 +325,9 @@ func refineryAdvRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, ad
 func ChemFluid(p *knowledge.Prototypes, recipe string, n int) *Cluster {
 	c := Chem(p, recipe, n)
 	c.Cross, c.Pitch, c.Head = chemFluidCross, 4, 1
+	if tankFluid[recipe] != "" { // крекинг тяжёлого — цистерны лёгкой под трубой продукта
+		c.Cross += tankRows
+	}
 	return c
 }
 
@@ -356,7 +419,19 @@ func chemFluidRow(l *layout.Layout, f frame, c *Cluster, L int, tag string, add 
 		}
 		deadEnd(beltV, end-1)
 	}
-	return fluidPortAt(l, f, c, outV, c.Head, end, L, product, rowTag(product), false, nil, add)
+	if err := fluidPortAt(l, f, c, outV, c.Head, end, L, product, rowTag(product), false, nil, add); err != nil {
+		return err
+	}
+	if tankFluid[recipe] != product {
+		return nil
+	}
+	// цистерны лёгкой — под трубой продукта (крайний ряд): труба — вдоль заводов, а с портом в
+	// конце ряда — до конца
+	hi := end
+	if !fluidAtHead(c, product) {
+		hi = L
+	}
+	return hangTanks(l, f, c, outV, c.Head, hi, rowTag(product), add)
 }
 
 // IsFluidMake — сборщик с жидкостью на входе (свой шаблон).

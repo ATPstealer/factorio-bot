@@ -44,7 +44,7 @@ func TestBuildTemplates(t *testing.T) {
 			t.Errorf("%s: %v", c.Name, err)
 			continue
 		}
-		t.Logf("%-30s ряд %3d × %2d (голова %d, шаг %d, мест %d)", c.Name, L, c.Cross, c.Head, c.Pitch, c.Count)
+		t.Logf("%-30s ряд %3d × %2d (голова %d, шаг %d, мест %d, цистерн %d)", c.Name, L, c.Cross, c.Head, c.Pitch, c.Count, countName(l, tank))
 		for _, e := range l.Validate() { // столбы внутри площади достают до всего
 			if strings.Contains(e, "без электричества") {
 				t.Errorf("%s: %s", c.Name, e)
@@ -107,6 +107,41 @@ func TestBuildTemplates(t *testing.T) {
 				t.Errorf("%s: сундуков %d — у лабораторий буферов нет", c.Name, chests)
 			}
 			continue
+		}
+		// цистерны газа и лёгкой (cluster.md «Нефть»): у НПЗ‑2 и крекинга тяжёлого — от tanksMin до
+		// tanksMax, каждая соединена только с трубой своей жидкости; у остальных — нет
+		tanks := countName(l, tank)
+		if fl := tankFluid[b.Recipe]; fl != "" {
+			if tanks < tanksMin || tanks > tanksMax {
+				t.Errorf("%s: цистерн %d, ждали %d–%d", c.Name, tanks, tanksMin, tanksMax)
+			}
+			at := map[world.Tile]layout.Placement{}
+			for _, pl := range l.List {
+				for _, tl := range layout.Tiles(p, pl) {
+					at[tl] = pl
+				}
+			}
+			for _, pl := range l.List {
+				if pl.Name != tank {
+					continue
+				}
+				own := 0
+				for _, cn := range layout.Connections(p, pl) {
+					q, ok := at[cn.To]
+					if !ok || q.Name == tank {
+						continue
+					}
+					if !strings.HasSuffix(q.Tag, "/"+fl) {
+						t.Errorf("%s: цистерна в %v касается %s (%s)", c.Name, pl.Pos, q.Name, q.Tag)
+					}
+					own++
+				}
+				if own == 0 {
+					t.Errorf("%s: цистерна в %v не соединена с трубой %s", c.Name, pl.Pos, fl)
+				}
+			}
+		} else if tanks > 0 {
+			t.Errorf("%s: цистерн %d — у кластера их нет", c.Name, tanks)
 		}
 		if c.Kind == Smelt && !c.IsSteel() { // печи рецепт выбирают сами — по числу печей
 			recipes[b.Recipe] = countName(l, BuildMachine(p, b.Recipe, b.Stage >= Tier2From))

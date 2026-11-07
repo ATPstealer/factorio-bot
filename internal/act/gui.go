@@ -1735,11 +1735,18 @@ func (h *Hands) LimitChest(ctx context.Context, e bridge.Entity, slots int) erro
 }
 
 // FlushPipeline — слить всю сеть труб, к которой подключена цистерна e (в ней чужая жидкость,
-// решение пользователя 28.10: кнопка в окне): окно цистерны, нижняя красная кнопка-корзина
-// («Pipeline contents»; верхняя — содержимое самой цистерны). Подтверждение — в цистерне больше
-// нет жидкости fluid (своя натечёт сразу).
+// решение пользователя 28.10: кнопка в окне; или своя, которой некуда деться — газ по уровню):
+// окно цистерны, нижняя красная кнопка-корзина («Pipeline contents»; верхняя — содержимое самой
+// цистерны). Подтверждение — жидкости fluid в цистерне нет или вдвое меньше, чем было (своя
+// натекает сразу).
 func (h *Hands) FlushPipeline(ctx context.Context, e bridge.Entity, fluid string) error {
 	h.Say("сливаю сеть труб у %s в (%.1f, %.1f): в ней %s", e.Name, e.Position.X, e.Position.Y, fluid)
+	before := 0.0
+	if st, err := h.B.GetEntity(e.Name, e.Position); err != nil {
+		return err
+	} else if st != nil {
+		before = st.Fluids[fluid]
+	}
 	if err := h.reach(ctx, e, buildReach); err != nil {
 		return err
 	}
@@ -1780,7 +1787,7 @@ func (h *Hands) FlushPipeline(ctx context.Context, e bridge.Entity, fluid string
 		if err != nil {
 			return err
 		}
-		if st == nil || st.Fluids[fluid] == 0 {
+		if st == nil || st.Fluids[fluid] == 0 || st.Fluids[fluid] <= before/2 {
 			return nil
 		}
 	}

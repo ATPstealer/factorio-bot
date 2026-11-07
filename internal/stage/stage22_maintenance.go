@@ -177,10 +177,17 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 var labsAt time.Time
 
 // waitHooks — что делать, пока стадия ждёт (подтверждения по факту, исследования, крафта):
-// наука на ракету (scienceCut) и лаборатории не стоят — раз в 2 мин (keepLabsBusy).
+// наука на ракету (scienceCut), газ по уровню (gasLevel) и лаборатории не стоят — раз в 2 мин
+// (keepLabsBusy).
 func waitHooks(ctx context.Context, h *act.Hands) error {
 	if err := scienceCut(ctx, h); err != nil {
 		return err
+	}
+	if err := gasLevel(ctx, h); err != nil { // мягко: не вышло — сказать и ждать дальше
+		if ctx.Err() != nil {
+			return err
+		}
+		h.Say("газ по уровню не встал: %v", err)
 	}
 	if paper != nil || h.B == nil || curStage < 13 || time.Since(labsAt) < 2*time.Minute {
 		return nil

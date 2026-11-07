@@ -155,6 +155,14 @@ func blueprint(h *act.Hands, base func(*act.Hands) ([]layout.Placement, error)) 
 	if off := loadScienceOff(); len(off.Removed) > 0 {
 		res = slices.DeleteFunc(res, off.has)
 	}
+	// стоящие без рецепта по правилу (крекинг лёгкой, НПЗ, выключенные по уровню газа —
+	// gas_level.go) — в чертеже без рецепта: сверка его не возвращает
+	gasOff := loadGasOff()
+	for i := range res {
+		if recipeOff(res[i], gasOff) {
+			res[i].Recipe = ""
+		}
+	}
 	return res, nil
 }
 
