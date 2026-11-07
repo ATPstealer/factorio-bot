@@ -1708,8 +1708,9 @@ func replaceTier2(t *testing.T, h *act.Hands, old, up, tech, recipe string, size
 	if !slices.Contains(f.Researched, tech) {
 		t.Skipf("%s не изучено", tech)
 	}
-	have(t, h, old, 1)
+	// новая — первой: её рецепт съедает старую (сборщик 2 из сборщика 1)
 	have(t, h, up, 1)
+	have(t, h, old, 1)
 	ctx := ctxT(t, 4*time.Minute)
 	at := freeArea(t, h, size)
 	e, err := h.Place(ctx, old, at, act.North)
@@ -1750,6 +1751,11 @@ func TestReplaceAssemblerTier2(t *testing.T) {
 // (его рецепт съедает обычный).
 func TestReplaceInserterFast(t *testing.T) {
 	h := handsT(t)
+	if f, err := h.B.Force(); err != nil {
+		t.Fatal(err)
+	} else if !slices.Contains(f.Recipes, "fast-inserter") {
+		t.Skip("быстрый инсертер не изучен (fast-inserter)")
+	}
 	have(t, h, "fast-inserter", 1)
 	have(t, h, "inserter", 1)
 	ctx := ctxT(t, 4*time.Minute)
@@ -1857,8 +1863,12 @@ func TestInsertManyIntoAssembler(t *testing.T) {
 	for _, inv := range st.Inventories {
 		got += inv["pipe"]
 	}
-	// сделанные двигатели (по 2 трубы) — тоже из положенного
+	// сделанные двигатели (по 2 трубы) — тоже из положенного; идущий крафт уже забрал свои 2
+	// (сборщик в сети начинает двигатель сразу — на всех картах ровно 20)
 	got += 2 * (st.Inventories["crafter_output"]["engine-unit"] + st.Inventories["assembling_machine_output"]["engine-unit"])
+	if st.CraftingProgress > 0 {
+		got += 2
+	}
 	if got < 22 || got > 40 {
 		t.Errorf("труб в сборщике (с ушедшими в двигатели) %d, ждали 22–40", got)
 	}
@@ -1877,13 +1887,14 @@ func TestReplaceBeltFast(t *testing.T) {
 	if !slices.Contains(f.Researched, "logistics-2") {
 		t.Skip("logistics-2 не изучено")
 	}
-	// быстрые — первыми (их рецепты съедают жёлтые)
+	// быстрые — первыми (их рецепты съедают жёлтые); жёлтые ленты — последними (подземки и
+	// делитель крафтятся из них: делитель съедал набранные — 1028292478-0)
 	have(t, h, "fast-transport-belt", 3)
 	have(t, h, "fast-underground-belt", 2)
 	have(t, h, "fast-splitter", 1)
-	have(t, h, "transport-belt", 3)
 	have(t, h, "underground-belt", 2)
 	have(t, h, "splitter", 1)
+	have(t, h, "transport-belt", 3)
 	ctx := ctxT(t, 6*time.Minute)
 	c := freeArea(t, h, 10)
 	x, y := math.Floor(c.X)-3.5, math.Floor(c.Y)+0.5
@@ -1943,4 +1954,111 @@ func TestReplaceBeltFast(t *testing.T) {
 		}
 	}
 	clean(t, h)
+}
+
+// siloT — ракетная шахта на карте (1098794301-0 — копия -66: шахта стоит); нет — пропуск.
+func siloT(t *testing.T, h *act.Hands) bridge.Entity {
+	t.Helper()
+	p, _ := h.B.Player()
+	es, err := h.B.FindNearest(bridge.FindArgs{Name: "rocket-silo", Radius: 1000, Position: &p.Position, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(es) == 0 {
+		t.Skip("на карте нет ракетной шахты")
+	}
+	return es[0]
+}
+
+// Предмет в груз ракетной шахты (стадия 67: спутник — Ctrl+кликом по шахте; прошло на
+// 1098794301): груз шахты пуст — после — в нём предмет (мод: rocket_silo_rocket). Предмет —
+// железная пластина: груз ракеты в 2.x берёт любой, а спутника на карте нет.
+func TestSiloCargo(t *testing.T) {
+	h := handsT(t)
+	silo := siloT(t, h)
+	st, err := h.B.GetEntity(silo.Name, silo.Position)
+	if err != nil || st == nil {
+		t.Fatalf("шахта в (%.1f, %.1f): %v", silo.Position.X, silo.Position.Y, err)
+	}
+	for it, n := range st.Inventories["rocket_silo_rocket"] {
+		if n > 0 {
+			t.Skipf("груз шахты не пуст: %s ×%d", it, n)
+		}
+	}
+	const item = "iron-plate"
+	have(t, h, item, 10)
+	ctx := ctxT(t, 3*time.Minute)
+	if err := h.SiloCargo(ctx, silo, item); err != nil {
+		t.Fatal(err)
+	}
+	st, err = h.B.GetEntity(silo.Name, silo.Position)
+	if err != nil || st == nil {
+		t.Fatal(err)
+	}
+	if st.Inventories["rocket_silo_rocket"][item] == 0 {
+		t.Errorf("в грузе шахты нет %s: %v", item, st.Inventories["rocket_silo_rocket"])
+	}
+}
+
+// Галочка «запуск по готовности» в окне шахты (стадия 67, решение пользователя: ракета улетит
+// сама, как будут 100 частей): галочки нет — после — стоит (мод: auto_launch), окно закрыто.
+func TestSiloAutoLaunch(t *testing.T) {
+	h := handsT(t)
+	silo := siloT(t, h)
+	st, err := h.B.GetEntity(silo.Name, silo.Position)
+	if err != nil || st == nil {
+		t.Fatalf("шахта в (%.1f, %.1f): %v", silo.Position.X, silo.Position.Y, err)
+	}
+	if st.AutoLaunch {
+		t.Skip("галочка уже стоит")
+	}
+	ctx := ctxT(t, 3*time.Minute)
+	if err := h.SiloAutoLaunch(ctx, silo); err != nil {
+		t.Fatal(err)
+	}
+	st, err = h.B.GetEntity(silo.Name, silo.Position)
+	if err != nil || st == nil {
+		t.Fatal(err)
+	}
+	if !st.AutoLaunch {
+		t.Errorf("галочка автозапуска не стоит")
+	}
+	if p, _ := h.B.Player(); p.OpenedGUIType != nil && *p.OpenedGUIType != 0 {
+		t.Errorf("окно не закрыто (opened_gui_type %d)", *p.OpenedGUIType)
+	}
+}
+
+// Модули продуктивности в машину (стадия 68: сначала шахта, потом машины без сырья): сборщик 2
+// с рецептом шестерни — 2 модуля в ячейки модулей (мод: crafter_modules), а не в ячейки рецепта.
+func TestInsertModule(t *testing.T) {
+	h := handsT(t)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.Recipes, "productivity-module") || !slices.Contains(f.Recipes, "assembling-machine-2") {
+		t.Skip("модули продуктивности или сборщик 2 не изучены")
+	}
+	const module = "productivity-module"
+	have(t, h, "assembling-machine-2", 1)
+	have(t, h, module, 2)
+	ctx := ctxT(t, 4*time.Minute)
+	at := freeArea(t, h, 3)
+	e, err := h.Place(ctx, "assembling-machine-2", at, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetRecipe(ctx, e, "iron-gear-wheel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Insert(ctx, e, module, 2); err != nil {
+		t.Fatalf("модули в сборщик: %v", err)
+	}
+	st, err := h.B.GetEntity(e.Name, e.Position)
+	if err != nil || st == nil {
+		t.Fatal(err)
+	}
+	if n := st.Inventories["crafter_modules"][module]; n != 2 {
+		t.Errorf("модулей в ячейках модулей %d, ждали 2 (инвентари: %v)", n, st.Inventories)
+	}
 }
