@@ -243,7 +243,7 @@ func Interior(l *layout.Layout, c *Cluster, tag string) error {
 			c.Back = !c.Back
 			f = c.frame()
 			if err = mineBlock(l, f, c, tag, belt); errors.Is(err, errMineHead) {
-				err = fmt.Errorf("cluster %s: ни одного бура на %s (лента сбора не встаёт ни с одного конца)", c.Name, c.Product)
+				err = &NoSiteError{c, fmt.Errorf("cluster %s: ни одного бура на %s (лента сбора не встаёт ни с одного конца)", c.Name, c.Product)}
 			}
 		}
 		if err != nil {
@@ -782,7 +782,7 @@ func mineBlock(l *layout.Layout, f frame, c *Cluster, tag string, belt func(u, v
 		}
 	}
 	if placed == 0 {
-		return fmt.Errorf("cluster %s: ни одного бура на %s", c.Name, c.Product)
+		return &NoSiteError{c, fmt.Errorf("cluster %s: ни одного бура на %s", c.Name, c.Product)}
 	}
 	// столбы — в зазорах пар, в середине полос буров (сверху и снизу ленты ряда)
 	pole := "small-electric-pole"

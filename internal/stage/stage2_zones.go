@@ -66,7 +66,7 @@ func runRough(ctx context.Context, h *act.Hands) error {
 	}
 	saveWorld(h)
 	opened, holes := 0, 0 // дооткрытий у базы и дыр внутри неё (stages.md, стадия 2)
-	roughRegion, roughCliffs, roughKeepOil = nil, false, nil
+	roughRegion, roughCliffs, roughKeepOil, roughNoMine = nil, false, nil, nil
 	clear(planSplit) // разбивки кластеров — с первой (cluster.md «Сборка»)
 	if st, err := loadSquares(); err == nil && st.Found != nil {
 		roughRegion = st.Found // стадия 1 нашла место в этом квадрате — центр базы в нём (stages.md)
@@ -177,7 +177,7 @@ func saveWorld(h *act.Hands) {
 // дооткрытий и переходов в другие квадраты; from > 2 — без плана, стадии from…to по состоянию
 // в BOT_RUN.
 func RoughOffline(h *act.Hands, from, to int) error {
-	roughRegion, roughCliffs, roughOffline, roughKeepOil = nil, false, true, nil
+	roughRegion, roughCliffs, roughOffline, roughKeepOil, roughNoMine = nil, false, true, nil, nil
 	if st, err := loadSquares(); err == nil && st.Found != nil {
 		roughRegion = st.Found // как в игре: центр базы — в квадрате, где её нашла стадия 1
 	}
@@ -412,7 +412,7 @@ func roughPass(h *act.Hands, from *world.Tile, noMine []cluster.Rect) (*world.Ti
 		base.Quick, base.Deadline = true, time.Now().Add(roughQuickLimit)
 		base.MaxR = max(base.MaxR, roughReach(h, origin))
 	}
-	base.NoMine, base.KeepOil = noMine, roughKeepOil
+	base.NoMine, base.KeepOil = append(append([]cluster.Rect(nil), noMine...), roughNoMine...), roughKeepOil
 	if baseFirst && from == nil {
 		base.MineZones(cs, nil) // сначала база — без добычи (roughOnce)
 	} else {

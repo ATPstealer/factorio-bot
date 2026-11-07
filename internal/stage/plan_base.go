@@ -194,6 +194,42 @@ func (e *wellsError) Error() string {
 // обходит): прошлая разметка легла на них, качалок не хватило (planBase).
 var roughKeepOil []cluster.Rect
 
+// roughNoMine — месторождения, на которых блоку добычи не встать (подвод не провёлся, другого
+// места в зоне нет; буры не встают): разметка их зонами добычи не берёт (planBase).
+var roughNoMine []cluster.Rect
+
+// mineSkips — месторождений руды мимо — не больше стольких.
+const mineSkips = 3
+
+// mineSkip — какие месторождения мимо, когда блоку добычи нет пятна (ns): его зона; не встал —
+// зоны добычи его сырья, на которых места под запретом (подвод не провёлся), а таких нет — все
+// зоны его сырья. Не добыча — ничего.
+func mineSkip(zones []cluster.Zone, ns *cluster.NoSiteError, avoid map[world.Tile]bool) []cluster.Rect {
+	if ns == nil || ns.Cluster.Kind != cluster.Mine {
+		return nil
+	}
+	if ns.Cluster.Zone != nil {
+		return []cluster.Rect{*ns.Cluster.Zone}
+	}
+	var hit, all []cluster.Rect
+	for _, z := range zones {
+		if z.Kind != cluster.ZoneMine || z.Resources[ns.Cluster.Product] <= 0 {
+			continue
+		}
+		all = append(all, z.Rect)
+		for t := range avoid {
+			if t.X >= z.Rect.Min.X && t.X < z.Rect.Max.X && t.Y >= z.Rect.Min.Y && t.Y < z.Rect.Max.Y {
+				hit = append(hit, z.Rect)
+				break
+			}
+		}
+	}
+	if len(hit) > 0 {
+		return hit
+	}
+	return all
+}
+
 // oilUnderBase — месторождения нефти под зонами базы (не добычи).
 func oilUnderBase(h *act.Hands, zones []cluster.Zone) []cluster.Rect {
 	var res []cluster.Rect
@@ -332,6 +368,23 @@ func planBase(ctx context.Context, h *act.Hands) error {
 				try = -1
 				continue
 			}
+		}
+		// блоку добычи нет пятна в его зоне — месторождение мимо, зоны заново: разметка возьмёт
+		// другое (1098794301: железо справа от базы, подвод к голове bus-1 не провести, место под
+		// запретом — и план вставал на этом)
+		if skip := mineSkip(rough.Zones, ns, avoid); len(skip) > 0 && len(roughNoMine) < mineSkips {
+			roughNoMine = append(roughNoMine, skip...)
+			h.Say("%v — месторождения %v мимо, зоны заново", err, skip)
+			if err := roughOnce(h); err != nil {
+				return err
+			}
+			if rough, err = LoadRough(); err != nil {
+				return err
+			}
+			clear(avoid)
+			maps.Copy(avoid, mineAvoid)
+			try = -1
+			continue
 		}
 		var ce *cluster.ConnectError
 		if !errors.As(err, &ce) || try >= planTries-1 {
