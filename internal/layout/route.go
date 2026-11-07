@@ -1,9 +1,7 @@
 package layout
 
 import (
-	"container/heap"
 	"errors"
-	"math"
 
 	"factorio-bot/internal/world"
 )
@@ -20,27 +18,8 @@ type rstate struct {
 	UG bool
 }
 
-type rnode struct {
-	s    rstate
-	g, f float64
-	i    int
-}
-type rheap []*rnode
-
-func (h rheap) Len() int           { return len(h) }
-func (h rheap) Less(i, j int) bool { return h[i].f < h[j].f }
-func (h rheap) Swap(i, j int)      { h[i], h[j] = h[j], h[i]; h[i].i = i; h[j].i = j }
-func (h *rheap) Push(x any)        { n := x.(*rnode); n.i = len(*h); *h = append(*h, n) }
-func (h *rheap) Pop() any          { o := *h; n := o[len(o)-1]; *h = o[:len(o)-1]; return n }
-
 // turnCost — штраф за поворот ленты: обход на тайл в сторону дороже, чем прямо.
 const turnCost = 3.0
-
-type redge struct {
-	from rstate
-	ug   int // 0 — обычная лента; >0 — подземка длиной ug тайлов под землёй
-	dir  int
-}
 
 // RouteBelt прокладывает ленту от тайла from (пришли в него с направлением inDir) до
 // тайла to, где лента должна смотреть toDir (в цель). Ленты — по свободным тайлам суши,
@@ -84,27 +63,90 @@ func (l *Layout) RouteBelt(from world.Tile, inDir int, to world.Tile, toDir int,
 	return 0, ErrNoRoute
 }
 
+// tileKey, stateKey — ключи карт поиска числом (быстрее структуры: поиск лент — больше половины
+// времени плана, почти всё — в картах). Координаты — до ±2^28, направление — до 31 (труба без подземки — plain).
+func tileKey(t world.Tile) uint64 { return uint64(uint32(t.X))<<32 | uint64(uint32(t.Y)) }
+
+func stateKey(s rstate) uint64 {
+	k := uint64(uint32(t29(s.T.X)))<<35 | uint64(uint32(t29(s.T.Y)))<<6 | uint64(s.D&31)<<1
+	if s.UG {
+		k |= 1
+	}
+	return k
+}
+
+func t29(x int) int { return x & (1<<29 - 1) }
+
+// rnode — узел открытого списка поиска ленты и трубы: n — номер состояния.
+type rnode struct {
+	n    int32
+	g, f float64
+}
+
+// rinfo — состояние поиска ленты: лучшая цена и откуда пришли (from — номер состояния, −1 у начала;
+// ug — длина подземки под землёй, 0 — обычная лента).
+type rinfo struct {
+	s    rstate
+	g    float64
+	from int32
+	ug   int8
+	dir  int8
+}
+
+// rqueue — двоичная куча узлов по f: тот же порядок, что container/heap (Push — up, Pop — swap
+// с последним и down), без выделений на узел.
+type rqueue []rnode
+
+func (q *rqueue) push(n rnode) {
+	*q = append(*q, n)
+	h := *q
+	for j := len(h) - 1; ; {
+		i := (j - 1) / 2
+		if i == j || !(h[j].f < h[i].f) {
+			break
+		}
+		h[i], h[j] = h[j], h[i]
+		j = i
+	}
+}
+
+func (q *rqueue) pop() rnode {
+	h := *q
+	n := len(h) - 1
+	h[0], h[n] = h[n], h[0]
+	for i := 0; ; {
+		j1 := 2*i + 1
+		if j1 >= n || j1 < 0 {
+			break
+		}
+		j := j1
+		if j2 := j1 + 1; j2 < n && h[j2].f < h[j1].f {
+			j = j2
+		}
+		if !(h[j].f < h[i].f) {
+			break
+		}
+		h[i], h[j] = h[j], h[i]
+		i = j
+	}
+	top := h[n]
+	*q = h[:n]
+	return top
+}
+
 func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int, tag string) ([]Placement, error) {
 	belt, ug := "transport-belt", "underground-belt"
 	maxUG := l.P.Entities[ug].MaxUndergroundDistance
-	intoMemo := map[world.Tile]bool{}
-	into := func(t world.Tile) bool {
-		v, ok := intoMemo[t]
-		if !ok {
-			v = l.beltInto(t)
-			intoMemo[t] = v
-		}
-		return v
-	}
 	// стоимость тайла — одна на поиск (раскладка за поиск не меняется), а спрашивают её на каждом
 	// шаге и у каждой подземки: запомнить (−1 — нельзя)
-	costMemo := map[world.Tile]float64{}
+	costMemo := map[uint64]float64{}
 	cost := func(t world.Tile) (float64, bool) {
-		if c, ok := costMemo[t]; ok {
+		key := tileKey(t)
+		if c, ok := costMemo[key]; ok {
 			return c, c >= 0
 		}
-		if !l.Free(t, AnyLand) || t != from && into(t) {
-			costMemo[t] = -1
+		if !l.Free(t, AnyLand) || t != from && l.beltInto(t) {
+			costMemo[key] = -1
 			return 0, false
 		}
 		c := 1.0 + l.Costly[t]
@@ -115,7 +157,7 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 			// убираемое (деревья, камни, обломки) — как свободное: убрать и класть ровно
 			// (правило пользователя), а не обходить змейкой
 		}
-		costMemo[t] = c
+		costMemo[key] = c
 		return c, true
 	}
 	// дальний маршрут (лента с нефти на базу — сотни тайлов через лес): взвешенная оценка —
@@ -134,59 +176,84 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 	if _, ok := cost(to); !ok {
 		return nil, ErrNoRoute // цель занята
 	}
-	open := &rheap{}
-	best := map[rstate]float64{start: 0}
-	came := map[rstate]redge{}
-	heap.Push(open, &rnode{s: start, f: h(from)})
-	var goal *rstate
+	open := &rqueue{}
+	nodes := []rinfo{{s: start, from: -1}}
+	index := map[uint64]int32{stateKey(start): 0}
+	// relax — путь в ns дешевле известного: запомнить и в открытый список
+	relax := func(ns rstate, g, f float64, from int32, ug, dir int) {
+		key := stateKey(ns)
+		j, ok := index[key]
+		if !ok {
+			j = int32(len(nodes))
+			index[key] = j
+			nodes = append(nodes, rinfo{s: ns, g: g, from: from, ug: int8(ug), dir: int8(dir)})
+		} else if g < nodes[j].g {
+			nodes[j].g, nodes[j].from, nodes[j].ug, nodes[j].dir = g, from, int8(ug), int8(dir)
+		} else {
+			return
+		}
+		open.push(rnode{n: j, g: g, f: f})
+	}
+	open.push(rnode{n: 0, f: h(from)})
+	goal := int32(-1)
+	ugOK := l.usable(ug)
 	// предел поиска — по расстоянию: пути нет — короткий маршрут (отвод с шины) не обходит всю
 	// открытую карту (12 мин на попытку); дальний — как раньше, до 1.5M состояний
 	d := abs(from.X-to.X) + abs(from.Y-to.Y) + 60
 	limit := min(max(16*d*d, 100_000), 1_500_000)
-	for open.Len() > 0 && len(best) < limit {
-		cur := heap.Pop(open).(*rnode)
-		if cur.g > best[cur.s] {
+	probed := false
+	for len(*open) > 0 && len(nodes) < limit {
+		// долго не находится — может, к цели не подойти вовсе: заливка назад от цели (routeProbe)
+		if !probed && len(nodes) >= routeProbe {
+			probed = true
+			if !l.reachBack(from, to, maxUG, ugOK, limit/8, cost) {
+				return nil, ErrNoRoute
+			}
+		}
+		cur := open.pop()
+		cs := nodes[cur.n].s
+		if cur.g > nodes[cur.n].g {
 			continue
 		}
-		if cur.s.T == to && (cur.s.D+8)%16 != toDir {
-			g := cur.s
-			goal = &g
+		if cs.T == to && (cs.D+8)%16 != toDir {
+			goal = cur.n
 			break
 		}
 		for _, d := range []int{N, E, S, W} {
-			if (cur.s.D+8)%16 == d {
+			if (cs.D+8)%16 == d {
 				continue // назад нельзя
 			}
 			// обычная лента на cur.T в направлении d
-			nt := Step(cur.s.T, d)
+			nt := Step(cs.T, d)
 			if c, ok := cost(nt); ok {
 				g := cur.g + c
-				if d != cur.s.D {
+				if d != cs.D {
 					g += turnCost // поворот: лента — ровно, без змейки
 				}
-				ns := rstate{nt, d, false}
-				if old, ok := best[ns]; !ok || g < old {
-					best[ns] = g
-					came[ns] = redge{from: cur.s, dir: d}
-					heap.Push(open, &rnode{s: ns, g: g, f: g + h(nt)})
-				}
+				relax(rstate{nt, d, false}, g, g+h(nt), cur.n, 0, d)
 			}
 			// подземка: вход на cur.T (смотрит d), выход через k тайлов
-			if d != cur.s.D || !l.usable(ug) {
+			if d != cs.D || !ugOK {
 				continue // вход подземки — без поворота
 			}
-			if cur.s.UG {
+			if cs.UG {
 				continue // вход сразу за выходом другой — игра спаривает их как попало
 			}
+			// вход не внутри чужой пары — одно на все k
+			if !l.ugBehindClear(cs.T, d, maxUG) {
+				continue
+			}
+			outT := Step(cs.T, d)
 			for k := 2; k <= maxUG; k++ { // выход не дальше дальности прототипа
-				outT := cur.s.T
-				for i := 0; i < k; i++ {
-					outT = Step(outT, d)
+				// между концами — тайлы 1…k−1: занят k−1 — и все дальше
+				if l.ugAxis(outT, d) != nil || l.Solid[outT] {
+					break
 				}
+				outT = Step(outT, d)
 				if _, ok := cost(outT); !ok {
 					continue
 				}
-				if !l.ugAxisClear(cur.s.T, d, k, maxUG) {
+				if !l.ugAheadClear(outT, d, maxUG) {
 					continue
 				}
 				after := Step(outT, d)
@@ -196,37 +263,95 @@ func (l *Layout) routeOnce(from world.Tile, inDir int, to world.Tile, toDir int,
 				// подземка — пара ≈ 17 железа против 1.5 за тайл ленты: только где обход
 				// заметно длиннее (вода, постройки, густой лес)
 				g := cur.g + float64(k) + 8
-				ns := rstate{after, d, true}
-				if old, ok := best[ns]; !ok || g < old {
-					best[ns] = g
-					came[ns] = redge{from: cur.s, ug: k, dir: d}
-					heap.Push(open, &rnode{s: ns, g: g, f: g + h(after)})
-				}
+				relax(rstate{after, d, true}, g, g+h(after), cur.n, k, d)
 			}
 		}
 	}
-	if goal == nil {
+	if goal < 0 {
 		return nil, ErrNoRoute
 	}
 	// восстановить: идём от цели назад
 	var out []Placement
-	out = append(out, Placement{Name: belt, Pos: goal.T.Center(), Dir: toDir, Tag: tag})
-	for s := *goal; s != start; {
-		e := came[s]
+	out = append(out, Placement{Name: belt, Pos: nodes[goal].s.T.Center(), Dir: toDir, Tag: tag})
+	for n := goal; nodes[n].from >= 0; n = nodes[n].from {
+		e := nodes[n]
+		prev := nodes[e.from].s
+		dir := int(e.dir)
 		if e.ug > 0 {
-			outT := e.from.T
-			for i := 0; i < e.ug; i++ {
-				outT = Step(outT, e.dir)
+			outT := prev.T
+			for i := 0; i < int(e.ug); i++ {
+				outT = Step(outT, dir)
 			}
 			out = append(out,
-				Placement{Name: ug, Pos: outT.Center(), Dir: e.dir, Recipe: "output", Tag: tag},
-				Placement{Name: ug, Pos: e.from.T.Center(), Dir: e.dir, Recipe: "input", Tag: tag})
+				Placement{Name: ug, Pos: outT.Center(), Dir: dir, Recipe: "output", Tag: tag},
+				Placement{Name: ug, Pos: prev.T.Center(), Dir: dir, Recipe: "input", Tag: tag})
 		} else {
-			out = append(out, Placement{Name: belt, Pos: e.from.T.Center(), Dir: e.dir, Tag: tag})
+			out = append(out, Placement{Name: belt, Pos: prev.T.Center(), Dir: dir, Tag: tag})
 		}
-		s = e.from
 	}
 	return out, nil
+}
+
+// routeProbe — столько состояний поиска ленты без цели — и заливка назад (reachBack): неудачный
+// поиск перебирал до предела (до 1.5M состояний, десятки на попытку плана — две трети её времени),
+// а цель обычно заперта в малом кармане (порт кластера, обступленный лентами и Solid: 567690334 —
+// к порту кирпича приходят с двух тайлов, поиск — 590 тыс. состояний, 45 с).
+const routeProbe = 30_000
+
+// reachBack — от from до to можно дойти по правилам ходов поиска, кроме направлений (заливка
+// назад по тайлам): лента — с соседнего тайла, где ей можно (cost); подземка — с входа a через
+// k = 2…maxUG тайлов: выход и вход — где ленте можно, между ними — ни подземок этой оси, ни
+// Solid, позади входа и впереди выхода — не чужие пары (ugBehindClear, ugAheadClear). Заливка от
+// to кончилась, а from не встретился — пути нет; больше most тайлов — не знаем (true). Всё, куда
+// доходит поиск, заливка тоже покрывает: ответ поиска не меняется.
+func (l *Layout) reachBack(from, to world.Tile, maxUG int, ugOK bool, most int, cost func(world.Tile) (float64, bool)) bool {
+	seen := map[uint64]bool{tileKey(to): true}
+	queue := []world.Tile{to}
+	hit := false
+	// visit — с тайла p можно прийти: в заливку
+	visit := func(p world.Tile) {
+		if p == from {
+			hit = true
+			return
+		}
+		key := tileKey(p)
+		if seen[key] {
+			return
+		}
+		if _, ok := cost(p); ok {
+			seen[key] = true
+			queue = append(queue, p)
+		}
+	}
+	for len(queue) > 0 && !hit {
+		if len(seen) > most {
+			return true
+		}
+		x := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		for _, d := range []int{N, E, S, W} { // пришли в x по d
+			back := (d + 8) % 16
+			outT := Step(x, back)
+			visit(outT) // лента
+			if !ugOK {
+				continue
+			}
+			// подземка: выход outT, вход a = outT − k·d
+			if _, ok := cost(outT); !ok || !l.ugAheadClear(outT, d, maxUG) {
+				continue
+			}
+			m := outT
+			for k := 2; k <= maxUG; k++ {
+				if m = Step(m, back); l.ugAxis(m, d) != nil || l.Solid[m] {
+					break // между концами: тайл outT−(k−1)
+				}
+				if a := Step(m, back); l.ugBehindClear(a, d, maxUG) {
+					visit(a)
+				}
+			}
+		}
+	}
+	return hit
 }
 
 func abs(x int) int {
@@ -249,57 +374,46 @@ func (l *Layout) beltInto(t world.Tile) bool {
 		if l.W == nil {
 			continue
 		}
-		for _, o := range l.W.ObjectsNear(n.Center(), 0.8) {
-			if o.Direction != back {
-				continue
-			}
-			switch o.Type {
-			case "transport-belt", "underground-belt":
-				if world.TileOf(o.Pos) == n {
-					return true
-				}
-			case "splitter": // центр — на границе двух тайлов поперёк хода
-				if math.Abs(o.Pos.X-n.Center().X) <= 0.5 && math.Abs(o.Pos.Y-n.Center().Y) <= 0.5 {
-					return true
-				}
+		// ленты и подземки на n, делители у n (центр — на границе двух тайлов поперёк хода)
+		for _, o := range l.W.BeltsAt(n) {
+			if o.Direction == back {
+				return true
 			}
 		}
 	}
 	return false
 }
 
-// ugAxisClear — подземка ленты (вход a, выход через k тайлов по d) не спарится с чужими:
-// между её концами нет подземок этой оси, вход не внутри чужой пары (позади ближайшая
-// подземка оси — не вход по d), выход тоже (впереди ближайшая — не выход по d).
-func (l *Layout) ugAxisClear(a world.Tile, d, k, maxUG int) bool {
-	const ug = "underground-belt"
-	axis := func(t world.Tile) *Placement {
-		if p := l.At(t); p != nil && p.Name == ug && p.Dir%8 == d%8 {
-			return p
-		}
-		return nil
+// Подземка ленты (вход a, выход через k тайлов по d) не спарится с чужими: между
+// её концами нет подземок этой оси (и Solid), вход не внутри чужой пары (позади ближайшая
+// подземка оси — не вход по d — ugBehindClear), выход тоже (впереди ближайшая — не выход по d —
+// ugAheadClear). Поиск ленты проверяет по частям: позади — одно на все k, между — по тайлу.
+
+// ugAxis — подземка ленты оси d на тайле t (или nil).
+func (l *Layout) ugAxis(t world.Tile, d int) *Placement {
+	if p := l.At(t); p != nil && p.Name == "underground-belt" && p.Dir%8 == d%8 {
+		return p
 	}
-	t := a
-	for i := 1; i < k; i++ {
-		if t = Step(t, d); axis(t) != nil || l.Solid[t] {
-			return false
-		}
-	}
-	out := Step(t, d)
+	return nil
+}
+
+// ugBehindClear — позади входа a ближайшая подземка оси — не вход по d.
+func (l *Layout) ugBehindClear(a world.Tile, d, maxUG int) bool {
 	for i, t := 1, a; i <= maxUG+1; i++ {
-		if t = Step(t, (d+8)%16); axis(t) != nil {
-			if p := axis(t); p.Dir == d && p.Recipe == "input" {
-				return false
-			}
-			break
+		t = Step(t, (d+8)%16)
+		if p := l.ugAxis(t, d); p != nil {
+			return !(p.Dir == d && p.Recipe == "input")
 		}
 	}
+	return true
+}
+
+// ugAheadClear — впереди выхода out ближайшая подземка оси — не выход по d.
+func (l *Layout) ugAheadClear(out world.Tile, d, maxUG int) bool {
 	for i, t := 1, out; i <= maxUG+1; i++ {
-		if t = Step(t, d); axis(t) != nil {
-			if p := axis(t); p.Dir == d && p.Recipe == "output" {
-				return false
-			}
-			break
+		t = Step(t, d)
+		if p := l.ugAxis(t, d); p != nil {
+			return !(p.Dir == d && p.Recipe == "output")
 		}
 	}
 	return true

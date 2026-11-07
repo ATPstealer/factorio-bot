@@ -387,3 +387,72 @@ func TestOutposts(t *testing.T) {
 		}
 	}
 }
+
+// Замена и откат меняют занятость только у своих тайлов (без перекрытий) — так же, как заново по
+// всему списку: делитель вместо ленты, отводы, откат до отметки, лишние размещения мимо Add.
+func TestIncrementalIndex(t *testing.T) {
+	p := pt(t)
+	l := New(p, nil)
+	belt := func(x, y int) Placement {
+		return Placement{Name: "transport-belt", Pos: world.Tile{X: x, Y: y}.Center(), Dir: E}
+	}
+	check := func(what string) {
+		t.Helper()
+		got := l.occ
+		re := New(p, nil)
+		for _, pl := range l.List {
+			re.Add(pl)
+		}
+		if len(got) != len(re.occ) {
+			t.Fatalf("%s: занято %d тайлов, заново — %d", what, len(got), len(re.occ))
+		}
+		for tl, i := range re.occ {
+			if got[tl] != i {
+				t.Fatalf("%s: тайл %v — %d, заново — %d", what, tl, got[tl], i)
+			}
+		}
+	}
+	for x := 0; x < 20; x++ {
+		l.Add(belt(x, 0))
+	}
+	mark := l.Mark()
+	for x := 0; x < 10; x++ {
+		l.Add(belt(x, 2))
+	}
+	i, _ := l.Index(world.Tile{X: 5, Y: 0})
+	l.Replace(i, Placement{Name: "splitter", Pos: bridge.Pos{X: 5.5, Y: 1}, Dir: E}) // ленты 5,0 и 5,1
+	check("делитель вместо ленты")
+	l.Replace(i, belt(5, 0))
+	check("лента назад")
+	l.Rollback(mark)
+	check("откат")
+	l.Add(belt(3, 0)) // перекрытие
+	l.Rollback(mark)
+	check("откат с перекрытием")
+	l.List = l.List[:mark-5] // мимо Add
+	l.Replace(0, belt(0, 5))
+	check("замена после списка мимо Add")
+}
+
+// Цель в кармане, куда и подземкой не попасть: пути нет (быстрый отказ заливкой назад — без
+// перебора до предела); проход в кольце — путь есть.
+func TestRouteEnclosed(t *testing.T) {
+	ring := func(gap bool) *Layout {
+		l := New(pt(t), nil)
+		for y := -12; y <= 12; y++ {
+			for x := -12; x <= 12; x++ {
+				if max(abs(x), abs(y)) >= 4 && (!gap || y != 0 || x < 0) {
+					l.Reserved[world.Tile{X: 100 + x, Y: y}] = true
+				}
+			}
+		}
+		return l
+	}
+	to := world.Tile{X: 100, Y: 0}
+	if _, err := ring(false).RouteBelt(world.Tile{X: 0, Y: 0}, E, to, E, "r"); err == nil {
+		t.Errorf("цель в кармане — путь нашёлся")
+	}
+	if _, err := ring(true).RouteBelt(world.Tile{X: 0, Y: 30}, E, to, W, "r"); err != nil {
+		t.Errorf("проход в кольце — пути нет: %v", err)
+	}
+}

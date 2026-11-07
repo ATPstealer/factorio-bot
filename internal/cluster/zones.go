@@ -6,6 +6,8 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"sync"
+	"weak"
 
 	"factorio-bot/internal/world"
 )
@@ -180,6 +182,46 @@ const landStep = 2
 // обе соседние ячейки (иначе пролив в тайл между отсчётами не виден: заливка «переходила» на
 // остров — 954176679, качалки за проливом).
 func landCells(w *world.World, origin world.Tile, limit int, strict bool) map[cell]float64 {
+	// заливка — та же, пока карта та же (план: каждая попытка — новая база, а заливка от той же
+	// точки — 15 % времени попытки): последние заливки — по карте, точке, пределу и числу чанков
+	key := landKey{weak.Make(w), cell{origin.X / landStep, origin.Y / landStep}, limit, strict, len(w.Chunks)}
+	landMu.Lock()
+	defer landMu.Unlock()
+	for _, m := range landMemo {
+		if m.key == key {
+			return m.d
+		}
+	}
+	d := landFill(w, origin, limit, strict)
+	landMemo = append(landMemo, landEntry{key, d})
+	if len(landMemo) > 4 {
+		landMemo = landMemo[1:]
+	}
+	return d
+}
+
+// landKey — карта слабой ссылкой: память о заливке не держит отброшенные копии карты (прикидки
+// стадии 1).
+type landKey struct {
+	w      weak.Pointer[world.World]
+	o      cell
+	limit  int
+	strict bool
+	chunks int
+}
+
+type landEntry struct {
+	key landKey
+	d   map[cell]float64
+}
+
+var (
+	landMu   sync.Mutex
+	landMemo []landEntry
+)
+
+// landFill — заливка landCells без памяти.
+func landFill(w *world.World, origin world.Tile, limit int, strict bool) map[cell]float64 {
 	const step = landStep
 	dry := func(t world.Tile) bool {
 		switch w.TileAt(t) {

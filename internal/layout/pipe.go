@@ -1,7 +1,6 @@
 package layout
 
 import (
-	"container/heap"
 	"errors"
 	"fmt"
 
@@ -136,26 +135,16 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 	if !pipeOK(start) {
 		return nil, fmt.Errorf("%w: начало (%d, %d) закрыто (занято, Solid или чужая труба рядом)", ErrNoPipe, start.X, start.Y)
 	}
-	// ugClear — между концами подземной пары нет других подземок на этой оси (спарятся не так)
-	ugClear := func(a world.Tile, d, k int) bool {
-		for i := 1; i <= k; i++ {
-			a = Step(a, d)
-			if p := l.At(a); p != nil && p.Name == ptg && (p.Dir == d || p.Dir == (d+8)%16) || l.Solid[a] {
-				return false
-			}
-		}
-		return true
+	// ugBlock — тайл между концами подземной пары (и сам выход), где пары быть не может: другая
+	// подземка этой оси (спарятся не так) или Solid; занят k-й от входа — и все дальше
+	ugBlock := func(a world.Tile, d int) bool {
+		p := l.At(a)
+		return p != nil && p.Name == ptg && (p.Dir == d || p.Dir == (d+8)%16) || l.Solid[a]
 	}
 	// goalOK — подземка, вышедшая на out по d, на цели смотрит туда, куда надо
 	goalOK := func(out world.Tile, d int) bool {
 		gd, ok := goals[out]
 		return !ok || gd == d
-	}
-	// atStart — подземный вход — сам начальный тайл (вокруг начала — ленты: порт под головой
-	// ряда в окружении подводов, 158846952 — смазка электродвигателей)
-	type edge struct {
-		from    rstate
-		atStart bool
 	}
 	h := func(t world.Tile) float64 {
 		m := -1
@@ -166,29 +155,45 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 		}
 		return float64(m)
 	}
+	// состояния поиска — номерами (как у лент: карта структур — больше половины времени
+	// нефтетрассы); atStart — подземный вход — сам начальный тайл (вокруг начала — ленты: порт
+	// под головой ряда в окружении подводов, 158846952 — смазка электродвигателей)
+	type pinfo struct {
+		s       rstate
+		g       float64
+		from    int32
+		atStart bool
+	}
 	s0 := rstate{T: start, D: plain}
-	best := map[rstate]float64{s0: 0}
-	came := map[rstate]edge{}
-	open := &rheap{}
-	heap.Push(open, &rnode{s: s0, f: h(start)})
-	// used — тайл уже занят путём до s (сам путь или вход подземки): A* по состояниям
+	nodes := []pinfo{{s: s0, from: -1}}
+	index := map[uint64]int32{stateKey(s0): 0}
+	open := &rqueue{}
+	open.push(rnode{n: 0, f: h(start)})
+	// used — тайл уже занят путём до n (сам путь или вход подземки): A* по состояниям
 	// «тайл + направление выхода подземки» иначе может пройти тайл дважды
-	used := func(s rstate, t world.Tile) bool {
-		for s != s0 {
-			e := came[s]
-			if s.T == t || s.D != plain && Step(e.from.T, s.D) == t {
+	used := func(n int32, t world.Tile) bool {
+		for ; n != 0; n = nodes[n].from {
+			s := nodes[n].s
+			if s.T == t || s.D != plain && Step(nodes[nodes[n].from].s.T, s.D) == t {
 				return true
 			}
-			s = e.from
 		}
 		return s0.T == t
 	}
-	push := func(s rstate, e edge, g float64) {
-		if old, seen := best[s]; seen && g >= old {
+	push := func(s rstate, from int32, atStart bool, g float64) {
+		key := stateKey(s)
+		j, seen := index[key]
+		switch {
+		case !seen:
+			j = int32(len(nodes))
+			index[key] = j
+			nodes = append(nodes, pinfo{s: s, g: g, from: from, atStart: atStart})
+		case g >= nodes[j].g:
 			return
+		default:
+			nodes[j].g, nodes[j].from, nodes[j].atStart = g, from, atStart
 		}
-		best[s], came[s] = g, e
-		heap.Push(open, &rnode{s: s, g: g, f: g + h(s.T)})
+		open.push(rnode{n: j, g: g, f: g + h(s.T)})
 	}
 	plainCost := 1.0
 	if l.PipeUnder {
@@ -197,23 +202,24 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 	// предел поиска — по расстоянию (дальняя нефтетрасса — до 2M состояний)
 	far := int(h(start)) + 60
 	limit := min(max(16*far*far, 200_000), 2_000_000)
-	var end rstate
-	found := false
-	for open.Len() > 0 && len(best) < limit {
-		cur := heap.Pop(open).(*rnode)
-		if cur.g > best[cur.s] {
+	end := int32(-1)
+	ugOK := l.usable(ptg)
+	for len(*open) > 0 && len(nodes) < limit {
+		cur := open.pop()
+		cs := nodes[cur.n].s
+		if cur.g > nodes[cur.n].g {
 			continue
 		}
-		t := cur.s.T
+		t := cs.T
 		if _, ok := goals[t]; ok {
-			end, found = cur.s, true
+			end = cur.n
 			break
 		}
 		dirs := []int{N, E, S, W}
-		if cur.s.D != plain {
-			dirs = []int{cur.s.D} // выход подземки соединён только вперёд
+		if cs.D != plain {
+			dirs = []int{cs.D} // выход подземки соединён только вперёд
 		}
-		if cur.s == s0 && l.usable(ptg) {
+		if cur.n == 0 && ugOK {
 			// подземный вход на самом начале: ход — от from.At через начало, наземное соединение
 			// входа — назад, к from.At
 			d := -1
@@ -225,43 +231,48 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 			if d >= 0 {
 				out := start
 				for k := 1; k <= maxUG; k++ {
-					out = Step(out, d)
-					if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || !ugClear(start, d, k) {
+					if out = Step(out, d); ugBlock(out, d) {
+						break
+					}
+					if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) {
 						continue
 					}
-					push(rstate{T: out, D: d}, edge{from: cur.s, atStart: true}, cur.g+7+0.1*float64(k))
+					push(rstate{T: out, D: d}, cur.n, true, cur.g+7+0.1*float64(k))
 				}
 			}
 		}
 		for _, d := range dirs {
 			n := Step(t, d)
-			if pipeOK(n) && !used(cur.s, n) {
-				push(rstate{T: n, D: plain}, edge{from: cur.s}, cur.g+plainCost)
+			if pipeOK(n) && !used(cur.n, n) {
+				push(rstate{T: n, D: plain}, cur.n, false, cur.g+plainCost)
 			}
-			if !l.usable(ptg) || !l.Free(n, AnyLand) || used(cur.s, n) {
+			if !ugOK || !l.Free(n, AnyLand) || used(cur.n, n) {
 				continue
 			}
 			out := n
 			for k := 1; k <= maxUG; k++ {
-				out = Step(out, d)
-				if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || !ugClear(n, d, k) || used(cur.s, out) {
+				if out = Step(out, d); ugBlock(out, d) {
+					break
+				}
+				if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || used(cur.n, out) {
 					continue
 				}
-				push(rstate{T: out, D: d}, edge{from: cur.s}, cur.g+7+0.1*float64(k))
+				push(rstate{T: out, D: d}, cur.n, false, cur.g+7+0.1*float64(k))
 			}
 		}
 	}
-	if !found {
-		return nil, fmt.Errorf("%w: пути нет (состояний %d из %d)", ErrNoPipe, len(best), limit)
+	if end < 0 {
+		return nil, fmt.Errorf("%w: пути нет (состояний %d из %d)", ErrNoPipe, len(nodes), limit)
 	}
 	var res []Placement
 	startUG := false // начало — подземный вход (не обычная труба)
-	for s := end; s != s0; {
-		e := came[s]
+	for n := end; n != 0; n = nodes[n].from {
+		e := nodes[n]
+		s := e.s
 		if s.D != plain {
-			// вход — сосед e.from по ходу (или само начало); наземное соединение входа смотрит
+			// вход — сосед прошлого по ходу (или само начало); наземное соединение входа смотрит
 			// назад, выхода — вперёд
-			in := Step(e.from.T, s.D)
+			in := Step(nodes[e.from].s.T, s.D)
 			if e.atStart {
 				in, startUG = start, true
 			}
@@ -271,7 +282,6 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 		} else {
 			res = append(res, Placement{Name: pipe, Pos: s.T.Center(), Tag: tag})
 		}
-		s = e.from
 	}
 	if !startUG {
 		res = append(res, Placement{Name: pipe, Pos: start.Center(), Tag: tag})

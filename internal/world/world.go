@@ -84,6 +84,9 @@ type World struct {
 	// build — Buildable по тайлам (buildOK, buildClear, buildNo): поиск пути ленты спрашивает
 	// каждый тайл по многу раз (план всей базы — 40 % времени); сброс — changed
 	build map[Tile]uint8
+	// belts — ленты, подземки и делители по тайлам (BeltsAt): поиск ленты спрашивает соседей
+	// каждого тайла, а ObjectsNear перебирает все объекты 9 чанков с деревьями; сброс — changed
+	belts map[Tile][]Object
 }
 
 // Значения кэша Buildable.
@@ -100,6 +103,34 @@ func (w *World) changed(c *Chunk) {
 		c.blocked, c.hard, c.solid, c.cells = nil, nil, nil, nil
 	}
 	w.build = nil
+	w.belts = nil
+}
+
+// BeltsAt — ленты и подземки на тайле t и делители, чей центр — не дальше 0.5 от центра t по
+// каждой оси (делитель — на границе двух тайлов поперёк хода: у обоих).
+func (w *World) BeltsAt(t Tile) []Object {
+	if w.belts == nil {
+		w.belts = map[Tile][]Object{}
+		for _, c := range w.Chunks {
+			for _, o := range c.Objects {
+				switch o.Type {
+				case "transport-belt", "underground-belt":
+					at := TileOf(o.Pos)
+					w.belts[at] = append(w.belts[at], o)
+				case "splitter":
+					for _, x := range []float64{o.Pos.X - 0.5, o.Pos.X + 0.5} {
+						for _, y := range []float64{o.Pos.Y - 0.5, o.Pos.Y + 0.5} {
+							at := TileOf(bridge.Pos{X: x, Y: y})
+							if c := at.Center(); math.Abs(o.Pos.X-c.X) <= 0.5 && math.Abs(o.Pos.Y-c.Y) <= 0.5 {
+								w.belts[at] = append(w.belts[at], o)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return w.belts[t]
 }
 
 func New(protos *knowledge.Prototypes) *World {

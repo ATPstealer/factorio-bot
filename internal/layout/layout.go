@@ -10,11 +10,17 @@ import (
 
 // Layout — раскладка на карте: размещения, занятые тайлы, что убрать перед стройкой.
 type Layout struct {
-	P     *knowledge.Prototypes
-	W     *world.World // nil — пустая суша (для тестов модулей)
-	List  []Placement
-	occ   map[world.Tile]int // тайл → индекс в List
-	Clear map[world.Tile]bool
+	P    *knowledge.Prototypes
+	W    *world.World // nil — пустая суша (для тестов модулей)
+	List []Placement
+	occ  map[world.Tile]int // тайл → индекс в List
+	// indexed — сколько размещений List в occ; overlap — тайл под двумя размещениями; stale —
+	// List меняли мимо Add (occ может не совпадать). Без overlap и stale Replace и Rollback меняют
+	// occ только у своих тайлов, иначе — заново по всему List (отводы с шины: замена ленты
+	// делителем и откат — заново по десяткам тысяч размещений на каждое место делителя)
+	indexed        int
+	overlap, stale bool
+	Clear          map[world.Tile]bool
 	// Reserved — тайлы, где строить нельзя (запас под будущее, проходы)
 	Reserved map[world.Tile]bool
 	// Costly — штраф за тайл в маршруте ленты (RouteBelt): боковые ряды лент шин — пройти
@@ -123,8 +129,24 @@ func (l *Layout) CanPlace(pl Placement, r Rule) bool {
 // Add — добавить (без проверки; Validate проверит всё разом). Тайлы с деревьями — в расчистку.
 func (l *Layout) Add(pl Placement) {
 	i := len(l.List)
+	if l.indexed != i {
+		l.stale = true
+	}
 	l.List = append(l.List, pl)
-	for _, t := range Tiles(l.P, pl) {
+	l.index(i)
+	l.indexed = len(l.List)
+}
+
+// index — тайлы i-го размещения в occ (на тайле — размещение с большим номером, как при Add
+// подряд; stale — номера в occ бывают за концом List: поверх) и в расчистку.
+func (l *Layout) index(i int) {
+	for _, t := range Tiles(l.P, l.List[i]) {
+		if j, ok := l.occ[t]; ok {
+			l.overlap = true
+			if j > i && !l.stale {
+				continue
+			}
+		}
 		l.occ[t] = i
 		if l.W != nil {
 			if _, clear := l.W.Buildable(t); clear {
@@ -133,6 +155,17 @@ func (l *Layout) Add(pl Placement) {
 		}
 	}
 }
+
+// unindex — тайлы i-го размещения из occ и расчистки (только без overlap: тайл — только его).
+func (l *Layout) unindex(i int) {
+	for _, t := range Tiles(l.P, l.List[i]) {
+		delete(l.occ, t)
+		delete(l.Clear, t)
+	}
+}
+
+// exact — occ по List без перекрытий: Replace и Rollback могут менять только свои тайлы.
+func (l *Layout) exact() bool { return !l.overlap && !l.stale && l.indexed == len(l.List) }
 
 // Count — сколько каких построек.
 func (l *Layout) Count() map[string]int {
@@ -165,8 +198,14 @@ func (l *Layout) Index(t world.Tile) (int, bool) {
 
 // Replace — заменить i-е размещение (номера ролей остаются).
 func (l *Layout) Replace(i int, pl Placement) {
+	if !l.exact() {
+		l.List[i] = pl
+		l.Rollback(-1)
+		return
+	}
+	l.unindex(i)
 	l.List[i] = pl
-	l.Rollback(-1)
+	l.index(i)
 }
 
 // Remove — убрать i-е размещение (номера после него сдвигаются).
@@ -182,11 +221,20 @@ func (l *Layout) Rollback(mark int) {
 	if mark >= len(l.List) {
 		return
 	}
+	if mark >= 0 && l.exact() {
+		for i := len(l.List) - 1; i >= mark; i-- {
+			l.unindex(i)
+		}
+		l.List = l.List[:mark]
+		l.indexed = mark
+		return
+	}
 	if mark >= 0 {
 		l.List = l.List[:mark]
 	}
 	l.occ = map[world.Tile]int{}
 	l.Clear = map[world.Tile]bool{}
+	l.overlap, l.stale, l.indexed = false, false, 0
 	list := l.List
 	l.List = nil
 	for _, p := range list {
