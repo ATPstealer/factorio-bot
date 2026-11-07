@@ -353,6 +353,10 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 		rows = append(rows, laneV(j)+3)
 	}
 	var why []string // разбор: почему не встал каждый ряд
+	// ни один ряд не прошёл до конца — труба до препятствия в ряду, где легла дальше всех
+	// (cluster.md §5): потребители за ним подключаются в обход (635406131 — поперёк bus-2 полоса
+	// отводов шире подземной трубы во всех рядах)
+	bestV, bestDX, bestX := 0, 0, bus.Rect.Min.X
 	for _, v := range rows {
 		switch {
 		case used[v]:
@@ -370,12 +374,27 @@ func (b *Base) PipeLane(l *layout.Layout, buses []*ZBus, k int, fluid string, en
 			if last = pipeAlong(l, bus.Rect.Min.X+dx, end, bus.Rect.Min.Y+v, tag); last == nil {
 				return tag, nil
 			}
+			for _, p := range l.List[mark:] {
+				if x := world.TileOf(p.Pos).X; p.Tag == tag && x > bestX {
+					bestV, bestDX, bestX = v, dx, x
+				}
+			}
 			l.Rollback(mark)
 		}
 		why = append(why, fmt.Sprintf("v%d %v", v, last))
 	}
+	if bestX-(bus.Rect.Min.X+bestDX) >= pipeLaneMin {
+		_ = pipeAlong(l, bus.Rect.Min.X+bestDX, end, bus.Rect.Min.Y+bestV, tag)
+		if b.Log != nil {
+			b.Log("%s: труба %s до конца не прошла ни в одном ряду — до x %d в ряду v%d, дальше подключаются в обход (%s)", bus.Name, fluid, bestX, bestV, strings.Join(why, "; "))
+		}
+		return tag, nil
+	}
 	return "", fmt.Errorf("cluster: %s: нет ряда под трубу %s (до x %d; %s)", bus.Name, fluid, end, strings.Join(why, "; "))
 }
+
+// pipeLaneMin — труба шины до препятствия — не короче стольких тайлов (короче — ряда нет).
+const pipeLaneMin = 10
 
 // pipeAlong — труба по ряду y от x0 до x1: обычная, где тайл свободен и рядом нет чужих
 // жидкостных соединений; иначе — подземная пара через занятое (до дальности прототипа).
