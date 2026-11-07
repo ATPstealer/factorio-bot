@@ -532,3 +532,44 @@ func TestFlushPipeline(t *testing.T) {
 	_ = pe
 	clean(t, h)
 }
+
+// Открытая строка чата глотает клавиши (стадия 10 на 635406131: E ушла в чат — «инвентарь не
+// открылся»; строку открыл пользователь): открыть строку (`) — бот видит её, ждёт 10 с (решение
+// пользователя: он смотрит, что было) и закрывает Esc; окно инвентаря открывается.
+func TestChatGuard(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, time.Minute)
+	if err := h.Clean(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if open, err := h.ChatOpen(); err != nil || open {
+		t.Fatalf("строка чата открыта до теста (%v)", err)
+	}
+	if err := h.Focus(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.In.Tap("`"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if open, err := h.ChatOpen(); err != nil || !open {
+		t.Fatalf("строка чата не распознана после ` (%v)", err)
+	}
+	t0 := time.Now()
+	if err := h.OpenInventory(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(t0); d < 10*time.Second {
+		t.Errorf("строка закрыта через %v — ждали не раньше 10 с", d.Round(100*time.Millisecond))
+	}
+	if p, _ := h.B.Player(); p.OpenedGUI != "controller" {
+		t.Fatalf("открыто %q, ждали инвентарь", p.OpenedGUI)
+	}
+	if open, _ := h.ChatOpen(); open {
+		t.Errorf("строка чата открыта")
+	}
+	if err := h.CloseGUI(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clean(t, h)
+}

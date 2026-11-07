@@ -36,6 +36,12 @@ type Layout struct {
 	// (два оттенка: обычный и под курсором).
 	MenuProbe  []point
 	MenuColors []color.RGBA
+	// Строка чата (консоль, открыта — глотает клавиши) мод не видит — по пикселям: верхняя
+	// граница поля ввода — почти чёрная линия (ChatTop, от ChatX0 до ChatX1) и белый значок у
+	// правого края поля (ChatIcon, цвет ChatIconColor — интерфейс, ночью тот же)
+	ChatTop, ChatX0, ChatX1 int
+	ChatIcon                []point
+	ChatIconColor           color.RGBA
 	// Focus — куда ставить курсор перед клавишами: в окне, но не над меню/окнами
 	// (центр окна — кнопка «Save game» меню игры).
 	Focus point
@@ -107,6 +113,11 @@ var Layout1856 = Layout{
 		{950, 946}, {990, 946}, {1030, 946}, {1070, 946}, {1110, 946}},
 	MenuProbe:         []point{{880, 413}, {927, 400}},
 	MenuColors:        []color.RGBA{{94, 182, 99, 255}, {146, 232, 151, 255}},
+	ChatTop:           884, // снято на 859088572-0 (строка открыта клавишей `)
+	ChatX0:            20,
+	ChatX1:            1100,
+	ChatIcon:          []point{{1123, 892}, {1123, 902}},
+	ChatIconColor:     color.RGBA{226, 226, 226, 255},
 	Focus:             point{60, 300},
 	TechProbe:         []point{{1831, 20}, {270, 22}},
 	TechColors:        []color.RGBA{{226, 226, 226, 255}, {49, 48, 49, 255}},
@@ -265,6 +276,74 @@ func (h *Hands) MenuOpen() (bool, error) {
 	return true, nil
 }
 
+// chatWait — сколько ждать, прежде чем закрыть открытую строку чата (решение пользователя: её
+// открывает и он сам — посмотреть, что было).
+const chatWait = 10 * time.Second
+
+// ChatOpen — открыта ли строка чата (консоль): по пикселям поля ввода (Layout.ChatTop, ChatIcon).
+func (h *Hands) ChatOpen() (bool, error) {
+	L := h.Layout
+	y0 := L.ChatTop - 8
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X, Y: h.Win.Y + y0, W: L.ChatX1 + 40, H: 30})
+	if err != nil {
+		return false, err
+	}
+	dark := func(y int) float64 {
+		n, k := 0, 0
+		for x := L.ChatX0; x <= L.ChatX1; x += 20 {
+			c := img.RGBAAt(x, y-y0)
+			if max(c.R, c.G, c.B) < 25 {
+				k++
+			}
+			n++
+		}
+		return float64(k) / float64(n)
+	}
+	// линия — тёмная почти вся; что над ней — не смотреть: ночью темно и там (1098794301-0 —
+	// строка не распознана), а от тёмного экрана спасает белый значок интерфейса
+	if dark(L.ChatTop) < 0.9 {
+		return false, nil
+	}
+	for _, p := range L.ChatIcon {
+		if !near(img.RGBAAt(p.X, p.Y-y0), L.ChatIconColor) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// closeChat — открыта строка чата — подождать chatWait и закрыть Esc (стадия 10 на 635406131: E
+// ушла в чат — «инвентарь не открылся»; строку открыл пользователь).
+func (h *Hands) closeChat(ctx context.Context) error {
+	open, err := h.ChatOpen()
+	if err != nil || !open {
+		return err
+	}
+	h.Say("открыта строка чата — через %v закрою (она глотает клавиши)", chatWait)
+	if err := sleep(ctx, chatWait); err != nil {
+		return err
+	}
+	for i := 0; i < 3; i++ {
+		if open, err := h.ChatOpen(); err != nil || !open {
+			return err
+		}
+		if err := h.Focus(); err != nil {
+			return err
+		}
+		if err := h.In.Tap("escape"); err != nil {
+			return err
+		}
+		if err := sleep(ctx, 300*time.Millisecond); err != nil {
+			return err
+		}
+	}
+	if open, _ := h.ChatOpen(); open {
+		h.debugShot("chat")
+		return errors.New("act: строка чата не закрывается")
+	}
+	return nil
+}
+
 // guard возвращает обычный вид: закрывает карту (удалённый вид) и меню игры — под ними
 // ввод не доходит до мира (WASD двигает карту, буквы уходят в поиск). Esc жмём по одному,
 // с проверкой после каждого: лишний Esc в обычном виде откроет меню.
@@ -290,6 +369,10 @@ func (h *Hands) guard(ctx context.Context) error {
 		if err := sleep(ctx, time.Second); err != nil {
 			return err
 		}
+	}
+	// строка чата — первой: под ней клавиши (Esc карты, Alt) уходят в чат
+	if err := h.closeChat(ctx); err != nil {
+		return err
 	}
 	for i := 0; i < 4; i++ {
 		p, err := h.B.Player()
@@ -400,6 +483,10 @@ func (h *Hands) OpenInventory(ctx context.Context) error {
 		return nil
 	}
 	if err := h.CloseGUI(ctx); err != nil {
+		return err
+	}
+	// строка чата открыта — E уйдёт в неё (стадия 10 на 635406131)
+	if err := h.closeChat(ctx); err != nil {
 		return err
 	}
 	// одно нажатие E (повтор опасен: если окно откроется с опозданием, второй E его закроет)
