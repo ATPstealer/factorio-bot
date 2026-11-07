@@ -16,7 +16,7 @@ var sciencePacks = []string{"automation-science-pack", "logistic-science-pack", 
 	"production-science-pack", "utility-science-pack"}
 
 // buildRate — на стройку стадий до 61, шт/с: прикидка по планам до рефакторинга (постройки и всё,
-// из чего они крафтятся, за 10 ч игры; refactor.md «Что ставит каждая стадия»).
+// из чего они крафтятся, за 10 ч игры; стадии — строки «Ставит» stages.md).
 var buildRate = map[string]float64{
 	"iron-plate": 16518.0 / 3600, "copper-plate": 889.0 / 3600, "electronic-circuit": 457.0 / 3600,
 	"inserter": 113.0 / 3600, "transport-belt": 1864.0 / 3600, "steel-plate": 178.0 / 3600,
