@@ -358,6 +358,11 @@ func have(t *testing.T, h *act.Hands, item string, n int) {
 		t.Fatalf("нет рецепта %s", item)
 	}
 	rec := recipes[0]
+	// рецепт не изучен на карте — пропуск, как без пластин: это карта, а не бот (46082668-0 —
+	// steel-chest, 927139741-0 — medium-electric-pole: тесты падали в подготовке)
+	if !slices.Contains(f.Recipes, rec) {
+		t.Skipf("рецепт %s не изучен на карте", rec)
+	}
 	per := 1.0
 	for _, pr := range h.Protos.Recipes[rec].Products {
 		if pr.Name == item && pr.Amount > 0 {
