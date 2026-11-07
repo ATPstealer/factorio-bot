@@ -15,6 +15,8 @@
 #   CONT=1                     — первая стадия — продолжение на текущем сохранении экземпляра (не
 #                                со снимка): стадия, упавшая по лимиту, достраивает недостающее,
 #                                а не начинает заново; журнал дописывается
+#   RETRIES=2                  — стройка (с 10) упала — сама повторяется на сохранении экземпляра
+#                                (как CONT=1) до стольких раз, потом стоп (без помощи: plan.md)
 #   PLAN=1 scripts/stage.sh N-M СИД… — только стадии планирования N…M подряд (bin/bot plans), со
 #                                снимка <сид>-(N-1), без стройки между ними: план прошлых
 #                                считается построенным; снимки не сохраняются (новые картинки —
@@ -162,8 +164,23 @@ for seed in "$@"; do
   start=$(date +%s)
   [[ ${CONT:-0} == 1 ]] && echo "== продолжение $(date +%T)" >> "$log" || : > "$log"
   # лимит стадии — у бота (жирной стадии он сам даёт полторы оценки); timeout — страховка от
-  # зависания: сутки, но не меньше лимита
-  if timeout $(( (limit > 1440 ? limit : 1440) * 60 + 300 )) bin/bot -t "${limit}m" stage "$n" >> "$log" 2>&1; then
+  # зависания: сутки, но не меньше лимита. Стройка (с 10) упала — повтор на сохранении экземпляра
+  # (как CONT=1: игра сохраняется и поднимается заново), до retries раз; разведка и план — нет
+  done_ok=0
+  for ((try = 0; try <= ${RETRIES:-2}; try++)); do
+    if ((try > 0)); then
+      ((n >= 10)) || break
+      echo "   повтор $try на сохранении (причина — в журнале)" | tee -a run/stages/summary.txt
+      scripts/stop.sh > /dev/null 2>&1
+      NEW_MAP=0 timeout 600 scripts/newmap.sh > /dev/null 2>> "run/stages/load-$seed.log" || break
+      echo "== повтор $try $(date +%T)" >> "$log"
+    fi
+    if timeout $(((limit > 1440 ? limit : 1440) * 60 + 300)) bin/bot -t "${limit}m" stage "$n" >> "$log" 2>&1; then
+      done_ok=1
+      break
+    fi
+  done
+  if ((done_ok)); then
     if snap_after "$seed" > /dev/null 2>> "$log"; then
       touch "run/stages/ok-$n-$seed"
       echo "   выполнена за $(( ($(date +%s) - start) / 60 )) мин, снимок $seed-$n" | tee -a run/stages/summary.txt
