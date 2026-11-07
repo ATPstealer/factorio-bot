@@ -455,4 +455,35 @@ func TestRouteEnclosed(t *testing.T) {
 	if _, err := ring(true).RouteBelt(world.Tile{X: 0, Y: 30}, E, to, W, "r"); err != nil {
 		t.Errorf("проход в кольце — пути нет: %v", err)
 	}
+	starts := []world.Tile{{X: 0, Y: 0}, {X: 0, Y: 30}}
+	if ring(false).BeltReachable(starts, to, 100_000) {
+		t.Errorf("цель в кармане — заливка дошла")
+	}
+	if !ring(true).BeltReachable(starts, to, 100_000) {
+		t.Errorf("проход в кольце — заливка не дошла")
+	}
+}
+
+// Труба к цели в кармане, куда и подземной парой не попасть: пути нет (быстрый отказ заливкой
+// назад); проход в кольце — путь есть.
+func TestRoutePipeEnclosed(t *testing.T) {
+	ring := func(gap bool) *Layout {
+		l := New(pt(t), nil)
+		for y := -16; y <= 16; y++ {
+			for x := -16; x <= 16; x++ {
+				if max(abs(x), abs(y)) >= 3 && (!gap || y != 0 || x < 0) {
+					l.Reserved[world.Tile{X: 100 + x, Y: y}] = true
+				}
+			}
+		}
+		return l
+	}
+	from := Conn{At: world.Tile{X: -1, Y: 0}, To: world.Tile{X: 0, Y: 0}, Dir: E}
+	to := Conn{At: world.Tile{X: 100, Y: 0}, To: world.Tile{X: 101, Y: 0}, Dir: W}
+	if _, err := ring(false).RoutePipe(from, to, "p"); err == nil {
+		t.Errorf("цель в кармане — путь нашёлся")
+	}
+	if _, err := ring(true).RoutePipe(from, to, "p"); err != nil {
+		t.Errorf("проход в кольце — пути нет: %v", err)
+	}
 }

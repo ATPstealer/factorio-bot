@@ -108,6 +108,17 @@ func SplitTap(l *layout.Layout, line []layout.Placement, p Port, tag string, tri
 		}
 	}
 	sort.Slice(cs, func(i, j int) bool { return cs[i].at < cs[j].at })
+	// к p не дойти ни с одного места делителя (без делителей — свободнее, чем с любым из них) —
+	// без поисков: порт заперт (сквозная на 1873819092 — 31 порт по 40 мест)
+	var starts []world.Tile
+	for i, c := range cs {
+		if i < tries {
+			starts = append(starts, layout.Step(c.s, c.d))
+		}
+	}
+	if len(starts) > 1 && !l.BeltReachable(starts, p.T, 200_000) {
+		return layout.ErrNoRoute
+	}
 	var err error = layout.ErrNoRoute
 	for i, c := range cs {
 		if i >= tries {

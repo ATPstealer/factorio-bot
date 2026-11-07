@@ -204,7 +204,16 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 	limit := min(max(16*far*far, 200_000), 2_000_000)
 	end := int32(-1)
 	ugOK := l.usable(ptg)
+	probed := false
 	for len(*open) > 0 && len(nodes) < limit {
+		// долго не находится — может, к целям не подойти вовсе (как у лент: routeProbe; 1098794301 —
+		// нефтетрасса 1.7M состояний, 3.5 мин, пути нет)
+		if !probed && len(nodes) >= routeProbe {
+			probed = true
+			if !l.pipeReach(start, goals, maxUG, ugOK, limit/8, pipeOK, ugBlock) {
+				return nil, fmt.Errorf("%w: пути нет (состояний %d из %d, заливка от цели)", ErrNoPipe, len(nodes), limit)
+			}
+		}
 		cur := open.pop()
 		cs := nodes[cur.n].s
 		if cur.g > nodes[cur.n].g {
@@ -287,4 +296,70 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 		res = append(res, Placement{Name: pipe, Pos: start.Center(), Tag: tag})
 	}
 	return res, nil
+}
+
+// pipeReach — от start до какой-нибудь цели труба может дойти по правилам ходов поиска, кроме
+// направлений и повторов тайла (заливка назад от целей по тайлам): обычная труба — в тайл, где
+// ей можно (pipeOK), с соседнего свободного; подземная пара — выход x (свободен, не ugBlock, на
+// цели — смотрит куда надо), вход через k = 2…maxUG тайлов (свободен, между — не ugBlock), с
+// соседнего перед входом (или вход — само начало). Заливка кончилась, start не встретился — пути
+// нет; больше most тайлов — не знаем (true). Ответ поиска не меняется.
+func (l *Layout) pipeReach(start world.Tile, goals map[world.Tile]int, maxUG int, ugOK bool, most int,
+	pipeOK func(world.Tile) bool, ugBlock func(world.Tile, int) bool) bool {
+	seen := map[uint64]bool{}
+	var queue []world.Tile
+	for g := range goals {
+		if g == start {
+			return true
+		}
+		seen[tileKey(g)] = true
+		queue = append(queue, g)
+	}
+	hit := false
+	visit := func(p world.Tile) {
+		if p == start {
+			hit = true
+			return
+		}
+		key := tileKey(p)
+		if seen[key] || !l.Free(p, AnyLand) {
+			return
+		}
+		seen[key] = true
+		queue = append(queue, p)
+	}
+	for len(queue) > 0 && !hit {
+		if len(seen) > most {
+			return true
+		}
+		x := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		for _, d := range []int{N, E, S, W} { // пришли в x по d
+			back := (d + 8) % 16
+			if pipeOK(x) {
+				visit(Step(x, back)) // обычная труба
+			}
+			if !ugOK || !l.Free(x, AnyLand) || ugBlock(x, d) {
+				continue
+			}
+			if gd, goal := goals[x]; goal && gd != d {
+				continue
+			}
+			q := x
+			for k := 1; k <= maxUG; k++ {
+				q = Step(q, back) // вход при длине k
+				if k >= 2 && l.Free(q, AnyLand) {
+					if q == start {
+						hit = true
+						break
+					}
+					visit(Step(q, back))
+				}
+				if ugBlock(q, d) {
+					break // q — между концами дальних пар
+				}
+			}
+		}
+	}
+	return hit
 }

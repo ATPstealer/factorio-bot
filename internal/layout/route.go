@@ -305,12 +305,40 @@ const routeProbe = 30_000
 // to кончилась, а from не встретился — пути нет; больше most тайлов — не знаем (true). Всё, куда
 // доходит поиск, заливка тоже покрывает: ответ поиска не меняется.
 func (l *Layout) reachBack(from, to world.Tile, maxUG int, ugOK bool, most int, cost func(world.Tile) (float64, bool)) bool {
+	return l.flood(map[world.Tile]bool{from: true}, to, maxUG, ugOK, most, func(t world.Tile) bool {
+		_, ok := cost(t)
+		return ok
+	})
+}
+
+// BeltReachable — до тайла to лента может дойти хотя бы с одного из starts (заливка reachBack:
+// по правилам ходов поиска, кроме направлений; лента — по свободной суше, куда не смотрят чужие
+// концы лент): нет — ни один поиск ленты с этих начал до to не найдёт пути. Больше most тайлов —
+// не знаем (true). Отводы делителем (SplitTap): цель заперта — без поиска от каждого из 40 мест
+// делителя (сквозная на 1873819092 — час на 31 порт).
+func (l *Layout) BeltReachable(starts []world.Tile, to world.Tile, most int) bool {
+	set := map[world.Tile]bool{}
+	for _, s := range starts {
+		set[s] = true
+	}
+	ug := "underground-belt"
+	return l.flood(set, to, l.P.Entities[ug].MaxUndergroundDistance, l.usable(ug), most, func(t world.Tile) bool {
+		return l.Free(t, AnyLand) && !l.beltInto(t)
+	})
+}
+
+// flood — заливка назад от to (reachBack) до любого из starts; ok — где ленте можно.
+func (l *Layout) flood(starts map[world.Tile]bool, to world.Tile, maxUG int, ugOK bool, most int, ok func(world.Tile) bool) bool {
+	if starts[to] {
+		return true
+	}
 	seen := map[uint64]bool{tileKey(to): true}
 	queue := []world.Tile{to}
 	hit := false
+	cost := func(t world.Tile) (float64, bool) { return 0, ok(t) }
 	// visit — с тайла p можно прийти: в заливку
 	visit := func(p world.Tile) {
-		if p == from {
+		if starts[p] {
 			hit = true
 			return
 		}
@@ -318,7 +346,7 @@ func (l *Layout) reachBack(from, to world.Tile, maxUG int, ugOK bool, most int, 
 		if seen[key] {
 			return
 		}
-		if _, ok := cost(p); ok {
+		if ok(p) {
 			seen[key] = true
 			queue = append(queue, p)
 		}
