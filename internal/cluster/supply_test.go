@@ -45,9 +45,13 @@ func TestLaneCover(t *testing.T) {
 		need float64
 		want int
 	}{{0.2, 140}, {0.75, 184}, {2.25, 184}} {
-		if x := ln.cover(c.need); x != c.want {
+		if x := ln.cover(c.need, 1000); x != c.want {
 			t.Errorf("вход %.2f: отвод ниже %d, ждали %d", c.need, x, c.want)
 		}
+	}
+	// потребитель левее подвода 184 (правый край 170) — 184 не в счёт: ниже того, что левее
+	if x := ln.cover(0.75, 170); x != 140 {
+		t.Errorf("подвод правее потребителя: отвод ниже %d, ждали 140", x)
 	}
 	if ln.From != 140 {
 		t.Errorf("самый ранний подвод %d, ждали 140", ln.From)
@@ -55,10 +59,10 @@ func TestLaneCover(t *testing.T) {
 	head := &ZoneLane{Item: "iron-ore"}
 	head.feed(10, true, feedAny)
 	head.feed(90, true, 3)
-	if x := head.cover(20); x != 10 {
+	if x := head.cover(20, 1000); x != 10 {
 		t.Errorf("подвод в голову без меры: отвод ниже %d, ждали 10", x)
 	}
-	if x := (&ZoneLane{From: 55}).cover(1); x != 55 {
+	if x := (&ZoneLane{From: 55}).cover(1, 1000); x != 55 {
 		t.Errorf("подводов не знаем: %d, ждали самый ранний 55", x)
 	}
 }

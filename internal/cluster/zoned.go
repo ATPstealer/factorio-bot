@@ -62,15 +62,17 @@ func (ln *ZoneLane) feed(x int, now bool, rate float64) {
 	ln.Feeds = append(ln.Feeds, LaneFeed{x, rate})
 }
 
-// cover — X подвода, ниже по течению которого на ленте не меньше need или всё, что на неё входит:
-// подводы слева направо нарастающим итогом (zones.md, поставщики по выпуску; 366255770 —
-// электропечам с малого куска красных схем доставалось 0.25 из 1.5). Подводов не знаем — самый
-// ранний.
-func (ln *ZoneLane) cover(need float64) int {
-	if len(ln.Feeds) == 0 {
+// cover — X подвода, ниже по течению которого на ленте не меньше need или всё, что на неё входит
+// до upTo (потребитель — правый край: подводы правее ему не в счёт): подводы слева направо
+// нарастающим итогом (zones.md, поставщики по выпуску; 366255770 — электропечам с малого куска
+// красных схем доставалось 0.25 из 1.5). Подводов до upTo не знаем — самый ранний. Подводы правее
+// потребителя уводили окно отвода за него — лента к порту шла задом, поиск пути на час
+// (1873819092, battery-1).
+func (ln *ZoneLane) cover(need float64, upTo int) int {
+	fs := slices.DeleteFunc(slices.Clone(ln.Feeds), func(f LaneFeed) bool { return f.X > upTo })
+	if len(fs) == 0 {
 		return ln.From
 	}
-	fs := slices.Clone(ln.Feeds)
 	slices.SortStableFunc(fs, func(a, b LaneFeed) int { return a.X - b.X })
 	total := 0.0
 	for _, f := range fs {
@@ -930,7 +932,7 @@ func (b *Base) feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *po
 		for _, ln := range lns {
 			// только ниже подвода: выше по течению предмета на ленте нет; подводов несколько —
 			// ниже стольких, сколько покрывают вход (zones.md, поставщики по выпуску)
-			x0 := max(c.Area.Min.X-40, ln.cover(need)+1)
+			x0 := max(c.Area.Min.X-40, ln.cover(need, c.Area.Max.X)+1)
 			if line := zLaneBelts(l, buses[k], ln, x0, max(c.Area.Max.X+40, x0+60)); len(line) > 0 {
 				lines, used = append(lines, line), append(used, ln)
 			}
