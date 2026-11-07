@@ -1970,9 +1970,11 @@ func siloT(t *testing.T, h *act.Hands) bridge.Entity {
 	return es[0]
 }
 
-// Предмет в груз ракетной шахты (стадия 67: спутник — Ctrl+кликом по шахте; прошло на
-// 1098794301): груз шахты пуст — после — в нём предмет (мод: rocket_silo_rocket). Предмет —
-// железная пластина: груз ракеты в 2.x берёт любой, а спутника на карте нет.
+// Спутник в груз ракетной шахты (стадия 67: Ctrl+кликом по шахте; прошло на 1098794301): груз
+// шахты пуст — после — в нём спутник (мод: rocket_silo_rocket). Груз ракеты в 2.x берёт только
+// спутник и рыбу (send_to_orbit_mode; железо не легло — тест поменян с разрешения пользователя).
+// Спутник — при себе (карта 3462254828-0: бот скрафтил его на стадии 67); нет — пропуск: крафт
+// руками — 100 солнечных панелей, долго для теста.
 func TestSiloCargo(t *testing.T) {
 	h := handsT(t)
 	silo := siloT(t, h)
@@ -1985,8 +1987,10 @@ func TestSiloCargo(t *testing.T) {
 			t.Skipf("груз шахты не пуст: %s ×%d", it, n)
 		}
 	}
-	const item = "iron-plate"
-	have(t, h, item, 10)
+	const item = "satellite"
+	if p, _ := h.B.Player(); p.Inventory[item] == 0 {
+		t.Skip("спутника при себе нет")
+	}
 	ctx := ctxT(t, 3*time.Minute)
 	if err := h.SiloCargo(ctx, silo, item); err != nil {
 		t.Fatal(err)
