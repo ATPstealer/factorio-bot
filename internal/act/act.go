@@ -1660,11 +1660,26 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		if near {
 			continue
 		}
-		tried = append(tried, c.q)
 		spot := c.q
-		h.Log("на ленте — схожу в (%.1f, %.1f)", spot.X, spot.Y)
+		// прямую закрывает постройка (подземки, делители, трубы у шины) — маршрутом в обход: по
+		// прямой бот упирался, лента уносила (стадия 49 на 1098794301, 42 на 3462254828,
+		// TestStepOffBeltAmongUndergrounds); пути нет — следующая точка
+		pts := []bridge.Pos{spot}
+		if !h.World.Sees(from, spot) {
+			r, err := h.World.Route(from, spot, 0.3, 20000, 0)
+			if err != nil || len(r.Points) < 2 {
+				continue
+			}
+			pts = r.Points[1:]
+		}
+		tried = append(tried, c.q)
+		h.Log("на ленте — схожу в (%.1f, %.1f), точек пути %d", spot.X, spot.Y, len(pts))
+		next := 0
 		err := h.drive(ctx, 2, func(pos bridge.Pos) (map[string]bool, bool) {
-			return walkKeys(pos, spot), !h.World.TouchesBelt(pos) && dist(pos, spot) < 0.6
+			for next < len(pts)-1 && dist(pos, pts[next]) < 0.4 {
+				next++
+			}
+			return walkKeys(pos, pts[next]), !h.World.TouchesBelt(pos) && dist(pos, spot) < 0.6
 		})
 		if err == nil || !errors.Is(err, ErrStuck) {
 			return err

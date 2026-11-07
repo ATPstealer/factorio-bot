@@ -397,8 +397,9 @@ func TestStandBetweenBelts(t *testing.T) {
 func TestStepOffBeltAmongUndergrounds(t *testing.T) {
 	h := handsT(t)
 	ctx := ctxT(t, 4*time.Minute)
-	have(t, h, "transport-belt", 40)
+	// подземки — первыми: их рецепт съедает ленты (139321812-0: «нет предмета: transport-belt»)
 	have(t, h, "underground-belt", 24)
+	have(t, h, "transport-belt", 40)
 	c := freeArea(t, h, 20)
 	if err := h.WalkTo(ctx, c, 0.2); err != nil {
 		t.Fatal(err)
@@ -423,11 +424,12 @@ func TestStepOffBeltAmongUndergrounds(t *testing.T) {
 		}
 		return r
 	}
-	// подземки — сначала (ставятся вокруг персонажа), ленты — под ним
+	// подземки — сначала (ставятся вокруг персонажа), ленты — под ним; оба ряда — на юг: пары под
+	// шиной, как в игре (навстречу игра спаривала ряды — «не встал направлением 0»)
 	if _, err := h.PlaceDirs(ctx, "underground-belt", north, dirs(len(north), layout.S)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.PlaceDirs(ctx, "underground-belt", south, dirs(len(south), layout.N)); err != nil {
+	if _, err := h.PlaceDirs(ctx, "underground-belt", south, dirs(len(south), layout.S)); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.WalkTo(ctx, world.Tile{X: ct.X, Y: ct.Y}.Center(), 0.2); err != nil {
@@ -795,8 +797,8 @@ func TestWalkShortBehindChests(t *testing.T) {
 	if _, err := h.PlaceDirs(ctx, "wooden-chest", row, []int{act.North, act.North, act.North}); err != nil {
 		t.Fatal(err)
 	}
-	below := bridge.Pos{X: x + 0.08, Y: y + 0.55} // как в игре: вплотную под средним сундуком
-	if err := h.WalkTo(ctx, below, 0.2); err != nil {
+	below := bridge.Pos{X: x + 0.08, Y: y + 0.55}     // как в игре: вплотную под средним сундуком
+	if err := h.WalkTo(ctx, below, 0.5); err != nil { // точность ходьбы — до 0.5 (бот встал в 0.25)
 		t.Fatal(err)
 	}
 	above := bridge.Pos{X: x, Y: y - 1.3}
