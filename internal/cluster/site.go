@@ -86,7 +86,7 @@ type Base struct {
 	mineZones []Zone           // прикидка: зоны добычи (MineZones)
 	zoneRects []Rect           // зоны (PlaceZoned): кластеры без зоны — вне их
 	bands     []Rect           // полосы этажей от шины под ним до шины над ним (PlaceZoned): кластеры без зоны — вне их
-	feedStrip Rect             // полоса подводов слева от bus-1 (PlaceZoned): кластеры без зоны — вне её
+	feedStrip Rect             // полоса подводов слева от bus-1 (PlaceZoned): станция без зоны — вне её
 	busRects  []Rect           // шины (PlaceZoned): подводы с добычи — в обход (fence)
 	reach     map[cell]float64 // заливка по суше от reachFrom (landReach)
 	reachFrom cell
@@ -510,11 +510,11 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 				return false
 			}
 		}
-		// и вне полосы слева от bus-1 — она подводам с добычи (zones.md §4: станция у воды
-		// вплотную к голове закрыла сушу между водой и шиной — 411152191); сам кластер, коридор
-		// — можно (склад нефти под шиной правее головы коридором задевал полосу и уезжал ниже —
-		// трассы нефти не провелись, 46082668)
-		if b.feedStrip.W() > 0 && r.Overlaps(b.feedStrip) {
+		// станция — и вне полосы слева от bus-1: она подводам с добычи (zones.md §4: станция у
+		// воды вплотную к голове закрыла сушу между водой и шиной — 411152191); сама, коридор —
+		// можно. Склады — можно: склад нефти под bus-1 у головы задевает полосу, отодвинутый —
+		// трассы нефти не провелись (46082668, 567690334)
+		if c.Kind == Power && b.feedStrip.W() > 0 && r.Overlaps(b.feedStrip) {
 			return false
 		}
 	}
