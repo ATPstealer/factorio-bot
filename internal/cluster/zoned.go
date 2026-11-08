@@ -224,6 +224,9 @@ func (b *Base) PlaceZoned(cs []*Cluster, zones []Zone) ([]*Cluster, []*ZBus, err
 		return nil, nil, fmt.Errorf("cluster: в зонах нет шин")
 	}
 	head := world.Tile{X: buses[0].Rect.Min.X, Y: buses[0].Rect.Min.Y}
+	// полоса подводов: слева от bus-1, по её высоте и на mineGap выше и ниже (zones.md §4)
+	r1 := buses[0].Rect
+	b.feedStrip = Rect{world.Tile{X: r1.Min.X - mineGap, Y: r1.Min.Y - mineGap}, world.Tile{X: r1.Min.X, Y: r1.Max.Y + mineGap}}
 	for _, c := range cs {
 		if c.Name == "" {
 			c.Name = b.name(c.Product, cs)

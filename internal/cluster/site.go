@@ -86,6 +86,7 @@ type Base struct {
 	mineZones []Zone           // прикидка: зоны добычи (MineZones)
 	zoneRects []Rect           // зоны (PlaceZoned): кластеры без зоны — вне их
 	bands     []Rect           // полосы этажей от шины под ним до шины над ним (PlaceZoned): кластеры без зоны — вне их
+	feedStrip Rect             // полоса подводов слева от bus-1 (PlaceZoned): кластеры без зоны — вне её
 	busRects  []Rect           // шины (PlaceZoned): подводы с добычи — в обход (fence)
 	reach     map[cell]float64 // заливка по суше от reachFrom (landReach)
 	reachFrom cell
@@ -508,6 +509,11 @@ func (b *Base) fits(c *Cluster, r Rect, vertical bool) bool {
 			if ring.Overlaps(z) {
 				return false
 			}
+		}
+		// и вне полосы слева от bus-1 — она подводам с добычи (zones.md §4: станция у воды
+		// вплотную к голове закрыла сушу между водой и шиной — 411152191)
+		if b.feedStrip.W() > 0 && ring.Overlaps(b.feedStrip) {
+			return false
 		}
 	}
 	if c.Kind == Power && c.Zone != nil { // станция — в своей зоне (с запасом), не в чужих
