@@ -24,7 +24,7 @@ if [[ ! -f $SAVE || ${NEW_MAP:-0} == 1 ]]; then
 fi
 
 "$F" --config "$R/server/config.ini" --mod-directory "$R/server/mods" \
-  --start-server "$SAVE" --server-settings "$ROOT/scripts/server-settings.json" \
+  --start-server "$SAVE" --server-settings "${SERVER_SETTINGS:-$ROOT/scripts/server-settings.json}" \
   --port "$GAME_PORT" --rcon-port "$RCON_PORT" --rcon-password "${RCON_PASSWORD:-botpass}" > "$R/server.log" 2>&1 &
 SERVER=$!
 # SIGINT — сервер сохраняет карту в $SAVE перед выходом
