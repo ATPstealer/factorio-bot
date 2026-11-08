@@ -358,7 +358,7 @@ func TestSetFilterOnEmpty(t *testing.T) {
 			t.Fatal("окно инсертера не открылось")
 		}
 	}
-	u := h.Layout.UseFilters
+	u := h.WinLayout().UseFilters // с поправкой на инвентарь, как у бота (просьба пользователя)
 	if err := h.In.Move(h.Win.X+u.X, h.Win.Y+u.Y); err != nil {
 		t.Fatal(err)
 	}

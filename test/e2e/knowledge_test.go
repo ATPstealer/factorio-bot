@@ -82,7 +82,10 @@ func TestRocketPartPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(pl.Techs, "rocket-silo") || pl.Raw["crude-oil"] <= 0 || pl.PowerW <= 0 {
+	// rocket-silo — среди нужных исследований, если ещё не изучена (на снимках поздних стадий
+	// изучена — по просьбе пользователя тогда не ждать).
+	silo := slices.Contains(pl.Techs, "rocket-silo") || slices.Contains(f.Researched, "rocket-silo")
+	if !silo || pl.Raw["crude-oil"] <= 0 || pl.PowerW <= 0 {
 		t.Errorf("план неполный: техи %d, сырьё %v, МВт %.1f", len(pl.Techs), pl.Raw, pl.PowerW/1e6)
 	}
 

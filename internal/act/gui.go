@@ -85,7 +85,10 @@ const invRows = 8
 // вверх на полряда (решение пользователя: уметь и так и так). Окна без инвентаря (технологии,
 // выбор рецепта) — как были; выбор фильтра — у ячейки фильтра инсертера: с ней (стадия 37 на
 // 366255770: клик по первой найденной — на границе её и второй строки, «фильтр sulfur не встал»).
-func (h *Hands) winLayout() Layout {
+func (h *Hands) winLayout() Layout { return h.WinLayout() }
+
+// WinLayout — то же для тестов.
+func (h *Hands) WinLayout() Layout {
 	L := h.Layout
 	p, err := h.B.Player()
 	if err != nil || p.InventorySize <= 0 || L.Cols <= 0 {
