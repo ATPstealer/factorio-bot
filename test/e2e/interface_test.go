@@ -413,6 +413,13 @@ func TestSetFilterSulfurLong(t *testing.T) {
 // у long-handed-inserter не встал ([])»).
 func TestSetFilterPopupMoved(t *testing.T) {
 	h := handsT(t)
+	// battery не открыта — в окне выбора «Nothing found», выбрать нечего (ранние карты; пропуск —
+	// решение пользователя)
+	if f, err := h.B.Force(); err != nil {
+		t.Fatal(err)
+	} else if !slices.Contains(f.Recipes, "battery") {
+		t.Skip("рецепт battery не изучен")
+	}
 	have(t, h, "long-handed-inserter", 1)
 	e := placeNear(t, h, "long-handed-inserter", 1)
 	ctx := ctxT(t, 2*time.Minute)
