@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"factorio-bot/internal/act"
+	"factorio-bot/internal/bridge"
+	"factorio-bot/internal/knowledge"
 	"factorio-bot/internal/layout"
 )
 
@@ -69,6 +71,7 @@ func waitFact(ctx context.Context, h *act.Hands, list []layout.Placement, fact f
 func working(names ...string) func(h *act.Hands, list []layout.Placement) error {
 	return func(h *act.Hands, list []layout.Placement) error {
 		seen := map[string]int{}
+		short := map[string]int{} // ингредиент → у скольких машин его нет
 		for _, pl := range list {
 			if !slices.Contains(names, pl.Name) {
 				continue
@@ -81,9 +84,33 @@ func working(names ...string) func(h *act.Hands, list []layout.Placement) error 
 				return nil
 			}
 			seen[st.Status]++
+			if r, ok := h.Protos.Recipes[st.Recipe]; ok && strings.HasSuffix(st.Status, "ingredient_shortage") {
+				for _, it := range shortOf(r, st) {
+					short[it]++
+				}
+			}
+		}
+		if len(short) > 0 { // чего не хватает — в причину (стадия 54 на 24996062: не узнать, железа или серы)
+			return fmt.Errorf("%s не работают: %v; не хватает: %v", strings.Join(names, "/"), seen, short)
 		}
 		return fmt.Errorf("%s не работают: %v", strings.Join(names, "/"), seen)
 	}
+}
+
+// shortOf — ингредиенты рецепта r, которых в машине st меньше, чем на один крафт (жидкости — в
+// ящиках машины, предметы — в инвентарях).
+func shortOf(r knowledge.Recipe, st *bridge.EntityState) []string {
+	var res []string
+	for _, in := range r.Ingredients {
+		have := float64(st.Count(in.Name))
+		if in.Type == "fluid" {
+			have = st.Fluids[in.Name]
+		}
+		if have < in.Amount {
+			res = append(res, in.Name)
+		}
+	}
+	return res
 }
 
 // holds — хоть в одной постройке из list с именем из names есть item (жидкость в трубе, пакет в
