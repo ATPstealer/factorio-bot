@@ -254,6 +254,11 @@ func Do(ctx context.Context, h *act.Hands, n int) (err error) {
 		}()
 	}
 	h.Say("стадия %d: %s", s.N, s.Name)
+	if paper == nil && h.B != nil { // сводка раз в 10 минут (status.go)
+		sctx, stop := context.WithCancel(ctx)
+		defer stop()
+		go statusEvery(sctx, h, s, start)
+	}
 	if n >= 22 { // с первого обслуживания — только железные сундуки (и в планах следующих стадий)
 		layout.Chest, chest = ironChest, ironChest
 	}
