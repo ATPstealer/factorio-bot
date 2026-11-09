@@ -63,6 +63,10 @@ type Layout struct {
 	// окно инсертера (обычного): флажок «Use filters», первая ячейка фильтра, первая
 	// найденная в окне «Set the filter» (после поиска)
 	UseFilters, FilterSlot, FilterFirst point
+	// FilterButtonX — столбец через оранжевую кнопку поиска окна «Set the filter», FilterFirstDY —
+	// от верха кнопки до середины первой найденной: окно встаёт то под ячейкой фильтра, то
+	// (выросло — не влезает) вверху справа (стадия 55 на 24996062); по X оно на месте
+	FilterButtonX, FilterFirstDY int
 	// окно ракетной шахты: галочка «Send to orbit automatically» (запуск по готовности), кнопка
 	// «Launch»
 	SiloAuto point
@@ -134,6 +138,8 @@ var Layout1856 = Layout{
 	UseFilters:        point{953, 556},
 	FilterSlot:        point{1165, 568},
 	FilterFirst:       point{1189, 730},
+	FilterButtonX:     1530, // кнопка 1528–1546, первая найденная — на 133 ниже её верха (снято на 24996062-0)
+	FilterFirstDY:     133,
 	SiloAuto:          point{1058, 762}, // при инвентаре в 9 рядов — 742 (снято на 1098794301-66)
 	AltButton:         point{1160, 948},
 	AltOn:             color.RGBA{229, 181, 96, 255},
@@ -235,6 +241,34 @@ func (h *Hands) firstSlotY(tabs bool) (int, bool) {
 				return y0 + y + 133, true
 			}
 			return y0 + y + 62, true
+		}
+	}
+	return 0, false
+}
+
+// filterFirstY — середина первой найденной в окне «Set the filter», где бы оно ни встало: по
+// оранжевой кнопке поиска в заголовке окна (столбец FilterButtonX, 14 рядов подряд). Окно
+// выросло и не влезло под ячейку фильтра — оно вверху справа, а клик по месту под ячейкой шёл
+// мимо (стадия 55 на 24996062: battery, 46 — rail).
+func (h *Hands) filterFirstY() (int, bool) {
+	x := h.Layout.FilterButtonX
+	if x == 0 || h.Win.H <= 0 {
+		return 0, false
+	}
+	img, err := h.In.Screenshot(input.Rect{X: h.Win.X + x, Y: h.Win.Y, W: 1, H: h.Win.H})
+	if err != nil {
+		return 0, false
+	}
+	run := 0
+	for y := range h.Win.H {
+		c := img.RGBAAt(0, y)
+		if c.R > 200 && c.G > 120 && c.G < 180 && c.B < 70 {
+			run++
+		} else {
+			run = 0
+		}
+		if run == 14 {
+			return y - 13 + h.Layout.FilterFirstDY, true
 		}
 	}
 	return 0, false
@@ -1432,6 +1466,11 @@ func (h *Hands) SetFilter(ctx context.Context, e bridge.Entity, item string) err
 			return err
 		}
 		f := h.winLayout().FilterFirst
+		if y, ok := h.filterFirstY(); ok {
+			f.Y = y
+		} else {
+			h.Log("окно фильтра: кнопка поиска не найдена — первая найденная по раскладке (%d, %d)", f.X, f.Y)
+		}
 		if err := click(point{f.X + k*h.Layout.SlotStep, f.Y}, 300*time.Millisecond); err != nil {
 			return err
 		}

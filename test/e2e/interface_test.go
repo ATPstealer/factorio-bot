@@ -407,6 +407,24 @@ func TestSetFilterSulfurLong(t *testing.T) {
 	clean(t, h)
 }
 
+// Фильтр battery у длинного инсертера, когда окно выбора фильтра не под ячейкой (стадия 55 на
+// 24996062, и rail у быстрого на 46: окно выбора выросло и встало вверху справа — кнопка поиска
+// на y 70, а клик по первой найденной — по месту под ячейкой: все 5 заходов мимо, «фильтр battery
+// у long-handed-inserter не встал ([])»).
+func TestSetFilterPopupMoved(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "long-handed-inserter", 1)
+	e := placeNear(t, h, "long-handed-inserter", 1)
+	ctx := ctxT(t, 2*time.Minute)
+	if err := h.SetFilter(ctx, e, "battery"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := h.B.GetEntity(e.Name, e.Position); err != nil || st == nil || len(st.Filters) == 0 || st.Filters[0] != "battery" {
+		t.Errorf("фильтр в игре: %+v (%v)", st, err)
+	}
+	clean(t, h)
+}
+
 // Рецепт со словом поиска «inserter» (стадия 32 на 859088572: набранное слово с кареткой
 // доставало до полосы, по которой ищется поле поиска, — поле не находилось, клик на ряд ниже;
 // при трёх вкладках совпадало случайно, при четырёх — мимо): инсертер и длинный инсертер.
