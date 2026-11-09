@@ -38,7 +38,13 @@ type ZoneLane struct {
 	// Feeds — подводы в ленту: где и сколько (отвод потребителю — ниже по течению стольких,
 	// сколько покрывают его вход: zones.md, поставщики по выпуску)
 	Feeds []LaneFeed `json:"feeds,omitempty"`
+	// After — X делителя цепочки (chainLanes), которым в ленту отдаёт следующая лента предмета:
+	// отводы — ниже, в отвод — со всех следующих (cluster.md §5); nil — в неё не отдают.
+	After *int `json:"after,omitempty"`
 }
+
+// chained — в ленту отдаёт следующая делителем цепочки у x.
+func (ln *ZoneLane) chained(x int) { ln.After = &x }
 
 // LaneFeed — подвод в ленту шины: X и выпуск (добыча в голову, сквозная — feedAny).
 type LaneFeed struct {
@@ -965,6 +971,9 @@ func (b *Base) feedIn(l *layout.Layout, buses []*ZBus, c *Cluster, p Port, g *po
 			// только ниже подвода: выше по течению предмета на ленте нет; подводов несколько —
 			// ниже стольких, сколько покрывают вход (zones.md, поставщики по выпуску)
 			x0 := max(c.Area.Min.X-40, ln.cover(need, c.Area.Max.X)+1)
+			if ln.After != nil { // ниже делителей цепочки: в отвод — со всех лент предмета
+				x0 = max(x0, *ln.After+1)
+			}
 			if line := zLaneBelts(l, buses[k], ln, x0, max(c.Area.Max.X+40, x0+60)); len(line) > 0 {
 				lines, used = append(lines, line), append(used, ln)
 			}
@@ -1236,59 +1245,90 @@ func (c *Cluster) drills() float64 {
 // итерации): строятся вместе с будущей добычей.
 func LaterTag(name string) string { return Tag(name) + "/later" }
 
-// transfers — руда будущих блоков (Later) питает и старые цепочки (решение пользователя): на
-// новой ленте — делитель, его второй выход — подземкой поперёк шины к ближней старой ленте того
-// же предмета, там — делитель (вливает в неё).
-func (b *Base) transfers(l *layout.Layout, bus *ZBus) {
+// chainLanes — ленты одного предмета шины bus делят друг с другом цепочкой (cluster.md §2а
+// «Добыча», §5; правило пользователя): по порядку — сначала ленты, с которых берут сейчас (Now:
+// отводы — с них, feedIn), потом остальные (будущая добыча — последней, она самая жирная);
+// каждая следующая отдаёт в предыдущую — соседний ряд делителем поперёк пары, иначе перекидкой
+// (transferAt); делитель k → k−1 — выше по течению, чем (k−1) → (k−2): пока жива последняя
+// лента, живы все ленты к печам. Было: будущая добыча вливалась только в ближнюю старую ленту
+// (24996062: вторая лента печей железа — только с первого месторождения, оно кончилось — 10
+// печей без руды). Отводы с ленты — ниже делителя, которым в неё отдаёт следующая
+// (ZoneLane.After); выше того, которым она отдаёт в предыдущую, — можно.
+func (b *Base) chainLanes(l *layout.Layout, bus *ZBus) {
 	byY := map[int]*ZoneLane{}
+	byItem := map[string][]*ZoneLane{}
 	for i := range bus.Lanes {
-		byY[bus.Lanes[i].Y] = &bus.Lanes[i]
+		ln := &bus.Lanes[i]
+		byY[ln.Y] = ln
+		if ln.Fed {
+			byItem[ln.Item] = append(byItem[ln.Item], ln)
+		}
 	}
-	later := map[int]*Cluster{} // лента → будущий блок
-	old := map[string][]int{}   // предмет → ленты старых блоков
+	owner := map[int]*Cluster{} // лента → блок добычи, чей выход — в её голову
 	for _, c := range b.Clusters {
 		for _, p := range outPorts(c) {
-			y, ok := b.feedLane[p.T]
-			if !ok {
-				continue
-			}
-			if c.Later {
-				later[y] = c
-			} else {
-				old[c.Product] = append(old[c.Product], y)
+			if y, ok := b.feedLane[p.T]; ok {
+				owner[y] = c
 			}
 		}
 	}
-	for _, y := range slices.Sorted(maps.Keys(later)) {
-		c, nl := later[y], byY[y]
-		if nl == nil || len(old[c.Product]) == 0 {
+	laneRow := func(y int) bool { return byY[y] != nil }
+	for _, item := range slices.Sorted(maps.Keys(byItem)) {
+		lns := byItem[item]
+		if len(lns) < 2 {
 			continue
 		}
-		oy := old[c.Product][0]
-		for _, o := range old[c.Product] {
-			if abs(o-y) < abs(oy-y) {
-				oy = o
+		sort.SliceStable(lns, func(i, j int) bool {
+			if lns[i].Now != lns[j].Now {
+				return lns[i].Now
 			}
+			return lns[i].Y < lns[j].Y
+		})
+		x := math.MinInt // за подводами всех лент предмета
+		for _, ln := range lns {
+			x = max(x, ln.From, ln.Start)
 		}
-		ol := byY[oy]
-		if ol == nil {
-			continue
-		}
-		tag := LogisticsTag + "/" + bus.Name + "/" + c.Name
-		x0 := max(nl.From, ol.From, nl.Start, ol.Start) + 3
-		if err := transferAt(l, nl, ol, x0, tag, func(y int) bool { return byY[y] != nil }); err != nil {
-			b.logf("перекидка %s → лента %d: %v", c.Name, oy, err)
+		x += 2
+		for k := len(lns) - 1; k >= 1; k-- {
+			from, to := lns[k], lns[k-1]
+			if abs(from.Y-to.Y) == 1 {
+				placed := false
+				for n := range 80 {
+					if balanceAt(l, item, min(from.Y, to.Y), max(from.Y, to.Y), x+n, layout.E) {
+						x, placed = x+n, true
+						break
+					}
+				}
+				if !placed {
+					b.logf("цепочка %s: лента %d → %d — нет места под делитель", item, from.Y, to.Y)
+					continue
+				}
+				to.chained(x)
+				x += 2
+				continue
+			}
+			tag := Tag(bus.Name)
+			if c := owner[from.Y]; c != nil {
+				tag = LogisticsTag + "/" + bus.Name + "/" + c.Name // строится с добычей, что её кормит
+			}
+			xb, err := transferAt(l, from, to, x, tag, laneRow)
+			if err != nil {
+				b.logf("цепочка %s: лента %d → %d: %v", item, from.Y, to.Y, err)
+				continue
+			}
+			to.chained(xb)
+			x = xb + 2
 		}
 	}
 }
 
 // transferAt — перекидка с ленты from на ленту to (лента шины течёт на восток): делитель на from
 // у столбца x (с ряда соседнего в сторону to), его второй выход — лентой (поперёк — подземками)
-// во второй вход делителя на to. Ищет столбец от x0 вправо. Вторая половина делителя и лента
-// перекидки — не в ряду другой ленты шины (laneRow): ряд соседней ленты пары мог быть ещё пуст
-// (лента — до последнего потребителя), а потом её не продлить (954176679: лента медной руды
-// упёрлась в перекидку угля).
-func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRow func(y int) bool) error {
+// во второй вход делителя на to. Ищет столбец от x0 вправо; X делителя на to. Вторая
+// половина делителя и лента перекидки — не в ряду другой ленты шины (laneRow): ряд соседней
+// ленты пары мог быть ещё пуст (лента — до последнего потребителя), а потом её не продлить
+// (954176679: лента медной руды упёрлась в перекидку угля).
+func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRow func(y int) bool) (int, error) {
 	s := 1
 	if to.Y < from.Y {
 		s = -1
@@ -1341,7 +1381,7 @@ func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRo
 					_, err := l.RouteBelt(world.Tile{X: x + 1, Y: from.Y + sa}, layout.E, world.Tile{X: xb - 1, Y: to.Y + sb}, layout.E, tag)
 					if err == nil {
 						l.Reserved[out] = true
-						return nil
+						return xb, nil
 					}
 					// назад: делители — снова лентами
 					l.List = l.List[:mark]
@@ -1351,7 +1391,7 @@ func transferAt(l *layout.Layout, from, to *ZoneLane, x0 int, tag string, laneRo
 			}
 		}
 	}
-	return fmt.Errorf("нет места под перекидку")
+	return 0, fmt.Errorf("нет места под перекидку")
 }
 
 // feedTargets — куда вести выход op: сначала голова его ленты (orderedMineLanes), потом —
@@ -1641,8 +1681,9 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 			}
 		}
 	}
-	// будущая добыча питает и старые цепочки — перекидки на шине (zones.md)
-	b.transfers(l, buses[0])
+	// ленты одного предмета bus-1 делят друг с другом цепочкой: будущая добыча — в ленты печей
+	// (cluster.md §2а «Добыча», §5)
+	b.chainLanes(l, buses[0])
 	// выходы этажей — боком в ленты шины над собой; отводы — ниже по течению
 	for _, c := range b.Clusters {
 		if err := b.feedOut(l, buses, c, g); err != nil {
@@ -1652,8 +1693,9 @@ func (b *Base) ConnectZoned(l *layout.Layout, buses []*ZBus) error {
 	if err := feedThrough(l, buses); err != nil {
 		return err
 	}
-	// соседние ленты одного предмета — делят друг с другом, до первого отвода (cluster.md §5)
-	for _, bus := range buses {
+	// соседние ленты одного предмета шин выше — делят друг с другом (cluster.md §5); bus-1 —
+	// цепочкой (chainLanes)
+	for _, bus := range buses[1:] {
 		balanceLanes(l, bus)
 	}
 	// подход ко входу угля станции был закрыт до сих пор — теперь отвод к нему
