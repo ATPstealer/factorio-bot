@@ -1570,6 +1570,16 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 	for i := len(set) - 1; i >= 0; i-- {
 		o := set[i]
 		es, err := h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction)
+		if err != nil && ctx.Err() == nil {
+			// отсюда не встало: стоит в щели, которой модель не видит (между трубами и НПЗ — 0.5
+			// тайла: персонаж в игре проходит, в модели — нет), сойти некуда, кроме места
+			// поднятого (стадия 36 на 778631482) — дойти до цели и поставить оттуда
+			h.Log("поднятое %s отсюда не встало (%v) — поставлю от цели", o.Name, err)
+			if ferr := h.followPath(ctx, target, enough); ferr != nil && !errors.Is(ferr, world.ErrNoPath) {
+				return false, ferr
+			}
+			es, err = h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction)
+		}
 		if err != nil {
 			// без %w: «не дошёл» при возврате — не мягкая ошибка ходьбы, постройка пропала бы
 			return false, fmt.Errorf("act: поднятое проломом %s в (%.1f, %.1f) не вернул: %v", o.Name, o.Pos.X, o.Pos.Y, err)
