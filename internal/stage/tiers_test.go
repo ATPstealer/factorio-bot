@@ -101,6 +101,38 @@ func TestPlanTiersFastRows(t *testing.T) {
 	}
 }
 
+// Ряд шины начинается подземкой (голова ряда — вход левее первой ленты ряда, под подводами):
+// быстрые — и вход, и выход пары (стадия 42 на 778631482: вход остался жёлтым, быстрый выход не
+// сцепился и встал входом — «конец input, в плане output»).
+func TestPlanTiersFastRowsHeadUnderground(t *testing.T) {
+	smelt := func(name string) *cluster.Cluster {
+		return &cluster.Cluster{Name: name, Kind: cluster.Smelt, Product: "copper-plate",
+			Out: []cluster.Flow{{Item: "copper-plate", Rate: 12.5}}, Ports: []cluster.Port{{Item: "copper-plate"}}}
+	}
+	pl := func(name, tag, recipe string, x float64, dir int) layout.Placement {
+		return layout.Placement{Name: name, Pos: bridge.Pos{X: x, Y: 10.5}, Dir: dir, Recipe: recipe, Tag: tag}
+	}
+	plan := &ClusterPlan{
+		Clusters: []*cluster.Cluster{smelt("copper-1"), smelt("copper-2")},
+		Layout: []layout.Placement{
+			pl("underground-belt", "c/bus-2", "input", 0.5, layout.E),
+			pl("transport-belt", "c/logistics/copper-1", "", 1.5, layout.S), // подвод поперёк
+			pl("underground-belt", "c/bus-2", "output", 3.5, layout.E),
+			pl("transport-belt", "c/bus-2", "copper-plate", 4.5, layout.E),
+			pl("transport-belt", "c/bus-2", "copper-plate", 5.5, layout.E),
+		},
+	}
+	planTiers(plan, cluster.Tier2From)
+	var got []string
+	for _, p := range plan.Layout {
+		got = append(got, p.Name)
+	}
+	want := []string{"fast-underground-belt", "transport-belt", "fast-underground-belt", "fast-transport-belt", "fast-transport-belt"}
+	if !slices.Equal(got, want) {
+		t.Errorf("после 42: %v, ждал %v", got, want)
+	}
+}
+
 // Делитель отвода потребителя стадии 55 в ряду, которому жёлтой мало, — жёлтый до 42 (ставится
 // раньше своей стадии, с лентой ряда: стадия 14 на 366255770 — «рецепт fast-splitter не
 // открыт»), быстрый — после 42.

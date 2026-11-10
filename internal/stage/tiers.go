@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -120,7 +121,39 @@ func fastRows(plan *ClusterPlan) map[int]bool {
 			}
 		}
 	}
+	pairUndergrounds(plan.Layout, res)
 	return res
+}
+
+// pairUndergrounds — подземка второго уровня — парой: вход и выход одного уровня, иначе быстрый
+// выход с жёлтым входом не сцепится и встанет входом (стадия 42 на 778631482: вход в голове ряда
+// шины — левее первой ленты ряда, вне отрезка, выход — в нём; «конец input, в плане output»).
+func pairUndergrounds(list []layout.Placement, res map[int]bool) {
+	at := map[world.Tile]int{}
+	for i, pl := range list {
+		if baseTier(pl.Name) == "underground-belt" {
+			at[world.TileOf(pl.Pos)] = i
+		}
+	}
+	for _, i := range slices.Sorted(maps.Keys(res)) {
+		pl := list[i]
+		if baseTier(pl.Name) != "underground-belt" {
+			continue
+		}
+		dir := pl.Dir // вход — пара впереди, выход — позади
+		if pl.Recipe == "output" {
+			dir = (pl.Dir + 8) % 16
+		}
+		for k, cur := 1, world.TileOf(pl.Pos); k <= 10; k++ {
+			cur = layout.Step(cur, dir)
+			if j, ok := at[cur]; ok && list[j].Dir == pl.Dir {
+				if list[j].Recipe != pl.Recipe {
+					res[j] = true
+				}
+				break // ближняя того же хода — пара (или чужая: дальше игра не сцепит)
+			}
+		}
+	}
 }
 
 // mineLoads — выходы блоков добычи (cluster.md §5): выпуск выхода — по бурам рядов, что идут в
