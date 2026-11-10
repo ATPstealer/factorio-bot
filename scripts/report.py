@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Отчёт по экземплярам (скил /report): таблица — экземпляр, сид, стадия, что делает.
+"""Отчёт по экземплярам (скил /report): таблица — экземпляр, сид, стадия, перезапуски, что делает.
 
     scripts/report.py
 
@@ -66,6 +66,23 @@ def stage_log(seed):
     return best
 
 
+def restarts(seed, upto):
+    """Перезапуски стадий сида до стадии upto включительно: повторы на сохранении и продолжения
+    («== повтор», «== продолжение» в журнале стадии; журнал стадии с её начала — заново).
+    Текст: «всего (стадия×раз, …)», нет — «0»."""
+    per = {}
+    for f in glob.glob(f"{ROOT}/run/stages/s*-{seed}.log"):
+        m = re.match(r"s(\d+)-", os.path.basename(f))
+        if not m or int(m[1]) > upto:
+            continue
+        k = sum(1 for l in open(f, errors="replace") if l.startswith(("== повтор", "== продолжение")))
+        if k:
+            per[int(m[1])] = k
+    if not per:
+        return "0"
+    return f"{sum(per.values())} (" + ", ".join(f"{n}" + (f"×{k}" if k > 1 else "") for n, k in sorted(per.items())) + ")"
+
+
 def main():
     ps = procs()
     rows = []
@@ -73,12 +90,12 @@ def main():
         try:
             seed = json.load(open(f"{ROOT}/run/i{n}/map.json"))["seed"]
         except (OSError, ValueError, KeyError):
-            rows.append((f"bot-{n}", "—", "—", "нет карты", ""))
+            rows.append((f"bot-{n}", "—", "—", "нет карты", "—", ""))
             continue
         running = ps.get(n, [])
         sl = stage_log(seed)
         if not sl:
-            rows.append((f"bot-{n}", str(seed), "—", "журнала стадий нет", "; ".join(running)))
+            rows.append((f"bot-{n}", str(seed), "—", "журнала стадий нет", "—", "; ".join(running)))
             continue
         num, path = sl
         lines = [m for l in open(path, errors="replace") if (m := TS.match(l.rstrip("\n")))]
@@ -99,9 +116,9 @@ def main():
             now = last
         if len(now) > 110:
             now = now[:107] + "…"
-        rows.append((f"bot-{n}", str(seed), f"{num} {name}", state, now))
-    print("| | сид | стадия | состояние | сейчас |")
-    print("|---|---|---|---|---|")
+        rows.append((f"bot-{n}", str(seed), f"{num} {name}", state, restarts(seed, num), now))
+    print("| | сид | стадия | состояние | перезапусков (стадии) | сейчас |")
+    print("|---|---|---|---|---|---|")
     for r in rows:
         print("| " + " | ".join(c.replace("|", "/") for c in r) + " |")
 
