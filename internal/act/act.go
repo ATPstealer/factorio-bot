@@ -1559,14 +1559,12 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 	if err := h.followPath(ctx, past, 0.5); err != nil && !errors.Is(err, world.ErrNoPath) {
 		return false, err
 	}
-	// стоит на месте поднятого (снесло, не дошёл) — поставить оттуда нельзя, а «не дошёл» из
-	// постановки выше сочли бы мягким: постройка тихо пропадала (стадия 30 на 24996062)
-	if q, err := h.B.Player(); err == nil && inAny(q.Position, boxes, 0.35) {
+	// стоит на месте поднятого (рамка персонажа ±0.2 задевает его рамку: снесло, не дошёл) — ещё
+	// раз за него; дальше постановка сама сходит с места, не встало — ошибка ниже (стадия 30 на
+	// 24996062). Запас 0.35 был велик: труба в 0.49 от персонажа — «стою на её месте», стадия 36
+	if q, err := h.B.Player(); err == nil && inAny(q.Position, boxes, 0.2) {
 		if err := h.followPath(ctx, past, 0.5); err != nil && !errors.Is(err, world.ErrNoPath) {
 			return false, err
-		}
-		if q, err := h.B.Player(); err == nil && inAny(q.Position, boxes, 0.35) {
-			return false, fmt.Errorf("act: поднятое проломом не вернуть — стою на его месте (%.2f, %.2f)", q.Position.X, q.Position.Y)
 		}
 	}
 	for i := len(set) - 1; i >= 0; i-- {
