@@ -148,6 +148,12 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 			}
 		}
 	}
+	// лаборатории не стоят — до доставки: заполнитель первым снимает из полной очереди последнее
+	// (нужное для ракеты), доставка вернёт его; после — очередь кончалась без него, заполнитель
+	// изучался за секунды, и проверка видела место и нужное не в очереди (стадия 28 на 189715922)
+	if err := keepLabsBusy(ctx, h, techs); err != nil {
+		return err
+	}
 	for _, t := range techs {
 		f, err := h.B.Force()
 		if err != nil {
@@ -170,7 +176,7 @@ func queueResearch(ctx context.Context, h *act.Hands, first ...string) error {
 			h.Log("обслуживание: %s в очередь не встало: %v", t, err)
 		}
 	}
-	return keepLabsBusy(ctx, h, techs)
+	return nil
 }
 
 // labsAt — когда в ожидании последний раз смотрели лаборатории (waitHooks).
@@ -877,8 +883,9 @@ func checkKept(h *act.Hands, list []layout.Placement) error {
 			miss = append(miss, t)
 		}
 	}
-	// очередь игры — 7: полная — остальные доставятся по ходу
-	if busy := len(f.Queue); len(miss) > 0 && busy < 7 {
+	// очередь игры — 7: полная — остальные доставятся по ходу; одно место — заполнитель
+	// (keepLabsBusy) мог изучиться за секунды до проверки (стадия 28 на 189715922: military)
+	if busy := len(f.Queue); len(miss) > 0 && busy < 6 {
 		return fmt.Errorf("не в очереди исследований: %s", strings.Join(miss, ", "))
 	}
 	return nil
