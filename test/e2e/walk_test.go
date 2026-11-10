@@ -10,6 +10,7 @@ import (
 	"factorio-bot/internal/layout"
 	"factorio-bot/internal/world"
 	"math"
+	"slices"
 	"testing"
 	"time"
 )
@@ -558,6 +559,87 @@ func TestUnstuckKeepsRecipe(t *testing.T) {
 	}
 	if n := st.Count("iron-plate"); n != 10 {
 		t.Errorf("пластин в сборщике %d, ждали 10", n)
+	}
+}
+
+// Выход из ловушки не теряет направление сборщика с жидкостью (стадия 62 на 778631482: сборщик
+// процессоров на запад поднят проломом, поставлен назад — без рецепта игра не крутит, рецепт с
+// кислотой — машина на север: «направление 0, в плане 12»): кольцо — сборщик 2 на запад с
+// рецептом на жидкости и сундуки с пластиной (сундуки с содержимым поднимаются последними —
+// выход через сборщик); «иди туда» за кольцо — за сборщик. Рецепт и направление — на месте.
+func TestUnstuckKeepsDirection(t *testing.T) {
+	h := handsT(t)
+	ctx := ctxT(t, 6*time.Minute)
+	f, err := h.B.Force()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe := ""
+	for _, r := range []string{"concrete", "electric-engine-unit", "processing-unit", "rocket-fuel"} {
+		if slices.Contains(f.Recipes, r) {
+			recipe = r
+			break
+		}
+	}
+	if recipe == "" {
+		t.Skip("рецепта сборщика на жидкости нет — что добавить на карты")
+	}
+	have(t, h, "wooden-chest", 5)
+	have(t, h, "assembling-machine-2", 1)
+	have(t, h, "iron-plate", 5)
+	c := freeArea(t, h, 2*(8+2)+1)
+	if err := h.WalkTo(ctx, c, 0.2); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	ct := world.TileOf(p.Position)
+	am, err := h.Place(ctx, "assembling-machine-2", world.Tile{X: ct.X + 2, Y: ct.Y}.Center(), act.West)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetRecipe(ctx, am, recipe); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Rotate(ctx, am, act.West); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := h.B.GetEntity(am.Name, am.Position); err != nil || st == nil || st.Direction == nil || *st.Direction != act.West {
+		t.Fatalf("подготовка: сборщик не на запад (%+v, %v)", st, err)
+	}
+	var ring []bridge.Pos
+	for _, d := range [][2]int{{-1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1}} {
+		ring = append(ring, world.Tile{X: ct.X + d[0], Y: ct.Y + d[1]}.Center())
+	}
+	chests, err := h.PlaceAll(ctx, "wooden-chest", ring, act.North)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range chests {
+		if err := h.Insert(ctx, ch, "iron-plate", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = h.B.Player(); !h.World.Enclosed(p.Position) {
+		t.Fatalf("кольцо не замкнуто: персонаж в (%.2f, %.2f)", p.Position.X, p.Position.Y)
+	}
+	if err := h.WalkTo(ctx, bridge.Pos{X: ct.Center().X + 8, Y: ct.Center().Y}, 0.5); err != nil {
+		t.Fatal(err)
+	}
+	st, err := h.B.GetEntity(am.Name, am.Position)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st == nil {
+		t.Fatalf("сборщика в (%.1f, %.1f) нет", am.Position.X, am.Position.Y)
+	}
+	if st.Recipe != recipe {
+		t.Errorf("рецепт %q, ждали %s", st.Recipe, recipe)
+	}
+	if st.Direction == nil || *st.Direction != act.West {
+		t.Errorf("направление %v, ждали %d (запад)", st.Direction, act.West)
 	}
 }
 

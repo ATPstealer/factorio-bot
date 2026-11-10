@@ -1344,7 +1344,12 @@ func (h *Hands) contents(e bridge.Entity) map[string]int {
 }
 
 // setup — настройка постройки e, что теряется при подборе: рецепт сборщика, фильтр инсертера.
-type setup struct{ recipe, filter string }
+// setup — настройка постройки до подбора: рецепт, фильтр и направление (dir — есть ли).
+type setup struct {
+	recipe, filter string
+	dir            int
+	hasDir         bool
+}
 
 // setupOf — setup стоящей постройки e (до подбора).
 func (h *Hands) setupOf(e bridge.Entity) setup {
@@ -1359,6 +1364,9 @@ func (h *Hands) setupOf(e bridge.Entity) setup {
 	if len(st.Filters) > 0 {
 		s.filter = st.Filters[0]
 	}
+	if st.Direction != nil {
+		s.dir, s.hasDir = *st.Direction, true
+	}
 	return s
 }
 
@@ -1372,6 +1380,15 @@ func (h *Hands) restore(ctx context.Context, es []bridge.Entity, s setup, in map
 	if s.recipe != "" {
 		if err := h.SetRecipe(ctx, es[0], s.recipe); err != nil {
 			return err
+		}
+		// сборщик без рецепта игра при постановке не крутит; рецепт с жидкостью дал ему
+		// направление — довернуть, как стоял (стадия 62 на 778631482: «направление 0, в плане 12»)
+		if s.hasDir {
+			if st, err := h.B.GetEntity(es[0].Name, es[0].Position); err == nil && st != nil && st.Direction != nil && *st.Direction != s.dir {
+				if err := h.Rotate(ctx, st.Entity, s.dir); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if s.filter != "" {
