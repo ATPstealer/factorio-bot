@@ -66,6 +66,9 @@ type Hands struct {
 	// поднимаем, обратно к месту) — без новых проломов (подбор трубы ходил к точке стоянки,
 	// пути нет — пролом снова поднимал ту же трубу, без конца: стадия 43 на 427965634)
 	breaching bool
+	// lifted — места поднятого проломом до возврата: с ленты на них не сходить (стадия 30 на
+	// 24996062: снесло лентой, сошёл в дыру от бура — поставить его оттуда нельзя)
+	lifted []bridge.Box
 	// mining — что сейчас добывает Mine выше по цепочке вызовов: второй раз — нет (сухое дерево
 	// под кроной tree-05: рубить сначала tree-05, путь к нему рубит по дороге то же сухое дерево —
 	// снова под кроной, снова к tree-05… 479 уровней за 80 мин, стадия 22 на 635406131)
@@ -1530,7 +1533,12 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 		return false, nil
 	}
 	h.breaching = true // ходьба к поднимаемому, проход и возврат — без новых проломов
-	defer func() { h.breaching = false }()
+	boxes := make([]bridge.Box, len(set))
+	for i, o := range set {
+		boxes[i] = h.footprint(o.Name, o.Pos, o.Direction)
+	}
+	h.lifted = boxes
+	defer func() { h.breaching, h.lifted = false, nil }()
 	ins := make([]map[string]int, len(set))
 	sets := make([]setup, len(set))
 	for i, o := range set {
@@ -1547,10 +1555,42 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 	if _, err := h.World.Sync(h.B, false); err != nil {
 		return false, err
 	}
-	// точка пути за поднятым: после ближайшего к нему места, в 2.5 тайла от всех
+	past := breachPast(route.Points, boxes, h.World.Standable, target)
+	if err := h.followPath(ctx, past, 0.5); err != nil && !errors.Is(err, world.ErrNoPath) {
+		return false, err
+	}
+	// стоит на месте поднятого (снесло, не дошёл) — поставить оттуда нельзя, а «не дошёл» из
+	// постановки выше сочли бы мягким: постройка тихо пропадала (стадия 30 на 24996062)
+	if q, err := h.B.Player(); err == nil && inAny(q.Position, boxes, 0.35) {
+		if err := h.followPath(ctx, past, 0.5); err != nil && !errors.Is(err, world.ErrNoPath) {
+			return false, err
+		}
+		if q, err := h.B.Player(); err == nil && inAny(q.Position, boxes, 0.35) {
+			return false, fmt.Errorf("act: поднятое проломом не вернуть — стою на его месте (%.2f, %.2f)", q.Position.X, q.Position.Y)
+		}
+	}
+	for i := len(set) - 1; i >= 0; i-- {
+		o := set[i]
+		es, err := h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction)
+		if err != nil {
+			// без %w: «не дошёл» при возврате — не мягкая ошибка ходьбы, постройка пропала бы
+			return false, fmt.Errorf("act: поднятое проломом %s в (%.1f, %.1f) не вернул: %v", o.Name, o.Pos.X, o.Pos.Y, err)
+		}
+		if err := h.restore(ctx, es, sets[i], ins[i]); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// breachPast — куда пройти за поднятым проломом (рамки boxes) по пути route: после ближайшего к
+// поднятому места — первая точка не ближе тайла к рамкам, где можно стоять (standable: не на
+// ленте — лента сносит, и сходил с неё в дыру от поднятого: стадия 30 на 24996062, бур 3×3 над
+// лентой; было — 2.5 от центра, у бура это край ленты). Нет такой — target.
+func breachPast(route []bridge.Pos, boxes []bridge.Box, standable func(bridge.Pos) bool, target bridge.Pos) bridge.Pos {
 	var pts []bridge.Pos
-	for i := 1; i < len(route.Points); i++ {
-		a, b := route.Points[i-1], route.Points[i]
+	for i := 1; i < len(route); i++ {
+		a, b := route[i-1], route[i]
 		n := int(dist(a, b)/0.25) + 1
 		for k := 1; k <= n; k++ {
 			f := float64(k) / float64(n)
@@ -1559,8 +1599,10 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 	}
 	near := func(q bridge.Pos) float64 {
 		d := math.Inf(1)
-		for _, o := range set {
-			d = math.Min(d, dist(q, o.Pos))
+		for _, b := range boxes {
+			dx := math.Max(0, math.Max(b.LeftTop.X-q.X, q.X-b.RightBottom.X))
+			dy := math.Max(0, math.Max(b.LeftTop.Y-q.Y, q.Y-b.RightBottom.Y))
+			d = math.Min(d, math.Hypot(dx, dy))
 		}
 		return d
 	}
@@ -1570,27 +1612,12 @@ func (h *Hands) breach(ctx context.Context, target bridge.Pos, enough float64) (
 			closest = i
 		}
 	}
-	past := target
-	for _, q := range pts[closest:] {
-		if near(q) >= 2.5 {
-			past = q
-			break
+	for _, q := range pts[min(closest, len(pts)):] {
+		if near(q) >= 1 && standable(q) {
+			return q
 		}
 	}
-	if err := h.followPath(ctx, past, 0.5); err != nil && !errors.Is(err, world.ErrNoPath) {
-		return false, err
-	}
-	for i := len(set) - 1; i >= 0; i-- {
-		o := set[i]
-		es, err := h.PlaceAll(ctx, h.Protos.ItemFor(o.Name), []bridge.Pos{o.Pos}, o.Direction)
-		if err != nil {
-			return false, err
-		}
-		if err := h.restore(ctx, es, sets[i], ins[i]); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
+	return target
 }
 
 // beltClearance — расстояние от q до ближайшего тайла ленты (до 2: дальше — 2).
@@ -1625,7 +1652,7 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 	for dy := -4.0; dy <= 4; dy += 0.25 {
 		for dx := -4.0; dx <= 4; dx += 0.25 {
 			q := bridge.Pos{X: x0 + dx, Y: y0 + dy}
-			if h.World.Standable(q) {
+			if h.World.Standable(q) && !inAny(q, h.lifted, 0.35) {
 				d := dist(from, q)
 				if h.goal != nil { // идём к цели — сходить в её сторону, а не куда ближе
 					d += dist(q, *h.goal)

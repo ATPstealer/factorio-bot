@@ -195,3 +195,20 @@ func TestTierUpOnlyUp(t *testing.T) {
 		}
 	}
 }
+
+// Точка за поднятым проломом (стадия 30 на 24996062): бур 3×3 (x −1…2, y 1…4), под ним вплотную
+// лента (y 4…5, стоять нельзя), путь — сверху через место бура и ленту вниз. Точка — за лентой,
+// не на ней и не на месте бура (было — 2.5 от центра: край ленты, снесло в дыру от бура).
+func TestBreachPast(t *testing.T) {
+	route := []bridge.Pos{{X: 0.5, Y: 0.5}, {X: 0.5, Y: 7.5}}
+	boxes := []bridge.Box{{LeftTop: bridge.Pos{X: -1, Y: 1}, RightBottom: bridge.Pos{X: 2, Y: 4}}}
+	standable := func(q bridge.Pos) bool { return q.Y < 3.75 || q.Y > 5.25 }
+	got := breachPast(route, boxes, standable, bridge.Pos{X: 9, Y: 9})
+	if got.Y <= 5.25 || got.Y > 6 {
+		t.Errorf("точка за поднятым %v: ждал сразу за лентой (y 5.25…6)", got)
+	}
+	// по пути стоять негде — к цели
+	if got := breachPast(route, boxes, func(bridge.Pos) bool { return false }, bridge.Pos{X: 9, Y: 9}); got != (bridge.Pos{X: 9, Y: 9}) {
+		t.Errorf("стоять негде: %v, ждал цель", got)
+	}
+}
