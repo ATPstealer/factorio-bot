@@ -247,7 +247,15 @@ func Do(ctx context.Context, h *act.Hands, n int) (err error) {
 		go watchLaunch(ctx, h, stopWork)
 		defer func() {
 			if err != nil && errors.Is(context.Cause(ctx), errLaunched) {
-				if err = s.Check(h); err == nil {
+				// событие запуска — раньше счёта запусков у силы: проверка через 0.1 с — «ракета
+				// не запущена», повтор (стадия 68 на 24996062) — ждать счёта до минуты
+				for k := 0; k < 12; k++ {
+					if err = s.Check(h); err == nil {
+						break
+					}
+					time.Sleep(5 * time.Second)
+				}
+				if err == nil {
 					h.Say("стадия %d выполнена: ракета улетела", n)
 				}
 			}
