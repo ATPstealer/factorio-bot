@@ -40,7 +40,7 @@ func runSmelting(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	// пластины дошли до буферов выхода
-	deadline := time.Now().Add(6 * time.Minute)
+	deadline := time.Now().Add(beltWait(list, 6*time.Minute))
 	for checkSmelting(h) != nil && time.Now().Before(deadline) {
 		if err := sleepCtx(ctx, 10*time.Second); err != nil {
 			return err

@@ -35,7 +35,7 @@ func runBusPlates(ctx context.Context, h *act.Hands) error {
 		return err
 	}
 	// пластины дошли до концов своих лент
-	deadline := time.Now().Add(8 * time.Minute)
+	deadline := time.Now().Add(beltWait(list, 8*time.Minute))
 	for checkBusPlates(h) != nil && time.Now().Before(deadline) {
 		if err := sleepCtx(ctx, 10*time.Second); err != nil {
 			return err

@@ -84,7 +84,7 @@ func runCoal(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	// уголь дошёл до бойлера
-	deadline := time.Now().Add(3 * time.Minute)
+	deadline := time.Now().Add(beltWait(list, 3*time.Minute))
 	for checkCoal(h) != nil && time.Now().Before(deadline) {
 		if err := sleepCtx(ctx, 5*time.Second); err != nil {
 			return err
