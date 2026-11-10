@@ -3,8 +3,10 @@ package stage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"factorio-bot/internal/act"
@@ -21,8 +23,9 @@ import (
 const (
 	prodModule = "productivity-module"
 	launchPoll = 30 * time.Second
-	// fastBatch — лент за раз между проверками «не запущена ли»
-	fastBatch = 200
+	// fastBatch — лент за раз между проверками «не запущена ли» и «не пора ли к шахте» (200 — 7+
+	// минут: отсчёт начинался за 3 минуты вместо 10; рвать пачку посреди замены нельзя — разрыв ленты)
+	fastBatch = 50
 )
 
 // fastTier — быстрая лента, подземка, делитель вместо обычных.
@@ -84,10 +87,169 @@ func watchLaunch(ctx context.Context, h *act.Hands, stop context.CancelCauseFunc
 	}
 }
 
+// rocketParts — частей на ракету (прототип rocket-silo, 2.1: 100).
+const rocketParts = 100
+
+// countdownAt — до запуска столько — дела бросить, к шахте и отсчёт (stages.md, стадия 68).
+const countdownAt = 10 * time.Minute
+
+// launchClock — оценка времени до запуска по частям ракеты в шахте: прирост за последние 10 минут.
+// Замеры — в фоне (runLaunch), читает — стадия.
+type launchClock struct {
+	mu      sync.Mutex
+	samples []partSample
+	built   bool // ракета собрана: шахта не строит (части при этом обнуляются — 100 не увидеть)
+}
+
+// sample — замер шахты s: части и состояние.
+func (c *launchClock) sample(h *act.Hands, s layout.Placement) {
+	st, err := h.B.GetEntity(s.Name, s.Pos)
+	if err != nil || st == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.add(time.Now(), st.RocketParts)
+	c.built = st.SiloStatus != "" && st.SiloStatus != "building_rocket"
+}
+
+// soon — до запуска не больше countdownAt (или ракета собрана).
+func (c *launchClock) soon() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	eta, ok := c.eta()
+	return c.built || ok && eta <= countdownAt
+}
+
+type partSample struct {
+	at    time.Time
+	parts int
+}
+
+// add — замер: частей в шахте parts в момент at (частей стало меньше — ракета ушла, замеры
+// заново).
+func (c *launchClock) add(at time.Time, parts int) {
+	if n := len(c.samples); n > 0 && parts < c.samples[n-1].parts {
+		c.samples = nil
+	}
+	c.samples = append(c.samples, partSample{at, parts})
+	for len(c.samples) > 2 && at.Sub(c.samples[0].at) > 10*time.Minute {
+		c.samples = c.samples[1:]
+	}
+}
+
+// eta — сколько до запуска (ракета собрана — 0); false — не оценить: замеров меньше минуты или
+// части не прибывают.
+func (c *launchClock) eta() (time.Duration, bool) {
+	n := len(c.samples)
+	if n == 0 {
+		return 0, false
+	}
+	first, last := c.samples[0], c.samples[n-1]
+	if last.parts >= rocketParts {
+		return 0, true
+	}
+	dt, dp := last.at.Sub(first.at), last.parts-first.parts
+	if dt < time.Minute || dp <= 0 {
+		return 0, false
+	}
+	return time.Duration(float64(rocketParts-last.parts) * float64(dt) / float64(dp)), true
+}
+
+// launchSoon — до запуска не больше countdownAt (runLaunch: дела — бросить); nil — не стадия 68.
+var launchSoon func() bool
+
+// silo — ракетная шахта плана.
+func silo() (layout.Placement, bool) {
+	plan, err := LoadPlan()
+	if err != nil {
+		return layout.Placement{}, false
+	}
+	for _, pl := range plan.Layout {
+		if pl.Name == "rocket-silo" {
+			return pl, true
+		}
+	}
+	return layout.Placement{}, false
+}
+
+// inMinutes — «~N мин» (вверх) или «меньше минуты».
+func inMinutes(d time.Duration) string {
+	if d < time.Minute {
+		return "меньше минуты"
+	}
+	return fmt.Sprintf("~%d мин", int((d+time.Minute-1)/time.Minute))
+}
+
+// countdown — до запуска ~10 минут (stages.md, стадия 68, просьба пользователя): сказать, встать
+// вплотную к шахте (камера — над ней), раз в минуту — сколько осталось. Запуск — дело отменяет
+// watchLaunch (после — ничего не нажимать).
+func countdown(ctx context.Context, h *act.Hands, s layout.Placement, clock *launchClock) error {
+	// left — что сказать: ракета собрана — "", иначе «~N мин» (не оценить — ok false)
+	left := func() (string, bool, bool) {
+		clock.mu.Lock()
+		defer clock.mu.Unlock()
+		eta, ok := clock.eta()
+		return inMinutes(eta), ok, clock.built
+	}
+	if txt, ok, built := left(); built {
+		h.Say("ракета собрана — иду к ракетной шахте")
+	} else if ok {
+		h.Say("до запуска ракеты %s — иду к ракетной шахте", txt)
+	}
+	if e, err := h.B.EntityAt(s.Name, s.Pos); err == nil && e != nil {
+		if err := h.WalkNear(ctx, *e, 1); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			h.Say("к ракетной шахте не дошёл: %v", err)
+		}
+	}
+	said, ready := time.Time{}, false
+	for {
+		if ok, err := launched(h); err != nil || ok {
+			return err
+		}
+		txt, ok, built := left()
+		switch {
+		case built && !ready:
+			h.Say("ракета собрана — старт!")
+			ready = true
+		case !built && ok && time.Since(said) >= time.Minute:
+			h.Say("до запуска ракеты %s", txt)
+			said = time.Now()
+		}
+		if err := sleepCtx(ctx, 5*time.Second); err != nil {
+			return err
+		}
+	}
+}
+
 func runLaunch(ctx context.Context, h *act.Hands) error {
+	s, haveSilo := silo()
+	clock := &launchClock{}
+	if haveSilo { // замеры шахты — в фоне с начала стадии: отсчёт — вовремя, не между делами
+		sctx, stop := context.WithCancel(ctx)
+		defer stop()
+		go func() {
+			for {
+				clock.sample(h, s)
+				select {
+				case <-sctx.Done():
+					return
+				case <-time.After(20 * time.Second):
+				}
+			}
+		}()
+	}
+	launchSoon = func() bool { return haveSilo && clock.soon() }
+	defer func() { launchSoon = nil }()
 	for _, step := range []func(context.Context, *act.Hands) error{fillModules, fastBelts} {
 		if ok, err := launched(h); err != nil || ok {
 			return err
+		}
+		if launchSoon() {
+			return countdown(ctx, h, s, clock)
 		}
 		// пока ждём — по делу, а не критерий: не вышло — сказать и ждать дальше (стадия 68 на
 		// 1098794301: «не сойти с ленты» на быстрых лентах ронял стадию — игра стояла, ракета
@@ -103,6 +265,9 @@ func runLaunch(ctx context.Context, h *act.Hands) error {
 	for {
 		if ok, err := launched(h); err != nil || ok {
 			return err
+		}
+		if launchSoon() {
+			return countdown(ctx, h, s, clock)
 		}
 		if err := sleepCtx(ctx, launchPoll); err != nil {
 			return err
@@ -225,6 +390,9 @@ func fastBelts(ctx context.Context, h *act.Hands) error {
 		for from := 0; from < len(idx); from += fastBatch {
 			if ok, err := launched(h); err != nil || ok {
 				return err
+			}
+			if launchSoon != nil && launchSoon() { // до запуска ~10 минут — к шахте (runLaunch)
+				return nil
 			}
 			batch := idx[from:min(from+fastBatch, len(idx))]
 			list := make([]layout.Placement, len(batch))
