@@ -1532,12 +1532,26 @@ func TestPlaceBesideSelf(t *testing.T) {
 	// точнее ~0.15 не обещает (допуск 0.1 — «не дошёл» на подготовке, по просьбе пользователя
 	// подготовка — с допуском 0.3 и до трёх подходов, не встал как надо — пропуск)
 	gap := func(p bridge.Pos) float64 { return math.Max(math.Abs(p.X-pole.X), math.Abs(p.Y-pole.Y)) }
+	// где встал — когда персонаж остановился: после доводки его ещё несёт (под загрузкой тормозной
+	// путь до 2 тайлов; на 46082668-0 «сходил» на 0.44 без ходьбы — просьба пользователя)
+	still := func() bridge.Player {
+		var last bridge.Player
+		for i := 0; i < 25; i++ {
+			q, _ := h.B.Player()
+			if i > 0 && dist(q.Position, last.Position) < 1e-6 && (q.Character == nil || !q.Character.Walking) {
+				return q
+			}
+			last = q
+			time.Sleep(200 * time.Millisecond)
+		}
+		return last
+	}
 	var p0 bridge.Player
 	for try := 0; try < 3; try++ {
 		if err := h.WalkTo(ctx, stand, 0.3); err != nil && !errors.Is(err, act.ErrNotReached) {
 			t.Fatal(err)
 		}
-		p0, _ = h.B.Player()
+		p0 = still()
 		if g := gap(p0.Position); g > 0.37 && g < 0.49 {
 			break
 		}
