@@ -187,7 +187,10 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 	c := fp.Center()
 	// и цель на экране кликабельна — не под панелью (клик в быструю панель брал из неё ленты в
 	// руку вместо подземки — TestPlaceUndergroundAfterTurn, «не встало: в руке transport-belt»)
-	if !inBox(p.Position, fp, 0.35) && !inAny(p.Position, avoid, 0.35) && dist(p.Position, c) < reach && h.clickable(p, p.Position, c) { // рамка персонажа ±0.2 + задержка
+	from := func(q bridge.Player, reach float64) bool {
+		return !inBox(q.Position, fp, 0.35) && !inAny(q.Position, avoid, 0.35) && dist(q.Position, c) < reach && h.clickable(q, q.Position, c) // рамка персонажа ±0.2 + задержка
+	}
+	if from(p, reach) {
 		return nil
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
@@ -205,7 +208,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 			{h.World.Roomy, 6},
 			{func(bridge.Pos) bool { return true }, 4},
 		}
-		for _, lv := range levels {
+		for li, lv := range levels {
 			for _, r := range []float64{1.5, 2.5, 4, 6, 7.5} {
 				if r > lv.maxR {
 					break
@@ -224,19 +227,70 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 					break
 				}
 			}
+			// не у ленты и просторно — узкое место (столбец в тайл между лентами) кольца с шагом π/8
+			// пропускают: сеткой (стадия 59 на 778631482: такое было в 6 тайлах, встал в карман)
+			if math.IsInf(best, 1) && li == 0 {
+				if q, ok := h.fineStand(p, c, fp, avoid, reach); ok {
+					best, spot = 0, q
+				}
+			}
 			if !math.IsInf(best, 1) {
 				break
 			}
 		}
 	}
+	h.standOK = func(q bridge.Player) bool { return from(q, reach) } // встал не у ленты там, откуда ставится, — дошёл
 	err = h.WalkTo(ctx, spot, 0.5)
+	h.standOK = nil
 	if errors.Is(err, ErrNotReached) {
 		// не дошёл до точки, но и отсюда ставится — не ошибка
-		if q, perr := h.B.Player(); perr == nil && !inBox(q.Position, fp, 0.35) && !inAny(q.Position, avoid, 0.35) && dist(q.Position, c) < buildReach && h.clickable(q, q.Position, c) {
+		if q, perr := h.B.Player(); perr == nil && from(q, buildReach) {
 			return nil
 		}
 	}
 	return err
+}
+
+// fineStand — точка не у ленты и просторная ближе reach-0.5 к c, не на площадках fp и avoid,
+// откуда цель кликабельна, — сеткой в четверть тайла от центра тайла; ближняя к персонажу.
+func (h *Hands) fineStand(p bridge.Player, c bridge.Pos, fp bridge.Box, avoid []bridge.Box, reach float64) (bridge.Pos, bool) {
+	// ленты вокруг — один раз (nearBelt на каждой точке сетки — тысячи поисков объектов)
+	belt := map[world.Tile]bool{}
+	for _, o := range h.World.ObjectsNear(c, reach+3) {
+		switch o.Type {
+		case "transport-belt", "underground-belt":
+			belt[world.TileOf(o.Pos)] = true
+		case "splitter": // 2 тайла поперёк хода
+			dx, dy := 0.5, 0.0
+			if o.Direction == East || o.Direction == West {
+				dx, dy = 0, 0.5
+			}
+			belt[world.TileOf(bridge.Pos{X: o.Pos.X - dx, Y: o.Pos.Y - dy})] = true
+			belt[world.TileOf(bridge.Pos{X: o.Pos.X + dx, Y: o.Pos.Y + dy})] = true
+		}
+	}
+	near := func(q bridge.Pos) bool { // как nearBelt
+		for _, d := range [][2]float64{{1.3, 0}, {-1.3, 0}, {0, 1.3}, {0, -1.3}, {0.9, 0.9}, {-0.9, 0.9}, {0.9, -0.9}, {-0.9, -0.9}} {
+			if belt[world.TileOf(bridge.Pos{X: q.X + d[0], Y: q.Y + d[1]})] {
+				return true
+			}
+		}
+		return false
+	}
+	r := reach - 0.5
+	c0 := bridge.Pos{X: math.Floor(c.X) + 0.5, Y: math.Floor(c.Y) + 0.5}
+	best, spot := math.Inf(1), bridge.Pos{}
+	for dy := -math.Ceil(r); dy <= math.Ceil(r); dy += 0.25 {
+		for dx := -math.Ceil(r); dx <= math.Ceil(r); dx += 0.25 {
+			q := bridge.Pos{X: c0.X + dx, Y: c0.Y + dy}
+			d := dist(p.Position, q)
+			if d >= best || dist(q, c) > r || inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || near(q) || !h.World.Roomy(q) || !h.clickable(p, q, c) {
+				continue
+			}
+			best, spot = d, q
+		}
+	}
+	return spot, !math.IsInf(best, 1)
 }
 
 // Place ставит постройку из предмета item центром в pos и поворачивает в dir.

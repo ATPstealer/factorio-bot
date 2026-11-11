@@ -1408,6 +1408,115 @@ func TestPlaceUndergroundInBeltCorridor(t *testing.T) {
 	clean(t, h)
 }
 
+// Поставить в шину, где встать можно только в карман между лентами (стадия 59 на 778631482: «не
+// дошёл до (477.5, -834.5): стою в (475.42, -832.98)» — шина в 20 с лишним рядов, свободные тайлы
+// между рядами — карманы среди лент и подземок; доводка 78 с, лента сносила раз за разом, встал на
+// место подземки; просторное место не у ленты было — узкое, в 6 тайлах). Место — свободный тайл
+// между лентами, в досягаемости (8.5) от которого стоять просторно и не у ленты можно на площади не
+// больше тайла (сетка в четверть тайла — до 16 точек); персонаж приходит издалека. Нет такого —
+// пропуск.
+func TestPlaceInCrowdedBus(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	belt := map[world.Tile]bool{}
+	for _, o := range h.World.Objects() {
+		switch o.Type {
+		case "transport-belt", "underground-belt":
+			belt[world.TileOf(o.Pos)] = true
+		case "splitter": // 2 тайла поперёк хода
+			dx, dy := 0.5, 0.0
+			if o.Direction == act.East || o.Direction == act.West {
+				dx, dy = 0, 0.5
+			}
+			belt[world.TileOf(bridge.Pos{X: o.Pos.X - dx, Y: o.Pos.Y - dy})] = true
+			belt[world.TileOf(bridge.Pos{X: o.Pos.X + dx, Y: o.Pos.Y + dy})] = true
+		}
+	}
+	// у ленты — как у бота: лента в 1.3 по осям или 0.9 по диагоналям
+	nearBelt := func(q bridge.Pos) bool {
+		for _, d := range [][2]float64{{1.3, 0}, {-1.3, 0}, {0, 1.3}, {0, -1.3}, {0.9, 0.9}, {-0.9, 0.9}, {0.9, -0.9}, {-0.9, -0.9}} {
+			if belt[world.TileOf(bridge.Pos{X: q.X + d[0], Y: q.Y + d[1]})] {
+				return true
+			}
+		}
+		return false
+	}
+	crowded := func(c bridge.Pos) bool {
+		n := 0
+		for dy := -8.5; dy <= 8.5; dy += 0.25 {
+			for dx := -8.5; dx <= 8.5; dx += 0.25 {
+				q := bridge.Pos{X: c.X + dx, Y: c.Y + dy}
+				if dist(q, c) <= 8.5 && !nearBelt(q) && h.World.Roomy(q) {
+					if n++; n > 16 {
+						return false
+					}
+				}
+			}
+		}
+		return true
+	}
+	var cands []bridge.Pos
+	seen := map[world.Tile]bool{}
+	for bt := range belt {
+		for _, d := range [][2]int{{0, 1}, {0, -1}, {1, 0}, {-1, 0}} {
+			tl := world.Tile{X: bt.X + d[0], Y: bt.Y + d[1]}
+			if seen[tl] || belt[tl] {
+				continue
+			}
+			seen[tl] = true
+			// между лентами: ленты по обе стороны по одной из осей
+			between := belt[world.Tile{X: tl.X, Y: tl.Y - 1}] && belt[world.Tile{X: tl.X, Y: tl.Y + 1}] ||
+				belt[world.Tile{X: tl.X - 1, Y: tl.Y}] && belt[world.Tile{X: tl.X + 1, Y: tl.Y}]
+			if ok, clear := h.World.Buildable(tl); between && ok && !clear {
+				cands = append(cands, bridge.Pos{X: float64(tl.X) + 0.5, Y: float64(tl.Y) + 0.5})
+			}
+		}
+	}
+	// три места подряд, каждое — в 12+ тайлах от персонажа и в 10+ от прошлых; встать и поставить —
+	// быстро: на стадии 59 доводка шла 78 с (и не довела), тест на старом коде — 43 с
+	have(t, h, "iron-chest", 3)
+	var done []bridge.Pos
+	for k := 0; k < 3; k++ {
+		if _, err := h.World.Sync(h.B, false); err != nil {
+			t.Fatal(err)
+		}
+		p0, _ := h.B.Player()
+		sort.Slice(cands, func(i, j int) bool { return dist(cands[i], p0.Position) < dist(cands[j], p0.Position) })
+		target, found := bridge.Pos{}, false
+		for _, c := range cands {
+			far := dist(c, p0.Position) >= 12 && !slices.ContainsFunc(done, func(d bridge.Pos) bool { return dist(c, d) < 10 })
+			if ok, _ := h.World.Buildable(world.TileOf(c)); far && ok && crowded(c) {
+				target, found = c, true
+				break
+			}
+		}
+		if !found {
+			if k == 0 {
+				t.Skip("нет места в шине, где встать можно только между лентами")
+			}
+			break
+		}
+		d := dist(target, p0.Position)
+		limit := 20*time.Second + time.Duration(d/5*float64(time.Second))
+		t.Logf("место %d: (%.1f, %.1f), персонаж в %.0f тайлах, лимит %v", k+1, target.X, target.Y, d, limit)
+		ctx := ctxT(t, 6*time.Minute)
+		t0 := time.Now()
+		e, err := h.Place(ctx, "iron-chest", target, act.North)
+		if err != nil {
+			t.Fatalf("сундук %d в тесной шине: %v", k+1, err)
+		}
+		if took := time.Since(t0); took > limit {
+			t.Errorf("сундук %d: %v, лимит %v", k+1, took.Round(time.Second), limit)
+		}
+		if got, err := h.B.EntityAt(e.Name, e.Position); err != nil || got == nil {
+			t.Errorf("сундук %d не стоит (%v)", k+1, err)
+		}
+		done = append(done, target)
+	}
+}
+
 // TestPlacePipeToGroundChain — трасса подземных труб: пары вплотную друг к другу, как у трассы
 // нефти (стадия 34 на 427965634: 182 из 188 подземных труб «встал не тем направлением —
 // переставляю», по три подбора на каждую). Все встают своим направлением, без перестановок.

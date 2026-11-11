@@ -69,6 +69,11 @@ type Hands struct {
 	// lifted — места поднятого проломом до возврата: с ленты на них не сходить (стадия 30 на
 	// 24996062: снесло лентой, сошёл в дыру от бура — поставить его оттуда нельзя)
 	lifted []bridge.Box
+	// standOK — ходьба к месту стоянки (standWithin): персонаж встал не у ленты там, откуда дело
+	// делается, — дошёл, хоть и не до точки (точка в кармане между лентами: доводка сносила
+	// лентой 78 с и не довела — стадия 59 на 778631482, TestPlaceInCrowdedBus). WalkTo забирает
+	// его себе: вложенная ходьба (пролом, выход из кольца) — без него.
+	standOK func(bridge.Player) bool
 	// mining — что сейчас добывает Mine выше по цепочке вызовов: второй раз — нет (сухое дерево
 	// под кроной tree-05: рубить сначала tree-05, путь к нему рубит по дороге то же сухое дерево —
 	// снова под кроной, снова к tree-05… 479 уровней за 80 мин, стадия 22 на 635406131)
@@ -201,6 +206,8 @@ const brakeDist = 1.0
 // С моделью мира (Hands.World) — по пути A* в обход воды и препятствий, иначе по прямой.
 // По возвращении персонаж стоит.
 func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) error {
+	standOK := h.standOK
+	h.standOK = nil
 	if err := h.guard(ctx); err != nil {
 		return err
 	}
@@ -384,7 +391,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 		}
 	}
 	t2 := time.Now()
-	err := h.approach(ctx, target, stop)
+	err := h.approach(ctx, target, stop, standOK)
 	h.Log("ходьба: маршрут %.1f с, остановка %.1f с, доводка %.1f с; тормозной путь %.2f", t1.Sub(t0).Seconds(), t2.Sub(t1).Seconds(), time.Since(t2).Seconds(), h.slide())
 	if errors.Is(err, ErrNotReached) && target != goal {
 		// к сдвинутой цели — точнее, но годится и исходный допуск от исходной цели
@@ -771,10 +778,18 @@ func (h *Hands) treeAhead(at bridge.Pos, ahead map[string]bool) (world.Object, b
 
 // approach — доводка короткими нажатиями с остановкой после каждого. Длительность
 // нажатия адаптивная: слишком короткое игра может не заметить (ввод читается раз в тик),
-// слишком длинное — перелёт.
-func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64) error {
+// слишком длинное — перелёт. ok (не nil) — встал не у ленты там, где ok, — дошёл (standOK).
+func (h *Hands) approach(ctx context.Context, target bridge.Pos, stop float64, ok func(bridge.Player) bool) error {
 	pulse := 40 * time.Millisecond
 	for i := 0; i < 15; i++ {
+		if ok != nil {
+			if err := h.waitStill(ctx); err != nil { // с ленты сходит сам
+				return err
+			}
+			if q, err := h.B.Player(); err == nil && (h.World == nil || !h.World.TouchesBelt(q.Position)) && ok(q) {
+				return nil
+			}
+		}
 		p, err := h.B.Player()
 		if err != nil {
 			return err
