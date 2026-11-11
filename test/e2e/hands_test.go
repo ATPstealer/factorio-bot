@@ -1528,12 +1528,21 @@ func TestPlaceBesideSelf(t *testing.T) {
 	tl := world.TileOf(c)
 	pole := tl.Center()
 	stand := bridge.Pos{X: pole.X + 0.43, Y: pole.Y}
-	if err := h.WalkTo(ctx, stand, 0.1); err != nil {
-		t.Fatal(err)
+	// рамки персонажа (±0.2) и столба (±0.15) не касаются, но до рамки столба — меньше 0.35; ходьба
+	// точнее ~0.15 не обещает (допуск 0.1 — «не дошёл» на подготовке, по просьбе пользователя
+	// подготовка — с допуском 0.3 и до трёх подходов, не встал как надо — пропуск)
+	gap := func(p bridge.Pos) float64 { return math.Max(math.Abs(p.X-pole.X), math.Abs(p.Y-pole.Y)) }
+	var p0 bridge.Player
+	for try := 0; try < 3; try++ {
+		if err := h.WalkTo(ctx, stand, 0.3); err != nil && !errors.Is(err, act.ErrNotReached) {
+			t.Fatal(err)
+		}
+		p0, _ = h.B.Player()
+		if g := gap(p0.Position); g > 0.37 && g < 0.49 {
+			break
+		}
 	}
-	p0, _ := h.B.Player()
-	// рамки персонажа (±0.2) и столба (±0.15) не касаются, но до рамки столба — меньше 0.35
-	if g := math.Max(math.Abs(p0.Position.X-pole.X), math.Abs(p0.Position.Y-pole.Y)); g <= 0.37 || g >= 0.49 {
+	if g := gap(p0.Position); g <= 0.37 || g >= 0.49 {
 		t.Skipf("встал в %.2f от центра столба — случая нет", g)
 	}
 	if _, err := h.Place(ctx, "small-electric-pole", pole, act.North); err != nil {
