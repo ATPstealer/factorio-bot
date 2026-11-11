@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -94,6 +95,77 @@ func working(names ...string) func(h *act.Hands, list []layout.Placement) error 
 			return fmt.Errorf("%s не работают: %v; не хватает: %v", strings.Join(names, "/"), seen, short)
 		}
 		return fmt.Errorf("%s не работают: %v", strings.Join(names, "/"), seen)
+	}
+}
+
+// recipesWork — у каждого рецепта машин стадии хоть одна машина работала за ожидание (stages.md,
+// «Проверка по факту работы»): статус «работает» или «выход полон», или вырос прогресс крафта.
+// Одной работающей машины стадии мало — рецепт без входа за ней не виден (стадия 52 на 189715922:
+// работал крекинг лёгкого, тяжёлого масла крекингу не было — ракета встала на 68 через 8 ч).
+// Своя на каждое ожидание: помнит, что уже работало.
+func recipesWork() func(h *act.Hands, list []layout.Placement) error {
+	worked := map[string]bool{}
+	progress := map[bridge.Pos]float64{}
+	return func(h *act.Hands, list []layout.Placement) error {
+		var refs []bridge.EntityRef
+		var recs []string
+		for _, pl := range list {
+			switch h.Protos.Entities[pl.Name].Type {
+			case "assembling-machine", "furnace", "rocket-silo":
+			default:
+				continue
+			}
+			if pl.Recipe != "" && !worked[pl.Recipe] {
+				refs = append(refs, bridge.EntityRef{Name: pl.Name, Position: pl.Pos})
+				recs = append(recs, pl.Recipe)
+			}
+		}
+		if len(refs) == 0 {
+			return nil
+		}
+		sts, err := h.B.GetEntities(refs)
+		if err != nil {
+			return err
+		}
+		seen := map[string]map[string]int{}  // рецепт → статус → машин
+		short := map[string]map[string]int{} // рецепт → ингредиент → у скольких машин его нет
+		for i, st := range sts {
+			r := recs[i]
+			if st == nil || worked[r] {
+				continue
+			}
+			pos := refs[i].Position
+			last, had := progress[pos]
+			progress[pos] = st.CraftingProgress
+			if st.Status == "working" || st.Status == "full_output" || had && st.CraftingProgress != last {
+				worked[r] = true
+				continue
+			}
+			if seen[r] == nil {
+				seen[r], short[r] = map[string]int{}, map[string]int{}
+			}
+			seen[r][st.Status]++
+			if rp, ok := h.Protos.Recipes[r]; ok && (strings.HasSuffix(st.Status, "ingredient_shortage") || st.Status == "no_ingredients") {
+				for _, it := range shortOf(rp, st) {
+					short[r][it]++
+				}
+			}
+		}
+		var bad []string
+		for _, r := range slices.Sorted(maps.Keys(seen)) {
+			if worked[r] {
+				continue
+			}
+			s := fmt.Sprintf("%s %v", r, seen[r])
+			if len(short[r]) > 0 {
+				s += fmt.Sprintf(", не хватает %v", short[r])
+			}
+			bad = append(bad, s)
+		}
+		if len(bad) == 0 {
+			return nil
+		}
+		return fmt.Errorf("не работают рецепты: %s", strings.Join(bad, "; "))
 	}
 }
 
@@ -237,7 +309,8 @@ func (s blueStage) run(ctx context.Context, h *act.Hands) error {
 		}
 	}
 	if s.fact != nil {
-		if err := waitFact(ctx, h, list, s.fact); err != nil {
+		// и каждый рецепт машин стадии — не одна машина на всю стадию (stages.md)
+		if err := waitFact(ctx, h, list, allOf(recipesWork(), s.fact)); err != nil {
 			return fmt.Errorf("%s: по факту не работает за %v: %w", s.name, factWait, err)
 		}
 		h.Say("%s: по факту работает", s.name)
