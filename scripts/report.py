@@ -42,6 +42,9 @@ def procs():
             res.setdefault(n, []).append("bot " + " ".join(a for a in args[1:] if not a.startswith("-")))
         elif any(a.endswith("scripts/stage.sh") for a in args):
             res.setdefault(n, []).append("stage.sh " + " ".join(args[args.index(next(a for a in args if a.endswith("stage.sh"))) + 1:]))
+        elif any(a.endswith("scripts/fullrun.sh") for a in args):
+            # между стадиями бот не запущен: fullrun ждёт автосейва для снимка
+            res.setdefault(n, []).append("fullrun.sh (между стадиями: снимок из автосейва)")
         elif any(a.endswith("scripts/test.sh") for a in args):
             res.setdefault(n, []).append("test.sh " + " ".join(args[-1:]))
     return res
