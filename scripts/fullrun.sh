@@ -13,6 +13,10 @@
 #   LIMIT=мин, RETRIES=2                  — как у stage.sh: лимит стадии (150, разведка — 1080);
 #                                           стройка (с 10) упала — повтор: первый — на той же игре,
 #                                           второй — игра поднимается заново на сохранении
+#   EXPLORE=мин                           — лимит разведки (стадия 1; LIMIT или 1080). Карта
+#                                           случайная (без СИД) и база не легла (стадия 1 или 2 не
+#                                           прошла) — разведка сохраняется (снимок <сид>-1 в
+#                                           explored, run/worlds/<сид>.gob), берётся новая карта
 # Пустые стадии (3–9, резерв) — без игры: снимок прошлой копируется. Ракета улетела — дальше
 # игра не трогается (экран победы), снимки — копии. В конце игра не останавливается (и при
 # неудаче: видно, где встало); остановить — INST=N scripts/stop.sh.
@@ -65,6 +69,8 @@ copy_snap() {
 
 # начало: новая карта, снимок или текущая игра
 go build -o bin/bot ./cmd/bot || exit 1
+random=0 # карта случайная: база не легла — взять другую
+[[ -z $seed && $from == 1 && ${CONT:-0} != 1 ]] && random=1
 if [[ ${CONT:-0} == 1 ]]; then
   [[ -n $seed ]] || seed=$(jq -r .seed "$R/map.json")
   alive || NEW_MAP=0 timeout 600 scripts/newmap.sh > /dev/null || { say "fullrun: игра экземпляра $INST не поднялась"; exit 1; }
@@ -95,7 +101,7 @@ for ((n = from; n <= to; n++)); do
     say "   выполнена: ракета уже улетела (снимок — копия $seed-$((n - 1)))"
     continue
   fi
-  limit=${LIMIT:-$([[ $n == 1 ]] && echo 1080 || echo 150)}
+  if ((n == 1)); then limit=${EXPLORE:-${LIMIT:-1080}}; else limit=${LIMIT:-150}; fi
   [[ ${CONT:-0} == 1 && $n == "$from" ]] && echo "== продолжение $(date +%T)" >> "$log" || : > "$log"
   ok=0
   for ((try = 0; try <= retries; try++)); do
@@ -117,6 +123,22 @@ for ((n = from; n <= to; n++)); do
   done
   if ((!ok)); then
     say "   НЕ выполнена: $(tail -1 "$log" | cut -c17-200)"
+    if ((random && n <= 2)); then
+      # база не легла — разведку сохранить (план без игры, TestPlan), взять другую карту; после
+      # плана (стадия 2) снимок -1 и карта .gob уже есть
+      if ((n == 1)); then
+        timeout 900 bin/bot -t 14m worlddump >> "$log" 2>&1
+        timeout 900 scripts/snapshot.sh save "$seed-1" "сид $seed: разведка за $limit мин, база не легла (fullrun)" > /dev/null 2>> "$log"
+      fi
+      say "== fullrun: сид $seed — база не легла (стадия $n), разведка — снимок $seed-1; новая карта"
+      rm -f "$R"/state*.json
+      NEW_MAP=1 timeout 600 scripts/newmap.sh > /dev/null || { say "fullrun: карта не создалась"; exit 1; }
+      seed=$(jq -r .seed "$R/map.json")
+      say "== fullrun: сид $seed, стадии $from–$to, экземпляр $INST (окно factorio-bot-$INST), $(date '+%F %T')"
+      t_all=$(date +%s)
+      n=0
+      continue
+    fi
     say "== fullrun: стоп на стадии $n; продолжить — CONT=1 FROM=$n scripts/fullrun.sh $seed"
     exit 1
   fi
