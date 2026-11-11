@@ -364,8 +364,8 @@ func prepCheck(ctx context.Context, h *act.Hands, n int, list []layout.Placement
 		hard = append(hard, prepTiles(h, list)...)
 		hard = append(hard, prepReach(h, list)...)
 		hard = append(hard, prepRecipes(h, list)...)
-		prepMaterials(ctx, h, list)
-		prepTime(ctx, h, list)
+		craft := prepMaterials(ctx, h, list)
+		prepTime(ctx, h, list, craft)
 	}
 	// раскладки следующих стадий на бумаге — не здесь: стадия 2 проверяет все стадии до ракеты
 	// (решение пользователя: «вперёд на бумаге» перед 11, 21, … шло ~30 мин без строк в журнале)
@@ -545,8 +545,8 @@ func missing(h *act.Hands, list []layout.Placement) []layout.Placement {
 // prepMaterials — сколько чего поставить против того, что есть (инвентарь, хранение, буферы
 // выхода); недостающее — ручной крафт: сколько на него сырья (пластины, камень, дерево) и
 // времени, и хватит ли сырья с тем, что дадут свои печи за оставшийся лимит. Не хватит —
-// сказать (мягко: руду и камень бот добывает и сам).
-func prepMaterials(ctx context.Context, h *act.Hands, list []layout.Placement) {
+// сказать (мягко: руду и камень бот добывает и сам). Результат — время ручного крафта.
+func prepMaterials(ctx context.Context, h *act.Hands, list []layout.Placement) time.Duration {
 	need := map[string]int{}
 	for _, pl := range missing(h, list) {
 		if it := h.Protos.ItemFor(pl.Name); it != "" {
@@ -559,11 +559,12 @@ func prepMaterials(ctx context.Context, h *act.Hands, list []layout.Placement) {
 	}
 	f, err := h.B.Force()
 	if err != nil {
-		return
+		return 0
 	}
 	av := h.Protos.NewAvailability(f.Researched, false)
 	base := map[string]float64{}
 	secs := 0.0
+	craft := func() time.Duration { return time.Duration(secs * float64(time.Second)) }
 	var lack []string
 	for it, n := range need {
 		d := n - stock[it]
@@ -578,7 +579,7 @@ func prepMaterials(ctx context.Context, h *act.Hands, list []layout.Placement) {
 		secs += hc.Seconds
 	}
 	if len(lack) == 0 {
-		return
+		return 0
 	}
 	sort.Strings(lack)
 	h.Say("проверка: скрафтить по ходу стадии: %s (крафт ~%.0f мин)", strings.Join(lack, ", "), secs/60)
@@ -601,6 +602,7 @@ func prepMaterials(ctx context.Context, h *act.Hands, list []layout.Placement) {
 	if secs > left.Seconds() {
 		h.Say("проверка: ручной крафт (~%.0f мин) дольше лимита (%v)", secs/60, left.Round(time.Minute))
 	}
+	return craft()
 }
 
 // prepBuffers — что лежит в буферах выхода плана кластеров (outBufs).
@@ -645,8 +647,11 @@ func prepSmelting(h *act.Hands) map[string]float64 {
 }
 
 // prepTime — оценка времени стройки (постановка ~2 с, ходьба 8.9 тайла/с между местами вне
-// досягаемости, расчистка ~2.5 с на дерево) против оставшегося лимита: не уложится — сказать.
-func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement) {
+// досягаемости, расчистка ~2.5 с на дерево, ручной крафт craft — prepMaterials) против
+// оставшегося лимита: не уложится — сказать. Крафт — в оценке целиком (стадия 34 на 778631482:
+// трасса нефти — 938 подземных труб и 1002 столба, крафт 67 мин; оценка без него — 2 ч 40 мин,
+// лимит 4 ч мал, шла 4 ч 13 мин).
+func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement, craft time.Duration) {
 	todo := missing(h, list)
 	p, err := h.B.Player()
 	if err != nil {
@@ -661,8 +666,8 @@ func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement) {
 		}
 	}
 	trees := len(obstacles(h, footprint(h, list)))
-	est := time.Duration((float64(len(todo))*2+walk/8.9+float64(trees)*2.5)*1e9) * time.Nanosecond
-	h.Log("проверка: поставить %d, расчистить %d, пройти ~%.0f тайлов — оценка %v", len(todo), trees, walk, est.Round(time.Minute))
+	est := time.Duration((float64(len(todo))*2+walk/8.9+float64(trees)*2.5)*1e9)*time.Nanosecond + craft
+	h.Log("проверка: поставить %d, расчистить %d, пройти ~%.0f тайлов, крафт ~%v — оценка %v", len(todo), trees, walk, craft.Round(time.Minute), est.Round(time.Minute))
 	estimate.Store(int64(est)) // лимит стадии — с запасом от оценки (Do), сразу
 	if lim := est * 3 / 2; Limit > 0 && lim > Limit {
 		h.Say("лимит стадии — %v (полторы оценки %v)", lim.Round(time.Minute), est.Round(time.Minute))
