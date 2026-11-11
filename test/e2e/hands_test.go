@@ -1524,13 +1524,13 @@ func TestPlaceBesideSelf(t *testing.T) {
 	h := handsT(t)
 	have(t, h, "small-electric-pole", 1)
 	c := freeArea(t, h, 6)
-	ctx := ctxT(t, 2*time.Minute)
+	ctx := ctxT(t, 4*time.Minute)
 	tl := world.TileOf(c)
 	pole := tl.Center()
 	stand := bridge.Pos{X: pole.X + 0.43, Y: pole.Y}
 	// рамки персонажа (±0.2) и столба (±0.15) не касаются, но до рамки столба — меньше 0.35; ходьба
 	// точнее ~0.15 не обещает (допуск 0.1 — «не дошёл» на подготовке, по просьбе пользователя
-	// подготовка — с допуском 0.3 и до трёх подходов, не встал как надо — пропуск)
+	// подготовка — с допуском 0.3 и до восьми подходов, не встал как надо — пропуск)
 	gap := func(p bridge.Pos) float64 { return math.Max(math.Abs(p.X-pole.X), math.Abs(p.Y-pole.Y)) }
 	// где встал — когда персонаж остановился: после доводки его ещё несёт (под загрузкой тормозной
 	// путь до 2 тайлов; на 46082668-0 «сходил» на 0.44 без ходьбы — просьба пользователя)
@@ -1546,8 +1546,10 @@ func TestPlaceBesideSelf(t *testing.T) {
 		}
 		return last
 	}
+	// до восьми подходов (просьба пользователя: с остановкой в полосу 0.37–0.49 за три подхода
+	// попадал редко — на 3 картах из 4 пропуск)
 	var p0 bridge.Player
-	for try := 0; try < 3; try++ {
+	for try := 0; try < 8; try++ {
 		if err := h.WalkTo(ctx, stand, 0.3); err != nil && !errors.Is(err, act.ErrNotReached) {
 			t.Fatal(err)
 		}
