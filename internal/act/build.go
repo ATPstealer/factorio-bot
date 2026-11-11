@@ -185,6 +185,34 @@ func inAny(p bridge.Pos, bs []bridge.Box, margin float64) bool {
 	return slices.ContainsFunc(bs, func(b bridge.Box) bool { return inBox(p, b, margin) })
 }
 
+// pocket — из q не выйти (World.Pocket), считая стоящим и ещё не поставленное этим же вызовом
+// (planned): встал между будущими постройками — поставит их вокруг себя и замурует (стадия 36 на
+// 778631482: щель в тайл между НПЗ, трубы по обе стороны — пролом туда-обратно, «не дошёл»).
+// Кроме пролома: поднятое возвращается, стоя за ним, — внутри так и задумано (иначе бот уходил
+// из кармана, куда только что прошёл, — TestPlaceNotWallingSelfIn).
+func (h *Hands) pocket(q bridge.Pos, planned []bridge.Box) bool {
+	if h.breaching {
+		planned = nil
+	}
+	// дальние Pocket не смотрит (пути на 12 тайлов), а трасса бывает в тысячу построек
+	var objs []world.Object
+	for i := range planned {
+		if b := planned[i]; dist(b.Center(), q) < 20 {
+			objs = append(objs, world.Object{Name: "planned", Pos: b.Center(), Own: true, Box: &b})
+		}
+	}
+	res := false
+	h.World.With(objs, func() { res = h.World.Pocket(q) })
+	return res
+}
+
+// walls — поставит planned — из q не выйти (pocket): отсюда не ставить. И когда по модели уже не
+// выйти: щель в 0.5 тайла у столба в игре проходима, в модели — нет (TestPlaceNotWallingSelfIn:
+// вошёл в щель мимо столба, ставил трубу в торец изнутри).
+func (h *Hands) walls(q bridge.Pos, planned []bridge.Box) bool {
+	return h.World != nil && !h.breaching && h.pocket(q, planned)
+}
+
 // standWithin — standNear, но ближе reach к центру площадки.
 func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, avoid []bridge.Box) error {
 	p, err := h.B.Player()
@@ -197,12 +225,14 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 	from := func(q bridge.Player, reach float64) bool {
 		return !inBox(q.Position, fp, onSpot) && !inAny(q.Position, avoid, onSpot) && dist(q.Position, c) < reach && h.clickable(q, q.Position, c)
 	}
-	if from(p, reach) {
+	planned := append(slices.Clone(avoid), fp)
+	// стоит там, откуда с этой стройкой не выйти, — отойти (walls)
+	if from(p, reach) && !h.walls(p.Position, planned) {
 		return nil
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
-	// место в закрытом кармане своих построек (дойти — только проломом: стадия 63 на 24996062) —
-	// другое; все такие — первое из них
+	// место в закрытом кармане своих построек (дойти — только проломом: стадия 63 на 24996062) или
+	// в кармане, который закроет сама эта стройка (fp и avoid), — другое; все такие — первое из них
 	pocket := map[bridge.Pos]bool{}
 	var first *bridge.Pos
 	for try := 0; h.World != nil && try < 4; try++ {
@@ -256,7 +286,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 			}
 			break
 		}
-		if !h.World.Pocket(spot) {
+		if !h.pocket(spot, planned) {
 			break
 		}
 		h.Log("место стоять (%.1f, %.1f) — в закрытом кармане, другое", spot.X, spot.Y)
@@ -423,8 +453,10 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 			return bs
 		}
 		// стоит на месте ещё не поставленного — сначала сойти: отсюда поставит соседей и замурует
-		// себя в последней дыре (сплошная сетка цистерн, стадия 33 на 267145981: «не дошёл»)
-		standsOn := inAny(p.Position, rest(-1), onSpot)
+		// себя в последней дыре (сплошная сетка цистерн, стадия 33 на 267145981: «не дошёл»); так же
+		// — стоит там, откуда с ещё не поставленным не выйти (трубы по обе стороны щели между НПЗ,
+		// стадия 36 на 778631482)
+		standsOn := inAny(p.Position, rest(-1), onSpot) || h.walls(p.Position, rest(-1))
 		var here []int
 		for _, i := range left {
 			if !standsOn && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
@@ -823,13 +855,18 @@ func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (brid
 			}
 		}
 	}
-	// лучшие — не в закрытом кармане своих построек (дойти — только проломом)
+	// лучшие — не в закрытом кармане своих построек (дойти — только проломом), и с ещё не
+	// поставленным (обставит себя им)
+	planned := make([]bridge.Box, len(left))
+	for k, i := range left {
+		planned[k] = fps[i]
+	}
 	sort.SliceStable(spots, func(a, b int) bool { return spots[a].score > spots[b].score })
 	for k, s := range spots {
 		if k == 4 {
 			break
 		}
-		if !h.World.Pocket(s.q) {
+		if !h.pocket(s.q, planned) {
 			return s.q, true
 		}
 		h.Log("место стоять (%.1f, %.1f) — в закрытом кармане, другое", s.q.X, s.q.Y)

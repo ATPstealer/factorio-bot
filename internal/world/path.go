@@ -755,6 +755,30 @@ func (w *World) Put(objs []Object) {
 	}
 }
 
+// With — выполнить fn, будто на карте стоят и objs (ещё не поставленное: не замурует ли).
+func (w *World) With(objs []Object, fn func()) {
+	saved := map[*Chunk][]Object{}
+	for _, o := range objs {
+		c := w.Chunks[ChunkOf(TileOf(o.Pos))]
+		if c == nil {
+			continue
+		}
+		if _, ok := saved[c]; !ok {
+			saved[c] = c.Objects
+			c.Objects = append([]Object(nil), c.Objects...)
+		}
+		c.Objects = append(c.Objects, o)
+		w.changed(c)
+	}
+	defer func() {
+		for c, objs := range saved {
+			c.Objects = objs
+			w.changed(c)
+		}
+	}()
+	fn()
+}
+
 // Hide — убрать объекты из модели (план поверх того, что потом разберут); restore — вернуть.
 func (w *World) Hide(objs []Object) (restore func()) {
 	type saved struct {

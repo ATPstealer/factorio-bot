@@ -1557,6 +1557,91 @@ func TestPlaceBesideSelf(t *testing.T) {
 	}
 }
 
+// TestPlaceNotWallingSelfIn — не замуровать себя постановкой (стадия 36 на 778631482: «не дошёл до
+// (325.2, -585.8): пути нет, стою в (327.10, -595.83)» — бот встал в щель в тайл между двумя НПЗ,
+// поставил оттуда трубы по обе её стороны и оказался в закрытом кармане; пролом через трубу
+// туда-обратно, стадия упала). Щель — между двумя своими НПЗ (одна над другой или рядом), оба
+// торца закрыты своими трубами; трубу торца поднять, встать в щель и поставить её назад: ставит,
+// стоя вне щели. Нет такой щели — пропуск.
+func TestPlaceNotWallingSelfIn(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	own := map[bridge.Pos]world.Object{}
+	var refs []world.Object
+	for _, o := range h.World.Objects() {
+		if !o.Own {
+			continue
+		}
+		own[o.Pos] = o
+		if o.Name == "oil-refinery" {
+			refs = append(refs, o)
+		}
+	}
+	// щель: середина gap, ось вдоль щели along (1, 0) или (0, 1), торцы — в 3 от середины
+	var gap, along, end bridge.Pos
+	found := false
+	for _, a := range refs {
+		for _, b := range refs {
+			for _, d := range [][2]float64{{0, 6}, {6, 0}} {
+				if found || b.Pos.X-a.Pos.X != d[0] || b.Pos.Y-a.Pos.Y != d[1] {
+					continue
+				}
+				g := bridge.Pos{X: a.Pos.X + d[0]/2, Y: a.Pos.Y + d[1]/2}
+				ax := bridge.Pos{X: d[1] / 6, Y: d[0] / 6}
+				e1 := bridge.Pos{X: g.X - 3*ax.X, Y: g.Y - 3*ax.Y}
+				e2 := bridge.Pos{X: g.X + 3*ax.X, Y: g.Y + 3*ax.Y}
+				if own[e1].Name == "pipe" && own[e2].Name != "" {
+					gap, along, end, found = g, ax, e1, true
+				} else if own[e2].Name == "pipe" && own[e1].Name != "" {
+					gap, along, end, found = g, ax, e2, true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Skip("нет щели в тайл между своими НПЗ, закрытой трубами с торцов")
+	}
+	inGap := func(p bridge.Pos) bool {
+		u := (p.X-gap.X)*along.X + (p.Y-gap.Y)*along.Y // вдоль щели
+		v := (p.X-gap.X)*along.Y + (p.Y-gap.Y)*along.X // поперёк
+		return math.Abs(u) < 2.5 && math.Abs(v) < 0.6
+	}
+	ctx := ctxT(t, 4*time.Minute)
+	e, err := h.B.EntityAt("pipe", end)
+	if err != nil || e == nil {
+		t.Fatalf("трубы в торце (%.1f, %.1f) нет: %v", end.X, end.Y, err)
+	}
+	if err := h.Pickup(ctx, *e); err != nil {
+		t.Fatal(err)
+	}
+	// встать в щель — тайлом ближе к поднятому торцу (у торцов бывает столб)
+	stand := bridge.Pos{X: gap.X + (end.X-gap.X)/3, Y: gap.Y + (end.Y-gap.Y)/3}
+	for try := 0; try < 3; try++ {
+		if err := h.WalkTo(ctx, stand, 0.3); err != nil && !errors.Is(err, act.ErrNotReached) {
+			t.Fatal(err)
+		}
+		if p, _ := h.B.Player(); inGap(p.Position) {
+			break
+		}
+	}
+	p0, _ := h.B.Player()
+	if !inGap(p0.Position) {
+		t.Skipf("не встал в щель у (%.1f, %.1f): стою в (%.2f, %.2f)", gap.X, gap.Y, p0.Position.X, p0.Position.Y)
+	}
+	if _, err := h.Place(ctx, "pipe", end, act.North); err != nil {
+		t.Fatalf("труба в торец: %v", err)
+	}
+	p1, _ := h.B.Player()
+	if inGap(p1.Position) {
+		t.Errorf("поставил трубу, стоя в щели (%.2f, %.2f): замурован", p1.Position.X, p1.Position.Y)
+	}
+	if got, err := h.B.EntityAt("pipe", end); err != nil || got == nil {
+		t.Errorf("трубы в торце нет (%v)", err)
+	}
+}
+
 // TestPlacePipeToGroundChain — трасса подземных труб: пары вплотную друг к другу, как у трассы
 // нефти (стадия 34 на 427965634: 182 из 188 подземных труб «встал не тем направлением —
 // переставляю», по три подбора на каждую). Все встают своим направлением, без перестановок.
