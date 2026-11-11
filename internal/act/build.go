@@ -173,6 +173,12 @@ func (h *Hands) standNear(ctx context.Context, fp bridge.Box, avoid []bridge.Box
 	return h.standWithin(ctx, fp, buildReach, avoid)
 }
 
+// onSpot — персонаж ближе этого к рамке коллизии постройки — стоит на её месте (игра не
+// поставит): рамка персонажа ±0.2 и 0.05 на скольжение. Было 0.35 — столб в 0.43 от персонажа
+// (до рамки 0.28, игре не мешает) считался «на месте», бот уходил, а уйти в тесноте труб у НПЗ
+// некуда — «не вернул» (стадия 63 на 778631482).
+const onSpot = 0.25
+
 // inAny — p в одной из рамок bs (с запасом margin).
 func inAny(p bridge.Pos, bs []bridge.Box, margin float64) bool {
 	return slices.ContainsFunc(bs, func(b bridge.Box) bool { return inBox(p, b, margin) })
@@ -188,13 +194,18 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 	// и цель на экране кликабельна — не под панелью (клик в быструю панель брал из неё ленты в
 	// руку вместо подземки — TestPlaceUndergroundAfterTurn, «не встало: в руке transport-belt»)
 	from := func(q bridge.Player, reach float64) bool {
-		return !inBox(q.Position, fp, 0.35) && !inAny(q.Position, avoid, 0.35) && dist(q.Position, c) < reach && h.clickable(q, q.Position, c) // рамка персонажа ±0.2 + задержка
+		return !inBox(q.Position, fp, onSpot) && !inAny(q.Position, avoid, onSpot) && dist(q.Position, c) < reach && h.clickable(q, q.Position, c)
 	}
 	if from(p, reach) {
 		return nil
 	}
 	spot := bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
-	if h.World != nil {
+	// место в закрытом кармане своих построек (дойти — только проломом: стадия 63 на 24996062) —
+	// другое; все такие — первое из них
+	pocket := map[bridge.Pos]bool{}
+	var first *bridge.Pos
+	for try := 0; h.World != nil && try < 4; try++ {
+		spot = bridge.Pos{X: c.X, Y: fp.RightBottom.Y + 1.5}
 		// сначала — не у ленты и с запасом вокруг (коридор в тайл между рядами лент шины: доводка
 		// с инерцией роняла на ленту — «не сойти с ленты», стадия 22 на 1028292478), дальше — до
 		// досягаемости (до 6 тайлов не нашлось — встал в щель между рядами, стадия 56 на
@@ -216,7 +227,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 				for k := 0; k < 16; k++ {
 					a := float64(k) * math.Pi / 8
 					q := bridge.Pos{X: c.X + (r+(fp.RightBottom.X-fp.LeftTop.X)/2)*math.Cos(a), Y: c.Y + (r+(fp.RightBottom.Y-fp.LeftTop.Y)/2)*math.Sin(a)}
-					if dist(q, c) > reach-0.5 || inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || !lv.ok(q) {
+					if pocket[q] || dist(q, c) > reach-0.5 || inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || !h.World.Standable(q) || !h.clickable(p, q, c) || !lv.ok(q) {
 						continue
 					}
 					if d := dist(p.Position, q); d < best {
@@ -230,7 +241,7 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 			// не у ленты и просторно — узкое место (столбец в тайл между лентами) кольца с шагом π/8
 			// пропускают: сеткой (стадия 59 на 778631482: такое было в 6 тайлах, встал в карман)
 			if math.IsInf(best, 1) && li == 0 {
-				if q, ok := h.fineStand(p, c, fp, avoid, reach); ok {
+				if q, ok := h.fineStand(p, c, fp, avoid, reach, pocket); ok {
 					best, spot = 0, q
 				}
 			}
@@ -238,6 +249,23 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 				break
 			}
 		}
+		if math.IsInf(best, 1) {
+			if first != nil { // кроме карманов — ничего
+				spot = *first
+			}
+			break
+		}
+		if !h.World.Pocket(spot) {
+			break
+		}
+		h.Log("место стоять (%.1f, %.1f) — в закрытом кармане, другое", spot.X, spot.Y)
+		pocket[spot] = true
+		if first == nil {
+			first = &bridge.Pos{X: spot.X, Y: spot.Y}
+		}
+	}
+	if first != nil && pocket[spot] {
+		spot = *first
 	}
 	h.standOK = func(q bridge.Player) bool { return from(q, reach) } // встал не у ленты там, откуда ставится, — дошёл
 	err = h.WalkTo(ctx, spot, 0.5)
@@ -252,8 +280,9 @@ func (h *Hands) standWithin(ctx context.Context, fp bridge.Box, reach float64, a
 }
 
 // fineStand — точка не у ленты и просторная ближе reach-0.5 к c, не на площадках fp и avoid,
-// откуда цель кликабельна, — сеткой в четверть тайла от центра тайла; ближняя к персонажу.
-func (h *Hands) fineStand(p bridge.Player, c bridge.Pos, fp bridge.Box, avoid []bridge.Box, reach float64) (bridge.Pos, bool) {
+// откуда цель кликабельна, — сеткой в четверть тайла от центра тайла; ближняя к персонажу; кроме
+// skip (закрытые карманы).
+func (h *Hands) fineStand(p bridge.Player, c bridge.Pos, fp bridge.Box, avoid []bridge.Box, reach float64, skip map[bridge.Pos]bool) (bridge.Pos, bool) {
 	// ленты вокруг — один раз (nearBelt на каждой точке сетки — тысячи поисков объектов)
 	belt := map[world.Tile]bool{}
 	for _, o := range h.World.ObjectsNear(c, reach+3) {
@@ -284,7 +313,7 @@ func (h *Hands) fineStand(p bridge.Player, c bridge.Pos, fp bridge.Box, avoid []
 		for dx := -math.Ceil(r); dx <= math.Ceil(r); dx += 0.25 {
 			q := bridge.Pos{X: c0.X + dx, Y: c0.Y + dy}
 			d := dist(p.Position, q)
-			if d >= best || dist(q, c) > r || inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || near(q) || !h.World.Roomy(q) || !h.clickable(p, q, c) {
+			if d >= best || skip[q] || dist(q, c) > r || inBox(q, fp, 0.8) || inAny(q, avoid, 0.8) || near(q) || !h.World.Roomy(q) || !h.clickable(p, q, c) {
 				continue
 			}
 			best, spot = d, q
@@ -394,10 +423,10 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 		}
 		// стоит на месте ещё не поставленного — сначала сойти: отсюда поставит соседей и замурует
 		// себя в последней дыре (сплошная сетка цистерн, стадия 33 на 267145981: «не дошёл»)
-		onSpot := inAny(p.Position, rest(-1), 0.35)
+		standsOn := inAny(p.Position, rest(-1), onSpot)
 		var here []int
 		for _, i := range left {
-			if !onSpot && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
+			if !standsOn && dist(p.Position, fps[i].Center()) < buildReach && h.clickable(p, p.Position, fps[i].Center()) {
 				here = append(here, i)
 			}
 		}
@@ -408,10 +437,29 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 			here = []int{left[0]}
 		}
 		if len(here) == 0 {
+			// только что поставленное этим же вызовом (ленты трассы) — в модель: иначе место стоять
+			// выбиралось на них и рядом, сход с ленты раз за разом (стадия 59 на 778631482, «не
+			// сойти с ленты»)
+			if h.World != nil {
+				if _, err := h.World.Sync(h.B, false); err != nil {
+					return built, err
+				}
+			}
 			// перейти туда, откуда достаётся больше всего; не вышло дважды — к ближней
 			if stand, ok := h.buildStand(p, fps, left); ok && stalls < 2 {
 				stalls++
-				if err := h.WalkTo(ctx, stand, 0.5); err != nil && !errors.Is(err, ErrNotReached) {
+				// встал не у ленты там, откуда хоть что-то ставится, — дошёл (standOK)
+				h.standOK = func(q bridge.Player) bool {
+					if inAny(q.Position, rest(-1), onSpot) {
+						return false
+					}
+					return slices.ContainsFunc(left, func(i int) bool {
+						return dist(q.Position, fps[i].Center()) < buildReach && h.clickable(q, q.Position, fps[i].Center())
+					})
+				}
+				err := h.WalkTo(ctx, stand, 0.5)
+				h.standOK = nil
+				if err != nil && !errors.Is(err, ErrNotReached) {
 					return built, err
 				}
 				continue
@@ -735,7 +783,11 @@ func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (brid
 	if h.World == nil {
 		return bridge.Pos{}, false
 	}
-	best, bestScore := bridge.Pos{}, math.Inf(-1)
+	type spot struct {
+		q     bridge.Pos
+		score float64
+	}
+	var spots []spot
 	cands := append([]int(nil), left...)
 	sort.Slice(cands, func(a, b int) bool { return dist(from, fps[cands[a]].Center()) < dist(from, fps[cands[b]].Center()) })
 	if len(cands) > 20 {
@@ -766,13 +818,22 @@ func (h *Hands) buildStand(pl bridge.Player, fps []bridge.Box, left []int) (brid
 				if blocked || n == 0 {
 					continue
 				}
-				if score := float64(n)*10 - dist(from, q)/3; score > bestScore {
-					best, bestScore = q, score
-				}
+				spots = append(spots, spot{q, float64(n)*10 - dist(from, q)/3})
 			}
 		}
 	}
-	return best, !math.IsInf(bestScore, -1)
+	// лучшие — не в закрытом кармане своих построек (дойти — только проломом)
+	sort.SliceStable(spots, func(a, b int) bool { return spots[a].score > spots[b].score })
+	for k, s := range spots {
+		if k == 4 {
+			break
+		}
+		if !h.World.Pocket(s.q) {
+			return s.q, true
+		}
+		h.Log("место стоять (%.1f, %.1f) — в закрытом кармане, другое", s.q.X, s.q.Y)
+	}
+	return bridge.Pos{}, false
 }
 
 // replace — поднять e, довернуть предмет в руке до dir и поставить в pos снова.

@@ -865,12 +865,18 @@ func (h *Hands) crossBelt(ctx context.Context, target bridge.Pos, keys map[strin
 		}
 	}
 	on := false
+	slide := h.slide()
 	for deadline := time.Now().Add(1500 * time.Millisecond); time.Now().Before(deadline); {
 		if err := sleep(ctx, 30*time.Millisecond); err != nil {
 			break
 		}
 		q, err := h.B.Player()
 		if err != nil {
+			break
+		}
+		// до цели — тормозной путь: дальше донесёт сам (отпуск за лентой проносил мимо прохода в
+		// тайл — на следующую ленту)
+		if dist(q.Position, target) <= slide {
 			break
 		}
 		if h.World.OnBelt(q.Position) {
@@ -1742,9 +1748,16 @@ func (h *Hands) stepOffBelt(ctx context.Context, from bridge.Pos) error {
 		tried = append(tried, c.q)
 		h.Log("на ленте — схожу в (%.1f, %.1f), точек пути %d", spot.X, spot.Y, len(pts))
 		next := 0
+		slide := h.slide()
 		err := h.drive(ctx, 2, func(pos bridge.Pos) (map[string]bool, bool) {
 			for next < len(pts)-1 && dist(pos, pts[next]) < 0.4 {
 				next++
+			}
+			// отпустить — за тормозной путь до точки: клавиши действуют ещё задержку ввода, отпуск у
+			// самой точки проносил её на 1.6–2.5 тайла — на соседнюю ленту, и снова (стадии 56 и 59
+			// на 778631482: «не сойти с ленты»)
+			if next == len(pts)-1 && dist(pos, spot) <= slide {
+				return nil, true
 			}
 			return walkKeys(pos, pts[next]), !h.World.TouchesBelt(pos) && dist(pos, spot) < 0.6
 		})

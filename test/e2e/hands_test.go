@@ -1517,6 +1517,37 @@ func TestPlaceInCrowdedBus(t *testing.T) {
 	}
 }
 
+// Поставить столб вплотную к себе (стадия 63 на 778631482: столб у НПЗ среди труб, персонаж — в 0.43
+// от его центра, в игре не мешает; бот считал «стою на его месте» — запас 0.35 от рамки — и уходил,
+// а уйти в тесноте некуда: «поднятое проломом не вернул»). Ставит с места, не сходя.
+func TestPlaceBesideSelf(t *testing.T) {
+	h := handsT(t)
+	have(t, h, "small-electric-pole", 1)
+	c := freeArea(t, h, 6)
+	ctx := ctxT(t, 2*time.Minute)
+	tl := world.TileOf(c)
+	pole := tl.Center()
+	stand := bridge.Pos{X: pole.X + 0.43, Y: pole.Y}
+	if err := h.WalkTo(ctx, stand, 0.1); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	// рамки персонажа (±0.2) и столба (±0.15) не касаются, но до рамки столба — меньше 0.35
+	if g := math.Max(math.Abs(p0.Position.X-pole.X), math.Abs(p0.Position.Y-pole.Y)); g <= 0.37 || g >= 0.49 {
+		t.Skipf("встал в %.2f от центра столба — случая нет", g)
+	}
+	if _, err := h.Place(ctx, "small-electric-pole", pole, act.North); err != nil {
+		t.Fatalf("столб вплотную: %v", err)
+	}
+	p1, _ := h.B.Player()
+	if d := dist(p0.Position, p1.Position); d > 0.1 {
+		t.Errorf("сходил с места: (%.2f, %.2f) → (%.2f, %.2f)", p0.Position.X, p0.Position.Y, p1.Position.X, p1.Position.Y)
+	}
+	if got, err := h.B.EntityAt("small-electric-pole", pole); err != nil || got == nil {
+		t.Errorf("столб не стоит (%v)", err)
+	}
+}
+
 // TestPlacePipeToGroundChain — трасса подземных труб: пары вплотную друг к другу, как у трассы
 // нефти (стадия 34 на 427965634: 182 из 188 подземных труб «встал не тем направлением —
 // переставляю», по три подбора на каждую). Все встают своим направлением, без перестановок.
