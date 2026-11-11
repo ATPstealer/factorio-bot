@@ -251,21 +251,41 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 	defer func() {
 		h.Log("ходьба до (%.1f, %.1f): всего %.1f с", target.X, target.Y, time.Since(t0).Seconds())
 	}()
-	// далеко (сотни тайлов): путь целиком не укладывается в поиск — участками по ~120
-	// тайлов к точкам на прямой до цели (где можно стоять)
+	// далеко (сотни тайлов): путь целиком не укладывается в обычный поиск — участками по ~120
+	// тайлов к точкам грубого пути по суше (World.FarPath), нет его — на прямой до цели (где
+	// можно стоять). Только по прямой участки через большое озеро вели к ближайшему к цели
+	// берегу, а обход не находился (стадия 10 на 897191813, TestWalkAroundBigLake)
 	if h.World != nil {
 		hopUnstuck := false
-		for hop := 0; hop < 20; hop++ {
+		var far *world.Route
+		walked := 0.0 // пройдено по far
+		if p, err := h.B.Player(); err == nil && dist(p.Position, target) > longHop*1.3 {
+			tr := time.Now()
+			if r, ok := h.World.FarPath(p.Position, target); ok && r.Length() > longHop*1.3 {
+				far = &r
+				h.Log("грубый путь по суше: %.0f тайлов, участками по %.0f; расчёт %.2f с", r.Length(), longHop, time.Since(tr).Seconds())
+			}
+		}
+		for hop := 0; hop < 30; hop++ {
 			p, err := h.B.Player()
 			if err != nil {
 				return err
 			}
-			d := dist(p.Position, target)
-			if d <= longHop*1.3 {
-				break
+			var mid bridge.Pos
+			next := walked + longHop
+			if far != nil {
+				if far.Length()-walked <= longHop*1.3 {
+					break
+				}
+				mid = far.At(next)
+			} else {
+				d := dist(p.Position, target)
+				if d <= longHop*1.3 {
+					break
+				}
+				k := longHop / d
+				mid = bridge.Pos{X: p.Position.X + (target.X-p.Position.X)*k, Y: p.Position.Y + (target.Y-p.Position.Y)*k}
 			}
-			k := longHop / d
-			mid := bridge.Pos{X: p.Position.X + (target.X-p.Position.X)*k, Y: p.Position.Y + (target.Y-p.Position.Y)*k}
 			spot, ok := h.World.FreeSpot(mid, 1, 1, 20, nil)
 			if !ok {
 				break
@@ -285,6 +305,7 @@ func (h *Hands) WalkTo(ctx context.Context, target bridge.Pos, stop float64) err
 			if q, err := h.B.Player(); err == nil && dist(q.Position, p.Position) < 10 {
 				break // не продвинулись — дальше обычным путём (пролом и т.п.)
 			}
+			walked = next
 		}
 	}
 	if h.World != nil {

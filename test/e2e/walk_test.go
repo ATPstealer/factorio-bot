@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"cmp"
 	"errors"
 	"factorio-bot/internal/act"
 	"factorio-bot/internal/bridge"
@@ -727,6 +728,76 @@ func TestPathAroundLake(t *testing.T) {
 		if d := math.Hypot(p.Position.X-target.X, p.Position.Y-target.Y); d > 0.5 {
 			t.Errorf("до %v осталось %.2f", target, d)
 		}
+	}
+	clean(t, h)
+}
+
+// Дальняя ходьба в большой обход (вокруг большого водоёма): прямая к цели — через воду, обход
+// по суше во много раз длиннее, и обычный поиск пути его не находит. Стадия 10 на 897191813
+// (карта 897191813-0): персонаж после разведки — за большим озером, точки стадии — на другом
+// берегу в 423 тайлах по прямой, обход — 1680; участки по прямой привели к ближайшему к цели
+// берегу — «не дошёл: пути нет». Цель — точка суши, связной с игроком, не дальше 1000 тайлов
+// по прямой, обход до которой (по тайлам) больше чем в 2.5 раза длиннее прямой — самый
+// длинный; обычным поиском пути до неё нет.
+func TestWalkAroundBigLake(t *testing.T) {
+	h := handsT(t)
+	w := h.World
+	if _, err := w.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p0, _ := h.B.Player()
+	// суша, связная с игроком: длина обхода по тайлам (4 соседа; деревья и камни — не преграда)
+	st := world.TileOf(p0.Position)
+	steps := map[world.Tile]int{st: 0}
+	for queue := []world.Tile{st}; len(queue) > 0 && len(steps) < 4_000_000; {
+		q := queue[0]
+		queue = queue[1:]
+		for _, d := range []world.Tile{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+			n := world.Tile{X: q.X + d.X, Y: q.Y + d.Y}
+			if _, ok := steps[n]; ok {
+				continue
+			}
+			if k := w.TileAt(n); k == world.Land || k == world.Shallow {
+				steps[n] = steps[q] + 1
+				queue = append(queue, n)
+			}
+		}
+	}
+	type cand struct {
+		t     world.Tile
+		ratio float64
+	}
+	var cands []cand
+	for q, s := range steps {
+		// по 4 соседям обход длиннее настоящего (до √2 раз): прямая — тоже по 4 соседям
+		manh := math.Abs(float64(q.X-st.X)) + math.Abs(float64(q.Y-st.Y))
+		if d := math.Hypot(float64(q.X-st.X), float64(q.Y-st.Y)); d >= 150 && d <= 1000 && float64(s) > 2.5*manh {
+			cands = append(cands, cand{q, float64(s) / manh})
+		}
+	}
+	slices.SortFunc(cands, func(a, b cand) int { return cmp.Compare(b.ratio, a.ratio) })
+	var target bridge.Pos
+	found := false
+	for i := 0; i < len(cands) && i < 2000 && !found; i += 200 {
+		q, ok := w.FreeSpot(cands[i].t.Center(), 1, 1, 5, nil)
+		if !ok || steps[world.TileOf(q)] == 0 {
+			continue
+		}
+		if _, err := w.Route(p0.Position, q, 3, 0, 6); err == nil {
+			continue // обычный поиск пути находит — не этот случай
+		}
+		t.Logf("цель %v: %.0f тайлов по прямой, обход по тайлам в %.1f раза длиннее", q, dist(p0.Position, q), cands[i].ratio)
+		target, found = q, true
+	}
+	if !found {
+		t.Skip("нет точки суши с обходом в 2.5+ раза длиннее прямой, который не находит обычный поиск пути")
+	}
+	if err := h.WalkTo(ctxT(t, 15*time.Minute), target, 3); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	if d := dist(p.Position, target); d > 3.5 {
+		t.Errorf("до %v осталось %.1f", target, d)
 	}
 	clean(t, h)
 }
