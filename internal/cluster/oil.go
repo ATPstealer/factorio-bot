@@ -421,15 +421,27 @@ func pipeAlong(l *layout.Layout, x0, x1, y int, tag string) error {
 		// занято): «лента, просвет в тайл, лента…» у головы bus-1 — подводы с добычи, 260647970.
 		// Вход — на прошлом тайле (x-1): выход не дальше x-1+maxUG (на тайл дальше игра пару не
 		// соединяет — кислота не шла, стадия 59 на 1114315936)
+		// пара — не вокруг чужой подземки этого ряда и концы не внутри чужой пары: игра сцепит не
+		// так (cluster.md §5; 411152191 — вода bus-1 обходом вокруг пары нефти)
+		if l.InPipeSpan(prev, layout.E) {
+			return fmt.Errorf("cluster: труба %s: не обойти (%d, %d) — внутри чужой подземной пары", tag, x, y)
+		}
+		kmax := maxUG
+		for k := 1; k < kmax; k++ {
+			if p := l.At(world.Tile{X: x + k - 1, Y: y}); p != nil && p.Name == ptg && (p.Dir == layout.E || p.Dir == layout.W) {
+				kmax = k // дальше — вокруг неё
+			}
+		}
+		outOK := func(t world.Tile) bool { return ok(t) && !l.InPipeSpan(t, layout.E) }
 		out := -1
-		for k := 1; k < maxUG && x+k <= x1+maxUG; k++ {
-			if t := (world.Tile{X: x + k, Y: y}); ok(t) && (x+k >= x1 || ok(world.Tile{X: x + k + 1, Y: y})) {
+		for k := 1; k < kmax && x+k <= x1+maxUG; k++ {
+			if t := (world.Tile{X: x + k, Y: y}); outOK(t) && (x+k >= x1 || ok(world.Tile{X: x + k + 1, Y: y})) {
 				out = x + k
 				break
 			}
 		}
-		for k := 1; out < 0 && k < maxUG && x+k <= x1+maxUG; k++ {
-			if ok(world.Tile{X: x + k, Y: y}) {
+		for k := 1; out < 0 && k < kmax && x+k <= x1+maxUG; k++ {
+			if outOK(world.Tile{X: x + k, Y: y}) {
 				out = x + k
 			}
 		}
@@ -477,9 +489,26 @@ func UnderLane(l *layout.Layout, tag string, y int, fixed map[world.Tile]bool) {
 	// подряд идущие обычные трубы между оставленными — подземными парами
 	var drop []world.Tile
 	var add []layout.Placement
+	// внутри чужой подземной пары — обычной трубой: пара здесь сцепилась бы с чужой (cluster.md §5;
+	// 189715922 — вода bus-1 внутри пары тяжёлого масла, проложенной в обход)
+	inSpan := func(x int) bool { return l.InPipeSpan(world.Tile{X: x, Y: y}, layout.E) }
 	run := func(a, b int) { // a, b — оставленные; трубы (a, b) — свободны для замены
 		for x := a + 1; x+1 < b; {
+			if inSpan(x) {
+				x++
+				continue
+			}
 			out := min(x+maxUG, b-1)
+			for k := x + 1; k <= out; k++ {
+				if inSpan(k) {
+					out = k - 1
+					break
+				}
+			}
+			if out <= x {
+				x++
+				continue
+			}
 			add = append(add,
 				layout.Placement{Name: ptg, Pos: world.Tile{X: x, Y: y}.Center(), Dir: layout.W, Tag: tag},
 				layout.Placement{Name: ptg, Pos: world.Tile{X: out, Y: y}.Center(), Dir: layout.E, Tag: tag})

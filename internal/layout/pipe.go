@@ -46,6 +46,59 @@ func (l *Layout) RoutePipe(from, to Conn, tag string) ([]Placement, error) {
 	return l.routePipe(from, map[world.Tile]int{to.To: (to.Dir + 8) % 16}, own, tag)
 }
 
+// InPipeSpan — тайл t между концами подземной пары труб оси d (N/S или E/W): первая подземная
+// труба этой оси от t в какую-либо сторону смотрит наземным соединением дальше от t — её
+// подземная связь идёт через t. Подземную трубу отсюда игра сцепит с чужой (cluster.md §5:
+// подземные пары на одной линии — не вложенные; 189715922 — вода внутри пары тяжёлого масла).
+func (l *Layout) InPipeSpan(t world.Tile, d int) bool {
+	const ptg = "pipe-to-ground"
+	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
+	for _, s := range []int{d, (d + 8) % 16} {
+		cur := t
+		for k := 1; k <= maxUG; k++ {
+			cur = Step(cur, s)
+			if p := l.At(cur); p != nil && p.Name == ptg && (p.Dir == s || p.Dir == (s+8)%16) {
+				if p.Dir == s {
+					return true
+				}
+				break
+			}
+		}
+	}
+	return false
+}
+
+// pipeSpans — тайлы внутри подземных пар труб (InPipeSpan) заранее, по осям: [0] — E/W, [1] —
+// N/S (поиск пути спрашивает о каждом тайле — до миллионов раз на нефтетрассе).
+func (l *Layout) pipeSpans() [2]map[world.Tile]bool {
+	const ptg = "pipe-to-ground"
+	maxUG := l.P.Entities[ptg].MaxUndergroundDistance
+	res := [2]map[world.Tile]bool{{}, {}}
+	for _, p := range l.List {
+		if p.Name != ptg {
+			continue
+		}
+		s := (p.Dir + 8) % 16 // подземная связь — против наземного соединения
+		cur := world.TileOf(p.Pos)
+		for k := 1; k <= maxUG; k++ {
+			cur = Step(cur, s)
+			if q := l.At(cur); q != nil && q.Name == ptg && (q.Dir == s || q.Dir == p.Dir) {
+				break
+			}
+			res[axis(p.Dir)][cur] = true
+		}
+	}
+	return res
+}
+
+// axis — ось направления d: 0 — E/W, 1 — N/S.
+func axis(d int) int {
+	if d == N || d == S {
+		return 1
+	}
+	return 0
+}
+
 // RoutePipeTo — труба от соединения from до любого из соединений to (подвод к блоку цистерн).
 func (l *Layout) RoutePipeTo(from Conn, to []Conn, tag string) ([]Placement, error) {
 	own := map[world.Tile]bool{from.At: true}
@@ -141,6 +194,9 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 		p := l.At(a)
 		return p != nil && p.Name == ptg && (p.Dir == d || p.Dir == (d+8)%16) || l.Solid[a]
 	}
+	// inSpan — тайл внутри чужой подземной пары оси d: конец пары здесь сцепится не так
+	spans := l.pipeSpans()
+	inSpan := func(t world.Tile, d int) bool { return spans[axis(d)][t] }
 	// goalOK — подземка, вышедшая на out по d, на цели смотрит туда, куда надо
 	goalOK := func(out world.Tile, d int) bool {
 		gd, ok := goals[out]
@@ -239,11 +295,11 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 			}
 			if d >= 0 {
 				out := start
-				for k := 1; k <= maxUG; k++ {
+				for k := 1; k <= maxUG && !inSpan(start, d); k++ {
 					if out = Step(out, d); ugBlock(out, d) {
 						break
 					}
-					if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) {
+					if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || inSpan(out, d) {
 						continue
 					}
 					push(rstate{T: out, D: d}, cur.n, true, cur.g+7+0.1*float64(k))
@@ -255,7 +311,8 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 			if pipeOK(n) && !used(cur.n, n) {
 				push(rstate{T: n, D: plain}, cur.n, false, cur.g+plainCost)
 			}
-			if !ugOK || !l.Free(n, AnyLand) || used(cur.n, n) {
+			// концы пары — не внутри чужой пары этой оси (сцепятся не так)
+			if !ugOK || !l.Free(n, AnyLand) || used(cur.n, n) || inSpan(n, d) {
 				continue
 			}
 			out := n
@@ -263,7 +320,7 @@ func (l *Layout) routePipeOnce(from Conn, goals map[world.Tile]int, own map[worl
 				if out = Step(out, d); ugBlock(out, d) {
 					break
 				}
-				if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || used(cur.n, out) {
+				if k < 2 || !l.Free(out, AnyLand) || !goalOK(out, d) || used(cur.n, out) || inSpan(out, d) {
 					continue
 				}
 				push(rstate{T: out, D: d}, cur.n, false, cur.g+7+0.1*float64(k))

@@ -121,6 +121,11 @@ func (l *Layout) Validate() []string {
 				cur = Step(cur, d)
 				if n := l.At(cur); n != nil && n.Name == pl.Name && n.Dir == d {
 					ok = true
+					// игра сцепляет с первой встречной — и чужой (cluster.md §5; 189715922: вода
+					// внутри пары тяжёлого масла — отвод к крекингу пуст)
+					if n.Tag != pl.Tag {
+						add("подземная труба %v [%s]: игра сцепит с чужой %v [%s]", t, pl.Tag, cur, n.Tag)
+					}
 					break
 				}
 			}
