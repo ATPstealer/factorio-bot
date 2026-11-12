@@ -41,7 +41,7 @@ def procs():
         if n is None:
             continue
         exe = os.path.basename(args[0])
-        if exe == "bot":
+        if re.fullmatch(r"bot\d*", exe):  # bot4 — копия для перепрогона на экземпляре 4
             res.setdefault(n, []).append("bot " + " ".join(a for a in args[1:] if not a.startswith("-")))
         elif any(a.endswith("scripts/stage.sh") for a in args):
             res.setdefault(n, []).append("stage.sh " + " ".join(args[args.index(next(a for a in args if a.endswith("stage.sh"))) + 1:]))
@@ -119,23 +119,31 @@ def main():
             rows.append((f"bot-{n}", str(seed), "—", f"свободен (снимок карты bot-{other})", "—", ""))
             continue
         sl = stage_log(seed)
+        # перепрогон стадии со снимка карты другого экземпляра — его журнал (run/out/rerun-<сид>-<N>.out)
+        rerun = next((int(m[1]) for r in running if (m := re.match(r"bot .*\bstage (\d+)", r))), None)
+        owner = any(r.startswith(("fullrun.sh", "stage.sh")) for r in running)  # прогон карты — здесь
+        if other and rerun and not owner and os.path.exists(f"{ROOT}/run/out/rerun-{seed}-{rerun}.out"):
+            sl = (rerun, f"{ROOT}/run/out/rerun-{seed}-{rerun}.out")
+        else:
+            rerun = None
         if not sl:
             rows.append((f"bot-{n}", str(seed), "—", "журнала стадий нет", "—", "; ".join(running)))
             continue
         num, path = sl
         lines = [m for l in open(path, errors="replace") if (m := TS.match(l.rstrip("\n")))]
         name = next((m[4].split(": ", 1)[1] for m in lines if m[4].startswith(f"стадия {num}: ")), "")
-        limit = next((m[4].split("— ", 1)[-1].split(" ")[0] for m in lines if m[4].startswith("лимит стадии")), "")
+        limit = next((m[4].split("— ", 1)[-1].split(" ")[0] for m in reversed(lines) if m[4].startswith("лимит стадии — ")), "")
         last = lines[-1][4] if lines else ""
         el = (secs(lines[-1]) - secs(lines[0])) % 86400 if lines else 0
         idle = time.time() - os.path.getmtime(path)
         bot = any(r.startswith("bot ") for r in running)
         if bot:
-            state = f"идёт {dur(el)}" + (f" (лимит {limit})" if limit else "")
+            state = ("перепрогон со снимка: " if rerun else "") + f"идёт {dur(el)}" + (f" (лимит {limit})" if limit else "")
             now = last or "только началась"
         elif re.match(rf"стадия {num} выполнена", last):
             state = f"выполнена за {dur(el)}" + ("" if running else ", стоит")
-            now = "; ".join(running) or "прогон окончен"
+            rocket = any("ракета улетела" in m[4] for m in lines)
+            now = "; ".join(running) or ("ракета улетела, игра — экран победы" if rocket else "прогон окончен")
         else:
             state = f"упала через {dur(el)}, стоит {dur(idle)}" if not running else f"упала; {'; '.join(running)}"
             now = last
