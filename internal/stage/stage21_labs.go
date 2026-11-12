@@ -101,6 +101,13 @@ func runLabs(ctx context.Context, h *act.Hands) error {
 			return err
 		}
 	}
+	// исследование кончилось между проверками — следующее до проверки стадии (186349915: radar
+	// кончился, проверка — «исследование не идёт»)
+	if f, err := h.B.Force(); err == nil && f.Current == "" {
+		if tech, err := labsTech(h); err == nil {
+			return h.StartResearch(ctx, tech)
+		}
+	}
 	return nil
 }
 
