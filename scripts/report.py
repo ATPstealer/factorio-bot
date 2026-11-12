@@ -3,12 +3,15 @@
 
     scripts/report.py
 
-Только чтение: процессы (/proc), run/iN/map.json, журналы стадий run/stages/sN-<сид>.log.
+Только чтение: процессы (/proc), run/iN/map.json, журналы стадий run/stages/sN-<сид>.log, время
+карты — game.tick по RCON.
 """
 import glob
 import json
 import os
 import re
+import socket
+import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -139,10 +142,27 @@ def main():
         if len(now) > 110:
             now = now[:107] + "…"
         rows.append((f"bot-{n}", str(seed), f"{num} {name}", state, restarts(seed, num), now))
-    print("| | сид | стадия | состояние | перезапусков (стадии) | сейчас |")
-    print("|---|---|---|---|---|---|")
-    for r in rows:
+    print("| | сид | игра | стадия | состояние | перезапусков (стадии) | сейчас |")
+    print("|---|---|---|---|---|---|---|")
+    for n, r in enumerate(rows, 1):
+        r = r[:2] + (game_time(n),) + r[2:]
         print("| " + " | ".join(c.replace("|", "/") for c in r) + " |")
+
+
+def game_time(n):
+    """Время карты экземпляра n (game.tick по RCON, только чтение); игра не отвечает — «—»."""
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    from rcon import Rcon
+
+    old = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(3)
+    try:
+        tick = int(Rcon(port=27015 + n).cmd("/sc rcon.print(game.tick)").strip())
+    except (OSError, ValueError):
+        return "—"
+    finally:
+        socket.setdefaulttimeout(old)
+    return dur(tick / 60)
 
 
 if __name__ == "__main__":
