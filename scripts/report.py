@@ -69,10 +69,21 @@ def stage_log(seed):
     return best
 
 
+def rerun_ok(seed, n):
+    """Упавшая стадия перепрогнана со снимка <сид>-(n-1) на другом экземпляре одним запуском
+    (без повторов) и прошла: журнал run/out/rerun-<сид>-<n>.out кончается «стадия n выполнена»."""
+    try:
+        lines = [l.rstrip("\n") for l in open(f"{ROOT}/run/out/rerun-{seed}-{n}.out", errors="replace") if l.strip()]
+    except OSError:
+        return False
+    return bool(lines) and lines[-1].endswith(f"стадия {n} выполнена")
+
+
 def restarts(seed, upto):
     """Перезапуски стадий сида до стадии upto включительно: повторы на сохранении и продолжения
     («== повтор», «== продолжение» в журнале стадии; журнал стадии с её начала — заново).
-    Текст: «всего (стадия×раз, …)», нет — «0»."""
+    Текст: «всего (стадия×раз, …)», нет — «0»; ✓ у стадии — перепрогнана со снимка на другом
+    экземпляре и прошла с первого раза (rerun_ok)."""
     per = {}
     for f in glob.glob(f"{ROOT}/run/stages/s*-{seed}.log"):
         m = re.match(r"s(\d+)-", os.path.basename(f))
@@ -83,7 +94,8 @@ def restarts(seed, upto):
             per[int(m[1])] = k
     if not per:
         return "0"
-    return f"{sum(per.values())} (" + ", ".join(f"{n}" + (f"×{k}" if k > 1 else "") for n, k in sorted(per.items())) + ")"
+    return f"{sum(per.values())} (" + ", ".join(
+        f"{n}" + (f"×{k}" if k > 1 else "") + (" ✓" if rerun_ok(seed, n) else "") for n, k in sorted(per.items())) + ")"
 
 
 def main():
@@ -96,6 +108,13 @@ def main():
             rows.append((f"bot-{n}", "—", "—", "нет карты", "—", ""))
             continue
         running = ps.get(n, [])
+        # карта другого экземпляра, у которого идёт прогон (снимок для перепрогона или разбора):
+        # журналы стадий — его, не этого
+        other = next((k for k in range(1, 5) if k != n and ps.get(k) and os.path.exists(f"{ROOT}/run/i{k}/map.json")
+                      and json.load(open(f"{ROOT}/run/i{k}/map.json")).get("seed") == seed), None)
+        if other and not running:
+            rows.append((f"bot-{n}", str(seed), "—", f"свободен (снимок карты bot-{other})", "—", ""))
+            continue
         sl = stage_log(seed)
         if not sl:
             rows.append((f"bot-{n}", str(seed), "—", "журнала стадий нет", "—", "; ".join(running)))
