@@ -131,13 +131,15 @@ func checkLabs(h *act.Hands) error {
 		}
 	}
 	// пакеты в лабораториях — хоть раз за 30 с: лаборатории съедают пакет быстрее, чем красная
-	// наука приходит, и в один миг бывают пусты (стадия 21 на 267145981)
+	// наука приходит, и в один миг бывают пусты (стадия 21 на 267145981); пакет в работе в
+	// ячейках не виден — лаборатория «работает» (186349915: 8 мин ни одного пакета в ячейках,
+	// а исследование шло)
 	fed := func() bool {
 		for _, pl := range list {
 			if pl.Name != "lab" {
 				continue
 			}
-			if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && st.Count(redPack) > 0 {
+			if st, err := h.B.GetEntity(pl.Name, pl.Pos); err == nil && st != nil && (st.Count(redPack) > 0 || st.Status == "working") {
 				return true
 			}
 		}
