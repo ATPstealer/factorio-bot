@@ -210,6 +210,10 @@ var Limit time.Duration
 // как она известна, — и посреди подготовки (расчистка стадии 30 — 1400 деревьев, часы).
 var estimate atomic.Int64
 
+// stageStart — начало текущей стадии (Do): работа, оценённая посреди стадии, — от уже прошедшего
+// (addEstimate).
+var stageStart time.Time
+
 // Do — выполнить стадию и проверить критерии.
 func Do(ctx context.Context, h *act.Hands, n int) (err error) {
 	s, err := Get(n)
@@ -217,6 +221,7 @@ func Do(ctx context.Context, h *act.Hands, n int) (err error) {
 		return err
 	}
 	start := time.Now()
+	stageStart = start
 	estimate.Store(0)
 	if Limit > 0 { // лимит — Limit или полторы оценки, что больше (оценка — по ходу подготовки)
 		var cancel context.CancelCauseFunc

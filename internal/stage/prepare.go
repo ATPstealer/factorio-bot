@@ -365,7 +365,7 @@ func prepCheck(ctx context.Context, h *act.Hands, n int, list []layout.Placement
 		hard = append(hard, prepReach(h, list)...)
 		hard = append(hard, prepRecipes(h, list)...)
 		craft := prepMaterials(ctx, h, list)
-		prepTime(ctx, h, list, craft)
+		setEstimate(h, prepTime(h, list, craft))
 	}
 	// раскладки следующих стадий на бумаге — не здесь: стадия 2 проверяет все стадии до ракеты
 	// (решение пользователя: «вперёд на бумаге» перед 11, 21, … шло ~30 мин без строк в журнале)
@@ -651,11 +651,11 @@ func prepSmelting(h *act.Hands) map[string]float64 {
 // оставшегося лимита: не уложится — сказать. Крафт — в оценке целиком (стадия 34 на 778631482:
 // трасса нефти — 938 подземных труб и 1002 столба, крафт 67 мин; оценка без него — 2 ч 40 мин,
 // лимит 4 ч мал, шла 4 ч 13 мин).
-func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement, craft time.Duration) {
+func prepTime(h *act.Hands, list []layout.Placement, craft time.Duration) time.Duration {
 	todo := missing(h, list)
 	p, err := h.B.Player()
 	if err != nil {
-		return
+		return 0
 	}
 	at := p.Position
 	walk := 0.0
@@ -668,8 +668,20 @@ func prepTime(ctx context.Context, h *act.Hands, list []layout.Placement, craft 
 	trees := len(obstacles(h, footprint(h, list)))
 	est := time.Duration((float64(len(todo))*2+walk/8.9+float64(trees)*2.5)*1e9)*time.Nanosecond + craft
 	h.Log("проверка: поставить %d, расчистить %d, пройти ~%.0f тайлов, крафт ~%v — оценка %v", len(todo), trees, walk, craft.Round(time.Minute), est.Round(time.Minute))
-	estimate.Store(int64(est)) // лимит стадии — с запасом от оценки (Do), сразу
+	return est
+}
+
+// setEstimate — оценка стадии est: лимит стадии — с запасом от неё (Do), сразу.
+func setEstimate(h *act.Hands, est time.Duration) {
+	estimate.Store(int64(est))
 	if lim := est * 3 / 2; Limit > 0 && lim > Limit {
 		h.Say("лимит стадии — %v (полторы оценки %v)", lim.Round(time.Minute), est.Round(time.Minute))
 	}
+}
+
+// addEstimate — работа, оценённая посреди стадии (второй уровень поверх стоящего на
+// обслуживании): к оценке — от уже прошедшего, если его больше (стадия 42 на 92569368 —
+// 5670 быстрых лент поверх, лимит 2 ч 30 мин вышел, оценки у замены не было).
+func addEstimate(h *act.Hands, est time.Duration) {
+	setEstimate(h, max(time.Duration(estimate.Load()), time.Since(stageStart))+est)
 }

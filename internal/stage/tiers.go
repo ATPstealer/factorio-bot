@@ -342,6 +342,7 @@ func upgradeBuilt(ctx context.Context, h *act.Hands, plan *ClusterPlan, n int) e
 		return nil
 	}
 	h.Say("второй уровень поверх стоящих: %v", names)
+	addEstimate(h, prepTime(h, todo, prepMaterials(ctx, h, todo)))
 	return buildSorted(ctx, h, todo, []string{"steel-furnace", "assembling-machine-2", "fast-inserter",
 		"fast-transport-belt", "fast-underground-belt", "fast-splitter"})
 }
