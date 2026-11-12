@@ -354,9 +354,11 @@ func (s *worker) treeNeed(item string, researched []string) int {
 	return int(math.Ceil(need - 1e-9))
 }
 
-// machineSpot — место временного сборщика name: у хранения (дальше — у любых своих столбов,
-// ближние к хранению первыми) в зоне питания своего столба, все тайлы свободны; нет — в пределах
-// провода от столба, и pole — место своего столба рядом с ним.
+// machineSpot — место временного сборщика name: у хранения (дальше — у любых своих столбов
+// сети станции, ближние к хранению первыми) в зоне питания своего столба, все тайлы свободны;
+// нет — в пределах провода от столба, и pole — место своего столба рядом с ним. Столб острова
+// (ещё не подключённый участок стройки) — не годится: тока нет (стадия 33 на 92569368 —
+// временный сборщик двигателей у столбов сети без станции, no_power).
 func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err error) {
 	near, err := s.h.B.Player()
 	if err != nil {
@@ -370,6 +372,17 @@ func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err
 	if err != nil {
 		return pos, nil, err
 	}
+	station, err := stationNet(s.h, at)
+	if err != nil {
+		return pos, nil, err
+	}
+	powered := func(p bridge.Entity) bool {
+		if station == 0 {
+			return true
+		}
+		st, err := s.h.B.GetEntity(p.Name, p.Position)
+		return err == nil && st != nil && st.Network == station
+	}
 	e := s.h.Protos.Entities[name]
 	w, hh := max(e.TileWidth, 1), max(e.TileHeight, 1)
 	for _, p := range poles {
@@ -377,7 +390,7 @@ func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err
 		// (стадия 33 на 2448886157: временный сборщик двигателей — no_power)
 		r := s.h.Protos.Entities[p.Name].SupplyAreaDistance
 		if pos, ok := s.h.World.FreeSpot(p.Position, w, hh, 3, &near.Position); ok &&
-			math.Abs(pos.X-p.Position.X) < r+float64(w)/2 && math.Abs(pos.Y-p.Position.Y) < r+float64(hh)/2 {
+			math.Abs(pos.X-p.Position.X) < r+float64(w)/2 && math.Abs(pos.Y-p.Position.Y) < r+float64(hh)/2 && powered(p) {
 			return pos, nil, nil
 		}
 	}
@@ -389,7 +402,7 @@ func (s *worker) machineSpot(name string) (pos bridge.Pos, pole *bridge.Pos, err
 			continue
 		}
 		q := bridge.Pos{X: big.X - float64(w+2)/2 + 0.5, Y: math.Floor(big.Y) + 0.5} // столб — левая полоса площадки
-		if math.Hypot(q.X-p.Position.X, q.Y-p.Position.Y) > reach {
+		if math.Hypot(q.X-p.Position.X, q.Y-p.Position.Y) > reach || !powered(p) {
 			continue
 		}
 		return big, &q, nil

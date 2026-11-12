@@ -268,6 +268,19 @@ func connectNet(h *act.Hands, plan *ClusterPlan, list []layout.Placement, allow 
 	return added, nil
 }
 
+// stationNet — электросеть станции (паровой машины ближе всех к at); станции нет — 0.
+func stationNet(h *act.Hands, at bridge.Pos) (int, error) {
+	engines, err := h.B.FindNearest(bridge.FindArgs{Name: "steam-engine", Radius: 1000, Position: &at, Limit: 1})
+	if err != nil || len(engines) == 0 {
+		return 0, err
+	}
+	eng, err := h.B.GetEntity("steam-engine", engines[0].Position)
+	if err != nil || eng == nil {
+		return 0, err
+	}
+	return eng.Network, nil
+}
+
 // healPower — сеть базы одна (stages.md, общее): свои столбы вне сети станции (острова — обрыв
 // после перестановки столбов на обслуживании) подключить цепочкой столбов; сеть — только
 // столбы станции (connectPower считает сетью любой стоящий столб — остров «в сети»).
@@ -280,12 +293,8 @@ func healPower(ctx context.Context, h *act.Hands) error {
 	if err != nil {
 		return err
 	}
-	engines, err := h.B.FindNearest(bridge.FindArgs{Name: "steam-engine", Radius: 1000, Position: &p.Position, Limit: 1})
-	if err != nil || len(engines) == 0 {
-		return err
-	}
-	eng, err := h.B.GetEntity("steam-engine", engines[0].Position)
-	if err != nil || eng == nil || eng.Network == 0 {
+	station, err := stationNet(h, p.Position)
+	if err != nil || station == 0 {
 		return err
 	}
 	poles, err := h.B.FindNearest(bridge.FindArgs{Type: "electric-pole", Radius: 1000, Position: &p.Position, Limit: 5000})
@@ -306,7 +315,7 @@ func healPower(ctx context.Context, h *act.Hands) error {
 		for _, st := range got {
 			switch {
 			case st == nil || !st.Own:
-			case st.Network == eng.Network:
+			case st.Network == station:
 				net = append(net, st.Position)
 			default:
 				islands[st.Network] = append(islands[st.Network], layout.Placement{Name: st.Name, Pos: st.Position})
