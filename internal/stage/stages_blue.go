@@ -226,7 +226,9 @@ func inTanks(fluid string) func(h *act.Hands, list []layout.Placement) error {
 
 // labsOn — лаборатории плана работают на item: хоть одна в статусе «работает», а текущее
 // исследование требует item (пакет в лаборатории тратится сразу — его наличие опрос не застаёт;
-// в раскладке стадии 41 лабораторий нет — они со стадий 12–21).
+// в раскладке стадии 41 лабораторий нет — они со стадий 12–21); или item — в лабораториях:
+// пока его мало, лаборатории ждут, и keepLabsBusy ставит первым исследование без него (стадия 48
+// на 186349915: fluid-wagon при 34 фиолетовых в лабораториях — «не на production-science-pack»).
 func labsOn(item string) func(h *act.Hands, list []layout.Placement) error {
 	return func(h *act.Hands, _ []layout.Placement) error {
 		f, err := h.B.Force()
@@ -237,9 +239,6 @@ func labsOn(item string) func(h *act.Hands, list []layout.Placement) error {
 		for _, in := range h.Protos.Technologies[f.Current].UnitIngredients {
 			needs = needs || in.Name == item
 		}
-		if !needs {
-			return fmt.Errorf("текущее исследование %q не на %s", f.Current, item)
-		}
 		plan, err := LoadPlan()
 		if err != nil {
 			return err
@@ -249,6 +248,9 @@ func labsOn(item string) func(h *act.Hands, list []layout.Placement) error {
 			if h.Protos.Entities[pl.Name].Type == "lab" {
 				labs = append(labs, pl)
 			}
+		}
+		if !needs && holds(item, "lab")(h, labs) != nil {
+			return fmt.Errorf("текущее исследование %q не на %s, и %s в лабораториях нет", f.Current, item, item)
 		}
 		return working("lab")(h, labs)
 	}
