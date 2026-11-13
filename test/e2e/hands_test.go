@@ -364,6 +364,66 @@ func TestMineUnderCrown(t *testing.T) {
 	}
 }
 
+// Дерево, у которого кроны соседей закрывают всю рамку выделения (все точки наведения), —
+// срубить за 10 с, как рубку на пути (стадия 42 на 92569368, карта 92569368-0: персонаж в густом
+// лесу, ствол dead-dry-hairy-tree в 0.9 тайла под кронами tree-09 и tree-08 — наведение
+// выделяло соседей все 10 с, «не добыл dead-dry-hairy-tree за 10s»). Дерево — ближайшее к игроку
+// такое, в досягаемости добычи.
+func TestMineFullyUnderCrowns(t *testing.T) {
+	h := handsT(t)
+	if _, err := h.World.Sync(h.B, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := h.B.Player()
+	objs := h.World.ObjectsNear(p.Position, 40)
+	covered := func(a world.Object) bool {
+		s := h.World.SelectionBox(a)
+		for i := 0; i < 5; i++ {
+			for j := 0; j < 5; j++ {
+				q := bridge.Pos{X: s.LeftTop.X + (s.RightBottom.X-s.LeftTop.X)*(0.1+0.8*float64(i)/4),
+					Y: s.LeftTop.Y + (s.RightBottom.Y-s.LeftTop.Y)*(0.1+0.8*float64(j)/4)}
+				in := false
+				for _, b := range objs {
+					if b.Pos == a.Pos {
+						continue
+					}
+					sb := h.World.SelectionBox(b)
+					in = in || q.X > sb.LeftTop.X && q.X < sb.RightBottom.X && q.Y > sb.LeftTop.Y && q.Y < sb.RightBottom.Y
+				}
+				if !in {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	var target world.Object
+	bd := math.Inf(1)
+	for _, a := range objs {
+		if d := math.Hypot(a.Pos.X-p.Position.X, a.Pos.Y-p.Position.Y); a.Type == "tree" && d < bd && covered(a) {
+			target, bd = a, d
+		}
+	}
+	if target.Name == "" {
+		t.Skip("нет дерева, закрытого кронами соседей целиком")
+	}
+	t.Logf("дерево %s (%.2f, %.2f), %.1f тайла от игрока", target.Name, target.Pos.X, target.Pos.Y, bd)
+	ctx := ctxT(t, 3*time.Minute)
+	e, err := h.B.EntityAt(target.Name, target.Pos)
+	if err != nil || e == nil {
+		t.Fatalf("дерева нет: %v", err)
+	}
+	if err := h.WalkToMine(ctx, *e); err != nil && !errors.Is(err, act.ErrNotReached) {
+		t.Fatal(err)
+	}
+	if err := h.Mine(ctx, *e, 10*time.Second); err != nil {
+		t.Fatalf("срубить %s под кронами: %v", target.Name, err)
+	}
+	if got, _ := h.B.EntityAt(target.Name, target.Pos); got != nil {
+		t.Errorf("%s стоит", target.Name)
+	}
+}
+
 // Линия столбов вниз с шагом 7 (стадия 5: столбы по коридору ровной линией — шестой не
 // встал, курсор с призраком столба ушёл в сторону от места). Каждый — Place по очереди.
 func TestPoleLine(t *testing.T) {

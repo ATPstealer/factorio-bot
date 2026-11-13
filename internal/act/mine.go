@@ -269,10 +269,16 @@ func (h *Hands) mineOnce(ctx context.Context, e bridge.Entity, timeout time.Dura
 }
 
 func (h *Hands) mineTimed(ctx context.Context, e bridge.Entity, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	err := h.MineUntil(ctx, e, nil)
-	if errors.Is(err, context.DeadlineExceeded) {
+	err := h.MineUntil(tctx, e, nil)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		// всё время ушло на наведение: курсор так и не выделил e и копания нет (ствол под кронами
+		// соседей целиком — стадия 42 на 92569368, TestMineFullyUnderCrowns) — как «не навёлся»:
+		// Mine рубит соседей и наводит снова
+		if p, perr := h.B.Player(); perr == nil && !same(p.Selected, e) && (p.Character == nil || !p.Character.Mining) {
+			return fmt.Errorf("%w: %s — за %v курсор его не выделил", ErrHover, e.Name, timeout)
+		}
 		return fmt.Errorf("act: не добыл %s за %v", e.Name, timeout)
 	}
 	return err
