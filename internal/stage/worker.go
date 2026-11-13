@@ -76,14 +76,18 @@ func (s *worker) freeSlots() int {
 // have — довести предмет в инвентаре до n: сырьё — добыть (уголь и камень — с точек, если
 // есть), пластины — с печей точек или руда руками в печи, остальное — скрафтить.
 func (s *worker) have(ctx context.Context, item string, n int) error {
-	last := -1
+	last, gained := -1, time.Now()
 	for tries := 0; s.inv(item)+s.pending(item) < n; tries++ { // noWait: в очереди — как есть
 		// попытки без прибавки: крафт частями (стадия 30 — по 1–4 бура за заход, инвентарь
 		// занят набранным на стадию) прибавляет понемногу — это не застревание (1028292478)
 		if got := s.inv(item) + s.pending(item); got > last {
-			last, tries = got, 0
+			last, tries, gained = got, 0, time.Now()
 		}
-		if tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
+		// пластины из буферов выхода плавки приходят медленно, пока их ест база: ждать, пока
+		// идут, — до plateWait без прибавки (стадия 42 на 92569368: второй уровень поверх —
+		// 2470 быстрых лент руками, железо из буферов кончалось, через 5 мин — «не набрать»)
+		plates := s.useStore && (item == "iron-plate" || item == "copper-plate")
+		if plates && time.Since(gained) > plateWait || !plates && tries > 40+n/10 { // много — дольше (за круг с точек — десятки)
 			return fmt.Errorf("не набрать %s ×%d (есть %d)", item, n, s.inv(item))
 		}
 		// перед добычей — не меньше freeBefore свободных ячеек (stages.md, инвентарь; 4000
@@ -177,6 +181,9 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 	}
 	return nil
 }
+
+// plateWait — сколько ждать пластин из буферов выхода плавки без прибавки (have).
+const plateWait = 30 * time.Minute
 
 // gathering — что сейчас набирает have (добыча, крафт): OnFull при полном инвентаре это не
 // выкладывает (стадия 29 на 427965634: уголь на бойлеры выкладывался и брался по кругу).
