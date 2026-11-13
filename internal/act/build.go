@@ -44,6 +44,48 @@ func (h *Hands) footprint(entity string, pos bridge.Pos, dir int) bridge.Box {
 	}
 }
 
+// pipeFootprint — рамка трубы в pos, какой она встанет: в сторону соседа, с которым соединится
+// (труба, подземная труба, постройка с трубными соединениями — стоящие или из этой же пачки
+// batch), игра тянет её до края тайла (±0.49, а не ±0.29 справочника). Персонаж в 0.18 от рамки
+// справочника — «Character is in the way» (стадия 52 на 92569368: труба между двумя подземными,
+// бот ставил её с места, откуда игра не ставит, трижды).
+func (h *Hands) pipeFootprint(b bridge.Box, pos bridge.Pos, batch []bridge.Pos) bridge.Box {
+	const edge = 0.49
+	connects := func(q bridge.Pos) bool {
+		for _, p := range batch {
+			if dist(p, q) < 0.1 {
+				return true
+			}
+		}
+		if h.World == nil {
+			return false
+		}
+		for _, o := range h.World.ObjectsNear(q, 6) {
+			e := h.Protos.Entities[o.Name]
+			if e.Type != "pipe" && e.Type != "pipe-to-ground" && len(e.PipeConnections) == 0 {
+				continue
+			}
+			if ob := h.World.CollisionBox(o); inBox(q, ob, 0) {
+				return true
+			}
+		}
+		return false
+	}
+	if connects(bridge.Pos{X: pos.X, Y: pos.Y - 1}) {
+		b.LeftTop.Y = min(b.LeftTop.Y, pos.Y-edge)
+	}
+	if connects(bridge.Pos{X: pos.X, Y: pos.Y + 1}) {
+		b.RightBottom.Y = max(b.RightBottom.Y, pos.Y+edge)
+	}
+	if connects(bridge.Pos{X: pos.X - 1, Y: pos.Y}) {
+		b.LeftTop.X = min(b.LeftTop.X, pos.X-edge)
+	}
+	if connects(bridge.Pos{X: pos.X + 1, Y: pos.Y}) {
+		b.RightBottom.X = max(b.RightBottom.X, pos.X+edge)
+	}
+	return b
+}
+
 // clearSpots — убрать, что мешает постройке entity: деревья и камни под рамкой — срубить и
 // разбить. Своя постройка на месте — ErrOccupied (может быть нужной — не трогать; ленты,
 // подземки и делители друг друга заменяют сами); своя такая же, стоящая не так, — поднять.
@@ -428,6 +470,9 @@ func (h *Hands) placeDirs(ctx context.Context, item string, positions []bridge.P
 	left := make([]int, len(positions))
 	for i, pos := range positions {
 		fps[i], left[i] = h.footprint(it.PlaceResult, pos, dirs[i]), i
+		if h.Protos.Entities[it.PlaceResult].Type == "pipe" {
+			fps[i] = h.pipeFootprint(fps[i], pos, positions)
+		}
 	}
 	if h.Protos.Entities[it.PlaceResult].Type == "underground-belt" {
 		left = ugOrder(positions, dirs)
