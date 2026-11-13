@@ -96,10 +96,12 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		if err := s.store(ctx, freeBefore, item); err != nil && !errors.Is(err, errNoStorage) {
 			return err
 		}
-		if s.useStore && !s.any && s.freeSlots() < 2 {
+		if s.useStore && !s.any && s.freeSlots() <= spareSlots {
 			// инвентарь полон нужным стадии (буры, столбы, пластины) — брать некуда (260647970,
 			// стадия 16: «взято transport-belt ×0 из 40»): нужное, кроме item, временно в
-			// хранение — стройка идёт пачками, остальное доберётся потом
+			// хранение — стройка идёт пачками, остальное доберётся потом. Порог — тот же запас,
+			// что у взятия из буферов: при двух свободных буфер молча не брался, а выкладка не
+			// начиналась — кирпич 30 мин «ждали» при 1100 в буфере (стадия 42 на 92569368)
 			s.any = true
 			err := s.store(ctx, freeBefore, item)
 			s.any = false
@@ -111,7 +113,7 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 		// влезает, иначе круг «взял из хранения — добыча упёрлась в полный инвентарь — OnFull
 		// выложил — снова взял» (стадия 29 на 427965634: уголь на бойлеры, 1266 выкладок, 27 мин)
 		stack := max(s.h.Protos.Items[item].StackSize, 1)
-		if room := s.inv(item) + s.pending(item) + max(s.freeSlots()-2, 0)*stack; n > room && room > s.inv(item)+s.pending(item) {
+		if room := s.inv(item) + s.pending(item) + max(s.freeSlots()-spareSlots, 0)*stack; n > room && room > s.inv(item)+s.pending(item) {
 			s.h.Log("%s ×%d не влезает — набираю %d", item, n, room)
 			n = room
 		}
@@ -184,6 +186,10 @@ func (s *worker) have(ctx context.Context, item string, n int) error {
 
 // plateWait — сколько ждать пластин из буферов выхода плавки без прибавки (have).
 const plateWait = 30 * time.Minute
+
+// spareSlots — свободных ячеек инвентаря про запас: берётся из хранения и буферов только сверх
+// них; меньше или столько — нужное, кроме набираемого, временно в хранение (have).
+const spareSlots = 2
 
 // gathering — что сейчас набирает have (добыча, крафт): OnFull при полном инвентаре это не
 // выкладывает (стадия 29 на 427965634: уголь на бойлеры выкладывался и брался по кругу).
@@ -717,8 +723,9 @@ func (s *worker) fromProducts(ctx context.Context, item string, n int) (bool, er
 	}
 	sort.Slice(es, func(i, j int) bool { return dist2(es[i].Position, p.Position) < dist2(es[j].Position, p.Position) })
 	stack := max(s.h.Protos.Items[item].StackSize, 1)
-	room := (s.freeSlots() - 2) * stack
+	room := (s.freeSlots() - spareSlots) * stack
 	if room <= 0 {
+		s.h.Log("%s в буферах есть, а в инвентаре места нет (свободно %d)", item, s.freeSlots())
 		return false, nil
 	}
 	before := s.inv(item)
@@ -774,7 +781,7 @@ func (s *worker) fromBuffers(ctx context.Context, plate string, lack int) error 
 	sort.Slice(es, func(i, j int) bool { return dist2(es[i].Position, p.Position) < dist2(es[j].Position, p.Position) })
 	want := s.inv(plate) + max(lack, 1) + 200
 	// не больше, чем влезет (2 ячейки — про запас): из полного сундук отдаёт 0 — ошибка
-	room := (s.freeSlots() - 2) * max(s.h.Protos.Items[plate].StackSize, 1)
+	room := (s.freeSlots() - spareSlots) * max(s.h.Protos.Items[plate].StackSize, 1)
 	if room <= 0 {
 		return nil // место освободит have (хранение)
 	}
@@ -1033,7 +1040,7 @@ func (s *worker) fromStorage(ctx context.Context, item string, n int) (bool, err
 			return false, err
 		}
 		// не больше, чем влезет (2 ячейки — про запас): берём теперь на всю стройку стадии
-		room := (s.freeSlots() - 2) * max(s.h.Protos.Items[item].StackSize, 1)
+		room := (s.freeSlots() - spareSlots) * max(s.h.Protos.Items[item].StackSize, 1)
 		if room <= 0 {
 			return false, nil
 		}
