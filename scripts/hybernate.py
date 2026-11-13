@@ -7,7 +7,9 @@
                                  список — run/hybernate/state.json
     scripts/hybernate.py off   — вернуть сохранения на экземпляры и продолжить каждую карту с её
                                  стадии: CONT=1 INST=N PAR=0 scripts/stage.sh K-M <сид>
-                                 (журнал — run/out/run-<сид>.out, как у прогона)
+                                 (журнал — run/out/run-<сид>.out, как у прогона); прогон fullrun —
+                                 CONT=1 FROM=K TO=M INST=N … scripts/fullrun.sh <сид> с теми же
+                                 LOOP, EXPLORE, SHOW (журнал — run/out/fullrun-N.out)
     scripts/hybernate.py show  — что записано
 
 Контекст (что делалось, задачи, вопросы) пишет агент в run/hybernate/hybernate.md (скил).
@@ -29,8 +31,12 @@ STATE = f"{HYB}/state.json"
 KEEP = ["server/saves/bot.zip", "map.json", "hand.json"]
 
 
+FULLRUN_ENV = ["LOOP", "EXPLORE", "SHOW", "TO", "LIMIT", "RETRIES", "AUTOSAVE"]
+
+
 def procs():
-    """Процессы экземпляров: [(pid, N, exe, args)] — bot и stage.sh."""
+    """Процессы экземпляров: [(pid, N, exe, args)] — bot, stage.sh и fullrun.sh (у него args —
+    [сид?, {настройки}])."""
     res = []
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
@@ -57,7 +63,21 @@ def procs():
         elif any(a.endswith("scripts/stage.sh") for a in args):
             i = args.index(next(a for a in args if a.endswith("stage.sh")))
             res.append((int(pid), n, "stage.sh", args[i + 1:]))
+        elif any(a.endswith("scripts/fullrun.sh") for a in args):
+            i = args.index(next(a for a in args if a.endswith("fullrun.sh")))
+            res.append((int(pid), n, "fullrun.sh", args[i + 1:] + [{k: envd[k] for k in FULLRUN_ENV if k in envd}]))
     return res
+
+
+def last_done(seed):
+    """Последняя выполненная стадия сида по журналам run/stages/sN-<сид>.log (fullrun)."""
+    done = 0
+    for f in glob.glob(f"{ROOT}/run/stages/s*-{seed}.log"):
+        m = re.match(r"s(\d+)-", os.path.basename(f))
+        if m and any(re.search(rf"стадия {m[1]} выполнена|выполнена \(пустая\)|ракета уже улетела", l)
+                     for l in open(f, errors="replace")):
+            done = max(done, int(m[1]))
+    return done
 
 
 def runs(ps):
@@ -66,6 +86,10 @@ def runs(ps):
     res = {}
     for pid, n, exe, args in ps:
         r = res.setdefault(n, {"inst": n, "seed": None, "stage": None, "end": None})
+        if exe == "fullrun.sh":
+            r["kind"], r["env"] = "fullrun", args[-1]
+            r["end"] = int(args[-1].get("TO", "68"))
+            continue
         if exe == "stage.sh" and args:
             rng, seeds = args[0], args[1:]
             if seeds:
@@ -89,6 +113,11 @@ def runs(ps):
         r["end"] = r["end"] or r["stage"]
         busy = any(k == n and (exe == "bot" or (exe == "stage.sh" and args and args[0].isdigit()))
                    for _, k, exe, args in ps)
+        if r.get("kind") == "fullrun":  # сид — карта экземпляра (LOOP берёт новые)
+            r["seed"] = str(json.load(open(f"{ROOT}/run/i{n}/map.json"))["seed"])
+            if not busy:  # между стадиями (снимок из автосейва) — следующая после выполненной
+                r["stage"] = last_done(r["seed"]) + 1
+            continue
         if not busy:  # между стадиями: следующая после последней выполненной
             done = [int(m[1]) for f in glob.glob(f"{ROOT}/run/stages/ok-*-{r['seed']}")
                     if (m := re.match(r"ok-(\d+)-", os.path.basename(f)))]
@@ -99,8 +128,9 @@ def runs(ps):
 
 
 def stop_inst(n, ps):
-    """stage.sh экземпляра, потом бот (SIGTERM — клавиши отпускает), потом игра (stop.sh)."""
-    for sig_order in (("stage.sh",), ("bot",)):
+    """fullrun.sh и stage.sh экземпляра (иначе начнут повтор), потом бот (SIGTERM — клавиши
+    отпускает), потом игра (stop.sh)."""
+    for sig_order in (("fullrun.sh", "stage.sh"), ("bot",)):
         pids = [pid for pid, k, exe, _ in ps if k == n and exe in sig_order]
         for pid in pids:
             try:
@@ -167,9 +197,14 @@ def off():
             print(f"экземпляр {n} занят — {r['seed']} не продолжаю")
             continue
         restore_inst(n)
-        cmd = (f"mkdir -p run/out; CONT=1 INST={n} PAR=0 scripts/stage.sh {r['stage']}-{r['end']} {r['seed']} "
-               f">> run/out/run-{r['seed']}.out 2>&1; echo \"код $?\" >> run/out/run-{r['seed']}.out; "
-               f"INST={n} timeout 150 scripts/stop.sh > /dev/null 2>&1")
+        if r.get("kind") == "fullrun":
+            env = " ".join(f"{k}={v}" for k, v in sorted(r.get("env", {}).items()) if k != "TO")
+            cmd = (f"mkdir -p run/out; CONT=1 FROM={r['stage']} TO={r['end']} INST={n} {env} "
+                   f"scripts/fullrun.sh {r['seed']} >> run/out/fullrun-{n}.out 2>&1")
+        else:
+            cmd = (f"mkdir -p run/out; CONT=1 INST={n} PAR=0 scripts/stage.sh {r['stage']}-{r['end']} {r['seed']} "
+                   f">> run/out/run-{r['seed']}.out 2>&1; echo \"код $?\" >> run/out/run-{r['seed']}.out; "
+                   f"INST={n} timeout 150 scripts/stop.sh > /dev/null 2>&1")
         subprocess.Popen(["setsid", "nohup", "bash", "-c", cmd], cwd=ROOT,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"экземпляр {n}: сид {r['seed']} — со стадии {r['stage']} до {r['end']}")
