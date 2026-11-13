@@ -40,32 +40,77 @@ type blueStage struct {
 	fact func(h *act.Hands, list []layout.Placement) error
 }
 
-// factWait — сколько ждать подтверждения по факту работы; factPoll — шаг опроса.
+// factWait — сколько ждать подтверждения по факту работы; factPoll — шаг опроса; factWaitMax —
+// дольше, пока жидкость в машины стадии ещё прибывает (за factRise её стало больше).
 const (
-	factWait = 10 * time.Minute
-	factPoll = 15 * time.Second
+	factWait    = 10 * time.Minute
+	factPoll    = 15 * time.Second
+	factWaitMax = 30 * time.Minute
+	factRise    = 5 * time.Minute
 )
 
-// waitFact — ждать, пока fact подтвердится, до factWait; возвращает последнюю причину.
+// waitFact — ждать, пока fact подтвердится, до factWait (жидкость в машины ещё прибывает — до
+// factWaitMax: стадия 53 на 92569368 — длинная труба тяжёлого масла заполнялась, смазка
+// заработала через 30 мин); возвращает последнюю причину.
 func waitFact(ctx context.Context, h *act.Hands, list []layout.Placement, fact func(*act.Hands, []layout.Placement) error) error {
 	h.Say("жду подтверждения по факту работы — до %v", factWait) // ожидание без строк в журнале принимали за зависание
-	deadline := time.Now().Add(factWait)
+	deadline, maxDeadline := time.Now().Add(factWait), time.Now().Add(factWaitMax)
+	most, rose := -1.0, time.Now()
 	for {
 		err := fact(h, list)
-		if err == nil || time.Now().After(deadline) {
-			return err
+		if err == nil {
+			return nil
+		}
+		if f := machineFluids(h, list); f > most+1 {
+			most, rose = f, time.Now()
+		}
+		if time.Now().After(deadline) {
+			if time.Since(rose) > factRise || time.Now().After(maxDeadline) {
+				return err
+			}
+			if time.Since(deadline) < factPoll {
+				h.Say("жидкость в машины стадии ещё прибывает — жду дальше, до %v", factWaitMax)
+			}
 		}
 		t0 := time.Now()
 		if err := waitHooks(ctx, h); err != nil { // в ожидании — наука на ракету, лаборатории (stages.md, общее)
 			return err
 		}
 		deadline = deadline.Add(time.Since(t0))
+		maxDeadline = maxDeadline.Add(time.Since(t0))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(factPoll):
 		}
 	}
+}
+
+// machineFluids — сколько жидкости во всех машинах стадии (сборщики, химзаводы, НПЗ) из list.
+func machineFluids(h *act.Hands, list []layout.Placement) float64 {
+	var refs []bridge.EntityRef
+	for _, pl := range list {
+		switch h.Protos.Entities[pl.Name].Type {
+		case "assembling-machine", "furnace":
+			refs = append(refs, bridge.EntityRef{Name: pl.Name, Position: pl.Pos})
+		}
+	}
+	if len(refs) == 0 {
+		return 0
+	}
+	sts, err := h.B.GetEntities(refs)
+	if err != nil {
+		return 0
+	}
+	sum := 0.0
+	for _, st := range sts {
+		if st != nil {
+			for _, v := range st.Fluids {
+				sum += v
+			}
+		}
+	}
+	return sum
 }
 
 // working — хоть одна постройка из list с именем из names работает (статус working).
