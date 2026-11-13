@@ -11,10 +11,28 @@ import (
 // Добывающие точки начала игры на burner-бурах (стадия 10): без лент и инсертеров —
 // бур выдаёт прямо в соседа.
 
-// onOre — все тайлы размещения на руде ore и свободны, в зоне добычи — только ore.
+// OutpostMinOre — сколько руды должно быть под буром точки (stages.md, стадия 10): ~1 ч работы
+// бура (0.25/с). Край пятна — сотни: угольная пара выработала 500 угля за 20 минут и встала без
+// топлива (стадия 10 на 20421397). 2000 — отсекало края железных пятен: на 92569368 22 пары
+// железа из 30, с 1000 — 27.
+const OutpostMinOre = 1000
+
+// onOre — все тайлы размещения на руде ore и свободны, в зоне добычи — только ore, и руды под
+// ним — не меньше OutpostMinOre.
 func (l *Layout) onOre(pl Placement, ore string) bool {
 	if _, mixed := l.OreUnder(pl, ore); mixed {
 		return false
+	}
+	if l.W != nil {
+		sum := 0
+		for _, t := range MiningArea(l.P, pl) {
+			if r, ok := l.W.ResourceAt(t); ok && r.Name == ore {
+				sum += r.Amount
+			}
+		}
+		if sum < OutpostMinOre {
+			return false
+		}
 	}
 	for _, t := range Tiles(l.P, pl) {
 		if !l.Free(t, AnyLand) {
